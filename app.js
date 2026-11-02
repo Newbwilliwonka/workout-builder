@@ -109,6 +109,8 @@
     M.MODES.forEach(function (m) { d.cfg[m] = M.defaultModeConfig(m); });
     Object.assign(d.cfg[ex.mode], ex.modeConfig);
     var r = d.cfg.reps; r.count = String(r.count); r.min = String(r.min); r.max = String(r.max);
+    r.restSec = r.restSec || 0; r.rm = String(Math.floor(r.restSec / 60)); r.rs = String(r.restSec % 60);
+    d.cfg.stopwatch.lapCount = String(d.cfg.stopwatch.lapCount || 1);
     ['intervals', 'timer'].forEach(function (m) {
       var c = d.cfg[m];
       c.wm = String(Math.floor(c.workSec / 60)); c.ws = String(c.workSec % 60);
@@ -142,13 +144,15 @@
       if (c.repsType === 'number') h += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10');
       if (c.repsType === 'range') h += '<label>Rep range (min – max)</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min') + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max') + '</div></div>';
       if (c.repsType === 'static') h += '<p class="mute">Static hold — no rep count.</p>';
+      h += '<label>Rest time between sets (optional)</label>' + timeIn('cfg', c, 'rm', 'rs');
     } else if (d.mode === 'intervals') {
       h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Repetitions</label>' + numIn('cfg.repetitions', c.repetitions, 'e.g. 5');
     } else if (d.mode === 'timer') {
       h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Rest time</label>' + timeIn('cfg', c, 'rm', 'rs');
     } else {
       h += '<p class="mute">Counts up from 0:00 during the workout. No settings needed.</p>' +
-        '<label class="row" style="font-weight:400"><input type="checkbox" class="sel" data-b="cfg.lapsEnabled"' + (c.lapsEnabled ? ' checked' : '') + '> Record laps (agility / splits)</label>';
+        '<label class="row" style="font-weight:400"><input type="checkbox" class="sel" data-b="cfg.lapsEnabled"' + (c.lapsEnabled ? ' checked' : '') + '> Record laps (agility / splits)</label>' +
+        (c.lapsEnabled ? '<label>Lap quantity</label>' + numIn('cfg.lapCount', c.lapCount, 'e.g. 4') : '');
     }
     h += '<label>Notes</label><textarea data-b="notes" placeholder="Cues, tempo, equipment…">' + esc(d.notes) + '</textarea>' +
       '<div class="media">🎬 Media coming soon</div><div id="errs"></div>' +
@@ -159,6 +163,7 @@
       var b = e.target.dataset.b; if (!b) return;
       var v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
       if (b.indexOf('cfg.') === 0) d.cfg[d.mode][b.slice(4)] = v; else d[b] = v;
+      if (b === 'cfg.lapsEnabled') renderEditor(w, exId);
     };
     app.onclick = function (e) {
       var s = e.target.closest('[data-seg]');
@@ -177,12 +182,12 @@
     var intOf = function (v) { var n = M.num(v); return n === null ? NaN : n; };
     var ex = { id: d.id, name: d.name, sets: intOf(d.sets), weight: { unit: d.unit, value: d.unit === 'bodyweight' ? null : M.num(d.wval) },
       mode: d.mode, notes: d.notes, groupId: d.groupId, media: d.media, modeConfig: {} };
-    if (d.mode === 'reps') { ex.modeConfig = { repsType: c.repsType, count: intOf(c.count), min: intOf(c.min), max: intOf(c.max) }; if (c.repsType === 'number') raw.push(c.count); if (c.repsType === 'range') raw.push(c.min, c.max); }
+    if (d.mode === 'reps') { ex.modeConfig = { repsType: c.repsType, count: intOf(c.count), min: intOf(c.min), max: intOf(c.max), restSec: M.toSec(c.rm, c.rs) }; raw.push(c.rm, c.rs); if (c.repsType === 'number') raw.push(c.count); if (c.repsType === 'range') raw.push(c.min, c.max); }
     if (d.mode === 'intervals') { ex.modeConfig = { workSec: M.toSec(c.wm, c.ws), repetitions: intOf(c.repetitions) }; raw.push(c.wm, c.ws, c.repetitions); }
     if (d.mode === 'timer') { ex.modeConfig = { workSec: M.toSec(c.wm, c.ws), restSec: M.toSec(c.rm, c.rs) }; raw.push(c.wm, c.ws, c.rm, c.rs); }
-    if (d.mode === 'stopwatch') ex.modeConfig = { lapsEnabled: !!c.lapsEnabled };
+    if (d.mode === 'stopwatch') { ex.modeConfig = { lapsEnabled: !!c.lapsEnabled, lapCount: intOf(c.lapCount) }; if (c.lapsEnabled) raw.push(c.lapCount); }
     if (raw.some(function (v) { var n = M.num(v); return n !== null && n < 0; })) errs.push('Numbers cannot be negative.');
-    if ((d.mode === 'intervals' || d.mode === 'timer') && [c.ws, c.rs].some(function (v) { return M.num(v) > 59; })) errs.push('Seconds must be 0–59.');
+    if (d.mode !== 'stopwatch' && [c.ws, c.rs].some(function (v) { return M.num(v) > 59; })) errs.push('Seconds must be 0–59.');
     errs = errs.concat(M.validateExercise(ex).filter(function (m) { return errs.indexOf(m) < 0; }));
     return { ex: ex, errors: errs };
   }
