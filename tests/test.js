@@ -83,7 +83,7 @@ console.log('MODEL OK');
   assert.strictEqual(ws.items.find(x => x.name === 'Squat').modeConfig.restSec, 90); assert.strictEqual(ws.items.find(x => x.name === 'Plank').modeConfig.restSec, 0);
   assert.deepStrictEqual(ws.items.find(x => x.name === 'Cone drill').modeConfig, { lapsEnabled: true, lapCount: 6 });
   assert.ok((await p.content()).includes('6 laps')); assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 2);
-  assert.ok(await p.$eval('.dock button:last-child', b => b.disabled));
+  assert.ok(!(await p.$eval('[data-a=play]', b => b.disabled))); // Start enabled when workout has exercises
   await p.screenshot({ path: '/tmp/wbtest/shot.png' });
   assert.deepStrictEqual(errs, []); console.log('UI OK'); await b.close();
 })().catch(e => { console.error(e); process.exit(1); });

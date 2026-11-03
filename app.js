@@ -9,10 +9,17 @@
   function getW(id) { return data.workouts.filter(function (w) { return w.id === id; })[0]; }
   function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2200); }
   function go(h) { location.hash = h; }
-  backBtn.onclick = function () { var p = location.hash.split('/'); go(p.length > 3 ? '#/w/' + p[2] : '#/'); };
+  backBtn.onclick = function () { var p = location.hash.split('/');
+    if (p[1] === 'play') return WBPlayer.requestEnd(); go(p.length > 3 ? '#/w/' + p[2] : '#/'); };
 
   function route() {
     var p = location.hash.replace(/^#\/?/, '').split('/');
+    window.WBPlayer && WBPlayer.unmount();
+    document.body.classList.remove('playing');
+    if (p[0] === 'play' && getW(p[1]) && getW(p[1]).items.length) {
+      titleEl.textContent = getW(p[1]).name; backBtn.hidden = false;
+      return WBPlayer.mount(app, getW(p[1]), data, persist, function () { go('#/w/' + p[1]); });
+    }
     if (p[0] === 'w' && getW(p[1])) {
       if (p[2] === 'ex') return renderEditor(getW(p[1]), p[3]);
       return renderWorkout(getW(p[1]));
@@ -83,13 +90,14 @@
     h += '<div class="dock"><div class="inner">' +
       '<button class="pri" data-a="add">+ Exercise</button>' +
       '<button data-a="link"' + (nSel < 2 ? ' disabled' : '') + ' style="background:var(--ss);color:#fff">Link superset' + (nSel ? ' (' + nSel + ')' : '') + '</button>' +
-      '<button disabled title="Coming in the next stage">▶ Start (soon)</button></div></div>';
+      '<button data-a="play" class="pri" style="background:#059669"' + (w.items.length ? '' : ' disabled') + '>▶ Start</button></div></div>';
     app.innerHTML = h;
     app.onchange = function (e) { var id = e.target.dataset.sel; if (!id) return; if (e.target.checked) selected[id] = 1; else delete selected[id]; renderWorkout(w); };
     app.onclick = function (e) {
       var b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
       var a = b.dataset.a, id = b.dataset.id, g = b.dataset.g;
       if (a === 'add') return go('#/w/' + w.id + '/ex/new');
+      if (a === 'play') return go('#/play/' + w.id);
       if (a === 'edit') return go('#/w/' + w.id + '/ex/' + id);
       if (a === 'up' || a === 'down') M.moveExercise(w, id, a === 'up' ? -1 : 1);
       else if (a === 'gup' || a === 'gdown') M.moveGroup(w, g, a === 'gup' ? -1 : 1);

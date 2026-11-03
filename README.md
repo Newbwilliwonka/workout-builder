@@ -24,3 +24,10 @@ modeConfig:
 Migrations: `WB.migrate` upgrades v1 data on load (reps restSec=0, stopwatch lapCount=1).
 Planned session record for the player: `{ id, workoutId, startedAt, endedAt, results: [{ exerciseId, set, laps: [ms...], totalMs }] }`.
 `WB.buildPlayQueue(workout)` already returns the ordered steps, rotating supersets one set at a time (A1 B1 A2 B2 …).
+
+## Player (Stage 3)
+`player.js` (`window.WBPlayer`), route `#/play/<workoutId>`. Steps come from `WB.buildPlayQueue`.
+Phases per step: ready → work → rest (countdown) / complete (stopwatch). Timing = `acc + (performance.now() - t0)`, drawn with requestAnimationFrame.
+Tracking bar edits `results[step]` (prefilled from targets). On finish, logged results are saved to `data.sessions`:
+`{ id, workoutId, workoutName, startedAt, endedAt, results: [{ step, exerciseId, name, set, of, mode, unit, weight, reps?, holdSec?, rounds?, workSec?, durationMs?, laps?: [{ lapMs, totalMs }], logged, at }] }`.
+Test: `node tests/player.test.js [url] [screenshot.png]` (uses `window.__wbClockOffset` to fast-forward time).
