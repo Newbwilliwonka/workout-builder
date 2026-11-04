@@ -27,6 +27,9 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-a=play]');
   let s = await st(); assert.strictEqual(s.name, 'Goblet squat'); assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('Set 1 of 2'));
   assert.strictEqual(await p.$eval('.pl-ci b', e => e.textContent), 'Plank'); // superset rotation A1 -> B1
+  assert.strictEqual(await p.$$eval('.pl-ctl,.pl-go', a => a.length), 0); assert.ok(await p.$('.pl-endw')); assert.ok((await p.$eval('.pl-hint', e => e.textContent)).startsWith('Tap to'));
+  await click('.pl-ci'); assert.strictEqual((await st()).name, 'Plank'); // carousel tap jumps
+  await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.textContent.includes('Goblet')).click()); await wait(80); assert.strictEqual((await st()).idx, 0);
   // edit tracking bar: reps +2, weight typed 140
   await click('[data-st=reps][data-d="1"]'); await click('[data-st=reps][data-d="1"]');
   await p.$eval('[data-f=weight]', e => e.value = ''); await p.type('[data-f=weight]', '140');
@@ -38,7 +41,7 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-p=primary]'); await adv(10000); assert.strictEqual((await st()).ro, '0:10');  // timer static hold counts down
   await adv(10100); s = await st(); assert.ok(s.results[1].logged); assert.strictEqual(s.results[1].reps, undefined); assert.ok(!(await p.$$('[data-f=reps]')).length || s.idx !== 1); assert.strictEqual(s.idx, 2); // no rest -> A2
   // pause/resume during rest keeps time
-  await click('[data-p=primary]'); await adv(5000); await click('[data-p=pause]'); await adv(60000); assert.strictEqual((await st()).ro, '0:25'); await click('[data-p=pause]');
+  await click('[data-p=primary]'); await adv(5000); await click('[data-p=primary]'); await adv(60000); assert.strictEqual((await st()).ro, '0:25'); await click('[data-p=primary]');
   // select another exercise from the summary list mid-rest
   await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.textContent.includes('Dumbbell row')).click()); await wait(80);
   s = await st(); assert.strictEqual(s.idx, 9); assert.strictEqual(s.track, 'Dumbbell row'); assert.strictEqual(s.results[9].reps, 12);
@@ -48,6 +51,9 @@ const data = M.emptyData(); data.workouts.push(w);
   // intervals: ready shows mm:ss; carousel says Interval; Start -> 5s standoff -> auto-run all intervals -> stop
   assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('Interval 1 of 2')); assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('15 reps'));
   assert.ok((await p.$eval('.pl-th', e => e.textContent)).includes('Interval 1/2'));
+  assert.deepStrictEqual(await p.$$eval('.pl-meta div', a => a.map(d => d.textContent)), ['Bodyweight · 15 reps', '0:20 Interval 1 of 2']);
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Interval');
+  await p.screenshot({ path: '/workspace/player-v2.png' });
   assert.strictEqual((await st()).ro, '0:20'); assert.strictEqual(await p.$eval('.pl-ci span', e => e.textContent), 'Interval 2 of 2');
   const sched = await p.evaluate(() => WBPlayer.toneSchedule(20, 2));
   assert.deepStrictEqual(sched.map(x => x.t + x.kind[0]).join(' '), '0t 1t 2t 3t 4t 5g 22t 23t 24t 25g 42t 43t 44t 45d');
@@ -55,8 +61,8 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual(s.phase, 'standoff'); assert.strictEqual(s.ro, '0:05');
   assert.deepStrictEqual(await p.evaluate(() => window.__wbPlayer.pending.length), 14);
   await adv(2000); assert.strictEqual((await st()).ro, '0:03');
-  await click('[data-p=pause]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.nodes.length), 0); // pause cancels tones
-  await adv(30000); await click('[data-p=pause]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.pending[0].t), 3); // resume reschedules remaining
+  await click('[data-p=primary]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.nodes.length), 0); // pause cancels tones
+  await adv(30000); await click('[data-p=primary]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.pending[0].t), 3); // resume reschedules remaining
   await adv(3100); s = await st(); assert.strictEqual(s.phase, 'work'); assert.strictEqual(s.idx, 4);
   await adv(10000); assert.strictEqual((await st()).ro, '0:10');
   await adv(10000); s = await st(); assert.strictEqual(s.idx, 5); assert.strictEqual(s.phase, 'work'); // auto-advanced, no tap

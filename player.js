@@ -82,6 +82,15 @@
     if (ex.mode === 'timer') return M.fmtTime(c.workSec) + ' work · ' + M.fmtTime(c.restSec) + ' rest' + (c.repsType ? ' · ' + M.repsText(c) : '');
     return c.lapsEnabled ? c.lapCount + (c.lapCount === 1 ? ' lap' : ' laps') : 'Stopwatch';
   }
+  function infoLines(ex, st) { // compact, non-repeating: [weight · reps, time + set/interval]
+    var c = ex.modeConfig, w = ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : '';
+    var reps = ex.mode === 'stopwatch' ? (c.lapsEnabled ? c.lapCount + (c.lapCount === 1 ? ' lap' : ' laps') : '') : ex.mode === 'reps' && c.repsType === 'static' ? 'Static hold' : c.repsType ? M.repsText(c) : '';
+    var setTx = (ex.mode === 'intervals' ? 'Interval ' : 'Set ') + st.set + ' of ' + st.of, l3;
+    if (ex.mode === 'intervals') l3 = M.fmtTime(c.workSec) + ' ' + setTx;
+    else if (ex.mode === 'timer') l3 = M.fmtTime(c.workSec) + ' work' + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '') + ' · ' + setTx;
+    else l3 = setTx + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '');
+    return [[w, reps].filter(Boolean).join(' · '), l3];
+  }
   function weightTxt(ex) { return ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : ex.weight.unit; }
 
   // ---------- state machine ----------
@@ -114,7 +123,7 @@
   function primary() {
     ensureAudio();
     var ex = exOf(S.idx), c = ex.modeConfig, r = res(S.idx);
-    if (S.phase === 'rest') return advance();                    // skip rest
+    if (S.phase === 'rest') return togglePause();                // tap = pause/resume rest (skip by tapping next item)
     if (S.phase === 'complete') return advance();
     if (ex.mode === 'reps') {
       if (c.repsType === 'static' && S.phase === 'ready') { startTimer('work'); return render(); }
@@ -206,7 +215,7 @@
   }
   function primaryLabel(ex) {
     var c = ex.modeConfig;
-    if (S.phase === 'rest') return 'Skip rest';
+    if (S.phase === 'rest') return S.running ? 'Pause rest' : 'Resume rest';
     if (S.phase === 'complete') return S.idx < S.queue.length - 1 ? 'Next exercise' : 'Finish workout';
     if (ex.mode === 'reps') return c.repsType === 'static' && S.phase === 'ready' ? 'Start hold' : 'Log set';
     if (S.phase === 'ready') return 'Start';
@@ -215,16 +224,16 @@
   }
   function render() {
     var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i), L = letters();
-    var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? 'Ready' : 'Set ' + st.set;
+    var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? (ex.mode === 'intervals' ? 'Interval' : 'Ready') : 'Set ' + st.set;
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
     // stage: visual screen + side carousel
-    h += '<div class="pl-stage"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + '">' +
+    h += '<div class="pl-stage"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + '" data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '">' + '<div class="pl-hint">' + esc(hint(ex)) + '</div>' +
       '<div class="pl-media" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span></div>' +
       '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset ' + L[st.groupId] + '</span>' : '') + '</div>' +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '<div class="pl-ro pl-target">' + esc(ex.modeConfig.repsType === 'range' ? c.min + '–' + c.max : c.count) + '<small>reps</small></div>') +
       '<div class="pl-info">' + (S.phase === 'rest' && i < S.queue.length - 1 ? '<div class="pl-next">Up next · ' + esc(exOf(i + 1).name) + '</div>' : '') +
-      '<div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta"><span>' + esc(weightTxt(ex)) + '</span><span>' + (ex.mode === 'intervals' ? 'Interval ' : 'Set ') + st.set + ' of ' + st.of + '</span><span>' + esc(target(ex)) + '</span></div></div>' +
+      '<div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>' +
       '<div class="pl-bar"><i id="pg"></i></div></div>';
     h += '<div class="pl-car" aria-label="Up next"><div class="pl-car-h">Next</div>';
     for (var j = i + 1; j < S.queue.length; j++) {
@@ -243,12 +252,7 @@
     else h += '<div class="pl-f"><span>Weight</span><div class="pl-bw">Bodyweight</div></div>';
     h += '</div>';
     if (r.laps && r.laps.length) h += '<div class="pl-laps">' + r.laps.map(function (l, k) { return '<span><b>Lap ' + (k + 1) + '</b> ' + M.formatStopwatch(l.lapMs) + ' <i>' + M.formatStopwatch(l.totalMs) + '</i></span>'; }).join('') + '</div>';
-    h += '<button class="pl-go ' + (S.phase === 'rest' ? 'alt' : '') + '" data-p="primary">' + primaryLabel(ex) + '</button></div>';
-    // controls
-    var canPause = (S.phase === 'work' || S.phase === 'rest' || S.phase === 'standoff') && showRO;
-    h += '<div class="pl-ctl"><button data-p="back"' + (i === 0 ? ' disabled' : '') + ' aria-label="Previous">⏮&#xFE0E;<small>Back</small></button>' +
-      '<button data-p="pause"' + (canPause ? '' : ' disabled') + '>' + (S.running ? '❚❚' : '▶') + '<small>' + (S.running ? 'Pause' : 'Resume') + '</small></button>' +
-      '<button data-p="skip" aria-label="Skip">⏭&#xFE0E;<small>Skip</small></button><button data-p="end" class="end">■<small>End</small></button></div>';
+    h += '</div>';
     // summary list
     var done = {}; Object.keys(S.results).forEach(function (k) { var x = S.results[k]; if (x.logged) done[x.exerciseId] = (done[x.exerciseId] || 0) + 1; });
     h += '<div class="pl-list"><div class="pl-car-h">Workout</div>';
@@ -257,10 +261,19 @@
       h += '<button class="pl-li' + (cur ? ' cur' : '') + (n >= it.sets ? ' fin' : '') + '" data-ex="' + it.id + '">' + (it.groupId ? '<em>' + L[it.groupId] + '</em>' : '<em class="o"></em>') +
         '<span class="grow"><b>' + esc(it.name) + '</b><small>' + esc(target(it)) + '</small></span><span class="pl-cnt">' + n + '/' + it.sets + '</span></button>';
     });
-    h += '</div></div>';
+    h += '</div><button class="pl-endw" data-p="end">End workout</button></div>';
     S.root.innerHTML = h;
     S.root.querySelector('.pl-car').scrollTop = 0;
     tick(true);
+  }
+  function hint(ex) {
+    var l = primaryLabel(ex);
+    return S.running ? '' : 'Tap to ' + l.charAt(0).toLowerCase() + l.slice(1);
+  }
+  function flash(icon) {
+    var sc = S.root.querySelector('.pl-screen'); if (!sc) return;
+    var f = document.createElement('div'); f.className = 'pl-flash'; f.textContent = icon; sc.appendChild(f);
+    setTimeout(function () { f.remove(); }, 700);
   }
   function readout() {
     var d = phaseDur(), el = elapsed(), ex = exOf(S.idx);
@@ -279,7 +292,7 @@
 
   // ---------- events ----------
   function onClick(e) {
-    var b = e.target.closest('button'); if (!b || b.disabled) return;
+    var b = e.target.closest('button,[data-p]'); if (!b || b.disabled) return;
     if (b.dataset.sel) return select(+b.dataset.sel);
     if (b.dataset.ex) { // first unlogged set of that exercise, else its first set
       var id = b.dataset.ex, first = -1, open = -1;
@@ -288,7 +301,7 @@
     }
     if (b.dataset.st) { var f = b.dataset.st, r = res(S.idx); r[f] = Math.max(0, Math.round(((+r[f] || 0) + +b.dataset.d) * 10) / 10); var inp = S.root.querySelector('[data-f="' + f + '"]'); if (inp) inp.value = r[f]; return; }
     var a = b.dataset.p;
-    if (a === 'primary') primary();
+    if (a === 'primary') { var was = S.running; primary(); if (S && !S.done) flash(S.running && !was ? '▶' : !S.running && was ? '❚❚' : '✓'); }
     else if (a === 'pause') { ensureAudio(); togglePause(); }
     else if (a === 'skip') advance();
     else if (a === 'back') enterStep(S.idx - 1);
