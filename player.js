@@ -22,6 +22,45 @@
     });
     S && (S.beeps = (S.beeps || 0) + 1);
   }
+  // ---------- interval tones: one schedule per run, played via audio.currentTime ----------
+  var STANDOFF = 5;
+  // Times in seconds from the moment Start is pressed. tick = single tone, go = double higher, done = completion.
+  function toneSchedule(workSec, n) {
+    var t = [], k, e, j;
+    for (k = 0; k < STANDOFF; k++) t.push({ t: k, kind: 'tick' });
+    t.push({ t: STANDOFF, kind: 'go' });
+    for (k = 1; k <= n; k++) {
+      e = STANDOFF + k * workSec;
+      for (j = 3; j >= 1; j--) if (j < workSec) t.push({ t: e - j, kind: 'tick' });
+      t.push({ t: e, kind: k < n ? 'go' : 'done' });
+    }
+    return t;
+  }
+  function tone(at, f, dur) {
+    var o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = f; o.connect(g); g.connect(audio.destination);
+    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.45, at + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.start(at); o.stop(at + dur + 0.02); S.nodes.push(o);
+  }
+  function runMs() { // ms since Start of the current interval run (pauses excluded)
+    if (S.phase === 'standoff') return elapsed();
+    return STANDOFF * 1000 + (S.queue[S.idx].set - S.run.firstSet) * S.run.w * 1000 + elapsed();
+  }
+  function stopTones() { (S.nodes || []).forEach(function (o) { try { o.stop(); } catch (e) {} }); S.nodes = []; }
+  function scheduleTones() { // (re)schedule every remaining tone relative to the timer clock
+    stopTones(); if (!S.run) return;
+    var r = runMs(); S.pending = [];
+    S.run.sched.forEach(function (x) {
+      var dt = x.t * 1000 - r; if (dt < -20) return;
+      S.pending.push({ t: x.t, kind: x.kind });
+      if (audio) {
+        var at = audio.currentTime + Math.max(0, dt) / 1000;
+        if (x.kind === 'tick') tone(at, 660, 0.12);
+        else if (x.kind === 'go') { tone(at, 1320, 0.1); tone(at + 0.15, 1320, 0.1); }
+        else { tone(at, 880, 0.15); tone(at + 0.18, 1100, 0.15); tone(at + 0.36, 1320, 0.35); }
+      }
+    });
+  }
   function lockScreen() { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (l) { wake = l; l.addEventListener('release', function () { wake = null; }); }).catch(function () {}); }
   function onVis() { if (S && document.visibilityState === 'visible') lockScreen(); }
 
@@ -49,12 +88,13 @@
   // phase: ready | work | rest | complete ; countdown phases have a duration, count-up phases don't
   function phaseDur() {
     var ex = exOf(S.idx), c = ex.modeConfig;
+    if (S.phase === 'standoff') return STANDOFF * 1000;
     if (S.phase === 'rest') return (ex.mode === 'timer' ? c.restSec : c.restSec || 0) * 1000;
     if (S.phase === 'work' && (ex.mode === 'intervals' || ex.mode === 'timer')) return c.workSec * 1000;
     return null;
   }
   function enterStep(i) {
-    S.idx = i; S.running = false; S.acc = 0; S.rep = 1;
+    S.idx = i; S.running = false; S.acc = 0; S.rep = 1; if (S.run) { stopTones(); S.run = null; }
     var ex = exOf(i);
     S.phase = ex.mode === 'reps' && ex.modeConfig.repsType !== 'static' ? 'work' : 'ready';
     res(i); render();
@@ -67,8 +107,8 @@
   }
   function advance() { if (S.idx < S.queue.length - 1) enterStep(S.idx + 1); else finish(); }
   function togglePause() {
-    if (!(S.phase === 'work' || S.phase === 'rest') || (S.phase === 'work' && exOf(S.idx).mode === 'reps' && cfg(S.idx).repsType !== 'static')) return;
-    if (S.running) { S.acc += now() - S.t0; S.running = false; } else { S.t0 = now(); S.running = true; }
+    if (!(S.phase === 'work' || S.phase === 'rest' || S.phase === 'standoff') || (S.phase === 'work' && exOf(S.idx).mode === 'reps' && cfg(S.idx).repsType !== 'static')) return;
+    if (S.running) { S.acc += now() - S.t0; S.running = false; stopTones(); } else { S.t0 = now(); S.running = true; scheduleTones(); }
     render();
   }
   function primary() {
@@ -82,6 +122,11 @@
       log(S.idx); return startRest();
     }
     if (S.phase === 'ready') {
+      if (ex.mode === 'intervals') { // 5s standoff, then the run continues through this exercise's consecutive intervals
+        var n = 1; while (S.idx + n < S.queue.length && S.queue[S.idx + n].exerciseId === ex.id) n++;
+        startTimer('standoff'); S.run = { firstSet: S.queue[S.idx].set, w: c.workSec, n: n, sched: toneSchedule(c.workSec, n) };
+        scheduleTones(); return render();
+      }
       if (ex.mode === 'stopwatch') { r.laps = []; r.durationMs = 0; }
       startTimer('work'); return render();
     }
@@ -99,6 +144,15 @@
   }
   function phaseEnd(over) {
     var ex = exOf(S.idx), c = ex.modeConfig, r = res(S.idx);
+    if (S.phase === 'standoff') { startTimer('work'); S.t0 = now() - over; return render(); }
+    if (ex.mode === 'intervals' && S.run) {
+      log(S.idx); var nx = S.idx + 1;
+      if (nx < S.queue.length && S.queue[nx].exerciseId === ex.id) { // auto-continue, clock continuity kept
+        S.idx = nx; res(nx); startTimer('work'); S.t0 = now() - over; return render();
+      }
+      if (navigator.vibrate) try { navigator.vibrate([300, 100, 300]); } catch (e) {}
+      S.nodes = []; S.run = null; S.beeps = (S.beeps || 0) + 1; return advance(); // completion tone already scheduled
+    }
     beep();
     if (S.phase === 'rest') return advance();
     if (ex.mode === 'intervals') {
@@ -161,7 +215,7 @@
   }
   function render() {
     var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i), L = letters();
-    var chip = S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? 'Ready' : 'Set ' + st.set;
+    var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? 'Ready' : 'Set ' + st.set;
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
     // stage: visual screen + side carousel
@@ -175,7 +229,7 @@
     h += '<div class="pl-car" aria-label="Up next"><div class="pl-car-h">Next</div>';
     for (var j = i + 1; j < S.queue.length; j++) {
       var q = S.queue[j], e2 = exOf(j);
-      h += '<button class="pl-ci" data-sel="' + j + '">' + (q.groupId ? '<em>' + L[q.groupId] + '</em>' : '') + '<b>' + esc(e2.name) + '</b><span>Set ' + q.set + '/' + q.of + '</span></button>';
+      h += '<button class="pl-ci" data-sel="' + j + '">' + (q.groupId ? '<em>' + L[q.groupId] + '</em>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
     }
     if (i === S.queue.length - 1) h += '<div class="pl-ci end">Last set</div>';
     h += '</div></div>';
@@ -191,7 +245,7 @@
     if (r.laps && r.laps.length) h += '<div class="pl-laps">' + r.laps.map(function (l, k) { return '<span><b>Lap ' + (k + 1) + '</b> ' + M.formatStopwatch(l.lapMs) + ' <i>' + M.formatStopwatch(l.totalMs) + '</i></span>'; }).join('') + '</div>';
     h += '<button class="pl-go ' + (S.phase === 'rest' ? 'alt' : '') + '" data-p="primary">' + primaryLabel(ex) + '</button></div>';
     // controls
-    var canPause = (S.phase === 'work' || S.phase === 'rest') && showRO;
+    var canPause = (S.phase === 'work' || S.phase === 'rest' || S.phase === 'standoff') && showRO;
     h += '<div class="pl-ctl"><button data-p="back"' + (i === 0 ? ' disabled' : '') + ' aria-label="Previous">⏮&#xFE0E;<small>Back</small></button>' +
       '<button data-p="pause"' + (canPause ? '' : ' disabled') + '>' + (S.running ? '❚❚' : '▶') + '<small>' + (S.running ? 'Pause' : 'Resume') + '</small></button>' +
       '<button data-p="skip" aria-label="Skip">⏭&#xFE0E;<small>Skip</small></button><button data-p="end" class="end">■<small>End</small></button></div>';
@@ -209,7 +263,8 @@
     tick(true);
   }
   function readout() {
-    var d = phaseDur(), el = elapsed();
+    var d = phaseDur(), el = elapsed(), ex = exOf(S.idx);
+    if (d == null && S.phase === 'ready' && (ex.mode === 'intervals' || ex.mode === 'timer')) return M.fmtTime(ex.modeConfig.workSec);
     return d != null ? M.fmtTime(Math.ceil(Math.max(0, d - el) / 1000)) : M.formatStopwatch(el);
   }
   function tick(once) {
@@ -244,14 +299,15 @@
 
   var api = {
     mount: function (root, w, data, persist, onExit) {
-      S = { root: root, w: w, data: data, persist: persist, onExit: onExit, queue: M.buildPlayQueue(w), results: {}, startedAt: Date.now(), acc: 0, running: false };
+      S = { root: root, w: w, data: data, persist: persist, onExit: onExit, queue: M.buildPlayQueue(w), results: {}, startedAt: Date.now(), acc: 0, running: false, nodes: [] };
       document.body.classList.add('playing');
       root.onclick = onClick; root.oninput = onInput; root.onchange = onInput;
       document.addEventListener('visibilitychange', onVis);
       enterStep(0); tick();
       window.__wbPlayer = S; // for tests / debugging
     },
-    unmount: function () { if (!S) return; cancelAnimationFrame(S.raf); S.running = false; document.removeEventListener('visibilitychange', onVis); if (wake) wake.release().catch(function () {}); S = null; },
+    toneSchedule: toneSchedule,
+    unmount: function () { if (!S) return; stopTones(); cancelAnimationFrame(S.raf); S.running = false; document.removeEventListener('visibilitychange', onVis); if (wake) wake.release().catch(function () {}); S = null; },
     requestEnd: function () {
       if (!S) return; if (S.done) return S.onExit();
       if (confirm('End workout? Logged sets will be saved.')) finish();
