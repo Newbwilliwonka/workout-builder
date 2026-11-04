@@ -36,22 +36,22 @@ const data = M.emptyData(); data.workouts.push(w);
   await p.$eval('[data-f=weight]', e => e.value = ''); await p.type('[data-f=weight]', '140');
   await click('[data-p=primary]'); s = await st();
   assert.strictEqual(s.phase, 'rest'); assert.strictEqual(s.track, 'Goblet squat'); assert.strictEqual(s.ro, '0:30'); // bar stays with exercise during rest
-  assert.deepStrictEqual([s.results[0].reps, s.results[0].weight, s.results[0].logged], [12, 140, true]);
+  assert.deepStrictEqual([s.results[0].reps, s.results[0].weight, s.results[0].logged], [12, 140, false]); // reps: not logged on tap
   await adv(15000); assert.strictEqual((await st()).ro, '0:15');
-  await adv(15100); s = await st(); assert.strictEqual(s.name, 'Plank'); assert.ok(s.beeps >= 1);       // rest ended -> B1
+  await adv(15100); s = await st(); assert.strictEqual(s.name, 'Plank'); assert.ok(s.beeps >= 1); assert.ok(s.results[0].logged); // logged when rest expired       // rest ended -> B1
   await click('[data-p=primary]'); await adv(10000); assert.strictEqual((await st()).ro, '0:10');  // timer static hold counts down
   await adv(10100); s = await st(); assert.ok(s.results[1].logged); assert.strictEqual(s.results[1].reps, undefined); assert.ok(!(await p.$$('[data-f=reps]')).length || s.idx !== 1); assert.strictEqual(s.idx, 2); // no rest -> A2
   // pause/resume during rest keeps time
   await click('[data-p=primary]'); await adv(5000); await click('[data-p=primary]'); await adv(60000); assert.strictEqual((await st()).ro, '0:25'); await click('[data-p=primary]');
   // carousel keeps every set; logged ones checked; reopen a logged set and edit it
-  assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$$eval('.pl-ci.done .pl-ck', a => a.length), 3);
+  assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$$eval('.pl-ci.done .pl-ck', a => a.length), 2); // A2 is resting, not yet logged
   await wait(750); await p.screenshot({ path: '/workspace/player-carousel.png' });
   await click('[data-sel="0"]'); s = await st(); assert.strictEqual(s.idx, 0);
   assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '12'); assert.strictEqual(await p.$eval('[data-f=weight]', e => e.value), '140');
   assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Logged · tap to redo');
   await click('[data-st=reps][data-d="-1"]'); assert.strictEqual((await st()).results[0].reps, 11); assert.ok((await st()).results[0].logged);
   await click('[data-sel="1"]'); await click('[data-sel="0"]'); assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '11'); // edit kept
-  await click('[data-sel="2"]'); await click('[data-p=primary]'); // back to A2: log it again -> rest
+  await click('[data-sel="2"]'); await click('[data-p=primary]'); await adv(30100); assert.ok((await st()).results[2].logged); // A2 rest expires -> logged
   // select another exercise from the summary list mid-rest
   await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.textContent.includes('Dumbbell row')).click()); await wait(80);
   s = await st(); assert.strictEqual(s.idx, 9); assert.strictEqual(s.track, 'Dumbbell row'); assert.strictEqual(s.results[9].reps, 12);
@@ -61,7 +61,7 @@ const data = M.emptyData(); data.workouts.push(w);
   // intervals: ready shows mm:ss; carousel says Interval; Start -> 5s standoff -> auto-run all intervals -> stop
   assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('Interval 1 of 2')); assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('15 reps'));
   assert.ok((await p.$eval('.pl-th', e => e.textContent)).includes('Interval 1/2'));
-  assert.deepStrictEqual(await p.$$eval('.pl-meta div', a => a.map(d => d.textContent)), ['Bodyweight · 15 reps', '0:20 Interval 1 of 2']);
+  assert.deepStrictEqual(await p.$$eval('.pl-meta div', a => a.map(d => d.textContent)), ['Bodyweight · 15 reps · 0:20 Interval 1 of 2']);
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Interval');
   await p.screenshot({ path: '/workspace/player-v2.png' });
   assert.strictEqual((await st()).ro, '0:20'); assert.strictEqual(await p.$eval('.pl-ci.cur + .pl-ci span', e => e.textContent), 'Interval 2 of 2');

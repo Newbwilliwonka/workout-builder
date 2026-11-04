@@ -89,7 +89,7 @@
     if (ex.mode === 'intervals') l3 = M.fmtTime(c.workSec) + ' ' + setTx;
     else if (ex.mode === 'timer') l3 = M.fmtTime(c.workSec) + ' work' + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '') + ' · ' + setTx;
     else l3 = setTx + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '');
-    return [[w, reps].filter(Boolean).join(' · '), l3];
+    return [[w, reps, l3].filter(Boolean).join(' · ')];
   }
   function weightTxt(ex) { return ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : ex.weight.unit; }
 
@@ -112,7 +112,7 @@
   function log(i) { var r = res(i); r.logged = true; r.at = Date.now(); }
   function startRest() {
     var c = cfg(S.idx);
-    if (c.restSec > 0 && S.idx < S.queue.length - 1) { startTimer('rest'); render(); } else advance();
+    if (c.restSec > 0 && S.idx < S.queue.length - 1) { startTimer('rest'); render(); } else { if (exOf(S.idx).mode === 'reps') log(S.idx); advance(); }
   }
   function advance() { if (S.idx < S.queue.length - 1) enterStep(S.idx + 1); else finish(); }
   function togglePause() {
@@ -128,7 +128,7 @@
     if (ex.mode === 'reps') {
       if (c.repsType === 'static' && S.phase === 'ready') { startTimer('work'); return render(); }
       if (c.repsType === 'static') { r.holdSec = Math.round(elapsed() / 1000); S.running = false; }
-      log(S.idx); return startRest();
+      return startRest(); // reps: set is logged when the rest expires (or now, if there is no rest)
     }
     if (S.phase === 'ready') {
       if (ex.mode === 'intervals') { // 5s standoff, then the run continues through this exercise's consecutive intervals
@@ -163,7 +163,7 @@
       S.nodes = []; S.run = null; S.beeps = (S.beeps || 0) + 1; return advance(); // completion tone already scheduled
     }
     beep();
-    if (S.phase === 'rest') return advance();
+    if (S.phase === 'rest') { if (ex.mode === 'reps') log(S.idx); return advance(); }
     if (ex.mode === 'intervals') {
       log(S.idx); return advance();
     }
