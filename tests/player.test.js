@@ -86,8 +86,8 @@ const data = M.emptyData(); data.workouts.push(w);
   // timer: work then rest
   assert.strictEqual(s.results[7].reps, 15); await p.$eval('[data-f=reps]', e => e.value = ''); await p.type('[data-f=reps]', '11');
   await click('[data-p=primary]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.pending.map(x => x.t + x.kind[0]).join(' ')), '0t 1t 2t 3t 4t 5g 32t 33t 34t 35g 42t 43t 44t 45d');
-  await adv(5100); await adv(30050); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[7].logged); assert.strictEqual(s.results[7].reps, 11); assert.strictEqual(s.track, 'Kettlebell swings');
-  await adv(10000); s = await st(); assert.strictEqual(s.name, 'Cone shuttle');
+  await adv(5100); await adv(30050); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(!s.results[7].logged); assert.strictEqual(s.results[7].reps, 11); assert.strictEqual(s.track, 'Kettlebell swings');
+  await adv(10000); s = await st(); assert.strictEqual(s.name, 'Cone shuttle'); assert.ok(s.results[7].logged); // timer set logs when its rest ends
   // stopwatch with laps
   await click('[data-p=primary]'); await adv(3210); await click('[data-p=primary]'); await adv(2540); await click('[data-p=primary]'); await adv(1234);
   await p.screenshot({ path: SHOT });

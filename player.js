@@ -37,13 +37,19 @@
     return t;
   }
   // Timer mode: one set per run. Rest only when the set actually rests; next set still waits for a tap.
-  function timerSchedule(workSec, restSec, lastSet) {
-    var t = toneSchedule(workSec, 1); t.pop(); // standoff + go + final-3 ticks of work
-    var e = STANDOFF + workSec, j;
-    if (!restSec) { if (lastSet) t.push({ t: e, kind: 'done' }); return t; }
-    t.push({ t: e, kind: 'go' });
-    for (j = 3; j >= 1; j--) if (j < restSec) t.push({ t: e + restSec - j, kind: 'tick' });
-    if (lastSet) t.push({ t: e + restSec, kind: 'done' });
+  // Timer mode: back-to-back run of this exercise's consecutive sets (work -> rest -> work ...).
+  function timerSchedule(workSec, restSec, n, endsExercise) {
+    var t = toneSchedule(workSec, 1); t.length = STANDOFF + 1; // standoff ticks + go
+    var cur = STANDOFF, k, q, j, ph, e, last;
+    for (k = 1; k <= n; k++) {
+      ph = restSec > 0 ? [workSec, restSec] : [workSec];
+      for (q = 0; q < ph.length; q++) {
+        e = cur + ph[q]; last = k === n && q === ph.length - 1;
+        for (j = 3; j >= 1; j--) if (j < ph[q]) t.push({ t: e - j, kind: 'tick' });
+        if (!last) t.push({ t: e, kind: 'go' }); else if (endsExercise) t.push({ t: e, kind: 'done' });
+        cur = e;
+      }
+    }
     return t;
   }
   function tone(at, f, dur) {
@@ -54,7 +60,7 @@
   }
   function runMs() { // ms since Start of the current interval run (pauses excluded)
     if (S.phase === 'standoff') return elapsed();
-    if (S.run.timer) return STANDOFF * 1000 + (S.phase === 'rest' ? S.run.w * 1000 : 0) + elapsed();
+    if (S.run.timer) return STANDOFF * 1000 + (S.queue[S.idx].set - S.run.firstSet) * (S.run.w + S.run.r) * 1000 + (S.phase === 'rest' ? S.run.w * 1000 : 0) + elapsed();
     return STANDOFF * 1000 + (S.queue[S.idx].set - S.run.firstSet) * S.run.w * 1000 + elapsed();
   }
   function stopTones() { (S.nodes || []).forEach(function (o) { try { o.stop(); } catch (e) {} }); S.nodes = []; }
@@ -113,9 +119,9 @@
     if (S.phase === 'work' && (ex.mode === 'intervals' || ex.mode === 'timer')) return c.workSec * 1000;
     return null;
   }
-  function logRestingReps() { if (S.phase === 'rest' && exOf(S.idx).mode === 'reps') log(S.idx); } // rest interrupted/ended -> log
+  function logResting() { if (S.phase === 'rest') log(S.idx); } // rest is part of the set: interrupted/ended -> log
   function enterStep(i) {
-    logRestingReps();
+    logResting(); S.prompt = false;
     S.idx = i; S.running = false; S.acc = 0; S.rep = 1; if (S.run) { stopTones(); S.run = null; }
     var ex = exOf(i);
     S.phase = ex.mode === 'reps' && ex.modeConfig.repsType !== 'static' ? 'work' : 'ready';
@@ -125,10 +131,12 @@
   function log(i) { var r = res(i); r.logged = true; r.at = Date.now(); }
   function startRest() {
     var c = cfg(S.idx);
-    var reps = exOf(S.idx).mode === 'reps'; // reps: rest runs even after the workout's last set
-    if (c.restSec > 0 && (reps || S.idx < S.queue.length - 1)) { startTimer('rest'); render(); } else { if (reps) log(S.idx); advance(); }
+    if (c.restSec > 0) { startTimer('rest'); render(); } else { log(S.idx); advance(); } // rest is part of the set, never skipped
   }
-  function advance() { if (S.idx < S.queue.length - 1) enterStep(S.idx + 1); else finish(); }
+  function advance() { if (S.idx < S.queue.length - 1) enterStep(S.idx + 1); else endPrompt(); }
+  function endPrompt() { // last set (incl. rest) complete -> ask; Keep editing leaves logs editable
+    logResting(); S.running = false; if (S.run) { S.nodes = []; S.run = null; } S.phase = 'complete'; S.prompt = true; render();
+  }
   function togglePause() {
     if (!(S.phase === 'work' || S.phase === 'rest' || S.phase === 'standoff') || (S.phase === 'work' && exOf(S.idx).mode === 'reps' && cfg(S.idx).repsType !== 'static')) return;
     if (S.running) { S.acc += now() - S.t0; S.running = false; stopTones(); } else { S.t0 = now(); S.running = true; scheduleTones(); }
@@ -151,8 +159,9 @@
         scheduleTones(); return render();
       }
       if (ex.mode === 'timer') { // same tone rules as intervals; advance/logging unchanged
-        var rs = c.restSec > 0 && S.idx < S.queue.length - 1 ? c.restSec : 0, st = S.queue[S.idx];
-        startTimer('standoff'); S.run = { timer: true, w: c.workSec, sched: timerSchedule(c.workSec, rs, st.set === st.of) };
+        var tn = 1; while (S.idx + tn < S.queue.length && S.queue[S.idx + tn].exerciseId === ex.id) tn++;
+        var rs = c.restSec > 0 ? c.restSec : 0, lst = S.queue[S.idx + tn - 1];
+        startTimer('standoff'); S.run = { timer: true, firstSet: S.queue[S.idx].set, w: c.workSec, r: rs, n: tn, sched: timerSchedule(c.workSec, rs, tn, lst.set === lst.of) };
         scheduleTones(); return render();
       }
       if (ex.mode === 'stopwatch') { r.laps = []; r.durationMs = 0; }
@@ -181,23 +190,27 @@
       if (navigator.vibrate) try { navigator.vibrate([300, 100, 300]); } catch (e) {}
       S.nodes = []; S.run = null; S.beeps = (S.beeps || 0) + 1; return advance(); // completion tone already scheduled
     }
-    var tr = ex.mode === 'timer' && S.run; // timer tones already scheduled
-    if (!tr) beep(); else S.beeps = (S.beeps || 0) + 1;
-    if (tr && (S.phase === 'rest' || !(c.restSec > 0 && S.idx < S.queue.length - 1))) { S.nodes = []; S.run = null; } // keep final tone playing
-    if (S.phase === 'rest') { if (ex.mode === 'reps') log(S.idx); return advance(); }
+    if (ex.mode === 'timer' && S.run) { // back to back; set (incl. its rest) logs when its rest ends
+      S.beeps = (S.beeps || 0) + 1;
+      if (S.phase === 'work' && S.run.r > 0) { startTimer('rest'); S.t0 = now() - over; return render(); }
+      log(S.idx); var tx = S.idx + 1;
+      if (tx < S.queue.length && S.queue[tx].exerciseId === ex.id) { S.idx = tx; res(tx); startTimer('work'); S.t0 = now() - over; return render(); }
+      S.nodes = []; S.run = null; return advance(); // final tone keeps playing
+    }
+    beep();
+    if (S.phase === 'rest') { log(S.idx); return advance(); }
     if (ex.mode === 'intervals') {
       log(S.idx); return advance();
     }
     if (ex.mode === 'timer') {
-      log(S.idx);
-      if (c.restSec > 0 && S.idx < S.queue.length - 1) { startTimer('rest'); S.acc = over; return render(); }
-      return advance();
+      if (c.restSec > 0) { startTimer('rest'); S.acc = over; return render(); }
+      log(S.idx); return advance();
     }
   }
   function select(i) { if (i === S.idx) return; enterStep(i); }
 
   function finish() {
-    logRestingReps(); S.running = false; cancelAnimationFrame(S.raf);
+    logResting(); S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged };
     S.saved = M.SAVE_SESSIONS && logged.length > 0;
@@ -282,6 +295,7 @@
         '<span class="grow"><b>' + esc(it.name) + '</b><small>' + esc(target(it)) + '</small></span><span class="pl-cnt">' + n + '/' + it.sets + '</span></button>';
     });
     h += '</div><button class="pl-endw" data-p="end">End workout</button></div>';
+    if (S.prompt) h += '<div class="pl-modal"><div class="card"><h3>Workout complete</h3><p class="mute">End the workout now, or keep editing your logged sets.</p><button class="pri" data-p="endnow">End workout</button><button data-p="keep">Keep editing</button></div></div>';
     S.root.innerHTML = h;
     var car = S.root.querySelector('.pl-car'), cu = car.querySelector('.cur');
     if (cu) car.scrollTop += cu.getBoundingClientRect().top - car.getBoundingClientRect().top - 24; // keep current in view
@@ -328,6 +342,8 @@
     else if (a === 'skip') advance();
     else if (a === 'back') enterStep(S.idx - 1);
     else if (a === 'end') api.requestEnd();
+    else if (a === 'endnow') finish();
+    else if (a === 'keep') { S.prompt = false; render(); }
     else if (a === 'exit') S.onExit();
   }
   function onInput(e) { var f = e.target.dataset.f; if (!f) return; var v = M.num(e.target.value); res(S.idx)[f] = v === null || isNaN(v) ? null : Math.max(0, v); }
