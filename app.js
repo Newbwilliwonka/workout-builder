@@ -116,7 +116,8 @@
       mode: ex.mode, notes: ex.notes, groupId: ex.groupId, media: ex.media, cfg: {} };
     M.MODES.forEach(function (m) { d.cfg[m] = M.defaultModeConfig(m); });
     Object.assign(d.cfg[ex.mode], ex.modeConfig);
-    var r = d.cfg.reps; r.count = String(r.count); r.min = String(r.min); r.max = String(r.max);
+    ['reps', 'intervals', 'timer'].forEach(function (m) { var x = d.cfg[m]; x.count = String(x.count); x.min = String(x.min); x.max = String(x.max); });
+    var r = d.cfg.reps; if (r.repsType === 'static') r.repsType = 'number';
     r.restSec = r.restSec || 0; r.rm = String(Math.floor(r.restSec / 60)); r.rs = String(r.restSec % 60);
     d.cfg.stopwatch.lapCount = String(d.cfg.stopwatch.lapCount || 1);
     ['intervals', 'timer'].forEach(function (m) {
@@ -124,7 +125,6 @@
       c.wm = String(Math.floor(c.workSec / 60)); c.ws = String(c.workSec % 60);
       if (m === 'timer') { c.rm = String(Math.floor(c.restSec / 60)); c.rs = String(c.restSec % 60); }
     });
-    d.cfg.intervals.repetitions = String(d.cfg.intervals.repetitions);
     return d;
   }
   function seg(key, opts, cur) {
@@ -143,20 +143,26 @@
     titleEl.textContent = isNew ? 'New exercise' : 'Edit exercise'; backBtn.hidden = false;
     var h = '<div class="card">' +
       '<label>Exercise name</label><input data-b="name" value="' + esc(d.name) + '" placeholder="e.g. Goblet squat" autocomplete="off">' +
-      '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3') +
+      '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode) +
+      (d.mode === 'intervals' ? '<label># of intervals</label>' + numIn('sets', d.sets, 'e.g. 8') : '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3')) +
       '<label>Weight</label>' + seg('unit', [['lb', 'lb'], ['kg', 'kg'], ['bodyweight', 'Bodyweight']], d.unit) +
       (d.unit !== 'bodyweight' ? '<div style="margin-top:8px">' + numIn('wval', d.wval, 'Weight in ' + d.unit + ' (optional)', 'any') + '</div>' : '') +
-      '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode);
+      '';
+    function repsUI(allowStatic) {
+      var o = [['number', 'Number'], ['range', 'Range']]; if (allowStatic) o.push(['static', 'Static hold']);
+      var x = '<label>Reps type</label>' + seg('repsType', o, c.repsType);
+      if (c.repsType === 'number') x += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10');
+      if (c.repsType === 'range') x += '<label>Rep range (min – max)</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min') + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max') + '</div></div>';
+      if (c.repsType === 'static') x += '<p class="mute">Static hold — time only, no rep count.</p>';
+      return x;
+    }
     if (d.mode === 'reps') {
-      h += '<label>Reps type</label>' + seg('repsType', [['number', 'Number'], ['range', 'Range'], ['static', 'Static hold']], c.repsType);
-      if (c.repsType === 'number') h += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10');
-      if (c.repsType === 'range') h += '<label>Rep range (min – max)</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min') + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max') + '</div></div>';
-      if (c.repsType === 'static') h += '<p class="mute">Static hold — no rep count.</p>';
+      h += repsUI(false);
       h += '<label>Rest time between sets (optional)</label>' + timeIn('cfg', c, 'rm', 'rs');
     } else if (d.mode === 'intervals') {
-      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Repetitions</label>' + numIn('cfg.repetitions', c.repetitions, 'e.g. 5');
+      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + repsUI(true);
     } else if (d.mode === 'timer') {
-      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Rest time</label>' + timeIn('cfg', c, 'rm', 'rs');
+      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Rest time</label>' + timeIn('cfg', c, 'rm', 'rs') + repsUI(true);
     } else {
       h += '<p class="mute">Counts up from 0:00 during the workout. No settings needed.</p>' +
         '<label class="row" style="font-weight:400"><input type="checkbox" class="sel" data-b="cfg.lapsEnabled"' + (c.lapsEnabled ? ' checked' : '') + '> Record laps (agility / splits)</label>' +
@@ -175,7 +181,7 @@
     };
     app.onclick = function (e) {
       var s = e.target.closest('[data-seg]');
-      if (s) { var k = s.dataset.seg; if (k === 'repsType') d.cfg.reps.repsType = s.dataset.v; else d[k] = s.dataset.v; return renderEditor(w, exId); }
+      if (s) { var k = s.dataset.seg; if (k === 'repsType') d.cfg[d.mode].repsType = s.dataset.v; else d[k] = s.dataset.v; return renderEditor(w, exId); }
       var b = e.target.closest('[data-a]'); if (!b) return;
       if (b.dataset.a === 'cancel') return go('#/w/' + w.id);
       if (b.dataset.a === 'save') {
@@ -191,8 +197,9 @@
     var ex = { id: d.id, name: d.name, sets: intOf(d.sets), weight: { unit: d.unit, value: d.unit === 'bodyweight' ? null : M.num(d.wval) },
       mode: d.mode, notes: d.notes, groupId: d.groupId, media: d.media, modeConfig: {} };
     if (d.mode === 'reps') { ex.modeConfig = { repsType: c.repsType, count: intOf(c.count), min: intOf(c.min), max: intOf(c.max), restSec: M.toSec(c.rm, c.rs) }; raw.push(c.rm, c.rs); if (c.repsType === 'number') raw.push(c.count); if (c.repsType === 'range') raw.push(c.min, c.max); }
-    if (d.mode === 'intervals') { ex.modeConfig = { workSec: M.toSec(c.wm, c.ws), repetitions: intOf(c.repetitions) }; raw.push(c.wm, c.ws, c.repetitions); }
+    if (d.mode === 'intervals') { ex.modeConfig = { workSec: M.toSec(c.wm, c.ws) }; raw.push(c.wm, c.ws); }
     if (d.mode === 'timer') { ex.modeConfig = { workSec: M.toSec(c.wm, c.ws), restSec: M.toSec(c.rm, c.rs) }; raw.push(c.wm, c.ws, c.rm, c.rs); }
+    if (d.mode === 'intervals' || d.mode === 'timer') { Object.assign(ex.modeConfig, { repsType: c.repsType, count: intOf(c.count), min: intOf(c.min), max: intOf(c.max) }); if (c.repsType === 'number') raw.push(c.count); if (c.repsType === 'range') raw.push(c.min, c.max); }
     if (d.mode === 'stopwatch') { ex.modeConfig = { lapsEnabled: !!c.lapsEnabled, lapCount: intOf(c.lapCount) }; if (c.lapsEnabled) raw.push(c.lapCount); }
     if (raw.some(function (v) { var n = M.num(v); return n !== null && n < 0; })) errs.push('Numbers cannot be negative.');
     if (d.mode !== 'stopwatch' && [c.ws, c.rs].some(function (v) { return M.num(v) > 59; })) errs.push('Seconds must be 0–59.');

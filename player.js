@@ -32,16 +32,15 @@
     var r = { step: i, exerciseId: ex.id, name: ex.name, set: st.set, of: st.of, mode: ex.mode, unit: ex.weight.unit,
       weight: ex.weight.unit === 'bodyweight' ? null : ex.weight.value, logged: false };
     if (ex.mode === 'reps') { if (c.repsType === 'number') r.reps = c.count; else if (c.repsType === 'range') r.reps = c.max; else r.holdSec = 0; }
-    if (ex.mode === 'intervals') r.rounds = c.repetitions;
-    if (ex.mode === 'timer') r.workSec = c.workSec;
+    if (ex.mode === 'intervals' || ex.mode === 'timer') { r.workSec = c.workSec; if (c.repsType === 'number') r.reps = c.count; else if (c.repsType === 'range') r.reps = c.max; }
     if (ex.mode === 'stopwatch') { r.durationMs = 0; r.laps = []; }
     return (S.results[i] = r);
   }
   function target(ex) {
     var c = ex.modeConfig;
     if (ex.mode === 'reps') return (c.repsType === 'number' ? c.count + ' reps' : c.repsType === 'range' ? c.min + '–' + c.max + ' reps' : 'Static hold') + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '');
-    if (ex.mode === 'intervals') return c.repetitions + ' × ' + M.fmtTime(c.workSec);
-    if (ex.mode === 'timer') return M.fmtTime(c.workSec) + ' work · ' + M.fmtTime(c.restSec) + ' rest';
+    if (ex.mode === 'intervals') return M.fmtTime(c.workSec) + ' work · ' + M.repsText(c);
+    if (ex.mode === 'timer') return M.fmtTime(c.workSec) + ' work · ' + M.fmtTime(c.restSec) + ' rest · ' + M.repsText(c);
     return c.lapsEnabled ? c.lapCount + (c.lapCount === 1 ? ' lap' : ' laps') : 'Stopwatch';
   }
   function weightTxt(ex) { return ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : ex.weight.unit; }
@@ -103,7 +102,6 @@
     beep();
     if (S.phase === 'rest') return advance();
     if (ex.mode === 'intervals') {
-      if (S.rep < c.repetitions) { S.rep++; S.acc = over; S.t0 = now(); S.running = true; return render(); }
       log(S.idx); return advance();
     }
     if (ex.mode === 'timer') {
@@ -163,7 +161,7 @@
   }
   function render() {
     var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i), L = letters();
-    var chip = S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : ex.mode === 'intervals' && S.phase === 'work' ? 'Round ' + S.rep + ' / ' + c.repetitions : S.phase === 'work' && ex.mode !== 'reps' ? 'Work' : S.phase === 'ready' ? 'Ready' : 'Set ' + st.set;
+    var chip = S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? 'Work' : S.phase === 'ready' ? 'Ready' : 'Set ' + st.set;
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
     // stage: visual screen + side carousel
@@ -172,7 +170,7 @@
       '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset ' + L[st.groupId] + '</span>' : '') + '</div>' +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '<div class="pl-ro pl-target">' + esc(ex.modeConfig.repsType === 'range' ? c.min + '–' + c.max : c.count) + '<small>reps</small></div>') +
       '<div class="pl-info">' + (S.phase === 'rest' && i < S.queue.length - 1 ? '<div class="pl-next">Up next · ' + esc(exOf(i + 1).name) + '</div>' : '') +
-      '<div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta"><span>' + esc(weightTxt(ex)) + '</span><span>Set ' + st.set + ' of ' + st.of + '</span><span>' + esc(target(ex)) + '</span></div></div>' +
+      '<div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta"><span>' + esc(weightTxt(ex)) + '</span><span>' + (ex.mode === 'intervals' ? 'Interval ' : 'Set ') + st.set + ' of ' + st.of + '</span><span>' + esc(target(ex)) + '</span></div></div>' +
       '<div class="pl-bar"><i id="pg"></i></div></div>';
     h += '<div class="pl-car" aria-label="Up next"><div class="pl-car-h">Next</div>';
     for (var j = i + 1; j < S.queue.length; j++) {
@@ -182,7 +180,7 @@
     if (i === S.queue.length - 1) h += '<div class="pl-ci end">Last set</div>';
     h += '</div></div>';
     // tracking bar
-    h += '<div class="pl-track"><div class="pl-th"><span><b>' + esc(ex.name) + '</b> · Set ' + st.set + '/' + st.of + '</span>' + (r.logged ? '<span class="pl-ok">✓ Logged</span>' : '<span class="mute">Tracking</span>') + '</div><div class="pl-fields">';
+    h += '<div class="pl-track"><div class="pl-th"><span><b>' + esc(ex.name) + '</b> · ' + (ex.mode === 'intervals' ? 'Interval ' : 'Set ') + st.set + '/' + st.of + '</span>' + (r.logged ? '<span class="pl-ok">✓ Logged</span>' : '<span class="mute">Tracking</span>') + '</div><div class="pl-fields">';
     if (r.reps !== undefined) h += stepper('reps', 'Reps', r.reps, 1);
     if (r.holdSec !== undefined) h += stepper('holdSec', 'Hold (s)', r.holdSec, 5);
     if (r.rounds !== undefined) h += stepper('rounds', 'Rounds', r.rounds, 1);
