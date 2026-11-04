@@ -46,12 +46,12 @@ const data = M.emptyData(); data.workouts.push(w);
   // carousel keeps every set; logged ones checked; reopen a logged set and edit it
   assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$$eval('.pl-ci.done .pl-ck', a => a.length), 2); // A2 is resting, not yet logged
   await wait(750); await p.screenshot({ path: '/workspace/player-carousel.png' });
-  await click('[data-sel="0"]'); s = await st(); assert.strictEqual(s.idx, 0);
+  await click('[data-sel="0"]'); s = await st(); assert.strictEqual(s.idx, 0); assert.ok(s.results[2].logged); // A2 rest interrupted -> logged
   assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '12'); assert.strictEqual(await p.$eval('[data-f=weight]', e => e.value), '140');
   assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Logged · tap to redo');
   await click('[data-st=reps][data-d="-1"]'); assert.strictEqual((await st()).results[0].reps, 11); assert.ok((await st()).results[0].logged);
   await click('[data-sel="1"]'); await click('[data-sel="0"]'); assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '11'); // edit kept
-  await click('[data-sel="2"]'); await click('[data-p=primary]'); await adv(30100); assert.ok((await st()).results[2].logged); // A2 rest expires -> logged
+  await click('[data-sel="2"]'); await click('[data-p=primary]'); await click('[data-sel="3"]'); s = await st(); assert.ok(s.results[2].logged); assert.strictEqual(s.idx, 3); // rest interrupted -> logged
   // select another exercise from the summary list mid-rest
   await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.textContent.includes('Dumbbell row')).click()); await wait(80);
   s = await st(); assert.strictEqual(s.idx, 9); assert.strictEqual(s.track, 'Dumbbell row'); assert.strictEqual(s.results[9].reps, 12);
@@ -94,7 +94,8 @@ const data = M.emptyData(); data.workouts.push(w);
   const laps = s.results[8].laps; assert.ok(Math.abs(laps[0].lapMs - 3210) < 800 && Math.abs(laps[1].lapMs - 2540) < 800, JSON.stringify(laps));
   assert.strictEqual(await p.$$eval('.pl-laps span', a => a.length), 3);
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.name, 'Dumbbell row');
-  await click('[data-p=primary]'); // last set -> finish
+  await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(!s.results[9].logged); // last set still rests
+  await adv(10000); await click('.pl-endw'); await wait(100); // End during rest -> logs it
   assert.ok((await p.content()).includes('Workout complete'));
   const saved = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), M.STORAGE_KEY);
   assert.strictEqual(saved.sessions.length, 0); assert.strictEqual(saved.workouts.length, 1); // SAVE_SESSIONS=false

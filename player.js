@@ -102,7 +102,9 @@
     if (S.phase === 'work' && (ex.mode === 'intervals' || ex.mode === 'timer')) return c.workSec * 1000;
     return null;
   }
+  function logRestingReps() { if (S.phase === 'rest' && exOf(S.idx).mode === 'reps') log(S.idx); } // rest interrupted/ended -> log
   function enterStep(i) {
+    logRestingReps();
     S.idx = i; S.running = false; S.acc = 0; S.rep = 1; if (S.run) { stopTones(); S.run = null; }
     var ex = exOf(i);
     S.phase = ex.mode === 'reps' && ex.modeConfig.repsType !== 'static' ? 'work' : 'ready';
@@ -112,7 +114,8 @@
   function log(i) { var r = res(i); r.logged = true; r.at = Date.now(); }
   function startRest() {
     var c = cfg(S.idx);
-    if (c.restSec > 0 && S.idx < S.queue.length - 1) { startTimer('rest'); render(); } else { if (exOf(S.idx).mode === 'reps') log(S.idx); advance(); }
+    var reps = exOf(S.idx).mode === 'reps'; // reps: rest runs even after the workout's last set
+    if (c.restSec > 0 && (reps || S.idx < S.queue.length - 1)) { startTimer('rest'); render(); } else { if (reps) log(S.idx); advance(); }
   }
   function advance() { if (S.idx < S.queue.length - 1) enterStep(S.idx + 1); else finish(); }
   function togglePause() {
@@ -176,7 +179,7 @@
   function select(i) { if (i === S.idx) return; enterStep(i); }
 
   function finish() {
-    S.running = false; cancelAnimationFrame(S.raf);
+    logRestingReps(); S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged };
     S.saved = M.SAVE_SESSIONS && logged.length > 0;
