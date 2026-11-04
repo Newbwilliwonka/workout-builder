@@ -36,6 +36,16 @@
     }
     return t;
   }
+  // Timer mode: one set per run. Rest only when the set actually rests; next set still waits for a tap.
+  function timerSchedule(workSec, restSec, lastSet) {
+    var t = toneSchedule(workSec, 1); t.pop(); // standoff + go + final-3 ticks of work
+    var e = STANDOFF + workSec, j;
+    if (!restSec) { if (lastSet) t.push({ t: e, kind: 'done' }); return t; }
+    t.push({ t: e, kind: 'go' });
+    for (j = 3; j >= 1; j--) if (j < restSec) t.push({ t: e + restSec - j, kind: 'tick' });
+    if (lastSet) t.push({ t: e + restSec, kind: 'done' });
+    return t;
+  }
   function tone(at, f, dur) {
     var o = audio.createOscillator(), g = audio.createGain();
     o.frequency.value = f; o.connect(g); g.connect(audio.destination);
@@ -44,6 +54,7 @@
   }
   function runMs() { // ms since Start of the current interval run (pauses excluded)
     if (S.phase === 'standoff') return elapsed();
+    if (S.run.timer) return STANDOFF * 1000 + (S.phase === 'rest' ? S.run.w * 1000 : 0) + elapsed();
     return STANDOFF * 1000 + (S.queue[S.idx].set - S.run.firstSet) * S.run.w * 1000 + elapsed();
   }
   function stopTones() { (S.nodes || []).forEach(function (o) { try { o.stop(); } catch (e) {} }); S.nodes = []; }
@@ -139,6 +150,11 @@
         startTimer('standoff'); S.run = { firstSet: S.queue[S.idx].set, w: c.workSec, n: n, sched: toneSchedule(c.workSec, n) };
         scheduleTones(); return render();
       }
+      if (ex.mode === 'timer') { // same tone rules as intervals; advance/logging unchanged
+        var rs = c.restSec > 0 && S.idx < S.queue.length - 1 ? c.restSec : 0, st = S.queue[S.idx];
+        startTimer('standoff'); S.run = { timer: true, w: c.workSec, sched: timerSchedule(c.workSec, rs, st.set === st.of) };
+        scheduleTones(); return render();
+      }
       if (ex.mode === 'stopwatch') { r.laps = []; r.durationMs = 0; }
       startTimer('work'); return render();
     }
@@ -165,7 +181,9 @@
       if (navigator.vibrate) try { navigator.vibrate([300, 100, 300]); } catch (e) {}
       S.nodes = []; S.run = null; S.beeps = (S.beeps || 0) + 1; return advance(); // completion tone already scheduled
     }
-    beep();
+    var tr = ex.mode === 'timer' && S.run; // timer tones already scheduled
+    if (!tr) beep(); else S.beeps = (S.beeps || 0) + 1;
+    if (tr && (S.phase === 'rest' || !(c.restSec > 0 && S.idx < S.queue.length - 1))) { S.nodes = []; S.run = null; } // keep final tone playing
     if (S.phase === 'rest') { if (ex.mode === 'reps') log(S.idx); return advance(); }
     if (ex.mode === 'intervals') {
       log(S.idx); return advance();
@@ -220,7 +238,7 @@
     var c = ex.modeConfig;
     if (S.phase === 'rest') return S.running ? 'Pause rest' : 'Resume rest';
     if (S.phase === 'complete') return S.idx < S.queue.length - 1 ? 'Next exercise' : 'Finish workout';
-    if (ex.mode === 'reps') return c.repsType === 'static' && S.phase === 'ready' ? 'Start hold' : 'Log set';
+    if (ex.mode === 'reps') return c.repsType === 'static' && S.phase === 'ready' ? 'Start hold' : 'Rest';
     if (S.phase === 'ready') return 'Start';
     if (ex.mode === 'stopwatch') return !S.running ? 'Resume' : c.lapsEnabled ? 'Lap ' + (res(S.idx).laps.length + 1) + ' / ' + c.lapCount : 'Finish';
     return S.running ? 'Pause' : 'Resume';
