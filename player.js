@@ -118,7 +118,8 @@
     S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged };
-    if (logged.length) { S.data.sessions.push(sess); S.persist(); }
+    S.saved = M.SAVE_SESSIONS && logged.length > 0;
+    if (S.saved) { S.data.sessions.push(sess); S.persist(); }
     S.done = sess; if (wake) wake.release().catch(function () {});
     renderSummary();
   }
@@ -136,7 +137,7 @@
     var s = S.done, mins = Math.round((s.endedAt - s.startedAt) / 1000);
     var h = '<div class="pl-done"><div class="pl-check">✓</div><h2>Workout complete</h2><p class="mute">' + esc(s.workoutName) + ' · ' + M.fmtTime(mins) + ' total · ' +
       s.results.length + ' of ' + S.queue.length + ' sets logged</p><div class="card pl-sum">';
-    if (!s.results.length) h += '<p class="mute">Nothing was logged, so no session was saved.</p>';
+    if (!S.saved) h += '<p class="mute">' + (s.results.length ? 'Session not saved (history is off for now).' : 'Nothing was logged.') + '</p>';
     s.results.forEach(function (r) {
       h += '<div class="pl-row"><div class="grow"><b>' + esc(r.name) + '</b> <span class="mute">set ' + r.set + '/' + r.of + '</span><div class="mute">' + esc(resultLine(r)) + '</div>' +
         (r.laps && r.laps.length ? '<div class="pl-laps sm">' + r.laps.map(function (l, k) { return '<span>L' + (k + 1) + ' ' + M.formatStopwatch(l.lapMs) + '</span>'; }).join('') + '</div>' : '') + '</div></div>';

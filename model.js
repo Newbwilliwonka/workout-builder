@@ -2,6 +2,7 @@
 (function (root) {
   'use strict';
   var SCHEMA_VERSION = 2;
+  var SAVE_SESSIONS = false; // set true to store finished workout sessions in data.sessions
   var STORAGE_KEY = 'wb.data.v1';
   var MODES = ['reps', 'intervals', 'timer', 'stopwatch'];
   var REPS_TYPES = ['number', 'range', 'static'];
@@ -247,7 +248,7 @@
 
   var api = {
     SCHEMA_VERSION: SCHEMA_VERSION, STORAGE_KEY: STORAGE_KEY, MODES: MODES, REPS_TYPES: REPS_TYPES, UNITS: UNITS,
-    uid: uid, clone: clone, formatStopwatch: formatStopwatch, migrate: migrate, num: num, fmtTime: fmtTime, toSec: toSec,
+    SAVE_SESSIONS: SAVE_SESSIONS, uid: uid, clone: clone, formatStopwatch: formatStopwatch, migrate: migrate, num: num, fmtTime: fmtTime, toSec: toSec,
     defaultModeConfig: defaultModeConfig, newExercise: newExercise, newWorkout: newWorkout, emptyData: emptyData,
     validateExercise: validateExercise, normalizeExercise: normalizeExercise, summarize: summarize,
     blocks: blocks, cleanGroups: cleanGroups, upsertExercise: upsertExercise, deleteExercise: deleteExercise,

@@ -62,7 +62,8 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-p=primary]'); // last set -> finish
   assert.ok((await p.content()).includes('Workout complete'));
   const saved = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), M.STORAGE_KEY);
-  assert.strictEqual(saved.sessions.length, 1); const r = saved.sessions[0].results;
+  assert.strictEqual(saved.sessions.length, 0); assert.strictEqual(saved.workouts.length, 1); // SAVE_SESSIONS=false
+  const r = await p.evaluate(() => window.__wbPlayer.done.results);
   assert.strictEqual(r.length, 8); assert.strictEqual(r[0].reps, 12); assert.strictEqual(r[0].weight, 140); assert.strictEqual(r[6].laps.length, 3);
   console.log('session results:', r.map(x => x.name + '#' + x.set).join(', '));
   assert.deepStrictEqual(errs, []); console.log('PLAYER OK'); await b.close();
