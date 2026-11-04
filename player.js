@@ -235,12 +235,11 @@
       '<div class="pl-info">' + (S.phase === 'rest' && i < S.queue.length - 1 ? '<div class="pl-next">Up next · ' + esc(exOf(i + 1).name) + '</div>' : '') +
       '<div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>' +
       '<div class="pl-bar"><i id="pg"></i></div></div>';
-    h += '<div class="pl-car" aria-label="Up next"><div class="pl-car-h">Next</div>';
-    for (var j = i + 1; j < S.queue.length; j++) {
-      var q = S.queue[j], e2 = exOf(j);
-      h += '<button class="pl-ci" data-sel="' + j + '">' + (q.groupId ? '<em>' + L[q.groupId] + '</em>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
+    h += '<div class="pl-car" aria-label="All sets"><div class="pl-car-h">Sets</div>';
+    for (var j = 0; j < S.queue.length; j++) {
+      var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
+      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + (q.groupId ? '<em>' + L[q.groupId] + '</em>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
     }
-    if (i === S.queue.length - 1) h += '<div class="pl-ci end">Last set</div>';
     h += '</div></div>';
     // tracking bar
     h += '<div class="pl-track"><div class="pl-th"><span><b>' + esc(ex.name) + '</b> · ' + (ex.mode === 'intervals' ? 'Interval ' : 'Set ') + st.set + '/' + st.of + '</span>' + (r.logged ? '<span class="pl-ok">✓ Logged</span>' : '<span class="mute">Tracking</span>') + '</div><div class="pl-fields">';
@@ -263,11 +262,13 @@
     });
     h += '</div><button class="pl-endw" data-p="end">End workout</button></div>';
     S.root.innerHTML = h;
-    S.root.querySelector('.pl-car').scrollTop = 0;
+    var car = S.root.querySelector('.pl-car'), cu = car.querySelector('.cur');
+    if (cu) car.scrollTop += cu.getBoundingClientRect().top - car.getBoundingClientRect().top - 24; // keep current in view
     tick(true);
   }
   function hint(ex) {
     var l = primaryLabel(ex);
+    if (res(S.idx).logged && (S.phase === 'ready' || (S.phase === 'work' && !S.running && ex.mode === 'reps'))) return 'Logged · tap to redo';
     return S.running ? '' : 'Tap to ' + l.charAt(0).toLowerCase() + l.slice(1);
   }
   function flash(icon) {
