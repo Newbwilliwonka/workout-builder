@@ -1,7 +1,7 @@
 /* Workout Builder data model (pure logic, no DOM). Works in browser (window.WB) and Node (require). */
 (function (root) {
   'use strict';
-  var SCHEMA_VERSION = 3;
+  var SCHEMA_VERSION = 4;
   var SAVE_SESSIONS = false; // set true to store finished workout sessions in data.sessions
   var STORAGE_KEY = 'wb.data.v1';
   var MODES = ['reps', 'intervals', 'timer', 'stopwatch'];
@@ -28,8 +28,8 @@
   function defaultModeConfig(mode) {
     switch (mode) {
       case 'reps': return { repsType: 'number', count: 10, min: 8, max: 12, restSec: 0 };
-      case 'intervals': return { workSec: 30, repsType: 'static', count: 10, min: 8, max: 12 }; // # of intervals = sets; no rest by design
-      case 'timer': return { workSec: 45, restSec: 15, repsType: 'static', count: 10, min: 8, max: 12 };
+      case 'intervals': return { workSec: 30, repsType: null, count: null, min: null, max: null }; // # of intervals = sets; no rest by design
+      case 'timer': return { workSec: 45, restSec: 15, repsType: null, count: null, min: null, max: null }; // reps optional (null = none)
       case 'stopwatch': return { lapsEnabled: true, lapCount: 1 };          // counts up; laps recorded in sessions
       default: throw new Error('Unknown mode ' + mode);
     }
@@ -68,7 +68,7 @@
     var c = ex.modeConfig || {};
     if (MODES.indexOf(ex.mode) < 0) e.push('Invalid mode.');
     if (ex.mode === 'reps' || ex.mode === 'intervals' || ex.mode === 'timer') {
-      if ((ex.mode === 'reps' ? REPS_MODE_TYPES : REPS_TYPES).indexOf(c.repsType) < 0) e.push('Invalid reps type.');
+      if (ex.mode === 'reps' ? REPS_MODE_TYPES.indexOf(c.repsType) < 0 : (c.repsType != null && REPS_TYPES.indexOf(c.repsType) < 0)) e.push('Invalid reps type.');
       if (c.repsType === 'number' && !(Number.isInteger(c.count) && c.count >= 1)) e.push('Reps must be a whole number of 1 or more.');
       if (c.repsType === 'range') {
         if (!(Number.isInteger(c.min) && c.min >= 1) || !(Number.isInteger(c.max) && c.max >= 1)) e.push('Range min and max must be whole numbers of 1 or more.');
@@ -77,7 +77,7 @@
       if (c.restSec != null && !(c.restSec >= 0)) e.push('Rest time cannot be negative.');
     }
     if (ex.mode === 'intervals') {
-      if (!(c.workSec > 0)) e.push('Work time must be more than 0:00.');
+      if (!(c.workSec > 0)) e.push('Interval time must be more than 0:00.');
     }
     if (ex.mode === 'timer') {
       if (!(c.workSec > 0)) e.push('Work time must be more than 0:00.');
@@ -96,7 +96,7 @@
     out.mode = ex.mode;
     var c = ex.modeConfig || {}, d = {};
     if (ex.mode === 'reps' || ex.mode === 'intervals' || ex.mode === 'timer') {
-      d.repsType = c.repsType;
+      d.repsType = c.repsType || null;
       if (c.repsType === 'number') d.count = c.count;
       if (c.repsType === 'range') { d.min = c.min; d.max = c.max; }
     }
@@ -114,9 +114,9 @@
   // Human-readable summary line for list views.
   function summarize(ex) {
     var c = ex.modeConfig || {}, iv = ex.mode === 'intervals', p = [ex.sets + (iv ? (ex.sets === 1 ? ' interval' : ' intervals') : (ex.sets === 1 ? ' set' : ' sets'))];
-    if (ex.mode !== 'stopwatch') p.push(repsText(c));
+    if (ex.mode !== 'stopwatch' && c.repsType) p.push(repsText(c));
     if (ex.mode === 'reps' && c.restSec > 0) p.push(fmtTime(c.restSec) + ' rest');
-    if (iv) p.push(fmtTime(c.workSec) + ' work');
+    if (iv) p.push(fmtTime(c.workSec) + ' interval');
     if (ex.mode === 'timer') p.push(fmtTime(c.workSec) + ' work / ' + fmtTime(c.restSec) + ' rest');
     if (ex.mode === 'stopwatch') p.push('stopwatch' + (c.lapsEnabled ? ' · ' + c.lapCount + (c.lapCount === 1 ? ' lap' : ' laps') : ''));
     if (ex.weight.unit === 'bodyweight') p.push('bodyweight');
@@ -124,7 +124,7 @@
     return p.join(' · ');
   }
 
-  function repsText(c) { return c.repsType === 'number' ? c.count + ' reps' : c.repsType === 'range' ? c.min + '–' + c.max + ' reps' : 'static hold'; }
+  function repsText(c) { return !c.repsType ? '' : c.repsType === 'number' ? c.count + ' reps' : c.repsType === 'range' ? c.min + '–' + c.max + ' reps' : 'static hold'; }
 
   // ---- workout operations (mutate workout in place, return it) ----
   function touch(w) { w.updatedAt = Date.now(); return w; }
@@ -252,6 +252,13 @@
         if (it.mode === 'intervals') { it.sets = (it.sets || 1) * (c.repetitions || 1); delete c.repetitions; }
         if (it.mode === 'reps' && c.repsType === 'static') { c.repsType = 'number'; c.count = c.count >= 1 ? c.count : 10; }
         if ((it.mode === 'intervals' || it.mode === 'timer') && REPS_TYPES.indexOf(c.repsType) < 0) c.repsType = 'static';
+      });
+    });
+    // v3 -> v4: reps optional for timer/intervals; the v3 default 'static' becomes none (null).
+    if (v < 4) d.workouts.forEach(function (w) {
+      (w.items || []).forEach(function (it) {
+        var c = it.modeConfig || {};
+        if ((it.mode === 'intervals' || it.mode === 'timer') && (c.repsType === 'static' || !c.repsType)) { c.repsType = null; delete c.count; delete c.min; delete c.max; }
       });
     });
     d.version = SCHEMA_VERSION;

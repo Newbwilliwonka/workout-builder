@@ -4,7 +4,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/', SHOT = process.argv[3] 
 const w = M.newWorkout('Agility + Strength'); const mk = o => M.normalizeExercise(M.newExercise(o));
 w.items = [
   mk({ name: 'Goblet squat', sets: 2, weight: { unit: 'lb', value: 135 }, mode: 'reps', modeConfig: { repsType: 'number', count: 10, restSec: 30 } }),
-  mk({ name: 'Plank', sets: 2, weight: { unit: 'bodyweight', value: null }, mode: 'timer', modeConfig: { workSec: 20, restSec: 0, repsType: 'static' } }),
+  mk({ name: 'Plank', sets: 2, weight: { unit: 'bodyweight', value: null }, mode: 'timer', modeConfig: { workSec: 20, restSec: 0, repsType: null } }),
   mk({ name: 'Bike sprints', sets: 2, weight: { unit: 'bodyweight', value: null }, mode: 'intervals', modeConfig: { workSec: 20, repsType: 'number', count: 15 } }),
   mk({ name: 'Kettlebell swings', sets: 1, weight: { unit: 'kg', value: 16 }, mode: 'timer', modeConfig: { workSec: 30, restSec: 10, repsType: 'range', min: 10, max: 15 } }),
   mk({ name: 'Cone shuttle', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: true, lapCount: 3 } }),
@@ -35,7 +35,7 @@ const data = M.emptyData(); data.workouts.push(w);
   await adv(15000); assert.strictEqual((await st()).ro, '0:15');
   await adv(15100); s = await st(); assert.strictEqual(s.name, 'Plank'); assert.ok(s.beeps >= 1);       // rest ended -> B1
   await click('[data-p=primary]'); await adv(10000); assert.strictEqual((await st()).ro, '0:10');  // timer static hold counts down
-  await adv(10100); s = await st(); assert.ok(s.results[1].logged); assert.strictEqual(s.results[1].reps, undefined); assert.strictEqual(s.idx, 2); // no rest -> A2
+  await adv(10100); s = await st(); assert.ok(s.results[1].logged); assert.strictEqual(s.results[1].reps, undefined); assert.ok(!(await p.$$('[data-f=reps]')).length || s.idx !== 1); assert.strictEqual(s.idx, 2); // no rest -> A2
   // pause/resume during rest keeps time
   await click('[data-p=primary]'); await adv(5000); await click('[data-p=pause]'); await adv(60000); assert.strictEqual((await st()).ro, '0:25'); await click('[data-p=pause]');
   // select another exercise from the summary list mid-rest

@@ -45,20 +45,28 @@ const v1 = { version: 1, workouts: [{ id: 'w', name: 'old', items: [
   { id: 'a', name: 'A', sets: 3, weight: { unit: 'lb', value: 50 }, mode: 'reps', modeConfig: { repsType: 'number', count: 10 }, notes: '', groupId: null, media: null },
   { id: 'b', name: 'B', sets: 2, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: true }, notes: '', groupId: null, media: null }] }] };
 const m2 = { s: { [M.STORAGE_KEY]: JSON.stringify(v1) }, getItem: mem.getItem, setItem: mem.setItem }; const L = M.load(m2);
-assert.strictEqual(L.version, 3); assert.deepStrictEqual(L.sessions, []); assert.strictEqual(L.workouts[0].items[0].modeConfig.restSec, 0);
+assert.strictEqual(L.version, M.SCHEMA_VERSION); assert.deepStrictEqual(L.sessions, []); assert.strictEqual(L.workouts[0].items[0].modeConfig.restSec, 0);
 assert.strictEqual(L.workouts[0].items[1].modeConfig.lapCount, 1); L.workouts[0].items.forEach(e => assert.deepStrictEqual(M.validateExercise(e), []));
 // v3: reps mode has no static; intervals merge repetitions into sets; timer/intervals take reps options
 assert.ok(M.validateExercise(mk({ name: 'x', modeConfig: { repsType: 'static' } })).some(m => /reps type/.test(m)));
 assert.deepStrictEqual(M.validateExercise(mk({ name: 'x', mode: 'timer', modeConfig: { workSec: 30, restSec: 0, repsType: 'range', min: 8, max: 12 } })), []);
-assert.ok(/8 intervals · 12 reps · 0:30 work/.test(M.summarize(M.normalizeExercise(mk({ name: 'x', sets: 8, mode: 'intervals', modeConfig: { workSec: 30, repsType: 'number', count: 12 } })))));
+assert.ok(/8 intervals · 12 reps · 0:30 interval/.test(M.summarize(M.normalizeExercise(mk({ name: 'x', sets: 8, mode: 'intervals', modeConfig: { workSec: 30, repsType: 'number', count: 12 } })))));
 const v2 = { version: 2, workouts: [{ id: 'w', name: 'v2', items: [
   { id: 'i', name: 'I', sets: 2, weight: { unit: 'lb', value: null }, mode: 'intervals', modeConfig: { workSec: 20, repetitions: 4 }, notes: 'n', groupId: null, media: null },
   { id: 's', name: 'S', sets: 3, weight: { unit: 'kg', value: 20 }, mode: 'reps', modeConfig: { repsType: 'static', restSec: 45 }, notes: 'keep', groupId: null, media: null },
   { id: 't', name: 'T', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'timer', modeConfig: { workSec: 40, restSec: 20 }, notes: '', groupId: null, media: null }] }], sessions: [] };
 const L3 = M.load({ s: { [M.STORAGE_KEY]: JSON.stringify(v2) }, getItem: mem.getItem, setItem: mem.setItem }), it3 = L3.workouts[0].items;
-assert.strictEqual(L3.version, 3); assert.strictEqual(it3[0].sets, 8); assert.ok(!('repetitions' in it3[0].modeConfig)); assert.strictEqual(it3[0].modeConfig.repsType, 'static');
+assert.strictEqual(L3.version, 4); assert.strictEqual(it3[0].sets, 8); assert.ok(!('repetitions' in it3[0].modeConfig)); assert.strictEqual(it3[0].modeConfig.repsType, null);
 assert.deepStrictEqual([it3[1].modeConfig.repsType, it3[1].modeConfig.count, it3[1].modeConfig.restSec, it3[1].weight.value, it3[1].notes], ['number', 10, 45, 20, 'keep']);
-assert.strictEqual(it3[2].modeConfig.repsType, 'static'); it3.forEach(e => assert.deepStrictEqual(M.validateExercise(e), [], e.name));
+assert.strictEqual(it3[2].modeConfig.repsType, null); it3.forEach(e => assert.deepStrictEqual(M.validateExercise(e), [], e.name));
+// v4: reps optional in timer/intervals
+assert.strictEqual(M.defaultModeConfig('timer').repsType, null); assert.strictEqual(M.defaultModeConfig('intervals').count, null);
+const nr = M.normalizeExercise(mk({ name: 'Run in place', mode: 'intervals', modeConfig: { workSec: 30, repsType: null } }));
+assert.deepStrictEqual(nr.modeConfig, { repsType: null, workSec: 30 }); assert.deepStrictEqual(M.validateExercise(nr), []); assert.ok(!/reps|hold/.test(M.summarize(nr)));
+const v3 = { version: 3, workouts: [{ id: 'w', name: 'v3', items: [{ id: 't', name: 'T', sets: 1, weight: { unit: 'lb', value: null }, mode: 'timer', modeConfig: { workSec: 40, restSec: 20, repsType: 'static', count: 10 }, notes: '', groupId: null, media: null },
+  { id: 'n', name: 'N', sets: 1, weight: { unit: 'lb', value: null }, mode: 'timer', modeConfig: { workSec: 40, restSec: 20, repsType: 'number', count: 12 }, notes: '', groupId: null, media: null }] }], sessions: [] };
+const L4 = M.load({ s: { [M.STORAGE_KEY]: JSON.stringify(v3) }, getItem: mem.getItem, setItem: mem.setItem }).workouts[0].items;
+assert.strictEqual(L4[0].modeConfig.repsType, null); assert.ok(!('count' in L4[0].modeConfig)); assert.deepStrictEqual([L4[1].modeConfig.repsType, L4[1].modeConfig.count], ['number', 12]);
 console.log('MODEL OK');
 
 // ---- browser UI test ----
@@ -76,7 +84,12 @@ console.log('MODEL OK');
   await add(async () => { await type('name', 'Squat'); await type('wval', '135'); await type('cfg.count', '10'); await type('cfg.rm', '1'); await type('cfg.rs', '30'); });
   await add(async () => { await type('name', 'Row'); await click('[data-v=kg]'); await type('wval', '40'); await click('[data-v=range]'); await type('cfg.min', '8'); await type('cfg.max', '12'); });
   await add(async () => { await type('name', 'Plank'); await click('[data-v=bodyweight]'); await click('[data-v=timer]'); await type('cfg.rm', '0'); await type('cfg.rs', '0'); });
-  await add(async () => { await type('name', 'Bike'); await click('[data-v=intervals]'); await type('cfg.wm', '0'); await type('cfg.ws', '30'); await type('sets', '8'); await click('[data-v=range]'); await type('cfg.min', '10'); await type('cfg.max', '15');
+  await add(async () => { await type('name', 'Bike'); await click('[data-v=intervals]');
+    assert.strictEqual(await p.$$eval('[data-seg=repsType].on', a => a.length), 0); // nothing preselected
+    await click('[data-v=number]'); assert.strictEqual(await p.$eval('[data-b="cfg.count"]', e => e.value), ''); // no prefill
+    await click('[data-v=number]'); assert.strictEqual(await p.$$eval('[data-seg=repsType].on', a => a.length), 0); // tap again clears
+    assert.ok((await p.$$eval('label', a => a.map(l => l.textContent))).includes('Interval time'));
+    await type('cfg.wm', '0'); await type('cfg.ws', '30'); await type('sets', '8'); await click('[data-v=range]'); await type('cfg.min', '10'); await type('cfg.max', '15');
     const labels = await p.$$eval('label', a => a.map(l => l.textContent)); assert.strictEqual(labels[1], 'Mode'); assert.strictEqual(labels[2], '# of intervals'); assert.ok(!labels.includes('Sets'));
     await p.screenshot({ path: process.env.EDITOR_SHOT || '/tmp/editor-intervals.png', fullPage: true }); });
   await add(async () => { await type('name', 'Burpee'); await click('[data-v=timer]'); await type('cfg.wm', '1'); await type('cfg.ws', '0'); await type('cfg.rm', '0'); await type('cfg.rs', '20'); });
@@ -93,7 +106,7 @@ console.log('MODEL OK');
   await p.reload(); await new Promise(r => setTimeout(r, 200));
   const stored = await p.evaluate(() => JSON.parse(localStorage.getItem('wb.data.v1')));
   const ws = stored.workouts[0]; console.log(ws.items.map(x => x.name + ' | ' + JSON.stringify(x.weight) + ' | ' + x.mode + ' ' + JSON.stringify(x.modeConfig) + ' | grp=' + !!x.groupId).join('\n'));
-  assert.strictEqual(ws.items.length, 6); assert.strictEqual(stored.version, 3); assert.deepStrictEqual(ws.items.find(x => x.name === 'Bike').modeConfig, { repsType: 'range', min: 10, max: 15, workSec: 30 }); assert.strictEqual(ws.items.find(x => x.name === 'Bike').sets, 8);
+  assert.strictEqual(ws.items.length, 6); assert.strictEqual(stored.version, 4); assert.strictEqual(ws.items.find(x => x.name === 'Plank').modeConfig.repsType, null); assert.deepStrictEqual(ws.items.find(x => x.name === 'Bike').modeConfig, { repsType: 'range', min: 10, max: 15, workSec: 30 }); assert.strictEqual(ws.items.find(x => x.name === 'Bike').sets, 8);
   assert.strictEqual(ws.items.find(x => x.name === 'Squat').modeConfig.restSec, 90); assert.strictEqual(ws.items.find(x => x.name === 'Plank').modeConfig.restSec, 0);
   assert.deepStrictEqual(ws.items.find(x => x.name === 'Cone drill').modeConfig, { lapsEnabled: true, lapCount: 6 });
   assert.ok((await p.content()).includes('6 laps')); assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 2);

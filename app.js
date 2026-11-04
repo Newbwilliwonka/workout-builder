@@ -116,7 +116,7 @@
       mode: ex.mode, notes: ex.notes, groupId: ex.groupId, media: ex.media, cfg: {} };
     M.MODES.forEach(function (m) { d.cfg[m] = M.defaultModeConfig(m); });
     Object.assign(d.cfg[ex.mode], ex.modeConfig);
-    ['reps', 'intervals', 'timer'].forEach(function (m) { var x = d.cfg[m]; x.count = String(x.count); x.min = String(x.min); x.max = String(x.max); });
+    ['reps', 'intervals', 'timer'].forEach(function (m) { var x = d.cfg[m]; ['count', 'min', 'max'].forEach(function (k) { x[k] = x[k] == null ? '' : String(x[k]); }); });
     var r = d.cfg.reps; if (r.repsType === 'static') r.repsType = 'number';
     r.restSec = r.restSec || 0; r.rm = String(Math.floor(r.restSec / 60)); r.rs = String(r.restSec % 60);
     d.cfg.stopwatch.lapCount = String(d.cfg.stopwatch.lapCount || 1);
@@ -150,7 +150,7 @@
       '';
     function repsUI(allowStatic) {
       var o = [['number', 'Number'], ['range', 'Range']]; if (allowStatic) o.push(['static', 'Static hold']);
-      var x = '<label>Reps type</label>' + seg('repsType', o, c.repsType);
+      var x = '<label>Reps type' + (allowStatic ? ' <span class="mute" style="font-weight:400">(optional — tap again to clear)</span>' : '') + '</label>' + seg('repsType', o, c.repsType);
       if (c.repsType === 'number') x += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10');
       if (c.repsType === 'range') x += '<label>Rep range (min – max)</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min') + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max') + '</div></div>';
       if (c.repsType === 'static') x += '<p class="mute">Static hold — time only, no rep count.</p>';
@@ -160,7 +160,7 @@
       h += repsUI(false);
       h += '<label>Rest time between sets (optional)</label>' + timeIn('cfg', c, 'rm', 'rs');
     } else if (d.mode === 'intervals') {
-      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + repsUI(true);
+      h += '<label>Interval time</label>' + timeIn('cfg', c, 'wm', 'ws') + repsUI(true);
     } else if (d.mode === 'timer') {
       h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Rest time</label>' + timeIn('cfg', c, 'rm', 'rs') + repsUI(true);
     } else {
@@ -181,7 +181,7 @@
     };
     app.onclick = function (e) {
       var s = e.target.closest('[data-seg]');
-      if (s) { var k = s.dataset.seg; if (k === 'repsType') d.cfg[d.mode].repsType = s.dataset.v; else d[k] = s.dataset.v; return renderEditor(w, exId); }
+      if (s) { var k = s.dataset.seg; if (k === 'repsType') { var cc = d.cfg[d.mode]; cc.repsType = d.mode !== 'reps' && cc.repsType === s.dataset.v ? null : s.dataset.v; } else d[k] = s.dataset.v; return renderEditor(w, exId); }
       var b = e.target.closest('[data-a]'); if (!b) return;
       if (b.dataset.a === 'cancel') return go('#/w/' + w.id);
       if (b.dataset.a === 'save') {

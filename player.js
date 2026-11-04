@@ -39,8 +39,8 @@
   function target(ex) {
     var c = ex.modeConfig;
     if (ex.mode === 'reps') return (c.repsType === 'number' ? c.count + ' reps' : c.repsType === 'range' ? c.min + '–' + c.max + ' reps' : 'Static hold') + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '');
-    if (ex.mode === 'intervals') return M.fmtTime(c.workSec) + ' work · ' + M.repsText(c);
-    if (ex.mode === 'timer') return M.fmtTime(c.workSec) + ' work · ' + M.fmtTime(c.restSec) + ' rest · ' + M.repsText(c);
+    if (ex.mode === 'intervals') return M.fmtTime(c.workSec) + ' interval' + (c.repsType ? ' · ' + M.repsText(c) : '');
+    if (ex.mode === 'timer') return M.fmtTime(c.workSec) + ' work · ' + M.fmtTime(c.restSec) + ' rest' + (c.repsType ? ' · ' + M.repsText(c) : '');
     return c.lapsEnabled ? c.lapCount + (c.lapCount === 1 ? ' lap' : ' laps') : 'Stopwatch';
   }
   function weightTxt(ex) { return ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : ex.weight.unit; }
@@ -161,7 +161,7 @@
   }
   function render() {
     var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i), L = letters();
-    var chip = S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? 'Work' : S.phase === 'ready' ? 'Ready' : 'Set ' + st.set;
+    var chip = S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? 'Ready' : 'Set ' + st.set;
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
     // stage: visual screen + side carousel
@@ -184,7 +184,7 @@
     if (r.reps !== undefined) h += stepper('reps', 'Reps', r.reps, 1);
     if (r.holdSec !== undefined) h += stepper('holdSec', 'Hold (s)', r.holdSec, 5);
     if (r.rounds !== undefined) h += stepper('rounds', 'Rounds', r.rounds, 1);
-    if (r.workSec !== undefined) h += stepper('workSec', 'Work (s)', r.workSec, 5);
+    if (r.workSec !== undefined) h += stepper('workSec', ex.mode === 'intervals' ? 'Interval (s)' : 'Work (s)', r.workSec, 5);
     if (r.unit !== 'bodyweight') h += stepper('weight', 'Weight (' + r.unit + ')', r.weight, r.unit === 'kg' ? 2.5 : 5);
     else h += '<div class="pl-f"><span>Weight</span><div class="pl-bw">Bodyweight</div></div>';
     h += '</div>';
