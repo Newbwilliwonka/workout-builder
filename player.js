@@ -102,6 +102,7 @@
   function infoLines(ex, st) { // compact, non-repeating: [weight · reps, time + set/interval]
     var c = ex.modeConfig, w = ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : '';
     var reps = ex.mode === 'stopwatch' ? (c.lapsEnabled ? c.lapCount + (c.lapCount === 1 ? ' lap' : ' laps') : '') : ex.mode === 'reps' && c.repsType === 'static' ? 'Static hold' : c.repsType ? M.repsText(c) : '';
+    if (ex.mode === 'stopwatch') return [[w, reps, 'Attempt ' + st.set + ' of ' + st.of].filter(Boolean).join(' · ')];
     var setTx = (ex.mode === 'intervals' ? 'Interval ' : 'Set ') + st.set + ' of ' + st.of, l3;
     if (ex.mode === 'intervals') l3 = M.fmtTime(c.workSec) + ' ' + setTx;
     else if (ex.mode === 'timer') l3 = M.fmtTime(c.workSec) + ' work' + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '') + ' · ' + setTx;
@@ -125,7 +126,8 @@
     if (i + 1 >= S.queue.length) return '';
     var nx = exOf(i + 1), nst = S.queue[i + 1], line = infoLine(nx, nst);
     // Prefer name + weight if the full info line is long; keep as one green line.
-    var w = weightTxt(nx); if (line.length > 42) line = [w, (nx.mode === 'intervals' ? 'Interval ' : 'Set ') + nst.set + ' of ' + nst.of].filter(Boolean).join(' · ');
+    var w = weightTxt(nx);
+    if (line.length > 42) line = [w, (nx.mode === 'stopwatch' ? 'Attempt ' : nx.mode === 'intervals' ? 'Interval ' : 'Set ') + nst.set + ' of ' + nst.of].filter(Boolean).join(' · ');
     return '<div class="pl-up"><div class="pl-up-l">Up next</div><div class="pl-up-n">' + esc(nx.name) + '</div><div class="pl-up-i">' + esc(line) + '</div></div>';
   }
 
@@ -269,13 +271,22 @@
     p.push(r.unit === 'bodyweight' ? 'BW' : r.weight != null ? r.weight + ' ' + r.unit : '');
     return p.filter(Boolean).join(' · ');
   }
+  function loggedNoun() {
+    var sets = 0, atts = 0;
+    S.queue.forEach(function (q) {
+      var ex = S.w.items.filter(function (x) { return x.id === q.exerciseId; })[0];
+      if (ex && ex.mode === 'stopwatch') atts++; else sets++;
+    });
+    if (sets && atts) return (sets === 1 ? 'set' : 'sets') + ' and ' + (atts === 1 ? 'attempt' : 'attempts');
+    return atts ? 'attempts' : 'sets';
+  }
   function renderSummary() {
     var s = S.done, mins = Math.round((s.endedAt - s.startedAt) / 1000);
     var h = '<div class="pl-done"><div class="pl-check">✓</div><h2>Workout complete</h2><p class="mute">' + esc(s.workoutName) + ' · ' + M.fmtTime(mins) + ' total · ' +
-      s.results.length + ' of ' + S.queue.length + ' sets logged</p><div class="card pl-sum">';
+      s.results.length + ' of ' + S.queue.length + ' ' + loggedNoun() + ' logged</p><div class="card pl-sum">';
     if (!S.saved) h += '<p class="mute">' + (s.results.length ? 'Session not saved (history is off for now).' : 'Nothing was logged.') + '</p>';
     s.results.forEach(function (r) {
-      h += '<div class="pl-row"><div class="grow"><b>' + esc(r.name) + '</b> <span class="mute">set ' + r.set + '/' + r.of + '</span><div class="mute">' + esc(resultLine(r)) + '</div>' +
+      h += '<div class="pl-row"><div class="grow"><b>' + esc(r.name) + '</b> <span class="mute">' + (r.mode === 'stopwatch' ? 'attempt ' : 'set ') + r.set + '/' + r.of + '</span><div class="mute">' + esc(resultLine(r)) + '</div>' +
         (r.laps && r.laps.length ? '<div class="pl-laps sm">' + r.laps.map(function (l, k) { return '<span>L' + (k + 1) + ' ' + M.formatStopwatch(l.lapMs) + '</span>'; }).join('') + '</div>' : '') + '</div></div>';
     });
     h += '</div><button class="pri" style="width:100%" data-p="exit">Done</button></div>';
@@ -299,7 +310,7 @@
   }
   function render() {
     var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i);
-    var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? (ex.mode === 'intervals' ? 'Interval' : 'Ready') : 'Set ' + st.set;
+    var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? (ex.mode === 'stopwatch' ? 'Attempt complete' : 'Set complete') : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? (ex.mode === 'intervals' ? 'Interval' : 'Ready') : 'Set ' + st.set;
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
     // stage: visual screen + side carousel. Stopwatch taps live on .pl-go, so its media stays display-only.
@@ -322,19 +333,22 @@
       h += '</div>';
     }
     h += '</div>'; // end pl-main (media column)
-    h += '<div class="pl-car" aria-label="All sets"><div class="pl-car-h">Sets</div>';
+    var mixedSw = S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) && S.w.items.some(function (it) { return it.mode !== 'stopwatch'; });
+    var carHead = mixedSw ? 'Steps' : (S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) ? 'Attempts' : 'Sets');
+    h += '<div class="pl-car" aria-label="All ' + carHead.toLowerCase() + '"><div class="pl-car-h">' + carHead + '</div>';
     for (var j = 0; j < S.queue.length; j++) {
       var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
       var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
       if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
-      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
+      var sub = e2.mode === 'stopwatch' ? 'Attempt ' + q.set + '/' + q.of : (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of);
+      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b>' + (sub ? '<span>' + esc(sub) + '</span>' : '') + '</button>';
     }
     h += '</div></div>'; // end car + stage
     if (sw) h += '<button class="pl-go" data-p="primary">' + esc(primaryLabel(ex)) + '</button>';
     // tracking bar — during a shared superset rest, stack every round member's fields
     function trackBlock(mi) {
       var exT = exOf(mi), stT = S.queue[mi], rT = res(mi), out = '';
-      out += '<div class="pl-th"><span><b>' + esc(exT.name) + '</b> · ' + (exT.mode === 'intervals' ? 'Interval ' : 'Set ') + stT.set + '/' + stT.of + '</span>' + (rT.logged ? '<span class="pl-ok">✓ Logged</span>' : '<span class="mute">Tracking</span>') + '</div><div class="pl-fields">';
+      out += '<div class="pl-th"><span><b>' + esc(exT.name) + '</b> · ' + (exT.mode === 'stopwatch' ? 'Attempt ' : exT.mode === 'intervals' ? 'Interval ' : 'Set ') + stT.set + '/' + stT.of + '</span>' + (rT.logged ? '<span class="pl-ok">✓ Logged</span>' : '<span class="mute">Tracking</span>') + '</div><div class="pl-fields">';
       if (rT.reps !== undefined) out += stepper('reps', 'Reps', rT.reps, 1, mi);
       if (rT.holdSec !== undefined) out += stepper('holdSec', 'Hold (s)', rT.holdSec, 5, mi);
       if (rT.rounds !== undefined) out += stepper('rounds', 'Rounds', rT.rounds, 1, mi);

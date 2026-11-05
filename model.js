@@ -59,7 +59,7 @@
   function validateExercise(ex) {
     var e = [];
     if (!ex.name || !String(ex.name).trim()) e.push('Name is required.');
-    if (!Number.isInteger(ex.sets) || ex.sets < 1) e.push('Sets must be a whole number of 1 or more.');
+    if (!Number.isInteger(ex.sets) || ex.sets < 1) e.push((ex.mode === 'stopwatch' ? 'Attempts' : 'Sets') + ' must be a whole number of 1 or more.');
     if (UNITS.indexOf(ex.weight && ex.weight.unit) < 0) e.push('Invalid weight unit.');
     else if (ex.weight.unit !== 'bodyweight') {
       var w = ex.weight.value;
@@ -113,7 +113,8 @@
 
   // Human-readable summary line for list views.
   function summarize(ex) {
-    var c = ex.modeConfig || {}, iv = ex.mode === 'intervals', p = [ex.sets + (iv ? (ex.sets === 1 ? ' interval' : ' intervals') : (ex.sets === 1 ? ' set' : ' sets'))];
+    var c = ex.modeConfig || {}, iv = ex.mode === 'intervals', p = [];
+    p.push(ex.mode === 'stopwatch' ? ex.sets + (ex.sets === 1 ? ' attempt' : ' attempts') : ex.sets + (iv ? (ex.sets === 1 ? ' interval' : ' intervals') : (ex.sets === 1 ? ' set' : ' sets')));
     if (ex.mode !== 'stopwatch' && c.repsType) p.push(repsText(c));
     if (ex.mode === 'reps' && c.restSec > 0) p.push(fmtTime(c.restSec) + ' rest');
     if (iv) p.push(fmtTime(c.workSec) + ' interval');
