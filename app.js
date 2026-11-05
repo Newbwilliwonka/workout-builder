@@ -103,7 +103,7 @@
       else if (a === 'gup' || a === 'gdown') M.moveGroup(w, g, a === 'gup' ? -1 : 1);
       else if (a === 'unlink') { M.unlinkGroup(w, g); toast('Superset unlinked'); }
       else if (a === 'unlink1') M.unlinkExercise(w, id);
-      else if (a === 'link') { M.linkSuperset(w, Object.keys(selected)); selected = {}; toast('Superset linked'); }
+      else if (a === 'link') { M.linkSuperset(w, Object.keys(selected)); selected = {}; toast('Superset linked — only the final rest period will function in each set'); }
       else if (a === 'delex') { var ex = w.items.filter(function (x) { return x.id === id; })[0]; if (!confirm('Delete “' + ex.name + '”?')) return; M.deleteExercise(w, id); delete selected[id]; }
       persist(); renderWorkout(w);
     };
@@ -131,17 +131,21 @@
     return '<div class="seg">' + opts.map(function (o) { return '<button type="button" data-seg="' + key + '" data-v="' + o[0] + '" class="' + (o[0] === cur ? 'on' : '') + '">' + o[1] + '</button>'; }).join('') + '</div>';
   }
   function numIn(bind, val, ph, step) { return '<input type="number" inputmode="' + (step ? 'decimal' : 'numeric') + '" min="0" step="' + (step || 1) + '" data-b="' + bind + '" value="' + esc(val) + '" placeholder="' + (ph || '') + '">'; }
-  function timeIn(prefix, c, mk, sk) {
-    return '<div class="time">' + numIn(prefix + '.' + mk, c[mk], 'min') + '<span>:</span>' +
-      '<input type="number" inputmode="numeric" min="0" max="59" data-b="' + prefix + '.' + sk + '" value="' + esc(c[sk]) + '" placeholder="sec"><span class="mute" style="font-size:14px;font-weight:400">mm:ss</span></div>';
+  function timeIn(prefix, c, mk, sk, dis) {
+    var d = dis ? ' disabled' : '', off = dis ? ' is-off' : '';
+    return '<div class="time' + off + '">' +
+      '<input type="number" inputmode="numeric" min="0" step="1" data-b="' + prefix + '.' + mk + '" value="' + esc(c[mk]) + '" placeholder="min"' + d + '><span>:</span>' +
+      '<input type="number" inputmode="numeric" min="0" max="59" data-b="' + prefix + '.' + sk + '" value="' + esc(c[sk]) + '" placeholder="sec"' + d + '><span class="mute" style="font-size:14px;font-weight:400">mm:ss</span></div>';
   }
   function renderEditor(w, exId) {
     var isNew = exId === 'new', ex = isNew ? null : w.items.filter(function (x) { return x.id === exId; })[0];
     if (!isNew && !ex) return go('#/w/' + w.id);
     if (!draft) draft = makeDraft(ex || M.newExercise());
     var d = draft, c = d.cfg[d.mode];
+    var ssBlock = d.groupId ? M.blocks(w).filter(function (b) { return b.groupId === d.groupId; })[0] : null;
+    var ssNonFinal = !!(ssBlock && ssBlock.items[ssBlock.items.length - 1].id !== d.id);
     titleEl.textContent = isNew ? 'New exercise' : 'Edit exercise'; backBtn.hidden = false;
-    var h = '<div class="card">' +
+    var h = '<div class="card">' + (ssBlock ? '<div class="warn" role="status">Only the final rest period will function in each set of a superset</div>' : '') +
       '<label>Exercise name</label><input data-b="name" value="' + esc(d.name) + '" placeholder="e.g. Goblet squat" autocomplete="off">' +
       '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode) +
       (d.mode === 'intervals' ? '<label># of intervals</label>' + numIn('sets', d.sets, 'e.g. 8') : '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3')) +
@@ -158,11 +162,11 @@
     }
     if (d.mode === 'reps') {
       h += repsUI(false);
-      h += '<label>Rest time between sets (optional)</label>' + timeIn('cfg', c, 'rm', 'rs');
+      h += '<label>Rest time between sets (optional)' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal);
     } else if (d.mode === 'intervals') {
       h += '<label>Interval time</label>' + timeIn('cfg', c, 'wm', 'ws') + repsUI(true);
     } else if (d.mode === 'timer') {
-      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Rest time</label>' + timeIn('cfg', c, 'rm', 'rs') + repsUI(true);
+      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Rest time' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal) + repsUI(true);
     } else {
       h += '<p class="mute">Counts up from 0:00 during the workout. No settings needed.</p>' +
         '<label class="row" style="font-weight:400"><input type="checkbox" class="sel" data-b="cfg.lapsEnabled"' + (c.lapsEnabled ? ' checked' : '') + '> Record laps (agility / splits)</label>' +

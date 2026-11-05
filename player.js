@@ -109,13 +109,32 @@
     return [[w, reps, l3].filter(Boolean).join(' · ')];
   }
   function weightTxt(ex) { return ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : ex.weight.unit; }
+  // Superset round: consecutive queue items with the same groupId and set number.
+  function isFinalInRound(i) {
+    var q = S.queue[i]; if (!q.groupId) return true;
+    var n = S.queue[i + 1]; return !n || n.groupId !== q.groupId || n.set !== q.set;
+  }
+  function effectiveRest(i) { return isFinalInRound(i) ? (cfg(i).restSec > 0 ? cfg(i).restSec : 0) : 0; }
+  function roundMembers(i) {
+    var q = S.queue[i]; if (!q.groupId) return [i];
+    var out = []; for (var j = 0; j < S.queue.length; j++) if (S.queue[j].groupId === q.groupId && S.queue[j].set === q.set) out.push(j);
+    return out;
+  }
+  function infoLine(ex, st) { return (infoLines(ex, st)[0] || ''); }
+  function upNextHtml(i) {
+    if (i + 1 >= S.queue.length) return '';
+    var nx = exOf(i + 1), nst = S.queue[i + 1], line = infoLine(nx, nst);
+    // Prefer name + weight if the full info line is long; keep as one green line.
+    var w = weightTxt(nx); if (line.length > 42) line = [w, (nx.mode === 'intervals' ? 'Interval ' : 'Set ') + nst.set + ' of ' + nst.of].filter(Boolean).join(' · ');
+    return '<div class="pl-up"><div class="pl-up-l">Up next</div><div class="pl-up-n">' + esc(nx.name) + '</div><div class="pl-up-i">' + esc(line) + '</div></div>';
+  }
 
   // ---------- state machine ----------
   // phase: ready | work | rest | complete ; countdown phases have a duration, count-up phases don't
   function phaseDur() {
     var ex = exOf(S.idx), c = ex.modeConfig;
     if (S.phase === 'standoff') return STANDOFF * 1000;
-    if (S.phase === 'rest') return (ex.mode === 'timer' ? c.restSec : c.restSec || 0) * 1000;
+    if (S.phase === 'rest') return effectiveRest(S.idx) * 1000;
     if (S.phase === 'work' && (ex.mode === 'intervals' || ex.mode === 'timer')) return c.workSec * 1000;
     return null;
   }
@@ -131,7 +150,7 @@
   function log(i) { var r = res(i); r.logged = true; r.at = Date.now(); }
   function startRest() {
     var c = cfg(S.idx);
-    if (c.restSec > 0) { startTimer('rest'); render(); } else { log(S.idx); advance(); } // rest is part of the set, never skipped
+    if (effectiveRest(S.idx) > 0) { startTimer('rest'); render(); } else { log(S.idx); advance(); } // non-final superset members skip rest
   }
   function advance() { if (S.idx < S.queue.length - 1) enterStep(S.idx + 1); else endPrompt(); }
   function endPrompt() { // last set (incl. rest) complete -> ask; Keep editing leaves logs editable
@@ -158,9 +177,10 @@
         startTimer('standoff'); S.run = { firstSet: S.queue[S.idx].set, w: c.workSec, n: n, sched: toneSchedule(c.workSec, n) };
         scheduleTones(); return render();
       }
-      if (ex.mode === 'timer') { // same tone rules as intervals; advance/logging unchanged
+      if (ex.mode === 'timer') { // back-to-back through consecutive same-exercise sets; rest only when effectiveRest says so
         var tn = 1; while (S.idx + tn < S.queue.length && S.queue[S.idx + tn].exerciseId === ex.id) tn++;
-        var rs = c.restSec > 0 ? c.restSec : 0, lst = S.queue[S.idx + tn - 1];
+        // tn>1 only happens outside rotated supersets (ungrouped); those sets all take c.restSec.
+        var rs = tn === 1 ? effectiveRest(S.idx) : (c.restSec > 0 ? c.restSec : 0), lst = S.queue[S.idx + tn - 1];
         startTimer('standoff'); S.run = { timer: true, firstSet: S.queue[S.idx].set, w: c.workSec, r: rs, n: tn, sched: timerSchedule(c.workSec, rs, tn, lst.set === lst.of) };
         scheduleTones(); return render();
       }
@@ -203,7 +223,7 @@
       log(S.idx); return advance();
     }
     if (ex.mode === 'timer') {
-      if (c.restSec > 0) { startTimer('rest'); S.acc = over; return render(); }
+      if (effectiveRest(S.idx) > 0) { startTimer('rest'); S.acc = over; return render(); }
       log(S.idx); return advance();
     }
   }
@@ -243,9 +263,10 @@
 
   // ---------- rendering ----------
   function letters() { var m = {}, n = 0; M.blocks(S.w).forEach(function (b) { if (b.groupId) m[b.groupId] = String.fromCharCode(65 + n++ % 26); }); return m; }
-  function stepper(f, label, val, step) {
-    return '<div class="pl-f"><span>' + label + '</span><div class="pl-step"><button data-st="' + f + '" data-d="-' + step + '" aria-label="Decrease ' + label + '">−</button>' +
-      '<input type="number" inputmode="decimal" min="0" data-f="' + f + '" value="' + (val == null ? '' : val) + '"><button data-st="' + f + '" data-d="' + step + '" aria-label="Increase ' + label + '">+</button></div></div>';
+  function stepper(f, label, val, step, si) {
+    var di = si != null ? ' data-si="' + si + '"' : '';
+    return '<div class="pl-f"><span>' + label + '</span><div class="pl-step"><button data-st="' + f + '" data-d="-' + step + '"' + di + ' aria-label="Decrease ' + label + '">−</button>' +
+      '<input type="number" inputmode="decimal" min="0" data-f="' + f + '"' + di + ' value="' + (val == null ? '' : val) + '"><button data-st="' + f + '" data-d="' + step + '"' + di + ' aria-label="Increase ' + label + '">+</button></div></div>';
   }
   function primaryLabel(ex) {
     var c = ex.modeConfig;
@@ -262,29 +283,50 @@
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
     // stage: visual screen + side carousel
-    h += '<div class="pl-stage"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + '" data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '">' + '<div class="pl-hint">' + esc(hint(ex)) + '</div>' +
-      '<div class="pl-media" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span></div>' +
-      '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset ' + L[st.groupId] + '</span>' : '') + '</div>' +
-      (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '<div class="pl-ro pl-target">' + esc(ex.modeConfig.repsType === 'range' ? c.min + '–' + c.max : c.count) + '<small>reps</small></div>') +
-      '<div class="pl-info">' + (S.phase === 'rest' && i < S.queue.length - 1 ? '<div class="pl-next">Up next · ' + esc(exOf(i + 1).name) + '</div>' : '') +
-      '<div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>' +
-      '<div class="pl-bar"><i id="pg"></i></div></div>';
+    var mems = roundMembers(i), ssSplit = mems.length >= 2 && S.phase !== 'rest';
+    h += '<div class="pl-stage"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + (ssSplit ? ' is-ss' : '') + '" data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '">' + '<div class="pl-hint">' + esc(hint(ex)) + '</div>' +
+      (ssSplit ? '' : '<div class="pl-media" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span></div>') +
+      '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
+      (S.phase === 'rest' ? upNextHtml(i) : '') +
+      (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '<div class="pl-ro pl-target">' + esc(ex.modeConfig.repsType === 'range' ? c.min + '–' + c.max : c.count) + '<small>reps</small></div>');
+    if (ssSplit) {
+      // Stack one pane per exercise in this round. Dim non-current when the active mode is timed.
+      var dimOthers = ex.mode === 'timer' || ex.mode === 'intervals';
+      h += '<div class="pl-ss">';
+      mems.forEach(function (mi) {
+        var ex2 = exOf(mi), st2 = S.queue[mi], on = mi === i;
+        h += '<div class="pl-ss-pane' + (on ? ' on' : '') + (dimOthers && !on ? ' dim' : '') + '"><div class="pl-name">' + esc(ex2.name) + '</div><div class="pl-meta">' + esc(infoLine(ex2, st2)) + '</div></div>';
+      });
+      h += '</div>';
+    } else {
+      h += '<div class="pl-info"><div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>';
+    }
+    h += '<div class="pl-bar"><i id="pg"></i></div></div>';
     h += '<div class="pl-car" aria-label="All sets"><div class="pl-car-h">Sets</div>';
     for (var j = 0; j < S.queue.length; j++) {
       var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
-      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + (q.groupId ? '<em>' + L[q.groupId] + '</em>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
+      var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
+      if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
+      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
     }
     h += '</div></div>';
-    // tracking bar
-    h += '<div class="pl-track"><div class="pl-th"><span><b>' + esc(ex.name) + '</b> · ' + (ex.mode === 'intervals' ? 'Interval ' : 'Set ') + st.set + '/' + st.of + '</span>' + (r.logged ? '<span class="pl-ok">✓ Logged</span>' : '<span class="mute">Tracking</span>') + '</div><div class="pl-fields">';
-    if (r.reps !== undefined) h += stepper('reps', 'Reps', r.reps, 1);
-    if (r.holdSec !== undefined) h += stepper('holdSec', 'Hold (s)', r.holdSec, 5);
-    if (r.rounds !== undefined) h += stepper('rounds', 'Rounds', r.rounds, 1);
-    if (r.workSec !== undefined) h += stepper('workSec', ex.mode === 'intervals' ? 'Interval (s)' : 'Work (s)', r.workSec, 5);
-    if (r.unit !== 'bodyweight') h += stepper('weight', 'Weight (' + r.unit + ')', r.weight, r.unit === 'kg' ? 2.5 : 5);
-    else h += '<div class="pl-f"><span>Weight</span><div class="pl-bw">Bodyweight</div></div>';
-    h += '</div>';
-    if (r.laps && r.laps.length) h += '<div class="pl-laps">' + r.laps.map(function (l, k) { return '<span><b>Lap ' + (k + 1) + '</b> ' + M.formatStopwatch(l.lapMs) + ' <i>' + M.formatStopwatch(l.totalMs) + '</i></span>'; }).join('') + '</div>';
+    // tracking bar — during a shared superset rest, stack every round member's fields
+    function trackBlock(mi) {
+      var exT = exOf(mi), stT = S.queue[mi], rT = res(mi), out = '';
+      out += '<div class="pl-th"><span><b>' + esc(exT.name) + '</b> · ' + (exT.mode === 'intervals' ? 'Interval ' : 'Set ') + stT.set + '/' + stT.of + '</span>' + (rT.logged ? '<span class="pl-ok">✓ Logged</span>' : '<span class="mute">Tracking</span>') + '</div><div class="pl-fields">';
+      if (rT.reps !== undefined) out += stepper('reps', 'Reps', rT.reps, 1, mi);
+      if (rT.holdSec !== undefined) out += stepper('holdSec', 'Hold (s)', rT.holdSec, 5, mi);
+      if (rT.rounds !== undefined) out += stepper('rounds', 'Rounds', rT.rounds, 1, mi);
+      if (rT.workSec !== undefined) out += stepper('workSec', exT.mode === 'intervals' ? 'Interval (s)' : 'Work (s)', rT.workSec, 5, mi);
+      if (rT.unit !== 'bodyweight') out += stepper('weight', 'Weight (' + rT.unit + ')', rT.weight, rT.unit === 'kg' ? 2.5 : 5, mi);
+      else out += '<div class="pl-f"><span>Weight</span><div class="pl-bw">Bodyweight</div></div>';
+      out += '</div>';
+      if (rT.laps && rT.laps.length) out += '<div class="pl-laps">' + rT.laps.map(function (l, k) { return '<span><b>Lap ' + (k + 1) + '</b> ' + M.formatStopwatch(l.lapMs) + ' <i>' + M.formatStopwatch(l.totalMs) + '</i></span>'; }).join('') + '</div>';
+      return out;
+    }
+    h += '<div class="pl-track">';
+    if (S.phase === 'rest' && st.groupId && mems.length > 1) mems.forEach(function (mi) { h += '<div class="pl-track-g">' + trackBlock(mi) + '</div>'; });
+    else h += trackBlock(i);
     h += '</div>';
     // summary list
     var done = {}; Object.keys(S.results).forEach(function (k) { var x = S.results[k]; if (x.logged) done[x.exerciseId] = (done[x.exerciseId] || 0) + 1; });
@@ -335,7 +377,7 @@
       S.queue.forEach(function (q, k) { if (q.exerciseId === id) { if (first < 0) first = k; if (open < 0 && !(S.results[k] && S.results[k].logged)) open = k; } });
       return select(open >= 0 ? open : first);
     }
-    if (b.dataset.st) { var f = b.dataset.st, r = res(S.idx); r[f] = Math.max(0, Math.round(((+r[f] || 0) + +b.dataset.d) * 10) / 10); var inp = S.root.querySelector('[data-f="' + f + '"]'); if (inp) inp.value = r[f]; return; }
+    if (b.dataset.st) { var f = b.dataset.st, si = b.dataset.si != null ? +b.dataset.si : S.idx, r = res(si); r[f] = Math.max(0, Math.round(((+r[f] || 0) + +b.dataset.d) * 10) / 10); var inp = S.root.querySelector('[data-f="' + f + '"]' + (b.dataset.si != null ? '[data-si="' + si + '"]' : '')); if (inp) inp.value = r[f]; return; }
     var a = b.dataset.p;
     if (a === 'primary') { var was = S.running; primary(); if (S && !S.done) flash(S.running && !was ? '▶' : !S.running && was ? '❚❚' : '✓'); }
     else if (a === 'pause') { ensureAudio(); togglePause(); }
@@ -346,7 +388,7 @@
     else if (a === 'keep') { S.prompt = false; render(); }
     else if (a === 'exit') S.onExit();
   }
-  function onInput(e) { var f = e.target.dataset.f; if (!f) return; var v = M.num(e.target.value); res(S.idx)[f] = v === null || isNaN(v) ? null : Math.max(0, v); }
+  function onInput(e) { var f = e.target.dataset.f; if (!f) return; var si = e.target.dataset.si != null ? +e.target.dataset.si : S.idx, v = M.num(e.target.value); res(si)[f] = v === null || isNaN(v) ? null : Math.max(0, v); }
 
   var api = {
     mount: function (root, w, data, persist, onExit) {
