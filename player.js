@@ -271,10 +271,19 @@
     p.push(r.unit === 'bodyweight' ? 'BW' : r.weight != null ? r.weight + ' ' + r.unit : '');
     return p.filter(Boolean).join(' · ');
   }
+  function loggedNoun() {
+    var sets = 0, atts = 0;
+    S.queue.forEach(function (q) {
+      var ex = S.w.items.filter(function (x) { return x.id === q.exerciseId; })[0];
+      if (ex && ex.mode === 'stopwatch') atts++; else sets++;
+    });
+    if (sets && atts) return (sets === 1 ? 'set' : 'sets') + ' and ' + (atts === 1 ? 'attempt' : 'attempts');
+    return atts ? 'attempts' : 'sets';
+  }
   function renderSummary() {
     var s = S.done, mins = Math.round((s.endedAt - s.startedAt) / 1000);
     var h = '<div class="pl-done"><div class="pl-check">✓</div><h2>Workout complete</h2><p class="mute">' + esc(s.workoutName) + ' · ' + M.fmtTime(mins) + ' total · ' +
-      s.results.length + ' of ' + S.queue.length + ' ' + (S.w.items.every(function (it) { return it.mode === 'stopwatch'; }) ? 'attempts' : 'sets') + ' logged</p><div class="card pl-sum">';
+      s.results.length + ' of ' + S.queue.length + ' ' + loggedNoun() + ' logged</p><div class="card pl-sum">';
     if (!S.saved) h += '<p class="mute">' + (s.results.length ? 'Session not saved (history is off for now).' : 'Nothing was logged.') + '</p>';
     s.results.forEach(function (r) {
       h += '<div class="pl-row"><div class="grow"><b>' + esc(r.name) + '</b> <span class="mute">' + (r.mode === 'stopwatch' ? 'attempt ' : 'set ') + r.set + '/' + r.of + '</span><div class="mute">' + esc(resultLine(r)) + '</div>' +

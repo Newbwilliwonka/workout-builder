@@ -57,5 +57,27 @@ const data = M.emptyData(); data.workouts.push(w); const editW = M.newWorkout('E
   assert.ok(/Set 1\/2/.test(await p.$eval('.pl-ci.cur span', e => e.textContent)));
   assert.ok(/Set 1 of 2/.test(await p.$eval('.pl-info', e => e.textContent)));
   assert.strictEqual(await p.$eval('.pl-li.cur .pl-cnt', e => e.textContent), '0/2');
+  async function summaryOf(items) {
+    const ww = M.newWorkout('Sum'); ww.items = items;
+    const dd = M.emptyData(); dd.workouts.push(ww);
+    await p.evaluate((k, v) => localStorage.setItem(k, v), M.STORAGE_KEY, JSON.stringify(dd));
+    await p.goto(URL + '#/play/' + ww.id); await p.reload(); await p.waitForSelector('.pl-endw');
+    await click('.pl-endw'); await p.waitForSelector('.pl-done .mute');
+    return p.$eval('.pl-done .mute', e => e.textContent);
+  }
+  const swOnly = await summaryOf([mk({ name: 'Shuttle', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } })]);
+  assert.ok(/attempts logged/.test(swOnly), swOnly); assert.ok(!/sets/.test(swOnly), swOnly);
+  const setsOnly = await summaryOf([mk({ name: 'Row', sets: 2, weight: { unit: 'lb', value: 40 }, mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 } })]);
+  assert.ok(/sets logged/.test(setsOnly), setsOnly); assert.ok(!/attempt/.test(setsOnly), setsOnly);
+  const mixed = await summaryOf([
+    mk({ name: 'Shuttle', sets: 2, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } }),
+    mk({ name: 'Row', sets: 2, weight: { unit: 'lb', value: 40 }, mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 } })
+  ]);
+  assert.ok(/sets and attempts logged/.test(mixed), mixed);
+  const oneEach = await summaryOf([
+    mk({ name: 'Shuttle', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } }),
+    mk({ name: 'Row', sets: 1, weight: { unit: 'lb', value: 40 }, mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 } })
+  ]);
+  assert.ok(/set and attempt logged/.test(oneEach), oneEach); assert.ok(!/sets and attempts/.test(oneEach), oneEach);
   assert.deepStrictEqual(errs, []); console.log('STOPWATCH SETS UI OK'); await b.close();
 })().catch(e => { console.error(e); process.exit(1); });
