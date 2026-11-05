@@ -51,7 +51,7 @@ body.playing .bar{display:none}
 .pl-media{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;color:#334155;font-size:11px;letter-spacing:.04em;padding-top:52px}
 .pl-top{position:absolute;top:12px;left:12px;right:12px;display:flex;gap:6px;flex-wrap:wrap}
 .pl-chip{background:rgba(255,255,255,.1);backdrop-filter:blur(6px);color:#e2e8f0;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
-.pl-chip.ss{background:rgba(124,58,237,.35)}
+.pl-chip.ss{background:rgba(124,58,237,.35);margin-bottom:0} /* builder .ss margin was stretching the status chip */
 .pl-ro{position:absolute;left:0;right:0;top:40%;transform:translateY(-50%);text-align:center;font:700 clamp(36px,11vw,56px)/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .pl-target small{display:block;font:600 14px system-ui;color:#94a3b8;letter-spacing:.1em;text-transform:uppercase;margin-top:6px}
 .pl-info{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(2,6,23,.92))}
