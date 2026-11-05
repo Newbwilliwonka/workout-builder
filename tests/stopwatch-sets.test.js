@@ -1,11 +1,13 @@
-// Stopwatch omits set labels; stored sets still play once each.
+// Stopwatch counts are labeled Attempts; the stored number still plays once each.
 // node tests/stopwatch-sets.test.js [url]
 const assert = require('assert'); const M = require('../model.js'); const pp = require('puppeteer-core');
 const URL = process.argv[2] || 'http://127.0.0.1:8787/';
 const mk = o => M.normalizeExercise(M.newExercise(o));
 const sw3 = mk({ name: 'Shuttle', sets: 3, mode: 'stopwatch', modeConfig: { lapsEnabled: true, lapCount: 2 } });
-assert.strictEqual(M.buildPlayQueue({ items: [sw3] }).length, 3); // sets>1 still repeats; not collapsed
-assert.ok(!/\bset/.test(M.summarize(sw3))); assert.ok(/2 laps/.test(M.summarize(sw3)));
+const sw1 = mk({ name: 'Once', sets: 1, mode: 'stopwatch', modeConfig: { lapsEnabled: false } });
+assert.strictEqual(M.buildPlayQueue({ items: [sw3] }).length, 3); // stored count still repeats
+assert.ok(/3 attempts/.test(M.summarize(sw3))); assert.ok(/2 laps/.test(M.summarize(sw3))); assert.ok(!/\bsets?\b/.test(M.summarize(sw3)));
+assert.ok(/1 attempt\b/.test(M.summarize(sw1)));
 assert.ok(/3 sets/.test(M.summarize(mk({ name: 'Row', sets: 3, mode: 'reps', modeConfig: { repsType: 'number', count: 8 } }))));
 
 const w = M.newWorkout('Mix');
@@ -25,7 +27,8 @@ const data = M.emptyData(); data.workouts.push(w); const editW = M.newWorkout('E
   const click = async s => { await p.click(s); await wait(80); };
   assert.ok((await p.$eval('label', () => [...document.querySelectorAll('label')].some(l => l.textContent === 'Sets'))));
   await click('[data-v=stopwatch]');
-  assert.strictEqual(await p.$('[data-b=sets]'), null);
+  assert.strictEqual(await p.$eval('[data-b=sets]', e => e.value), '4');
+  assert.ok((await p.$$eval('label', ls => ls.map(l => l.textContent))).includes('Attempts'));
   assert.ok(!(await p.$$eval('label', ls => ls.map(l => l.textContent))).some(t => t === 'Sets' || t === '# of intervals'));
   await click('[data-v=reps]');
   assert.ok(await p.$('[data-b=sets]'));
@@ -37,15 +40,16 @@ const data = M.emptyData(); data.workouts.push(w); const editW = M.newWorkout('E
   await p.waitForSelector('[data-a=play]');
   const saved = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), M.STORAGE_KEY);
   const ex = saved.workouts.find(x => x.id === editW.id).items[0];
-  assert.strictEqual(ex.mode, 'stopwatch'); assert.strictEqual(ex.sets, 4); // hidden field did not clear stored sets
+  assert.strictEqual(ex.mode, 'stopwatch'); assert.strictEqual(ex.sets, 4); // Attempts field keeps the stored number
   await p.goto(URL + '#/play/' + w.id); await p.reload(); await p.waitForSelector('.pl-go');
   assert.strictEqual(await p.$eval('.pl-go', e => e.textContent), 'Start');
   assert.strictEqual(await p.$eval('.pl-go', e => getComputedStyle(e).minHeight), '99px');
   const swText = await p.$eval('.pl-info', e => e.textContent);
-  assert.ok(swText.includes('3 laps')); assert.ok(!/Set/.test(swText));
-  assert.strictEqual(await p.$eval('.pl-ci.cur span', e => e.textContent), '3 laps');
-  assert.ok(!/Set/.test(await p.$eval('.pl-th', e => e.textContent)));
-  assert.strictEqual(await p.$('.pl-li.cur .pl-cnt'), null);
+  assert.ok(swText.includes('3 laps')); assert.ok(swText.includes('Attempt 1 of 1')); assert.ok(!/\bSet\b/.test(swText));
+  assert.strictEqual(await p.$eval('.pl-ci.cur span', e => e.textContent), 'Attempt 1/1');
+  assert.ok(/Attempt 1\/1/.test(await p.$eval('.pl-th', e => e.textContent)));
+  assert.strictEqual(await p.$eval('.pl-car-h', e => e.textContent), 'Steps');
+  assert.strictEqual(await p.$eval('.pl-li.cur .pl-cnt', e => e.textContent), '0/1');
   await click('.pl-go');
   assert.strictEqual(await p.$eval('.pl-go', e => e.textContent), 'Lap 1 / 3');
   await p.evaluate(() => document.querySelectorAll('.pl-ci')[1].click()); await wait(80);
