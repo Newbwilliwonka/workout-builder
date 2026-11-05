@@ -302,9 +302,9 @@
     var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? (ex.mode === 'intervals' ? 'Interval' : 'Ready') : 'Set ' + st.set;
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
-    // stage: visual screen + side carousel
-    var mems = roundMembers(i), showSsExtra = mems.length >= 2 && S.phase !== 'rest';
-    h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + '" data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '">' + '<div class="pl-hint">' + esc(hint(ex)) + '</div>' +
+    // stage: visual screen + side carousel. Stopwatch taps live on .pl-go, so its media stays display-only.
+    var mems = roundMembers(i), showSsExtra = mems.length >= 2 && S.phase !== 'rest', sw = ex.mode === 'stopwatch';
+    h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + (sw ? ' is-static' : '') + '"' + (sw ? '' : ' data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '"') + '>' + (sw ? '' : '<div class="pl-hint">' + esc(hint(ex)) + '</div>') +
       '<div class="pl-media" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span></div>' +
       '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
       (S.phase === 'rest' ? upNextHtml(i) : '') +
@@ -330,6 +330,7 @@
       h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
     }
     h += '</div></div>'; // end car + stage
+    if (sw) h += '<button class="pl-go" data-p="primary">' + esc(primaryLabel(ex)) + '</button>';
     // tracking bar — during a shared superset rest, stack every round member's fields
     function trackBlock(mi) {
       var exT = exOf(mi), stT = S.queue[mi], rT = res(mi), out = '';
