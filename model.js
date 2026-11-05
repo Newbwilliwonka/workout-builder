@@ -113,7 +113,8 @@
 
   // Human-readable summary line for list views.
   function summarize(ex) {
-    var c = ex.modeConfig || {}, iv = ex.mode === 'intervals', p = [ex.sets + (iv ? (ex.sets === 1 ? ' interval' : ' intervals') : (ex.sets === 1 ? ' set' : ' sets'))];
+    var c = ex.modeConfig || {}, iv = ex.mode === 'intervals', p = [];
+    if (ex.mode !== 'stopwatch') p.push(ex.sets + (iv ? (ex.sets === 1 ? ' interval' : ' intervals') : (ex.sets === 1 ? ' set' : ' sets')));
     if (ex.mode !== 'stopwatch' && c.repsType) p.push(repsText(c));
     if (ex.mode === 'reps' && c.restSec > 0) p.push(fmtTime(c.restSec) + ' rest');
     if (iv) p.push(fmtTime(c.workSec) + ' interval');
