@@ -111,6 +111,15 @@ console.log('MODEL OK');
   assert.deepStrictEqual(ws.items.find(x => x.name === 'Cone drill').modeConfig, { lapsEnabled: true, lapCount: 6 });
   assert.ok((await p.content()).includes('6 laps')); assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 2);
   assert.ok(!(await p.$eval('[data-a=play]', b => b.disabled))); // Start enabled when workout has exercises
+  // home: workout reorder persists (same ▲/▼ style as exercises)
+  await p.evaluate(() => { const d = JSON.parse(localStorage.getItem('wb.data.v1')); if (d.workouts.length < 2) { d.workouts.push(JSON.parse(JSON.stringify(d.workouts[0]))); d.workouts[1].id = 'w-copy'; d.workouts[1].name = 'Copy'; localStorage.setItem('wb.data.v1', JSON.stringify(d)); } });
+  await p.goto((process.argv[2] || 'http://127.0.0.1:8787/') + '#/'); await p.reload(); await new Promise(r => setTimeout(r, 200));
+  const before = await p.evaluate(k => JSON.parse(localStorage.getItem(k)).workouts.map(w => w.id), M.STORAGE_KEY);
+  assert.ok(before.length >= 2); assert.ok(await p.$('[data-a=wup]')); assert.ok(await p.$('[data-a=wdown]'));
+  await p.click('[data-a=wdown]'); await new Promise(r => setTimeout(r, 100));
+  const after = await p.evaluate(k => JSON.parse(localStorage.getItem(k)).workouts.map(w => w.id), M.STORAGE_KEY);
+  assert.strictEqual(after[0], before[1]); assert.strictEqual(after[1], before[0]);
+  await p.screenshot({ path: '/workspace/home-reorder.png' });
   await p.screenshot({ path: '/tmp/wbtest/shot.png' });
   assert.deepStrictEqual(errs, []); console.log('UI OK'); await b.close();
 })().catch(e => { console.error(e); process.exit(1); });

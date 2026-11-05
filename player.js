@@ -138,7 +138,8 @@
     if (S.phase === 'work' && (ex.mode === 'intervals' || ex.mode === 'timer')) return c.workSec * 1000;
     return null;
   }
-  function logResting() { if (S.phase === 'rest') log(S.idx); } // rest is part of the set: interrupted/ended -> log
+  function logRound(i) { roundMembers(i).forEach(log); } // whole superset round logs together
+  function logResting() { if (S.phase === 'rest') logRound(S.idx); } // rest end/interrupt/End -> log the round
   function enterStep(i) {
     logResting(); S.prompt = false;
     S.idx = i; S.running = false; S.acc = 0; S.rep = 1; if (S.run) { stopTones(); S.run = null; }
@@ -149,8 +150,12 @@
   function startTimer(phase) { S.phase = phase; S.acc = 0; S.t0 = now(); S.running = true; lockScreen(); }
   function log(i) { var r = res(i); r.logged = true; r.at = Date.now(); }
   function startRest() {
-    var c = cfg(S.idx);
-    if (effectiveRest(S.idx) > 0) { startTimer('rest'); render(); } else { log(S.idx); advance(); } // non-final superset members skip rest
+    if (effectiveRest(S.idx) > 0) { startTimer('rest'); render(); }
+    else {
+      // Non-final SS members defer logging until the round's rest (or final with no rest logs the round now).
+      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      advance();
+    }
   }
   function advance() { if (S.idx < S.queue.length - 1) enterStep(S.idx + 1); else endPrompt(); }
   function endPrompt() { // last set (incl. rest) complete -> ask; Keep editing leaves logs editable
@@ -203,28 +208,34 @@
     var ex = exOf(S.idx), c = ex.modeConfig, r = res(S.idx);
     if (S.phase === 'standoff') { startTimer('work'); S.t0 = now() - over; return render(); }
     if (ex.mode === 'intervals' && S.run) {
-      log(S.idx); var nx = S.idx + 1;
-      if (nx < S.queue.length && S.queue[nx].exerciseId === ex.id) { // auto-continue, clock continuity kept
-        S.idx = nx; res(nx); startTimer('work'); S.t0 = now() - over; return render();
+      var nx = S.idx + 1;
+      if (nx < S.queue.length && S.queue[nx].exerciseId === ex.id) { // auto-continue same exercise
+        log(S.idx); S.idx = nx; res(nx); startTimer('work'); S.t0 = now() - over; return render();
       }
       if (navigator.vibrate) try { navigator.vibrate([300, 100, 300]); } catch (e) {}
-      S.nodes = []; S.run = null; S.beeps = (S.beeps || 0) + 1; return advance(); // completion tone already scheduled
+      S.nodes = []; S.run = null; S.beeps = (S.beeps || 0) + 1;
+      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      return advance();
     }
-    if (ex.mode === 'timer' && S.run) { // back to back; set (incl. its rest) logs when its rest ends
+    if (ex.mode === 'timer' && S.run) { // back to back; SS round logs together when its rest ends
       S.beeps = (S.beeps || 0) + 1;
       if (S.phase === 'work' && S.run.r > 0) { startTimer('rest'); S.t0 = now() - over; return render(); }
-      log(S.idx); var tx = S.idx + 1;
-      if (tx < S.queue.length && S.queue[tx].exerciseId === ex.id) { S.idx = tx; res(tx); startTimer('work'); S.t0 = now() - over; return render(); }
-      S.nodes = []; S.run = null; return advance(); // final tone keeps playing
+      var tx = S.idx + 1;
+      if (tx < S.queue.length && S.queue[tx].exerciseId === ex.id) { log(S.idx); S.idx = tx; res(tx); startTimer('work'); S.t0 = now() - over; return render(); }
+      S.nodes = []; S.run = null;
+      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      return advance();
     }
     beep();
-    if (S.phase === 'rest') { log(S.idx); return advance(); }
+    if (S.phase === 'rest') { logRound(S.idx); return advance(); }
     if (ex.mode === 'intervals') {
-      log(S.idx); return advance();
+      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      return advance();
     }
     if (ex.mode === 'timer') {
       if (effectiveRest(S.idx) > 0) { startTimer('rest'); S.acc = over; return render(); }
-      log(S.idx); return advance();
+      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      return advance();
     }
   }
   function select(i) { if (i === S.idx) return; enterStep(i); }
@@ -347,6 +358,8 @@
   function hint(ex) {
     var l = primaryLabel(ex);
     if (res(S.idx).logged && (S.phase === 'ready' || (S.phase === 'work' && !S.running && ex.mode === 'reps'))) return 'Logged · tap to redo';
+    if (ex.mode === 'reps' && S.queue[S.idx].groupId && !isFinalInRound(S.idx) && (S.phase === 'work' || S.phase === 'ready') && !S.running)
+      return 'Tap for next'; // no rest on non-final SS member
     return S.running ? '' : 'Tap to ' + l.charAt(0).toLowerCase() + l.slice(1);
   }
   function flash(icon) {

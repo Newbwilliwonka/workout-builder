@@ -36,15 +36,17 @@ const data = M.emptyData(); data.workouts.push(w);
   // Player: Curl (non-final) skips its 45s rest; Press (final) takes 20s rest
   await click('[data-a=play]');
   assert.ok(await p.$('.pl-list .pl-chain')); assert.ok(!(await p.$('.pl-li em')));
+  assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
   await click('[data-p=primary]'); // Curl 1
-  let s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged: window.__wbPlayer.results[0].logged, phase: window.__wbPlayer.phase, name: document.querySelector('.pl-ss-pane.on .pl-name').textContent }));
-  assert.deepStrictEqual(s, { idx: 1, logged: true, phase: 'work', name: 'Press' }); // skipped rest, now Press set 1
-  await click('[data-p=primary]'); s = await p.evaluate(() => ({ phase: window.__wbPlayer.phase, ro: document.getElementById('ro').textContent, logged: !!window.__wbPlayer.results[1]?.logged }));
-  assert.strictEqual(s.phase, 'rest'); assert.strictEqual(s.ro, '0:20'); assert.ok(!s.logged);
+  let s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, phase: window.__wbPlayer.phase, name: document.querySelector('.pl-ss-pane.on .pl-name').textContent }));
+  assert.deepStrictEqual(s, { idx: 1, logged0: false, phase: 'work', name: 'Press' }); // deferred log, now Press set 1
+  await click('[data-p=primary]'); s = await p.evaluate(() => ({ phase: window.__wbPlayer.phase, ro: document.getElementById('ro').textContent, logged0: window.__wbPlayer.results[0].logged, logged1: !!window.__wbPlayer.results[1]?.logged }));
+  assert.strictEqual(s.phase, 'rest'); assert.strictEqual(s.ro, '0:20'); assert.ok(!s.logged0); assert.ok(!s.logged1);
+  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 0);
   assert.strictEqual(await p.$eval('.pl-up-n', e => e.textContent), 'Curl');
   assert.strictEqual(await p.$$eval('.pl-track-g', a => a.length), 2);
   await adv(20100);
-  s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged: window.__wbPlayer.results[1].logged, name: document.querySelector('.pl-ss-pane.on .pl-name').textContent }));
-  assert.deepStrictEqual([s.idx, s.logged, s.name], [2, true, 'Curl']);
+  s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, logged1: window.__wbPlayer.results[1].logged, name: document.querySelector('.pl-ss-pane.on .pl-name').textContent }));
+  assert.deepStrictEqual([s.idx, s.logged0, s.logged1, s.name], [2, true, true, 'Curl']); // round logged together
   assert.deepStrictEqual(errs, []); console.log('SUPERSET OK'); await b.close();
 })().catch(e => { console.error(e); process.exit(1); });

@@ -33,10 +33,12 @@
     titleEl.textContent = 'Workouts'; backBtn.hidden = true;
     var h = '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     if (!data.workouts.length) h += '<div class="empty">No workouts yet.<br>Tap “New workout” to build one.</div>';
-    data.workouts.forEach(function (w) {
-      var n = w.items.length;
+    data.workouts.forEach(function (w, wi) {
+      var n = w.items.length, nW = data.workouts.length;
       h += '<div class="card"><div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
         '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div><div class="actions">' +
+        '<button class="sm" data-a="wup" data-id="' + w.id + '" aria-label="Move up"' + (wi === 0 ? ' disabled' : '') + '>▲</button>' +
+        '<button class="sm" data-a="wdown" data-id="' + w.id + '" aria-label="Move down"' + (wi === nW - 1 ? ' disabled' : '') + '>▼</button>' +
         '<button class="pri sm" data-a="open" data-id="' + w.id + '">Open</button>' +
         '<button class="sm" data-a="rename" data-id="' + w.id + '">Rename</button>' +
         '<button class="sm" data-a="dup" data-id="' + w.id + '">Duplicate</button>' +
@@ -53,6 +55,10 @@
       else if (a === 'rename') { var r = prompt('Rename workout', w.name); if (r && r.trim()) { w.name = r.trim(); w.updatedAt = Date.now(); persist(); renderList(); } }
       else if (a === 'dup') { var c = M.duplicateWorkout(w); data.workouts.splice(data.workouts.indexOf(w) + 1, 0, c); persist(); renderList(); toast('Duplicated'); }
       else if (a === 'del') { if (confirm('Delete “' + w.name + '”? This cannot be undone.')) { data.workouts.splice(data.workouts.indexOf(w), 1); persist(); renderList(); toast('Deleted'); } }
+      else if (a === 'wup' || a === 'wdown') {
+        var i = data.workouts.indexOf(w), j = i + (a === 'wup' ? -1 : 1);
+        if (j >= 0 && j < data.workouts.length) { var t = data.workouts[i]; data.workouts[i] = data.workouts[j]; data.workouts[j] = t; persist(); renderList(); }
+      }
     };
   }
 
