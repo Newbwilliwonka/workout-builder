@@ -304,21 +304,13 @@
     var h = '<div class="pl">';
     // stage: visual screen + side carousel
     var mems = roundMembers(i), showSsExtra = mems.length >= 2 && S.phase !== 'rest';
-    h += '<div class="pl-topblock"><div class="pl-stage"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + '" data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '">' + '<div class="pl-hint">' + esc(hint(ex)) + '</div>' +
+    h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + '" data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '">' + '<div class="pl-hint">' + esc(hint(ex)) + '</div>' +
       '<div class="pl-media" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span></div>' +
       '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
       (S.phase === 'rest' ? upNextHtml(i) : '') +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '<div class="pl-ro pl-target">' + esc(ex.modeConfig.repsType === 'range' ? c.min + '–' + c.max : c.count) + '<small>reps</small></div>');
     h += '<div class="pl-info"><div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>';
-    h += '<div class="pl-bar"><i id="pg"></i></div></div>';
-    h += '<div class="pl-car" aria-label="All sets"><div class="pl-car-h">Sets</div>';
-    for (var j = 0; j < S.queue.length; j++) {
-      var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
-      var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
-      if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
-      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
-    }
-    h += '</div></div>'; // end car + stage
+    h += '<div class="pl-bar"><i id="pg"></i></div></div>'; // end screen
     if (showSsExtra) {
       var dimOthers = ex.mode === 'timer' || ex.mode === 'intervals';
       h += '<div class="pl-ss-extra" aria-label="Superset partner">';
@@ -329,7 +321,15 @@
       });
       h += '</div>';
     }
-    h += '</div>'; // end topblock
+    h += '</div>'; // end pl-main (media column)
+    h += '<div class="pl-car" aria-label="All sets"><div class="pl-car-h">Sets</div>';
+    for (var j = 0; j < S.queue.length; j++) {
+      var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
+      var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
+      if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
+      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
+    }
+    h += '</div></div>'; // end car + stage
     // tracking bar — during a shared superset rest, stack every round member's fields
     function trackBlock(mi) {
       var exT = exOf(mi), stT = S.queue[mi], rT = res(mi), out = '';
