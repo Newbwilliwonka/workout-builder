@@ -16,6 +16,13 @@ assert.strictEqual(w.items[2].weight.value, null); assert.ok(!('count' in w.item
 M.linkSuperset(w, [w.items[0].id, w.items[4].id]);  // non-adjacent -> made contiguous
 assert.deepStrictEqual(w.items.map(x => x.name), ['Squat', 'Burpee', 'Row', 'Plank', 'Bike', 'Cone drill']);
 assert.strictEqual(w.items[0].groupId, w.items[1].groupId);
+assert.strictEqual(M.supersetLinkSize(w, [w.items[0].id, w.items[1].id]), 2);
+assert.throws(() => M.linkSuperset(w, [w.items[0].id, w.items[2].id]), /limited to 2/); // would merge into 3
+(function () {
+  const x = M.newWorkout('cap'); ['A','B','C'].forEach(n => M.upsertExercise(x, M.newExercise({ name: n })));
+  assert.throws(() => M.linkSuperset(x, x.items.map(i => i.id)), /limited to 2/);
+  M.linkSuperset(x, [x.items[0].id, x.items[1].id]); assert.strictEqual(x.items.filter(i => i.groupId).length, 2);
+})();
 M.save(mem, d); const r = M.load(mem); assert.deepStrictEqual(r, JSON.parse(JSON.stringify(d)));
 const q = M.buildPlayQueue(r.workouts[0]).slice(0, 6).map(s => r.workouts[0].items.find(x => x.id === s.exerciseId).name + s.set);
 assert.deepStrictEqual(q, ['Squat1', 'Burpee1', 'Squat2', 'Burpee2', 'Squat3', 'Burpee3']);
@@ -103,6 +110,15 @@ console.log('MODEL OK');
   await (await p.$$('[data-sel]'))[1].click(); await new Promise(r => setTimeout(r, 60));
   await click('[data-a=link]');
   assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 2);
+  // linking a 3rd into an existing pair: control stays tappable, notice + block
+  await (await p.$$('[data-sel]'))[0].click(); await new Promise(r => setTimeout(r, 60));
+  await (await p.$$('[data-sel]'))[2].click(); await new Promise(r => setTimeout(r, 60));
+  assert.ok(!(await p.$eval('[data-a=link]', b => b.disabled)));
+  await click('[data-a=link]');
+  assert.ok((await p.content()).includes('Supersets are limited to 2 exercises') || (await p.$eval('#toast', t => t.textContent)).includes('limited to 2'));
+  assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 2); // still only the pair
+  await p.evaluate(() => { document.querySelectorAll('[data-sel]:checked').forEach(c => c.click()); });
+  await new Promise(r => setTimeout(r, 60));
   await p.reload(); await new Promise(r => setTimeout(r, 200));
   const stored = await p.evaluate(() => JSON.parse(localStorage.getItem('wb.data.v1')));
   const ws = stored.workouts[0]; console.log(ws.items.map(x => x.name + ' | ' + JSON.stringify(x.weight) + ' | ' + x.mode + ' ' + JSON.stringify(x.modeConfig) + ' | grp=' + !!x.groupId).join('\n'));

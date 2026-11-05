@@ -41,7 +41,7 @@
       weight: { unit: 'lb', value: null },
       mode: 'reps', modeConfig: defaultModeConfig('reps'),
       notes: '',
-      groupId: null,   // superset link: 2+ exercises sharing a groupId (kept contiguous)
+      groupId: null,   // superset link: up to 2 exercises sharing a groupId (kept contiguous)
       media: null      // future: { type: 'image'|'video', src, thumb }
     };
     return Object.assign(ex, over || {});
@@ -188,9 +188,20 @@
     return touch(w);
   }
 
-  // Link 2+ exercises into one superset. Selected items already in groups are merged.
+  // Resulting member count if ids (and any groups they belong to) were linked together.
+  function supersetLinkSize(w, ids) {
+    if (!ids || !ids.length) return 0;
+    var hit = {}, seen = {};
+    w.items.forEach(function (it) { if (ids.indexOf(it.id) >= 0 && it.groupId) hit[it.groupId] = 1; });
+    w.items.forEach(function (it) {
+      if (ids.indexOf(it.id) >= 0 || (it.groupId && hit[it.groupId])) seen[it.id] = 1;
+    });
+    return Object.keys(seen).length;
+  }
+  // Link exactly 2 exercises into one superset. Selected items already in groups are merged (still max 2).
   function linkSuperset(w, ids) {
     if (!ids || ids.length < 2) throw new Error('Select at least 2 exercises to make a superset.');
+    if (supersetLinkSize(w, ids) > 2) throw new Error('Supersets are limited to 2 exercises.');
     var gid = uid('grp'), groupsHit = {};
     w.items.forEach(function (it) { if (ids.indexOf(it.id) >= 0 && it.groupId) groupsHit[it.groupId] = 1; });
     w.items.forEach(function (it) { if (ids.indexOf(it.id) >= 0 || groupsHit[it.groupId]) it.groupId = gid; });
@@ -272,7 +283,7 @@
     defaultModeConfig: defaultModeConfig, newExercise: newExercise, newWorkout: newWorkout, emptyData: emptyData,
     validateExercise: validateExercise, normalizeExercise: normalizeExercise, summarize: summarize,
     blocks: blocks, cleanGroups: cleanGroups, upsertExercise: upsertExercise, deleteExercise: deleteExercise,
-    moveExercise: moveExercise, moveGroup: moveGroup, linkSuperset: linkSuperset, unlinkGroup: unlinkGroup,
+    moveExercise: moveExercise, moveGroup: moveGroup, supersetLinkSize: supersetLinkSize, linkSuperset: linkSuperset, unlinkGroup: unlinkGroup,
     unlinkExercise: unlinkExercise, duplicateWorkout: duplicateWorkout, buildPlayQueue: buildPlayQueue,
     load: load, save: save
   };
