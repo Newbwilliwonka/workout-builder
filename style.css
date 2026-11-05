@@ -115,19 +115,16 @@ body.playing .bar{display:none}
 .pl-up-n{font-size:18px;font-weight:700;color:#fff;line-height:1.2;margin-top:2px}
 .pl-up-i{font-size:13px;color:#6ee7b7;margin-top:2px;line-height:1.3}
 .is-rest .pl-ro{top:52%}
-.is-ss .pl-ro,.is-ss .pl-target{top:22%}
-.is-ss .pl-hint{top:34%;transform:none;z-index:3}
-.pl-ss{position:absolute;left:8px;right:8px;bottom:8px;top:42%;display:flex;flex-direction:column;gap:10px;z-index:1;pointer-events:none;box-sizing:border-box}
-.pl-ss-pane{flex:1 1 0;min-height:0;max-height:50%;padding:10px 12px;display:flex;flex-direction:column;justify-content:center;border-radius:14px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.82);overflow:hidden}
-.pl-ss-pane.on{border-color:rgba(56,189,248,.55);background:rgba(12,34,53,.85)}
+.pl-topblock{display:flex;flex-direction:column;gap:0} /* media+partner flush; gap to tracking stays on .pl */
+.pl-topblock:has(.pl-ss-extra) .pl-screen{border-radius:20px 20px 0 0} /* flush butt with partner frame */
+.pl-ss-extra{display:grid;grid-template-columns:1fr 92px;gap:8px;margin:0;padding:0} /* align under media column */
+.pl-ss-extra .pl-ss-pane{grid-column:1;margin:0;padding:10px 12px;display:flex;flex-direction:column;justify-content:center;border-radius:0 0 14px 14px;border:1px solid rgba(148,163,184,.22);border-top:0;background:#111827;overflow:hidden}
 .pl-ss-pane.dim{opacity:.45}
-.pl-ss-pane .pl-name{font-size:18px}
+.pl-ss-pane .pl-name{font-size:18px;font-weight:700;color:#fff;line-height:1.15;word-break:break-word}
 .pl-ss-pane .pl-meta{margin-top:2px;font-size:12px;color:#cbd5e1}
 .pl-chain{display:flex;align-items:center;justify-content:center;color:#a78bfa;padding:0;margin:-2px 0;flex:none;min-height:0}
 .pl-track-g{padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid #1f2937}
 .pl-track-g:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
-.is-ss .pl-media{display:none}
-.is-ss .pl-info{display:none}
 
 .chain-ico{display:inline-block;vertical-align:-2px;color:var(--ss);margin-right:4px}
 .ss-chain{display:flex;justify-content:center;color:var(--ss);margin:-2px 0 6px}

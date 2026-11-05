@@ -22,54 +22,56 @@ const data = M.emptyData(); data.workouts.push(w);
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const click = async s => { await p.click(s); await wait(80); };
   const adv = async ms => { await p.evaluate(ms => { window.__wbClockOffset = (window.__wbClockOffset || 0) + ms; }, ms); await wait(150); };
-  const st = () => p.evaluate(() => { const S = window.__wbPlayer; const on = document.querySelector('.pl-ss-pane.on .pl-name') || document.querySelector('.pl-name');
+  const st = () => p.evaluate(() => { const S = window.__wbPlayer; const on = document.querySelector('.pl-info .pl-name') || document.querySelector('.pl-name');
     return { idx: S.idx, phase: S.phase, rep: S.rep, beeps: S.beeps || 0, name: on && on.textContent,
     track: document.querySelector('.pl-th b') && document.querySelector('.pl-th b').textContent, ro: document.getElementById('ro') && document.getElementById('ro').textContent, results: S.results }; });
   await click('[data-a=play]');
-  let s = await st(); assert.strictEqual(s.name, 'Goblet squat'); assert.ok((await p.$eval('.pl-ss-pane.on .pl-meta, .pl-meta', e => e.textContent)).includes('Set 1 of 2'));
-  assert.strictEqual(await p.$$eval('.pl-ss-pane', a => a.map(x => x.querySelector('.pl-name').textContent).join('|')), 'Goblet squat|Plank'); // stacked
+  let s = await st(); assert.strictEqual(s.name, 'Goblet squat'); assert.ok((await p.$eval('.pl-info .pl-meta', e => e.textContent)).includes('Set 1 of 2'));
+  assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Plank'); // partner below media, not stacked inside
+  assert.ok(!(await p.$('.pl-ss-extra .dim'))); // reps: partner lit
   assert.ok(await p.$('.pl-chain')); // chain between supersetted carousel items
   assert.strictEqual(await p.$$eval('.pl-ci', a => a[1].querySelector('b').textContent), 'Plank'); // A1 -> B1 order
   assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$eval('.pl-ci', e => e.classList.contains('cur')), true);
   assert.strictEqual(await p.$$eval('.pl-ctl,.pl-go', a => a.length), 0); assert.ok(await p.$('.pl-endw')); assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
-  await wait(400); await p.screenshot({ path: '/workspace/player-superset-v2.png' }); await p.screenshot({ path: '/workspace/player-superset.png' });
+  await wait(400); await p.screenshot({ path: '/workspace/player-superset-v3.png' }); await p.screenshot({ path: '/workspace/player-superset.png' });
   await click('[data-sel="1"]'); assert.strictEqual((await st()).name, 'Plank'); // carousel tap jumps
-  assert.ok((await p.$eval('.pl-ss-pane.on', e => e.className)).includes('on'));
+  assert.ok((await p.$eval('.pl-ss-extra .pl-name', e => e.textContent)).includes('Goblet'));
+  assert.ok((await p.$eval('.pl-ss-extra .pl-ss-pane', e => e.className)).includes('dim')); // timer current -> partner dim
   await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.textContent.includes('Goblet')).click()); await wait(80); assert.strictEqual((await st()).idx, 0);
   // edit tracking bar: reps +2, weight typed 140
   await click('[data-st=reps][data-d="1"]'); await click('[data-st=reps][data-d="1"]');
   await p.$eval('[data-f=weight]', e => e.value = ''); await p.type('[data-f=weight]', '140');
   await click('[data-p=primary]'); s = await st();
-  // Goblet is non-final: no rest, NOT logged yet, advance to Plank
-  assert.strictEqual(s.idx, 1); assert.strictEqual(s.name, 'Plank'); assert.ok(!s.results[0].logged);
+  // Goblet is non-final: no rest, logs on advance to Plank
+  assert.strictEqual(s.idx, 1); assert.strictEqual(s.name, 'Plank'); assert.ok(s.results[0].logged);
   assert.deepStrictEqual([s.results[0].reps, s.results[0].weight], [12, 140]);
-  assert.ok(!(await p.$('.pl-ok'))); // no logged checkmark yet
+  assert.ok(await p.$('.pl-ci.done .pl-ck')); // Goblet logged in carousel
   // Plank (final): standoff -> work -> rest 15 with Up next
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.phase, 'standoff'); assert.strictEqual(s.ro, '0:05');
   assert.ok((await p.evaluate(() => window.__wbPlayer.pending.map(x => x.t + x.kind[0]).join(' '))).includes('5g'));
   await adv(5100); assert.strictEqual((await st()).phase, 'work'); await adv(10000); assert.strictEqual((await st()).ro, '0:10');
-  await adv(10100); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(!s.results[1].logged); assert.ok(!s.results[0].logged); assert.strictEqual(s.ro, '0:15');
+  await adv(10100); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(!s.results[1].logged); assert.ok(s.results[0].logged); assert.strictEqual(s.ro, '0:15');
   assert.strictEqual(await p.$eval('.pl-up-n', e => e.textContent), 'Goblet squat'); // Up next below Rest chip
   assert.ok((await p.$eval('.pl-up-i', e => e.textContent)).includes('135 lb') || (await p.$eval('.pl-up-i', e => e.textContent)).includes('Set 2'));
   assert.strictEqual(await p.$$eval('.pl-track-g', a => a.length), 2); // stacked tracking during shared rest
-  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 0); // no checkmarks until round logs
+  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 1); // Goblet already logged; Plank not yet
   await wait(400); await p.screenshot({ path: '/workspace/player-rest-upnext.png' });
-  await adv(15100); s = await st(); assert.strictEqual(s.idx, 2); assert.ok(s.results[0].logged); assert.ok(s.results[1].logged); // whole round logged together
+  await adv(15100); s = await st(); assert.strictEqual(s.idx, 2); assert.ok(s.results[0].logged); assert.ok(s.results[1].logged); // final logged on rest end
   assert.strictEqual(s.name, 'Goblet squat'); // A2
-  // A2 tap: non-final again -> jumps to B2 without logging yet
-  await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.idx, 3); assert.ok(!s.results[2].logged);
-  // carousel keeps every set; round-1 logged ones checked
-  assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$$eval('.pl-ci.done .pl-ck', a => a.length), 2);
+  // A2 tap: non-final logs now and jumps to B2
+  await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.idx, 3); assert.ok(s.results[2].logged);
+  // carousel keeps every set; round-1 + A2 logged
+  assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$$eval('.pl-ci.done .pl-ck', a => a.length), 3);
   await wait(400); await p.screenshot({ path: '/workspace/player-carousel.png' });
   await click('[data-sel="0"]'); s = await st(); assert.strictEqual(s.idx, 0);
   assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '12'); assert.strictEqual(await p.$eval('[data-f=weight]', e => e.value), '140');
   assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Logged · tap to redo'); // round 1 logged
   await click('[data-st=reps][data-d="-1"]'); assert.strictEqual((await st()).results[0].reps, 11); assert.ok((await st()).results[0].logged);
   await click('[data-sel="1"]'); await click('[data-sel="0"]'); assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '11'); // edit kept
-  // B2 via carousel, finish Plank (final of round 2) with its rest
+  // B2 via carousel, finish Plank (final of round 2) with its rest; A2 already logged from tap
   await click('[data-sel="3"]');
   await click('[data-p=primary]'); await adv(5100); await adv(20100); s = await st(); assert.strictEqual(s.phase, 'rest');
-  assert.ok(!s.results[2].logged); assert.ok(!s.results[3].logged); // round 2 not logged until rest ends
+  assert.ok(s.results[2].logged); assert.ok(!s.results[3].logged); // final waits for rest
   await adv(15100); s = await st(); assert.ok(s.results[2].logged); assert.ok(s.results[3].logged);
   assert.strictEqual(s.idx, 4); assert.strictEqual(s.name, 'Bike sprints');
   // intervals: ready shows mm:ss; carousel says Interval; Start -> 5s standoff -> auto-run all intervals -> stop

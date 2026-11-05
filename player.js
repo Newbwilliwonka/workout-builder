@@ -138,8 +138,18 @@
     if (S.phase === 'work' && (ex.mode === 'intervals' || ex.mode === 'timer')) return c.workSec * 1000;
     return null;
   }
-  function logRound(i) { roundMembers(i).forEach(log); } // whole superset round logs together
-  function logResting() { if (S.phase === 'rest') logRound(S.idx); } // rest end/interrupt/End -> log the round
+  function logRound(i) { roundMembers(i).forEach(log); } // final rest / interrupt logs remaining members
+  function logResting() { if (S.phase === 'rest') logRound(S.idx); } // rest end/interrupt/End-during-rest
+  function logOnLeave() {
+    // Non-final SS: log this member as the next in the round initiates. Non-SS / final-no-rest unchanged.
+    if (S.queue[S.idx].groupId && !isFinalInRound(S.idx)) log(S.idx);
+    else logRound(S.idx);
+  }
+  function logStartedInRound() {
+    // End mid-round before rest: log started (have results) unlogged members of this SS round
+    var q = S.queue[S.idx]; if (!q || !q.groupId) return;
+    roundMembers(S.idx).forEach(function (mi) { if (S.results[mi] && !S.results[mi].logged) log(mi); });
+  }
   function enterStep(i) {
     logResting(); S.prompt = false;
     S.idx = i; S.running = false; S.acc = 0; S.rep = 1; if (S.run) { stopTones(); S.run = null; }
@@ -152,8 +162,7 @@
   function startRest() {
     if (effectiveRest(S.idx) > 0) { startTimer('rest'); render(); }
     else {
-      // Non-final SS members defer logging until the round's rest (or final with no rest logs the round now).
-      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      logOnLeave(); // non-final SS logs now; non-SS / final-no-rest via logRound
       advance();
     }
   }
@@ -214,34 +223,35 @@
       }
       if (navigator.vibrate) try { navigator.vibrate([300, 100, 300]); } catch (e) {}
       S.nodes = []; S.run = null; S.beeps = (S.beeps || 0) + 1;
-      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      logOnLeave();
       return advance();
     }
-    if (ex.mode === 'timer' && S.run) { // back to back; SS round logs together when its rest ends
+    if (ex.mode === 'timer' && S.run) { // back to back; final rest still logs via logResting/logRound
       S.beeps = (S.beeps || 0) + 1;
       if (S.phase === 'work' && S.run.r > 0) { startTimer('rest'); S.t0 = now() - over; return render(); }
       var tx = S.idx + 1;
       if (tx < S.queue.length && S.queue[tx].exerciseId === ex.id) { log(S.idx); S.idx = tx; res(tx); startTimer('work'); S.t0 = now() - over; return render(); }
       S.nodes = []; S.run = null;
-      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      logOnLeave();
       return advance();
     }
     beep();
     if (S.phase === 'rest') { logRound(S.idx); return advance(); }
     if (ex.mode === 'intervals') {
-      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      logOnLeave();
       return advance();
     }
     if (ex.mode === 'timer') {
       if (effectiveRest(S.idx) > 0) { startTimer('rest'); S.acc = over; return render(); }
-      if (!S.queue[S.idx].groupId || isFinalInRound(S.idx)) logRound(S.idx);
+      logOnLeave();
       return advance();
     }
   }
   function select(i) { if (i === S.idx) return; enterStep(i); }
 
   function finish() {
-    logResting(); S.running = false; cancelAnimationFrame(S.raf);
+    if (S.phase === 'rest') logResting(); else logStartedInRound();
+    S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged };
     S.saved = M.SAVE_SESSIONS && logged.length > 0;
@@ -293,24 +303,13 @@
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
     // stage: visual screen + side carousel
-    var mems = roundMembers(i), ssSplit = mems.length >= 2 && S.phase !== 'rest';
-    h += '<div class="pl-stage"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + (ssSplit ? ' is-ss' : '') + '" data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '">' + '<div class="pl-hint">' + esc(hint(ex)) + '</div>' +
-      (ssSplit ? '' : '<div class="pl-media" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span></div>') +
+    var mems = roundMembers(i), showSsExtra = mems.length >= 2 && S.phase !== 'rest';
+    h += '<div class="pl-topblock"><div class="pl-stage"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + '" data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '">' + '<div class="pl-hint">' + esc(hint(ex)) + '</div>' +
+      '<div class="pl-media" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span></div>' +
       '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
       (S.phase === 'rest' ? upNextHtml(i) : '') +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '<div class="pl-ro pl-target">' + esc(ex.modeConfig.repsType === 'range' ? c.min + '–' + c.max : c.count) + '<small>reps</small></div>');
-    if (ssSplit) {
-      // Stack one pane per exercise in this round. Dim non-current when the active mode is timed.
-      var dimOthers = ex.mode === 'timer' || ex.mode === 'intervals';
-      h += '<div class="pl-ss">';
-      mems.forEach(function (mi) {
-        var ex2 = exOf(mi), st2 = S.queue[mi], on = mi === i;
-        h += '<div class="pl-ss-pane' + (on ? ' on' : '') + (dimOthers && !on ? ' dim' : '') + '"><div class="pl-name">' + esc(ex2.name) + '</div><div class="pl-meta">' + esc(infoLine(ex2, st2)) + '</div></div>';
-      });
-      h += '</div>';
-    } else {
-      h += '<div class="pl-info"><div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>';
-    }
+    h += '<div class="pl-info"><div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>';
     h += '<div class="pl-bar"><i id="pg"></i></div></div>';
     h += '<div class="pl-car" aria-label="All sets"><div class="pl-car-h">Sets</div>';
     for (var j = 0; j < S.queue.length; j++) {
@@ -319,7 +318,18 @@
       if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
       h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b><span>' + (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of) + '</span></button>';
     }
-    h += '</div></div>';
+    h += '</div></div>'; // end car + stage
+    if (showSsExtra) {
+      var dimOthers = ex.mode === 'timer' || ex.mode === 'intervals';
+      h += '<div class="pl-ss-extra" aria-label="Superset partner">';
+      mems.forEach(function (mi) {
+        if (mi === i) return; // only the OTHER member(s) — current stays in the media window
+        var ex2 = exOf(mi), st2 = S.queue[mi];
+        h += '<div class="pl-ss-pane' + (dimOthers ? ' dim' : '') + '"><div class="pl-name">' + esc(ex2.name) + '</div><div class="pl-meta">' + esc(infoLine(ex2, st2)) + '</div></div>';
+      });
+      h += '</div>';
+    }
+    h += '</div>'; // end topblock
     // tracking bar — during a shared superset rest, stack every round member's fields
     function trackBlock(mi) {
       var exT = exOf(mi), stT = S.queue[mi], rT = res(mi), out = '';

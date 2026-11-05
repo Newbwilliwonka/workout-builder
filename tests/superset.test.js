@@ -37,16 +37,28 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-a=play]');
   assert.ok(await p.$('.pl-list .pl-chain')); assert.ok(!(await p.$('.pl-li em')));
   assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
-  await click('[data-p=primary]'); // Curl 1
-  let s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, phase: window.__wbPlayer.phase, name: document.querySelector('.pl-ss-pane.on .pl-name').textContent }));
-  assert.deepStrictEqual(s, { idx: 1, logged0: false, phase: 'work', name: 'Press' }); // deferred log, now Press set 1
+  // layout: current in media; partner frame below media (not stacked inside)
+  assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Curl');
+  assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Press');
+  assert.ok(!(await p.$('.pl-ss-extra .pl-ss-pane.dim'))); // reps: both lit
+  await click('[data-p=primary]'); // Curl 1 -> logs Curl, starts Press
+  let s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, phase: window.__wbPlayer.phase, name: document.querySelector('.pl-info .pl-name').textContent }));
+  assert.deepStrictEqual(s, { idx: 1, logged0: true, phase: 'work', name: 'Press' }); // previous logged on advance
+  assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Curl');
   await click('[data-p=primary]'); s = await p.evaluate(() => ({ phase: window.__wbPlayer.phase, ro: document.getElementById('ro').textContent, logged0: window.__wbPlayer.results[0].logged, logged1: !!window.__wbPlayer.results[1]?.logged }));
-  assert.strictEqual(s.phase, 'rest'); assert.strictEqual(s.ro, '0:20'); assert.ok(!s.logged0); assert.ok(!s.logged1);
-  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 0);
+  assert.strictEqual(s.phase, 'rest'); assert.strictEqual(s.ro, '0:20'); assert.ok(s.logged0); assert.ok(!s.logged1);
+  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 1); // Curl already logged in stacked tracking
   assert.strictEqual(await p.$eval('.pl-up-n', e => e.textContent), 'Curl');
   assert.strictEqual(await p.$$eval('.pl-track-g', a => a.length), 2);
   await adv(20100);
-  s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, logged1: window.__wbPlayer.results[1].logged, name: document.querySelector('.pl-ss-pane.on .pl-name').textContent }));
-  assert.deepStrictEqual([s.idx, s.logged0, s.logged1, s.name], [2, true, true, 'Curl']); // round logged together
+  s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, logged1: window.__wbPlayer.results[1].logged, name: document.querySelector('.pl-info .pl-name').textContent }));
+  assert.deepStrictEqual([s.idx, s.logged0, s.logged1, s.name], [2, true, true, 'Curl']); // final logged on rest end
+  // End mid-round before rest: started/unlogged members get logged
+  await click('[data-p=primary]'); // Curl set 2 -> logs Curl#2, on Press set 2
+  s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged2: window.__wbPlayer.results[2].logged, logged3: !!(window.__wbPlayer.results[3] && window.__wbPlayer.results[3].logged), phase: window.__wbPlayer.phase }));
+  assert.strictEqual(s.idx, 3); assert.ok(s.logged2); assert.ok(!s.logged3); assert.strictEqual(s.phase, 'work');
+  await click('.pl-endw'); await wait(120);
+  s = await p.evaluate(() => ({ logged2: window.__wbPlayer.done.results.some(r => r.name === 'Curl' && r.set === 2), logged3: window.__wbPlayer.done.results.some(r => r.name === 'Press' && r.set === 2), n: window.__wbPlayer.done.results.length }));
+  assert.ok(s.logged2); assert.ok(s.logged3); // Press was started → logged on End
   assert.deepStrictEqual(errs, []); console.log('SUPERSET OK'); await b.close();
 })().catch(e => { console.error(e); process.exit(1); });
