@@ -262,7 +262,6 @@
   }
 
   // ---------- rendering ----------
-  function letters() { var m = {}, n = 0; M.blocks(S.w).forEach(function (b) { if (b.groupId) m[b.groupId] = String.fromCharCode(65 + n++ % 26); }); return m; }
   function stepper(f, label, val, step, si) {
     var di = si != null ? ' data-si="' + si + '"' : '';
     return '<div class="pl-f"><span>' + label + '</span><div class="pl-step"><button data-st="' + f + '" data-d="-' + step + '"' + di + ' aria-label="Decrease ' + label + '">−</button>' +
@@ -278,7 +277,7 @@
     return S.running ? 'Pause' : 'Resume';
   }
   function render() {
-    var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i), L = letters();
+    var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i);
     var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? 'Set complete' : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? (ex.mode === 'intervals' ? 'Interval' : 'Ready') : 'Set ' + st.set;
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
@@ -331,9 +330,11 @@
     // summary list
     var done = {}; Object.keys(S.results).forEach(function (k) { var x = S.results[k]; if (x.logged) done[x.exerciseId] = (done[x.exerciseId] || 0) + 1; });
     h += '<div class="pl-list"><div class="pl-car-h">Workout</div>';
-    S.w.items.forEach(function (it) {
+    S.w.items.forEach(function (it, ix) {
       var cur = it.id === ex.id, n = done[it.id] || 0;
-      h += '<button class="pl-li' + (cur ? ' cur' : '') + (n >= it.sets ? ' fin' : '') + '" data-ex="' + it.id + '">' + (it.groupId ? '<em>' + L[it.groupId] + '</em>' : '<em class="o"></em>') +
+      var prev = ix > 0 ? S.w.items[ix - 1] : null;
+      if (prev && it.groupId && prev.groupId === it.groupId) h += '<div class="pl-chain pl-chain-list" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
+      h += '<button class="pl-li' + (cur ? ' cur' : '') + (n >= it.sets ? ' fin' : '') + '" data-ex="' + it.id + '">' +
         '<span class="grow"><b>' + esc(it.name) + '</b><small>' + esc(target(it)) + '</small></span><span class="pl-cnt">' + n + '/' + it.sets + '</span></button>';
     });
     h += '</div><button class="pl-endw" data-p="end">End workout</button></div>';

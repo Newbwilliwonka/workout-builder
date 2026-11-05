@@ -15,6 +15,11 @@ const data = M.emptyData(); data.workouts.push(w);
   await p.goto(URL); await p.evaluate((k, v) => localStorage.setItem(k, v), M.STORAGE_KEY, JSON.stringify(data));
   await p.goto(URL + '#/w/' + w.id); await p.reload(); await p.waitForSelector('[data-a=play]');
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  // Builder: chain icon, no A/B letters
+  assert.ok(await p.$('.ss-head .chain-ico')); assert.ok(await p.$('.ss-chain .chain-ico'));
+  assert.ok(!(await p.$('.badge')));
+  assert.ok(!(await p.$eval('.ss-head', e => e.textContent)).match(/\b[A-Z]\b.*Superset/) && !(await p.$('.badge')));
+  await wait(300); await p.screenshot({ path: '/workspace/builder-chain.png' });
   const click = async s => { await p.click(s); await wait(80); };
   const adv = async ms => { await p.evaluate(ms => { window.__wbClockOffset = (window.__wbClockOffset || 0) + ms; }, ms); await wait(150); };
   // Builder: non-final rest disabled + warning
@@ -30,6 +35,7 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-a=cancel]');
   // Player: Curl (non-final) skips its 45s rest; Press (final) takes 20s rest
   await click('[data-a=play]');
+  assert.ok(await p.$('.pl-list .pl-chain')); assert.ok(!(await p.$('.pl-li em')));
   await click('[data-p=primary]'); // Curl 1
   let s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged: window.__wbPlayer.results[0].logged, phase: window.__wbPlayer.phase, name: document.querySelector('.pl-ss-pane.on .pl-name').textContent }));
   assert.deepStrictEqual(s, { idx: 1, logged: true, phase: 'work', name: 'Press' }); // skipped rest, now Press set 1

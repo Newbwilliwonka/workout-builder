@@ -72,17 +72,19 @@
   function renderWorkout(w) {
     titleEl.textContent = w.name; backBtn.hidden = false;
     Object.keys(selected).forEach(function (k) { if (!w.items.some(function (x) { return x.id === k; })) delete selected[k]; });
-    var bl = M.blocks(w), h = '', letter = 0;
+    var bl = M.blocks(w), h = '', chain = '<svg class="chain-ico" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg>';
     if (!w.items.length) h += '<div class="empty">No exercises yet.<br>Tap “+ Exercise” below.</div>';
     else h += '<p class="mute">Tick 2 or more exercises, then tap “Link superset”.</p>';
     bl.forEach(function (b, bi) {
       if (b.groupId) {
-        var L = String.fromCharCode(65 + (letter++ % 26));
-        h += '<div class="ss"><div class="ss-head"><span class="grow"><span class="badge">' + L + '</span>Superset · ' + b.items.length + ' exercises</span>' +
+        h += '<div class="ss"><div class="ss-head"><span class="grow">' + chain + ' Superset · ' + b.items.length + ' exercises</span>' +
           '<button class="sm" data-a="gup" data-g="' + b.groupId + '"' + (bi === 0 ? ' disabled' : '') + ' aria-label="Move superset up">▲</button>' +
           '<button class="sm" data-a="gdown" data-g="' + b.groupId + '"' + (bi === bl.length - 1 ? ' disabled' : '') + ' aria-label="Move superset down">▼</button>' +
           '<button class="sm" data-a="unlink" data-g="' + b.groupId + '">Unlink all</button></div>';
-        b.items.forEach(function (it, i) { h += exCard(w, it, i, b.items.length, true); });
+        b.items.forEach(function (it, i) {
+          if (i) h += '<div class="ss-chain" aria-hidden="true">' + chain + '</div>';
+          h += exCard(w, it, i, b.items.length, true);
+        });
         h += '</div>';
       } else h += exCard(w, b.items[0], bi, bl.length, false);
     });

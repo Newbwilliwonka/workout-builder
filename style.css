@@ -126,3 +126,8 @@ body.playing .bar{background:#0b0f17;border-bottom:1px solid #1f2937}
 .pl-track-g:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
 .is-ss .pl-media{display:none}
 .is-ss .pl-info{display:none}
+
+.chain-ico{display:inline-block;vertical-align:-2px;color:var(--ss);margin-right:4px}
+.ss-chain{display:flex;justify-content:center;color:var(--ss);margin:-2px 0 6px}
+.pl-chain-list{margin:2px 0}
+.pl-li{padding-left:12px}
