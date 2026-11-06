@@ -12,80 +12,129 @@
   backBtn.onclick = function () { var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd(); go(p.length > 3 ? '#/w/' + p[2] : '#/'); };
 
-  function onAccount() { return location.hash.replace(/^#\/?/, '').split('/')[0] === 'account'; }
-  function renderAccount() {
+  function hashPage() { return location.hash.replace(/^#\/?/, '').split('/')[0]; }
+  function openAccount() {
+    WBAuth.session().then(function (session) {
+      if (!session) return go('#/signin');
+      WBAuth.profile().then(function (profile) {
+        go(WBMembership.hasDesignated(profile) ? '#/account' : '#/subscriptions');
+      }).catch(function () { go('#/subscriptions'); });
+    }).catch(function () { go('#/signin'); });
+  }
+  function afterSignIn() {
+    WBAuth.profile().then(function (profile) {
+      go(WBMembership.hasDesignated(profile) ? '#/' : '#/subscriptions');
+    }).catch(function () { go('#/subscriptions'); });
+  }
+  function renderSign(mode, message, isError) {
+    var create = mode === 'up';
+    titleEl.textContent = create ? 'Create account' : 'Sign in';
+    backBtn.hidden = false;
+    var h = '<div class="gate">';
+    if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
+    h += '<h2>' + (create ? 'Create your account' : 'Sign in') + '</h2>';
+    h += '<p class="lede">Built for trainers and the people they coach.</p>';
+    h += '<label for="acct-email">Email</label><input id="acct-email" type="email" autocomplete="username">';
+    h += '<label for="acct-pass">Password</label><input id="acct-pass" type="password" autocomplete="' + (create ? 'new-password' : 'current-password') + '">';
+    h += '<div class="actions"><button class="pri" data-auth="' + (create ? 'up' : 'in') + '" style="width:100%">' + (create ? 'Create account' : 'Sign in') + '</button></div>';
+    h += create
+      ? '<button class="linkish" data-auth="switch" data-mode="in">Already have an account? Sign in</button>'
+      : '<button class="linkish" data-auth="switch" data-mode="up">Create an account</button>';
+    h += '</div>';
+    app.innerHTML = h;
+    app.onclick = function (e) {
+      var b = e.target.closest('[data-auth]'); if (!b) return;
+      if (b.dataset.auth === 'switch') return go(b.dataset.mode === 'up' ? '#/join' : '#/signin');
+      var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass');
+      var email = emailEl ? emailEl.value.trim() : '', password = passEl ? passEl.value : '';
+      if (!email || password.length < 6) return renderSign(create ? 'up' : 'in', 'Enter your email and a password of at least 6 characters.', true);
+      var op = b.dataset.auth === 'up' ? WBAuth.signUp(email, password) : WBAuth.signIn(email, password);
+      op.then(function (result) {
+        if (b.dataset.auth === 'up' && result.needsConfirmation) return renderSign('in', 'Check your email to confirm the account, then sign in.');
+        afterSignIn();
+      }).catch(function (err) {
+        renderSign(create ? 'up' : 'in', (err && err.message) || 'Could not reach sign-in', true);
+      });
+    };
+  }
+  function renderSubscriptions(message, isError) {
+    titleEl.textContent = 'Subscriptions'; backBtn.hidden = false;
+    app.innerHTML = '<p class="mute">Loading…</p>';
+    WBAuth.session().then(function (session) {
+      if (hashPage() !== 'subscriptions') return;
+      if (!session) return go('#/signin');
+      WBAuth.profile().then(function (profile) {
+        if (hashPage() !== 'subscriptions') return;
+        if (WBMembership.hasDesignated(profile)) return go('#/');
+        drawSubscriptions(session, profile, message, isError);
+      }).catch(function () {
+        if (hashPage() === 'subscriptions') drawSubscriptions(session, null, message || 'Signed in, but membership storage is not ready yet. Apply the profiles SQL in the Supabase SQL editor.', true);
+      });
+    }).catch(function (e) {
+      if (hashPage() === 'subscriptions') renderSign('in', (e && e.message) || 'Could not reach sign-in', true);
+    });
+  }
+  function drawSubscriptions(session, profile, message, isError) {
+    var h = '<div class="sales">';
+    if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
+    h += '<h2>Choose how you want to train</h2>';
+    h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
+    h += '<p class="note">Beta pricing for the first 100 members.</p>';
+    WBMembership.TIERS.forEach(function (t) {
+      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
+      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
+      h += '<div class="price">' + esc(WBMembership.priceLine(t)) + '</div>';
+      h += '<p class="value">' + esc(t.value) + '</p><ul>';
+      t.available.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
+      h += '</ul><p class="soon">Coming soon</p><ul>';
+      t.comingSoon.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
+      h += '</ul>';
+      if (t.inviteOnly) h += '<p class="invite">' + esc(t.cta) + '</p>';
+      else h += '<button class="pri" data-plan="' + t.id + '" style="width:100%;margin-top:16px">' + esc(t.cta) + '</button>';
+      h += '</article>';
+    });
+    h += '<p class="foot">Choosing a plan saves your selection.</p></div>';
+    app.innerHTML = h;
+    app.onclick = function (e) {
+      var b = e.target.closest('[data-plan]'); if (!b) return;
+      if (!WBMembership.canSelectIntended(b.dataset.plan)) return;
+      WBAuth.saveIntended(b.dataset.plan).then(function () { go('#/'); }).catch(function (err) {
+        drawSubscriptions(session, profile, (err && err.message) || 'Could not save that plan', true);
+      });
+    };
+  }
+  function renderSimpleAccount() {
     titleEl.textContent = 'Account'; backBtn.hidden = false;
     app.innerHTML = '<p class="mute">Loading account…</p>';
     WBAuth.session().then(function (session) {
-      if (!onAccount()) return;
-      if (!session) return drawAccount(null, null);
+      if (hashPage() !== 'account') return;
+      if (!session) return go('#/signin');
       WBAuth.profile().then(function (profile) {
-        if (onAccount()) drawAccount(session, profile);
-      }).catch(function () {
-        if (onAccount()) drawAccount(session, null, 'Signed in, but membership storage is not ready yet. Apply the profiles SQL in the Supabase SQL editor.', true);
-      });
-    }).catch(function (e) {
-      if (onAccount()) drawAccount(null, null, (e && e.message) || 'Could not reach sign-in', true);
-    });
-  }
-  function drawAccount(session, profile, message, isError) {
-    var signedIn = !!(session && session.user), h = '';
-    if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
-    if (!signedIn) {
-      h += '<div class="card"><h2 style="margin:0 0 8px;font-size:18px">Sign in</h2>' +
-        '<label for="acct-email">Email</label><input id="acct-email" type="email" autocomplete="username" placeholder="you@example.com">' +
-        '<label for="acct-pass">Password</label><input id="acct-pass" type="password" autocomplete="current-password" placeholder="At least 6 characters">' +
-        '<div class="actions"><button class="pri" data-auth="in">Sign in</button><button data-auth="up">Create account</button></div>' +
-        '<p class="mute">Creating an account does not give you a membership. Free Client needs a trainer invite. Paid plans are not charged here.</p></div>';
-    } else {
-      var ent = WBMembership.entitlements(profile || {});
-      h += '<div class="card"><div class="name">' + esc(session.user.email || 'Signed in') + '</div>' +
-        '<p class="mute">' + (ent.active ? 'Active membership: ' + esc(ent.tier.name) + '.' : 'No active membership yet.') + '</p>' +
-        '<button data-auth="out">Sign out</button></div>';
-    }
-    h += '<h2 style="font-size:16px;margin:16px 0 8px">Beta membership</h2>';
-    WBMembership.TIERS.forEach(function (t) {
-      var chosen = profile && profile.intended_plan === t.id, active = WBMembership.isActive(profile, t.id);
-      h += '<article class="card plan' + (chosen ? ' chosen' : '') + '"><div class="row"><h2 class="grow">' + esc(t.name) + '</h2>' +
-        (active ? '<span class="tag">Active</span>' : chosen ? '<span class="tag">Selected</span>' : '') + '</div>' +
-        '<div class="price">' + esc(t.priceLabel) + '</div><p class="mute">' + esc(t.summary) + '</p>';
-      if (t.workoutCap) h += '<p class="mute">After payment: up to ' + t.workoutCap + ' of your own workouts.</p>';
-      if (t.clientCap) h += '<p class="mute">After payment: up to ' + t.clientCap + ' clients and enthusiasts.</p>';
-      if (t.inviteOnly) h += '<p><strong>A trainer invite is required.</strong> Signing up does not make you a Free Client.</p>';
-      else if (!signedIn) h += '<p class="mute">Sign in to choose this plan. Payment is not taken yet.</p>';
-      else if (active) h += '<p class="mute">This membership is already active.</p>';
-      else if (chosen) h += '<p class="mute">Selected. Payment has not been taken, so this plan is not active.</p>';
-      else h += '<button class="pri" data-plan="' + t.id + '" style="width:100%">Choose ' + esc(t.name) + '</button><p class="mute">Choosing a plan does not charge you and does not turn the plan on.</p>';
-      h += '</article>';
-    });
-    app.innerHTML = h;
-    app.onclick = function (e) {
-      var b = e.target.closest('[data-auth],[data-plan]'); if (!b) return;
-      if (b.dataset.plan) {
-        WBAuth.saveIntended(b.dataset.plan).then(function () { renderAccount(); }).catch(function (err) {
-          drawAccount(session, profile, (err && err.message) || 'Could not save that plan', true);
-        });
-        return;
-      }
-      if (b.dataset.auth === 'out') {
-        WBAuth.signOut().then(function () { renderAccount(); }).catch(function (err) { drawAccount(session, profile, (err && err.message) || 'Could not sign out', true); });
-        return;
-      }
-      var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass');
-      var email = emailEl ? emailEl.value.trim() : '', password = passEl ? passEl.value : '';
-      if (!email || password.length < 6) return drawAccount(null, null, 'Enter your email and a password of at least 6 characters.', true);
-      var op = b.dataset.auth === 'up' ? WBAuth.signUp(email, password) : WBAuth.signIn(email, password);
-      op.then(function (result) {
-        if (b.dataset.auth === 'up' && result.needsConfirmation) return drawAccount(null, null, 'Check your email to confirm the account, then sign in. This does not grant a membership.');
-        renderAccount();
-      }).catch(function (err) { drawAccount(null, null, (err && err.message) || 'Could not sign in', true); });
-    };
+        if (hashPage() !== 'account') return;
+        if (!WBMembership.hasDesignated(profile)) return go('#/subscriptions');
+        var ent = WBMembership.entitlements(profile);
+        var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
+        var h = '<div class="gate"><div class="card"><div class="name">' + esc(session.user.email || 'Signed in') + '</div>' +
+          '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p>' +
+          '<button data-auth="out" style="width:100%">Sign out</button></div></div>';
+        app.innerHTML = h;
+        app.onclick = function (e) {
+          var b = e.target.closest('[data-auth]'); if (!b) return;
+          WBAuth.signOut().then(function () { go('#/signin'); }).catch(function (err) {
+            app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
+          });
+        };
+      }).catch(function () { if (hashPage() === 'account') go('#/subscriptions'); });
+    }).catch(function () { if (hashPage() === 'account') go('#/signin'); });
   }
   function route() {
     var p = location.hash.replace(/^#\/?/, '').split('/');
     window.WBPlayer && WBPlayer.unmount();
     document.body.classList.remove('playing');
-    if (p[0] === 'account') return renderAccount();
+    if (p[0] === 'signin') return renderSign('in');
+    if (p[0] === 'join') return renderSign('up');
+    if (p[0] === 'subscriptions') return renderSubscriptions();
+    if (p[0] === 'account') return renderSimpleAccount();
     if (p[0] === 'play' && getW(p[1]) && getW(p[1]).items.length) {
       titleEl.textContent = getW(p[1]).name; backBtn.hidden = false;
       return WBPlayer.mount(app, getW(p[1]), data, persist, function () { go('#/w/' + p[1]); });
@@ -119,7 +168,7 @@
     app.onclick = function (e) {
       var b = e.target.closest('[data-a]'); if (!b) return;
       var a = b.dataset.a, w = getW(b.dataset.id);
-      if (a === 'account') return go('#/account');
+      if (a === 'account') return openAccount();
       if (a === 'new') {
         var name = prompt('Workout name', 'New workout'); if (name === null) return;
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);

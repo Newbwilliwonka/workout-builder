@@ -40,10 +40,25 @@ textarea{min-height:80px}
 .dock button{flex:1}
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 16px;border-radius:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
-.plan h2{font-size:18px;margin:0}
-.plan .price{font-size:22px;font-weight:700;margin:6px 0}
-.plan.chosen{border:1px solid var(--pri);box-shadow:0 0 0 1px var(--pri)}
-.tag{display:inline-block;background:#f5f3ff;color:var(--ss);border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700}
+.gate{padding-top:18px}
+.gate h2{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
+.lede{color:var(--mute);font-size:16px;line-height:1.45;margin:0 0 22px}
+.gate .card{padding:22px 18px}
+.linkish{display:block;width:100%;background:transparent;color:var(--pri);font-weight:600;min-height:44px;margin-top:4px}
+.sales{padding-top:8px}
+.sales h2{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
+.note{color:var(--mute);font-size:13px;margin:0 0 18px}
+.plan{padding:22px 18px 18px}
+.plan h3{font-size:18px;margin:0}
+.plan .price{font-size:26px;font-weight:700;letter-spacing:-.03em;margin:8px 0 6px}
+.plan .value{margin:0 0 12px}
+.plan ul{margin:0;padding-left:18px}
+.plan li{margin:5px 0}
+.plan .soon{margin:16px 0 6px;font-size:13px;font-weight:700;color:var(--mute)}
+.plan.recommended{border:1px solid var(--pri);box-shadow:0 0 0 1px var(--pri)}
+.tag{display:inline-block;background:#eff6ff;color:var(--pri);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
+.invite{margin:14px 0 0;font-weight:600}
+.foot{text-align:center;color:var(--mute);font-size:13px;margin:4px 0 28px}
 /* ---------- player ---------- */
 body.playing{background:#0b0f17;color:#e5e7eb}
 body.playing .bar{display:none}

@@ -14,7 +14,15 @@
       paysInApp: false,
       workoutCap: null,
       clientCap: null,
-      summary: 'A trainer invite is required. You run workouts a trainer assigns and pay that trainer outside the app.'
+      recommended: false,
+      value: 'Train with your coach.',
+      available: ['Run the workouts your trainer sends you'],
+      comingSoon: [
+        'Follow customized tracking from your trainer',
+        'Open each day\'s session from your program calendar',
+        'Message your trainer'
+      ],
+      cta: 'Join with an invite from your trainer'
     },
     {
       id: 'enthusiast',
@@ -26,7 +34,19 @@
       paysInApp: true,
       workoutCap: 6,
       clientCap: null,
-      summary: 'Create and edit up to 6 of your own workouts and see your own tracking. You can be promoted to a free client later.'
+      recommended: false,
+      value: 'Build your own training, and still work with a coach if you have one.',
+      available: [
+        'Create and edit up to 6 of your own workouts',
+        'See your own tracking',
+        'Run your workouts in the player'
+      ],
+      comingSoon: [
+        'Receive customized programs and tracking from your trainer',
+        'Follow your program calendar',
+        'Message your trainer'
+      ],
+      cta: 'Choose Enthusiast'
     },
     {
       id: 'trainer',
@@ -38,7 +58,20 @@
       paysInApp: true,
       workoutCap: null,
       clientCap: 15,
-      summary: 'Up to 15 clients and enthusiasts in total. Invite keys come later.'
+      recommended: true,
+      value: 'Coach your clients from workout to tracking.',
+      available: [
+        'Build customized workouts for each client',
+        'Invite up to 15 clients and enthusiasts'
+      ],
+      comingSoon: [
+        'Send workouts to your clients',
+        'Review the tracking your clients complete',
+        'Send customized tracking to each client',
+        'Plan in-person and solo sessions on a shared program calendar',
+        'Message your clients'
+      ],
+      cta: 'Choose Trainer'
     },
     {
       id: 'master_trainer',
@@ -50,7 +83,18 @@
       paysInApp: true,
       workoutCap: null,
       clientCap: 30,
-      summary: 'Up to 30 clients and enthusiasts in total. Invite keys and certification review come later.'
+      recommended: false,
+      value: 'A larger roster, with a verified credential.',
+      available: [
+        'Everything in Trainer',
+        'Invite up to 30 clients and enthusiasts',
+        'Show a verified certification on your profile'
+      ],
+      comingSoon: [
+        'Send workouts, customized tracking, and messages to a larger client list',
+        'Shared program calendar for in-person and solo sessions'
+      ],
+      cta: 'Choose Master Trainer'
     }
   ];
 
@@ -70,6 +114,13 @@
     return { active: true, tier: t, workoutCap: t.workoutCap, clientCap: t.clientCap };
   }
   function isActive(profile, id) { return !!(profile && profile.membership === id); }
+  // Active membership, or a paid plan they have chosen but not yet paid for.
+  function hasDesignated(profile) {
+    if (!profile) return false;
+    if (tier(profile.membership)) return true;
+    return canSelectIntended(profile.intended_plan);
+  }
+  function priceLine(t) { return t && t.priceCents ? t.priceLabel + ' / month' : (t ? t.priceLabel : ''); }
 
   var api = {
     NONE: NONE,
@@ -77,7 +128,9 @@
     tier: tier,
     canSelectIntended: canSelectIntended,
     entitlements: entitlements,
-    isActive: isActive
+    isActive: isActive,
+    hasDesignated: hasDesignated,
+    priceLine: priceLine
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBMembership = api;
