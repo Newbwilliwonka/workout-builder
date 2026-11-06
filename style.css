@@ -124,11 +124,12 @@ body.playing .bar{display:none}
 .pl-info{padding-top:40px}
 .pl-ss-extra .pl-ss-pane{margin:0;display:flex;flex-direction:column;justify-content:flex-end;border-radius:0 0 20px 20px;border:0;box-shadow:inset 1px 0 0 #1f2937,inset -1px 0 0 #1f2937,inset 0 -1px 0 #1f2937;background:#020617;overflow:visible}
 .pl-ss-pane.dim{opacity:.45}
-.pl-chain{display:flex;align-items:center;justify-content:center;color:#a78bfa;padding:0;margin:-2px 0;flex:none;min-height:0}
+.pl-chain{display:flex;align-items:center;justify-content:center;height:0;margin:-3px 0;padding:0;position:relative;z-index:2;overflow:visible;pointer-events:none;flex:none;min-height:0;color:#a78bfa} /* zero row so the icon overlaps the frames instead of separating them */
+.pl-chain svg{position:absolute;width:22.4px;height:22.4px}
 .pl-track-g{padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid #1f2937}
 .pl-track-g:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
 
 .chain-ico{display:inline-block;vertical-align:-2px;color:var(--ss);margin-right:4px}
-.ss-chain{display:flex;justify-content:center;color:var(--ss);margin:-2px 0 6px}
-.pl-chain-list{margin:2px 0}
+.ss-chain{display:flex;justify-content:center;align-items:center;height:0;margin:-4px 0 4px;position:relative;z-index:2;overflow:visible;pointer-events:none;color:var(--ss)}
+.ss-chain .chain-ico{position:absolute;left:50%;top:0;width:22.4px;height:22.4px;margin:0;transform:translate(-50%,-50%)}
 .pl-li{padding-left:12px}
