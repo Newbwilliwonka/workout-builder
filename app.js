@@ -40,7 +40,13 @@
   }
   function afterSignIn() {
     if (!onAuthPage()) return;
-    go('#/subscriptions');
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return go('#/subscriptions'); }
+    if (!pending || !pending.then) return go('#/subscriptions');
+    pending.then(function (session) {
+      if (!onAuthPage()) return;
+      go(builderAllowed(session) ? '#/' : '#/subscriptions');
+    }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
   }
   function showSignInNotice(text, isError) {
     var here = hashPage();

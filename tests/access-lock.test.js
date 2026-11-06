@@ -118,9 +118,9 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await other.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train'));
   await new Promise(r => setTimeout(r, 300));
   assert.strictEqual(await other.evaluate(() => location.hash), '#/subscriptions');
-  assert.ok(!(await other.$('[data-a=new]')), 'a chosen plan left the plans page');
-  await other.goto(URL + '#/'); await other.reload();
+  await other.click('#back');
   await other.waitForSelector('[data-a=run]');
+  assert.strictEqual(await other.evaluate(() => location.hash), '#/');
   await other.close();
 
   assert.deepStrictEqual(errs, []);

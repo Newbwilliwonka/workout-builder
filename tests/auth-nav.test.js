@@ -108,32 +108,75 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.type('#acct-email', 'ada@example.com');
   await p.type('#acct-pass', 'secret12');
   await p.click('[data-auth=in]');
-  await p.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train'));
+  await p.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train') && !document.querySelector('[data-a=new]'));
+  await wait(300);
+  assert.strictEqual(await p.evaluate(() => location.hash), '#/subscriptions');
+  await p.screenshot({ path: '/tmp/signed-in-subscriptions-412.png' });
+  await p.evaluate(() => { location.hash = '#/'; });
+  await p.waitForFunction(() => location.hash === '#/subscriptions' && !document.querySelector('[data-a=new]'));
 
-  // Sign-in and sign-up land on subscriptions, including an allowlisted email that already chose a plan.
+  // The two allowed emails land on workouts after sign-in, even if a plan was already chosen.
+  p.on('dialog', d => d.accept('Lane'));
   await p.evaluate(() => {
     window.WBAuth.signIn = function () { return Promise.resolve({}); };
     window.WBAuth.profile = function () { return Promise.resolve({ membership: 'none', intended_plan: 'trainer' }); };
-    window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'kinisiathletics@gmail.com' } }); };
+    window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: '  Hempled@gmail.com ' } }); };
+    location.hash = '#/signin';
+  });
+  await p.waitForSelector('#acct-email');
+  await p.type('#acct-email', 'hempled@gmail.com');
+  await p.type('#acct-pass', 'secret12');
+  await p.click('[data-auth=in]');
+  await p.waitForSelector('[data-a=new]');
+  assert.strictEqual(await p.evaluate(() => location.hash), '#/');
+  await p.screenshot({ path: '/tmp/allowlisted-after-signin-412.png' });
+  await p.click('[data-a=new]');
+  await p.waitForSelector('[data-a=add]');
+  await p.click('[data-a=add]');
+  await p.waitForSelector('[data-b=name]');
+  await p.$eval('[data-b=name]', el => { el.value = ''; });
+  await p.type('[data-b=name]', 'Curl');
+  await p.click('[data-a=save]');
+  await p.waitForSelector('[data-a=play]:not([disabled])');
+  await p.click('[data-a=play]');
+  await p.waitForSelector('.pl-screen');
+  assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Curl');
+
+  await p.evaluate(() => {
+    window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'KINISIATHLETICS@gmail.com' } }); };
     location.hash = '#/signin';
   });
   await p.waitForSelector('#acct-email');
   await p.type('#acct-email', 'kinisiathletics@gmail.com');
   await p.type('#acct-pass', 'secret12');
   await p.click('[data-auth=in]');
-  await p.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train') && !document.querySelector('[data-a=new]'));
-  await wait(300);
-  assert.strictEqual(await p.evaluate(() => location.hash), '#/subscriptions');
-  await p.screenshot({ path: '/tmp/signed-in-subscriptions-412.png' });
+  await p.waitForSelector('[data-a=new]');
+  assert.strictEqual(await p.evaluate(() => location.hash), '#/');
+
   await p.evaluate(() => {
     window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { email: 'kinisiathletics@gmail.com' } }, needsConfirmation: false }); };
+    window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'kinisiathletics@gmail.com' } }); };
     location.hash = '#/join';
   });
   await p.waitForSelector('#acct-email');
   await p.type('#acct-email', 'kinisiathletics@gmail.com');
   await p.type('#acct-pass', 'secret12');
   await p.click('[data-auth=up]');
+  await p.waitForSelector('[data-a=new]');
+  assert.strictEqual(await p.evaluate(() => location.hash), '#/');
+
+  await p.evaluate(() => {
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { email: 'ada@example.com' } }, needsConfirmation: false }); };
+    window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'ada@example.com' } }); };
+    location.hash = '#/join';
+  });
+  await p.waitForSelector('#acct-email');
+  await p.type('#acct-email', 'ada@example.com');
+  await p.type('#acct-pass', 'secret12');
+  await p.click('[data-auth=up]');
   await p.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train') && !document.querySelector('[data-a=new]'));
+  await p.evaluate(() => { location.hash = '#/play/missing'; });
+  await p.waitForFunction(() => location.hash === '#/subscriptions' && !document.querySelector('.pl-screen'));
   assert.deepStrictEqual(errs, []);
   console.log('AUTH NAV OK');
   await b.close();
