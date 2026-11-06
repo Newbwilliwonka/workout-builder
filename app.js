@@ -13,21 +13,36 @@
     if (p[1] === 'play') return WBPlayer.requestEnd(); go(p.length > 3 ? '#/w/' + p[2] : '#/'); };
 
   function hashPage() { return location.hash.replace(/^#\/?/, '').split('/')[0]; }
+  function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join'; }
+  var pendingSignNotice = null;
   function openAccount() {
+    var from = hashPage();
     WBAuth.session().then(function (session) {
+      if (hashPage() !== from) return;
       if (!session) return go('#/signin');
       WBAuth.profile().then(function (profile) {
+        if (hashPage() !== from) return;
         go(WBMembership.hasDesignated(profile) ? '#/account' : '#/subscriptions');
-      }).catch(function () { go('#/subscriptions'); });
-    }).catch(function () { go('#/signin'); });
+      }).catch(function () { if (hashPage() === from) go('#/subscriptions'); });
+    }).catch(function () { if (hashPage() === from) go('#/signin'); });
   }
   function afterSignIn() {
+    if (!onAuthPage()) return;
     WBAuth.profile().then(function (profile) {
+      if (!onAuthPage()) return;
       go(WBMembership.hasDesignated(profile) ? '#/' : '#/subscriptions');
-    }).catch(function () { go('#/subscriptions'); });
+    }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
+  }
+  function showSignInNotice(text, isError) {
+    if (!onAuthPage()) return;
+    pendingSignNotice = { text: text, isError: !!isError };
+    if (hashPage() === 'signin') renderSign('in');
+    else go('#/signin');
   }
   function renderSign(mode, message, isError) {
     var create = mode === 'up';
+    if (message != null || create) pendingSignNotice = null;
+    else if (pendingSignNotice) { message = pendingSignNotice.text; isError = pendingSignNotice.isError; pendingSignNotice = null; }
     titleEl.textContent = create ? 'Create account' : 'Sign in';
     backBtn.hidden = false;
     var h = '<div class="gate">';
@@ -44,16 +59,22 @@
     app.innerHTML = h;
     app.onclick = function (e) {
       var b = e.target.closest('[data-auth]'); if (!b) return;
-      if (b.dataset.auth === 'switch') return go(b.dataset.mode === 'up' ? '#/join' : '#/signin');
+      if (b.dataset.auth === 'switch') {
+        var dest = b.dataset.mode === 'up' ? '#/join' : '#/signin';
+        if (location.hash === dest) return route();
+        return go(dest);
+      }
       var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass');
       var email = emailEl ? emailEl.value.trim() : '', password = passEl ? passEl.value : '';
       if (!email || password.length < 6) return renderSign(create ? 'up' : 'in', 'Enter your email and a password of at least 6 characters.', true);
       var op = b.dataset.auth === 'up' ? WBAuth.signUp(email, password) : WBAuth.signIn(email, password);
       op.then(function (result) {
-        if (b.dataset.auth === 'up' && result.needsConfirmation) return renderSign('in', 'Check your email to confirm the account, then sign in.');
+        if (!onAuthPage()) return;
+        if (b.dataset.auth === 'up' && result.needsConfirmation) return showSignInNotice('Check your email to confirm the account, then sign in.');
         afterSignIn();
       }).catch(function (err) {
-        renderSign(create ? 'up' : 'in', (err && err.message) || 'Could not reach sign-in', true);
+        if (!onAuthPage()) return;
+        renderSign(hashPage() === 'join' ? 'up' : 'in', (err && err.message) || 'Could not reach sign-in', true);
       });
     };
   }
@@ -98,7 +119,11 @@
     app.onclick = function (e) {
       var b = e.target.closest('[data-plan]'); if (!b) return;
       if (!WBMembership.canSelectIntended(b.dataset.plan)) return;
-      WBAuth.saveIntended(b.dataset.plan).then(function () { go('#/'); }).catch(function (err) {
+      WBAuth.saveIntended(b.dataset.plan).then(function () {
+        if (hashPage() !== 'subscriptions') return;
+        go('#/');
+      }).catch(function (err) {
+        if (hashPage() !== 'subscriptions') return;
         drawSubscriptions(session, profile, (err && err.message) || 'Could not save that plan', true);
       });
     };
@@ -120,7 +145,11 @@
         app.innerHTML = h;
         app.onclick = function (e) {
           var b = e.target.closest('[data-auth]'); if (!b) return;
-          WBAuth.signOut().then(function () { go('#/signin'); }).catch(function (err) {
+          WBAuth.signOut().then(function () {
+            if (hashPage() !== 'account') return;
+            go('#/signin');
+          }).catch(function (err) {
+            if (hashPage() !== 'account') return;
             app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
           });
         };
