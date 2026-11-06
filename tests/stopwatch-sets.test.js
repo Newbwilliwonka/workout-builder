@@ -66,18 +66,23 @@ const data = M.emptyData(); data.workouts.push(w); const editW = M.newWorkout('E
     return p.$eval('.pl-done .mute', e => e.textContent);
   }
   const swOnly = await summaryOf([mk({ name: 'Shuttle', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } })]);
-  assert.ok(/attempts logged/.test(swOnly), swOnly); assert.ok(!/sets/.test(swOnly), swOnly);
+  assert.ok(/0 of 1 attempt logged/.test(swOnly), swOnly); assert.ok(!/sets/.test(swOnly), swOnly);
   const setsOnly = await summaryOf([mk({ name: 'Row', sets: 2, weight: { unit: 'lb', value: 40 }, mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 } })]);
-  assert.ok(/sets logged/.test(setsOnly), setsOnly); assert.ok(!/attempt/.test(setsOnly), setsOnly);
+  assert.ok(/0 of 2 sets logged/.test(setsOnly), setsOnly); assert.ok(!/attempt/.test(setsOnly), setsOnly);
   const mixed = await summaryOf([
     mk({ name: 'Shuttle', sets: 2, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } }),
     mk({ name: 'Row', sets: 2, weight: { unit: 'lb', value: 40 }, mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 } })
   ]);
-  assert.ok(/sets and attempts logged/.test(mixed), mixed);
+  assert.ok(/0 of 2 sets logged/.test(mixed), mixed);
+  assert.ok(/0 of 2 attempts logged/.test(mixed), mixed);
+  assert.ok(!/sets and attempts/.test(mixed), mixed);
+  assert.ok(!/ of 4 /.test(mixed), mixed);
   const oneEach = await summaryOf([
     mk({ name: 'Shuttle', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } }),
     mk({ name: 'Row', sets: 1, weight: { unit: 'lb', value: 40 }, mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 } })
   ]);
-  assert.ok(/set and attempt logged/.test(oneEach), oneEach); assert.ok(!/sets and attempts/.test(oneEach), oneEach);
+  assert.ok(/0 of 1 set logged/.test(oneEach), oneEach);
+  assert.ok(/0 of 1 attempt logged/.test(oneEach), oneEach);
+  assert.ok(!/sets and attempts/.test(oneEach), oneEach);
   assert.deepStrictEqual(errs, []); console.log('STOPWATCH SETS UI OK'); await b.close();
 })().catch(e => { console.error(e); process.exit(1); });

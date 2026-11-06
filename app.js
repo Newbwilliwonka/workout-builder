@@ -205,6 +205,7 @@
         '<button class="sm" data-a="wup" data-id="' + w.id + '" aria-label="Move up"' + (wi === 0 ? ' disabled' : '') + '>▲</button>' +
         '<button class="sm" data-a="wdown" data-id="' + w.id + '" aria-label="Move down"' + (wi === nW - 1 ? ' disabled' : '') + '>▼</button>' +
         '<button class="pri sm" data-a="open" data-id="' + w.id + '">Open</button>' +
+        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>' +
         '<button class="sm" data-a="rename" data-id="' + w.id + '">Rename</button>' +
         '<button class="sm" data-a="dup" data-id="' + w.id + '">Duplicate</button>' +
         '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button></div></div>';
@@ -218,6 +219,7 @@
         var name = prompt('Workout name', 'New workout'); if (name === null) return;
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);
       } else if (a === 'open') go('#/w/' + w.id);
+      else if (a === 'run') { if (w.items.length) go('#/play/' + w.id); }
       else if (a === 'rename') { var r = prompt('Rename workout', w.name); if (r && r.trim()) { w.name = r.trim(); w.updatedAt = Date.now(); persist(); renderList(); } }
       else if (a === 'dup') { var c = M.duplicateWorkout(w); data.workouts.splice(data.workouts.indexOf(w) + 1, 0, c); persist(); renderList(); toast('Duplicated'); }
       else if (a === 'del') { if (confirm('Delete “' + w.name + '”? This cannot be undone.')) { data.workouts.splice(data.workouts.indexOf(w), 1); persist(); renderList(); toast('Deleted'); } }
