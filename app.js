@@ -14,7 +14,7 @@
 
   function hashPage() { return location.hash.replace(/^#\/?/, '').split('/')[0]; }
   function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join'; }
-  var pendingSignNotice = null;
+  var pendingSignNotice = null, authBusy = false, planBusy = false;
   function openAccount() {
     var from = hashPage();
     WBAuth.session().then(function (session) {
@@ -34,15 +34,17 @@
     }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
   }
   function showSignInNotice(text, isError) {
-    if (!onAuthPage()) return;
+    var here = hashPage();
+    if (here !== 'signin' && here !== 'join' && here !== 'subscriptions') return;
     pendingSignNotice = { text: text, isError: !!isError };
-    if (hashPage() === 'signin') renderSign('in');
+    if (here === 'signin') renderSign('in');
     else go('#/signin');
   }
   function renderSign(mode, message, isError) {
     var create = mode === 'up';
-    if (message != null || create) pendingSignNotice = null;
-    else if (pendingSignNotice) { message = pendingSignNotice.text; isError = pendingSignNotice.isError; pendingSignNotice = null; }
+    if (create) pendingSignNotice = null;
+    else if (message != null) pendingSignNotice = { text: message, isError: !!isError };
+    if (!create && pendingSignNotice) { message = pendingSignNotice.text; isError = pendingSignNotice.isError; }
     titleEl.textContent = create ? 'Create account' : 'Sign in';
     backBtn.hidden = false;
     var h = '<div class="gate">';
@@ -51,7 +53,7 @@
     h += '<p class="lede">Built for trainers and the people they coach.</p>';
     h += '<label for="acct-email">Email</label><input id="acct-email" type="email" autocomplete="username">';
     h += '<label for="acct-pass">Password</label><input id="acct-pass" type="password" autocomplete="' + (create ? 'new-password' : 'current-password') + '">';
-    h += '<div class="actions"><button class="pri" data-auth="' + (create ? 'up' : 'in') + '" style="width:100%">' + (create ? 'Create account' : 'Sign in') + '</button></div>';
+    h += '<div class="actions"><button class="pri" data-auth="' + (create ? 'up' : 'in') + '" style="width:100%"' + (authBusy ? ' disabled' : '') + '>' + (create ? 'Create account' : 'Sign in') + '</button></div>';
     h += create
       ? '<button class="linkish" data-auth="switch" data-mode="in">Already have an account? Sign in</button>'
       : '<button class="linkish" data-auth="switch" data-mode="up">Create an account</button>';
@@ -64,17 +66,22 @@
         if (location.hash === dest) return route();
         return go(dest);
       }
+      if (authBusy) return;
       var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass');
       var email = emailEl ? emailEl.value.trim() : '', password = passEl ? passEl.value : '';
       if (!email || password.length < 6) return renderSign(create ? 'up' : 'in', 'Enter your email and a password of at least 6 characters.', true);
+      authBusy = true; b.disabled = true;
+      var startedOn = hashPage();
       var op = b.dataset.auth === 'up' ? WBAuth.signUp(email, password) : WBAuth.signIn(email, password);
       op.then(function (result) {
-        if (!onAuthPage()) return;
+        authBusy = false;
+        if (hashPage() !== startedOn) return;
         if (b.dataset.auth === 'up' && result.needsConfirmation) return showSignInNotice('Check your email to confirm the account, then sign in.');
         afterSignIn();
       }).catch(function (err) {
-        if (!onAuthPage()) return;
-        renderSign(hashPage() === 'join' ? 'up' : 'in', (err && err.message) || 'Could not reach sign-in', true);
+        authBusy = false;
+        if (hashPage() !== startedOn) return;
+        renderSign(startedOn === 'join' ? 'up' : 'in', (err && err.message) || 'Could not reach sign-in', true);
       });
     };
   }
@@ -92,7 +99,8 @@
         if (hashPage() === 'subscriptions') drawSubscriptions(session, null, message || 'Signed in, but membership storage is not ready yet. Apply the profiles SQL in the Supabase SQL editor.', true);
       });
     }).catch(function (e) {
-      if (hashPage() === 'subscriptions') renderSign('in', (e && e.message) || 'Could not reach sign-in', true);
+      if (hashPage() !== 'subscriptions') return;
+      showSignInNotice((e && e.message) || 'Could not reach sign-in', true);
     });
   }
   function drawSubscriptions(session, profile, message, isError) {
@@ -118,11 +126,14 @@
     app.innerHTML = h;
     app.onclick = function (e) {
       var b = e.target.closest('[data-plan]'); if (!b) return;
-      if (!WBMembership.canSelectIntended(b.dataset.plan)) return;
+      if (planBusy || !WBMembership.canSelectIntended(b.dataset.plan)) return;
+      planBusy = true; b.disabled = true;
       WBAuth.saveIntended(b.dataset.plan).then(function () {
+        planBusy = false;
         if (hashPage() !== 'subscriptions') return;
         go('#/');
       }).catch(function (err) {
+        planBusy = false;
         if (hashPage() !== 'subscriptions') return;
         drawSubscriptions(session, profile, (err && err.message) || 'Could not save that plan', true);
       });
@@ -174,7 +185,12 @@
     }
     renderList();
   }
-  window.addEventListener('hashchange', function () { draft = null; route(); window.scrollTo(0, 0); });
+  window.addEventListener('hashchange', function () {
+    draft = null;
+    if (hashPage() !== 'signin') pendingSignNotice = null;
+    route();
+    window.scrollTo(0, 0);
+  });
 
   // ---------- Workout list ----------
   function renderList() {

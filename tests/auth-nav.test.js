@@ -67,6 +67,42 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.click('[data-plan=trainer]');
   await p.waitForSelector('[data-a=new]');
   assert.ok(locationHashIsHome(await p.evaluate(() => location.hash)));
+
+  // Confirmation stays visible across a sign-in redraw, and a second submit cannot start.
+  await p.goto(URL + '#/join');
+  await p.waitForSelector('#acct-email');
+  await p.evaluate(() => {
+    window.__signups = 0;
+    var gate = {};
+    gate.p = new Promise(function (resolve) { gate.resolve = resolve; });
+    window.__gate = gate;
+    window.WBAuth.signUp = function () { window.__signups++; return gate.p; };
+  });
+  await p.type('#acct-email', 'ada@example.com');
+  await p.type('#acct-pass', 'secret12');
+  await p.click('[data-auth=up]');
+  await p.evaluate(() => { var b = document.querySelector('[data-auth=up]'); if (b) b.click(); });
+  assert.strictEqual(await p.evaluate(() => window.__signups), 1);
+  await p.evaluate(() => window.__gate.resolve({ session: null, needsConfirmation: true }));
+  await p.waitForFunction(() => location.hash === '#/signin' && document.body.innerText.includes('Check your email to confirm the account, then sign in.'));
+  await p.evaluate(() => { location.hash = '#/signin/'; });
+  await p.waitForFunction(() => document.body.innerText.includes('Check your email to confirm the account, then sign in.') && document.querySelector('h2').textContent === 'Sign in');
+
+  // A failed subscriptions load opens the real sign-in page, and that sign-in still works.
+  await p.evaluate(() => {
+    window.WBAuth.session = function () { return Promise.reject(new Error('Could not reach sign-in')); };
+    location.hash = '#/subscriptions';
+  });
+  await p.waitForFunction(() => location.hash === '#/signin' && document.body.innerText.includes('Could not reach sign-in') && document.querySelector('h2').textContent === 'Sign in');
+  await p.evaluate(() => {
+    window.WBAuth.signIn = function () { return Promise.resolve({}); };
+    window.WBAuth.profile = function () { return Promise.resolve({ membership: 'none', intended_plan: null }); };
+    window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'ada@example.com' } }); };
+  });
+  await p.type('#acct-email', 'ada@example.com');
+  await p.type('#acct-pass', 'secret12');
+  await p.click('[data-auth=in]');
+  await p.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train'));
   assert.deepStrictEqual(errs, []);
   console.log('AUTH NAV OK');
   await b.close();
