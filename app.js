@@ -9,8 +9,13 @@
   function getW(id) { return data.workouts.filter(function (w) { return w.id === id; })[0]; }
   function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2200); }
   function go(h) { location.hash = h; }
-  backBtn.onclick = function () { var p = location.hash.split('/');
-    if (p[1] === 'play') return WBPlayer.requestEnd(); go(p.length > 3 ? '#/w/' + p[2] : '#/'); };
+  backBtn.onclick = function () {
+    var page = location.hash.replace(/^#\/?/, '').split('/')[0];
+    if (page === 'signin' || page === 'join') return;
+    var p = location.hash.split('/');
+    if (p[1] === 'play') return WBPlayer.requestEnd();
+    go(p.length > 3 ? '#/w/' + p[2] : '#/');
+  };
 
   function hashPage() { return location.hash.replace(/^#\/?/, '').split('/')[0]; }
   function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join'; }
@@ -35,10 +40,7 @@
   }
   function afterSignIn() {
     if (!onAuthPage()) return;
-    WBAuth.profile().then(function (profile) {
-      if (!onAuthPage()) return;
-      go(WBMembership.hasDesignated(profile) ? '#/' : '#/subscriptions');
-    }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
+    go('#/subscriptions');
   }
   function showSignInNotice(text, isError) {
     var here = hashPage();
@@ -53,7 +55,7 @@
     else if (message != null) pendingSignNotice = { text: message, isError: !!isError };
     if (!create && pendingSignNotice) { message = pendingSignNotice.text; isError = pendingSignNotice.isError; }
     titleEl.textContent = create ? 'Create account' : 'Sign in';
-    backBtn.hidden = false;
+    backBtn.hidden = true;
     var h = '<div class="gate">';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     h += '<h2>' + (create ? 'Create your account' : 'Sign in') + '</h2>';
@@ -100,7 +102,6 @@
       if (!session) return go('#/signin');
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
-        if (WBMembership.hasDesignated(profile) && builderAllowed(session)) return go('#/');
         drawSubscriptions(session, profile, message, isError);
       }).catch(function () {
         if (hashPage() === 'subscriptions') drawSubscriptions(session, null, message || 'Signed in, but membership storage is not ready yet. Apply the profiles SQL in the Supabase SQL editor.', true);
