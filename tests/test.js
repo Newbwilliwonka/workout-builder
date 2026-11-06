@@ -81,6 +81,7 @@ console.log('MODEL OK');
   const pp = require('puppeteer-core');
   const b = await pp.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const p = await b.newPage(); await p.setViewport({ width: 390, height: 844, isMobile: true });
+  await require('./allow.js')(p);
   const errs = []; p.on('pageerror', e => errs.push(e.message));
   p.on('dialog', dl => dl.type() === 'prompt' ? dl.accept('UI Test') : dl.accept());
   await p.goto(process.argv[2] || 'http://127.0.0.1:8787/');

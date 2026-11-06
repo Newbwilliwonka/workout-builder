@@ -10,6 +10,7 @@ const data = M.emptyData(); data.workouts.push(w, empty);
 (async () => {
   const b = await pp.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const p = await b.newPage(); await p.setViewport({ width: 412, height: 915, isMobile: true });
+  await require('./allow.js')(p);
   const errs = []; p.on('pageerror', e => errs.push(String(e))); p.on('dialog', d => d.accept());
   await p.goto(URL);
   await p.evaluate((k, v) => localStorage.setItem(k, v), M.STORAGE_KEY, JSON.stringify(data));

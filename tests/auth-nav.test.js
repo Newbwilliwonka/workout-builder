@@ -20,7 +20,10 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.type('#acct-email', 'ada@example.com');
   await p.type('#acct-pass', 'secret12');
   await p.click('[data-auth=in]');
-  await p.evaluate(() => { location.hash = '#/'; });
+  await p.evaluate(() => {
+    window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'kinisiathletics@gmail.com' } }); };
+    location.hash = '#/';
+  });
   await p.waitForSelector('[data-a=new]');
   await p.evaluate(() => window.__gate.reject(new Error('Invalid login credentials')));
   await wait(250);
@@ -52,7 +55,10 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   });
   await p.waitForSelector('[data-plan=enthusiast]');
   await p.click('[data-plan=enthusiast]');
-  await p.evaluate(() => { location.hash = '#/'; });
+  await p.evaluate(() => {
+    window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'HempleD@gmail.com' } }); };
+    location.hash = '#/';
+  });
   await p.waitForSelector('[data-a=new]');
   await p.evaluate(() => window.__gate.reject(new Error('Could not save that plan')));
   await wait(250);
