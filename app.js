@@ -9,11 +9,23 @@
   function getW(id) { return data.workouts.filter(function (w) { return w.id === id; })[0]; }
   function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2200); }
   function go(h) { location.hash = h; }
-  backBtn.onclick = function () { var p = location.hash.split('/');
-    if (p[1] === 'play') return WBPlayer.requestEnd(); go(p.length > 3 ? '#/w/' + p[2] : '#/'); };
+  backBtn.onclick = function () {
+    var page = location.hash.replace(/^#\/?/, '').split('/')[0];
+    if (page === 'signin' || page === 'join') return;
+    var p = location.hash.split('/');
+    if (p[1] === 'play') return WBPlayer.requestEnd();
+    go(p.length > 3 ? '#/w/' + p[2] : '#/');
+  };
 
   function hashPage() { return location.hash.replace(/^#\/?/, '').split('/')[0]; }
   function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join'; }
+  // Temporary, until a payment processor exists. Not a subscription limit.
+  var BUILDER_EMAILS = ['kinisiathletics@gmail.com', 'hempled@gmail.com'];
+  function builderAllowed(session) {
+    var email = session && session.user && session.user.email;
+    return BUILDER_EMAILS.indexOf(String(email || '').trim().toLowerCase()) !== -1;
+  }
+  var routeToken = 0;
   var pendingSignNotice = null, authBusy = false, planBusy = false;
   function openAccount() {
     var from = hashPage();
@@ -28,9 +40,12 @@
   }
   function afterSignIn() {
     if (!onAuthPage()) return;
-    WBAuth.profile().then(function (profile) {
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return go('#/subscriptions'); }
+    if (!pending || !pending.then) return go('#/subscriptions');
+    pending.then(function (session) {
       if (!onAuthPage()) return;
-      go(WBMembership.hasDesignated(profile) ? '#/' : '#/subscriptions');
+      go(builderAllowed(session) ? '#/' : '#/subscriptions');
     }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
   }
   function showSignInNotice(text, isError) {
@@ -46,7 +61,7 @@
     else if (message != null) pendingSignNotice = { text: message, isError: !!isError };
     if (!create && pendingSignNotice) { message = pendingSignNotice.text; isError = pendingSignNotice.isError; }
     titleEl.textContent = create ? 'Create account' : 'Sign in';
-    backBtn.hidden = false;
+    backBtn.hidden = true;
     var h = '<div class="gate">';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     h += '<h2>' + (create ? 'Create your account' : 'Sign in') + '</h2>';
@@ -93,7 +108,6 @@
       if (!session) return go('#/signin');
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
-        if (WBMembership.hasDesignated(profile)) return go('#/');
         drawSubscriptions(session, profile, message, isError);
       }).catch(function () {
         if (hashPage() === 'subscriptions') drawSubscriptions(session, null, message || 'Signed in, but membership storage is not ready yet. Apply the profiles SQL in the Supabase SQL editor.', true);
@@ -167,14 +181,8 @@
       }).catch(function () { if (hashPage() === 'account') go('#/subscriptions'); });
     }).catch(function () { if (hashPage() === 'account') go('#/signin'); });
   }
-  function route() {
+  function showBuilder() {
     var p = location.hash.replace(/^#\/?/, '').split('/');
-    window.WBPlayer && WBPlayer.unmount();
-    document.body.classList.remove('playing');
-    if (p[0] === 'signin') return renderSign('in');
-    if (p[0] === 'join') return renderSign('up');
-    if (p[0] === 'subscriptions') return renderSubscriptions();
-    if (p[0] === 'account') return renderSimpleAccount();
     if (p[0] === 'play' && getW(p[1]) && getW(p[1]).items.length) {
       titleEl.textContent = getW(p[1]).name; backBtn.hidden = false;
       return WBPlayer.mount(app, getW(p[1]), data, persist, function () { go('#/w/' + p[1]); });
@@ -184,6 +192,31 @@
       return renderWorkout(getW(p[1]));
     }
     renderList();
+  }
+  function route() {
+    var token = ++routeToken;
+    window.WBPlayer && WBPlayer.unmount();
+    document.body.classList.remove('playing');
+    var page = hashPage();
+    if (page === 'signin') return renderSign('in');
+    if (page === 'join') return renderSign('up');
+    if (page === 'subscriptions') return renderSubscriptions();
+    if (page === 'account') return renderSimpleAccount();
+    var requested = location.hash;
+    app.innerHTML = '';
+    app.onclick = null; app.oninput = null; app.onchange = null;
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return go('#/signin'); }
+    if (!pending || !pending.then) return go('#/signin');
+    pending.then(function (session) {
+      if (token !== routeToken || location.hash !== requested) return;
+      if (!session) return go('#/signin');
+      if (!builderAllowed(session)) return go('#/subscriptions');
+      showBuilder();
+    }).catch(function () {
+      if (token !== routeToken || location.hash !== requested) return;
+      go('#/signin');
+    });
   }
   window.addEventListener('hashchange', function () {
     draft = null;
