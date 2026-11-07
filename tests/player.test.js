@@ -51,13 +51,13 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.phase, 'standoff'); assert.strictEqual(s.ro, '0:05');
   assert.ok((await p.evaluate(() => window.__wbPlayer.pending.map(x => x.t + x.kind[0]).join(' '))).includes('5g'));
   await adv(5100); assert.strictEqual((await st()).phase, 'work'); await adv(10000); assert.strictEqual((await st()).ro, '0:10');
-  await adv(10100); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(!s.results[1].logged); assert.ok(s.results[0].logged); assert.strictEqual(s.ro, '0:15');
+  await adv(10100); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[1].logged); assert.ok(s.results[0].logged); assert.strictEqual(s.ro, '0:15');
   assert.strictEqual(await p.$eval('.pl-up-n', e => e.textContent), 'Goblet squat'); // Up next below Rest chip
   assert.ok((await p.$eval('.pl-up-i', e => e.textContent)).includes('135 lb') || (await p.$eval('.pl-up-i', e => e.textContent)).includes('Set 2'));
   assert.strictEqual(await p.$$eval('.pl-track-g', a => a.length), 2); // stacked tracking during shared rest
-  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 1); // Goblet already logged; Plank not yet
+  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 2); // both sets logged when shared rest starts
   await wait(400); await p.screenshot({ path: '/workspace/player-rest-upnext.png' });
-  await adv(15100); s = await st(); assert.strictEqual(s.idx, 2); assert.ok(s.results[0].logged); assert.ok(s.results[1].logged); // final logged on rest end
+  await adv(15100); s = await st(); assert.strictEqual(s.idx, 2); assert.ok(s.results[0].logged); assert.ok(s.results[1].logged);
   assert.strictEqual(s.name, 'Goblet squat'); // A2
   // A2 tap: non-final logs now and jumps to B2
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.idx, 3); assert.ok(s.results[2].logged);
@@ -72,7 +72,7 @@ const data = M.emptyData(); data.workouts.push(w);
   // B2 via carousel, finish Plank (final of round 2) with its rest; A2 already logged from tap
   await click('[data-sel="3"]');
   await click('[data-p=primary]'); await adv(5100); await adv(20100); s = await st(); assert.strictEqual(s.phase, 'rest');
-  assert.ok(s.results[2].logged); assert.ok(!s.results[3].logged); // final waits for rest
+  assert.ok(s.results[2].logged); assert.ok(s.results[3].logged); // final logs when shared rest starts
   await adv(15100); s = await st(); assert.ok(s.results[2].logged); assert.ok(s.results[3].logged);
   assert.strictEqual(s.idx, 4); assert.strictEqual(s.name, 'Bike sprints');
   // intervals: ready shows mm:ss; carousel says Interval; Start -> 5s standoff -> auto-run all intervals -> stop
@@ -101,8 +101,8 @@ const data = M.emptyData(); data.workouts.push(w);
   // timer: work then rest
   assert.strictEqual(s.results[7].reps, 15); await p.$eval('[data-f=reps]', e => e.value = ''); await p.type('[data-f=reps]', '11');
   await click('[data-p=primary]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.pending.map(x => x.t + x.kind[0]).join(' ')), '0t 1t 2t 3t 4t 5g 32t 33t 34t 35g 42t 43t 44t 45d');
-  await adv(5100); await wait(300); await p.screenshot({ path: '/workspace/player-media-v3.png' }); await adv(30050); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(!s.results[7].logged); assert.strictEqual(s.results[7].reps, 11); assert.strictEqual(s.track, 'Kettlebell swings');
-  await adv(10000); s = await st(); assert.strictEqual(s.name, 'Cone shuttle'); assert.ok(s.results[7].logged); // timer set logs when its rest ends
+  await adv(5100); await wait(300); await p.screenshot({ path: '/workspace/player-media-v3.png' }); await adv(30050); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[7].logged); assert.strictEqual(s.results[7].reps, 11); assert.strictEqual(s.track, 'Kettlebell swings');
+  await adv(10000); s = await st(); assert.strictEqual(s.name, 'Cone shuttle'); assert.ok(s.results[7].logged);
   // stopwatch with laps
   await click('[data-p=primary]'); await adv(3210); await click('[data-p=primary]'); await adv(2540); await click('[data-p=primary]'); await adv(1234);
   await p.screenshot({ path: SHOT });
@@ -112,13 +112,14 @@ const data = M.emptyData(); data.workouts.push(w);
   const laps = s.results[8].laps; assert.ok(Math.abs(laps[0].lapMs - 3210) < 800 && Math.abs(laps[1].lapMs - 2540) < 800, JSON.stringify(laps));
   assert.strictEqual(await p.$$eval('.pl-laps span', a => a.length), 3);
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.name, 'Dumbbell row');
-  await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(!s.results[9].logged); // last set still rests
-  await adv(10000); await click('.pl-endw'); await wait(100); // End during rest -> logs it
+  await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[9].logged); // reps set logs when rest starts
+  await click('[data-st=reps][data-d="1"]'); assert.strictEqual((await st()).results[9].reps, 13); assert.strictEqual((await st()).phase, 'rest');
+  await adv(10000); await click('.pl-endw'); await wait(100); // End during rest keeps the already-logged set
   assert.ok((await p.content()).includes('Workout complete'));
   const saved = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), M.STORAGE_KEY);
   assert.strictEqual(saved.sessions.length, 0); assert.strictEqual(saved.workouts.length, 1); // SAVE_SESSIONS=false
   const r = await p.evaluate(() => window.__wbPlayer.done.results);
-  assert.strictEqual(r.length, 10); assert.strictEqual(r[0].reps, 11); assert.strictEqual(r[0].weight, 140); assert.strictEqual(r[8].laps.length, 3);
+  assert.strictEqual(r.length, 10); assert.strictEqual(r[0].reps, 11); assert.strictEqual(r[0].weight, 140); assert.strictEqual(r[8].laps.length, 3); assert.strictEqual(r[9].reps, 13);
   console.log('session results:', r.map(x => x.name + '#' + x.set).join(', '));
   assert.deepStrictEqual(errs, []); console.log('PLAYER OK'); await b.close();
 })().catch(e => { console.error(e); process.exit(1); });
