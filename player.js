@@ -160,11 +160,11 @@
     res(i); render();
   }
   function startTimer(phase) { S.phase = phase; S.acc = 0; S.t0 = now(); S.running = true; lockScreen(); }
-  function log(i) { var r = res(i); r.logged = true; r.at = Date.now(); }
+  function log(i) { var r = res(i); if (r.logged) return; r.logged = true; r.at = Date.now(); }
   function startRest() {
-    if (effectiveRest(S.idx) > 0) { startTimer('rest'); render(); }
+    if (effectiveRest(S.idx) > 0) { log(S.idx); startTimer('rest'); render(); } // logged when rest starts
     else {
-      logOnLeave(); // non-final SS logs now; non-SS / final-no-rest via logRound
+      logOnLeave(); // no rest: log as the set completes, including a non-final superset tap-through
       advance();
     }
   }
@@ -185,7 +185,7 @@
     if (ex.mode === 'reps') {
       if (c.repsType === 'static' && S.phase === 'ready') { startTimer('work'); return render(); }
       if (c.repsType === 'static') { r.holdSec = Math.round(elapsed() / 1000); S.running = false; }
-      return startRest(); // reps: set is logged when the rest expires (or now, if there is no rest)
+      return startRest(); // reps: logged when rest starts, or immediately when there is no rest
     }
     if (S.phase === 'ready') {
       if (ex.mode === 'intervals') { // 5s standoff, then the run continues through this exercise's consecutive intervals
@@ -230,7 +230,7 @@
     }
     if (ex.mode === 'timer' && S.run) { // back to back; final rest still logs via logResting/logRound
       S.beeps = (S.beeps || 0) + 1;
-      if (S.phase === 'work' && S.run.r > 0) { startTimer('rest'); S.t0 = now() - over; return render(); }
+      if (S.phase === 'work' && S.run.r > 0) { log(S.idx); startTimer('rest'); S.t0 = now() - over; return render(); }
       var tx = S.idx + 1;
       if (tx < S.queue.length && S.queue[tx].exerciseId === ex.id) { log(S.idx); S.idx = tx; res(tx); startTimer('work'); S.t0 = now() - over; return render(); }
       S.nodes = []; S.run = null;
@@ -244,7 +244,7 @@
       return advance();
     }
     if (ex.mode === 'timer') {
-      if (effectiveRest(S.idx) > 0) { startTimer('rest'); S.acc = over; return render(); }
+      if (effectiveRest(S.idx) > 0) { log(S.idx); startTimer('rest'); S.acc = over; return render(); }
       logOnLeave();
       return advance();
     }
@@ -330,12 +330,13 @@
     h += '<div class="pl-info"><div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>';
     h += '<div class="pl-bar"><i id="pg"></i></div></div>'; // end screen
     if (showSsExtra) {
-      var dimOthers = ex.mode === 'timer' || ex.mode === 'intervals';
       h += '<div class="pl-ss-extra" aria-label="Superset partner">';
       mems.forEach(function (mi) {
         if (mi === i) return; // only the OTHER member(s) — current stays in the media window
         var ex2 = exOf(mi), st2 = S.queue[mi];
-        h += '<div class="pl-ss-pane' + (dimOthers ? ' dim' : '') + '"><div class="pl-name">' + esc(ex2.name) + '</div><div class="pl-meta">' + esc(infoLine(ex2, st2)) + '</div></div>';
+        var donePane = S.results[mi] && S.results[mi].logged;
+        var dimPane = donePane || ex.mode === 'timer' || ex.mode === 'intervals';
+        h += '<div class="pl-ss-pane' + (dimPane ? ' dim' : '') + '"><div class="pl-name">' + esc(ex2.name) + '</div><div class="pl-meta">' + esc(infoLine(ex2, st2)) + '</div></div>';
       });
       h += '</div>';
     }

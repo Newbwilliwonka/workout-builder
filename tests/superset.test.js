@@ -47,9 +47,12 @@ const data = M.emptyData(); data.workouts.push(w);
   let s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, phase: window.__wbPlayer.phase, name: document.querySelector('.pl-info .pl-name').textContent }));
   assert.deepStrictEqual(s, { idx: 1, logged0: true, phase: 'work', name: 'Press' }); // previous logged on advance
   assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Curl');
+  assert.ok((await p.$eval('.pl-ss-extra .pl-ss-pane', e => e.className)).includes('dim')); // completed Curl is grey
+  const fade = await p.evaluate(() => ({ partner: getComputedStyle(document.querySelector('.pl-ss-extra .pl-ss-pane')).opacity, active: getComputedStyle(document.querySelector('.pl-info')).opacity }));
+  assert.ok(Number(fade.partner) < 1); assert.strictEqual(fade.active, '1');
   await click('[data-p=primary]'); s = await p.evaluate(() => ({ phase: window.__wbPlayer.phase, ro: document.getElementById('ro').textContent, logged0: window.__wbPlayer.results[0].logged, logged1: !!window.__wbPlayer.results[1]?.logged }));
-  assert.strictEqual(s.phase, 'rest'); assert.strictEqual(s.ro, '0:20'); assert.ok(s.logged0); assert.ok(!s.logged1);
-  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 1); // Curl already logged in stacked tracking
+  assert.strictEqual(s.phase, 'rest'); assert.strictEqual(s.ro, '0:20'); assert.ok(s.logged0); assert.ok(s.logged1); // Press logs when shared rest starts
+  assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 2);
   assert.strictEqual(await p.$eval('.pl-up-n', e => e.textContent), 'Curl');
   assert.strictEqual(await p.$$eval('.pl-track-g', a => a.length), 2);
   await adv(20100);

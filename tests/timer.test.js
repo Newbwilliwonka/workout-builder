@@ -22,14 +22,16 @@ const data = M.emptyData(); data.workouts.push(w);
   let s = await st(); assert.strictEqual(s.phase, 'standoff');
   assert.strictEqual(s.pending, '0t 1t 2t 3t 4t 5g 12t 13t 14t 15g 17t 18t 19t 20g 27t 28t 29t 30g 32t 33t 34t 35d');
   await adv(5100); s = await st(); assert.deepStrictEqual([s.idx, s.phase], [0, 'work']);
-  await adv(10000); s = await st(); assert.deepStrictEqual([s.idx, s.phase, s.logged], [0, 'rest', 0]);  // auto work -> rest, not yet logged
-  await adv(5000); s = await st(); assert.deepStrictEqual([s.idx, s.phase, s.logged], [1, 'work', 1]);  // auto rest -> set 2 work, set 1 logged
+  await adv(10000); s = await st(); assert.deepStrictEqual([s.idx, s.phase, s.logged], [0, 'rest', 1]);  // logged as soon as rest starts
+  await adv(5000); s = await st(); assert.deepStrictEqual([s.idx, s.phase, s.logged], [1, 'work', 1]);  // still logged when the next set begins
   await adv(10000); await adv(5000); s = await st(); assert.deepStrictEqual([s.idx, s.phase, s.logged], [2, 'ready', 2]); // next exercise waits
   await adv(20000); assert.strictEqual((await st()).phase, 'ready');
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.pending, '0t 1t 2t 3t 4t 5g 12t 13t 14t 15g 17t 18t 19t 20d');
-  await adv(5100); await adv(10000); s = await st(); assert.deepStrictEqual([s.phase, s.prompt], ['rest', false]); // last set's rest NOT skipped
+  await adv(5100); await adv(10000); s = await st(); assert.deepStrictEqual([s.phase, s.prompt, s.logged], ['rest', false, 3]); // logged at rest start; rest still runs
   await click('[data-st=workSec][data-d="5"]');                                       // edit during final rest
-  await adv(5000); s = await st(); assert.deepStrictEqual([s.prompt, s.logged], [true, 3]);   // rest done -> logged + prompt
+  assert.strictEqual(await p.$eval('[data-f=workSec]', e => e.value), '15');
+  assert.deepStrictEqual(await st().then(x => [x.phase, x.logged]), ['rest', 3]);
+  await adv(5000); s = await st(); assert.deepStrictEqual([s.prompt, s.logged], [true, 3]);   // rest ending does not unlog
   assert.ok(await p.$('.pl-modal [data-p=endnow]'));
   await click('[data-p=keep]'); s = await st(); assert.strictEqual(s.prompt, false); assert.ok(!(await p.content()).includes('Workout complete</h2>'));
   await click('[data-st=workSec][data-d="5"]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.results[2].workSec), 20); // still editable
