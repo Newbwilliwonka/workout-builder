@@ -230,7 +230,7 @@
         armRun({ timer: true, firstSet: S.queue[S.idx].set, w: c.workSec, r: rs, n: tn, sched: timerSchedule(c.workSec, rs, tn, lst.set === lst.of) });
         return render();
       }
-      if (ex.mode === 'stopwatch') { r.laps = []; r.durationMs = 0; }
+      if (ex.mode === 'stopwatch') { r.laps = []; r.durationMs = 0; delete r.eventResults; } // redo starts unmarked
       startTimer('work'); return render();
     }
     if (ex.mode === 'stopwatch' && S.phase === 'work') {
@@ -263,6 +263,7 @@
     stopTones();
     if (S.run) { S.nodes = []; S.run = null; }
     logOnLeave(); // no rest, including a non-final superset: log the short hold and move on
+    S.flashDone = true; // hold finished and moved on; running is false because the next step has not started
     advance();
   }
   function phaseEnd(over) {
@@ -514,7 +515,14 @@
     }
     if (b.dataset.st) { var f = b.dataset.st, si = b.dataset.si != null ? +b.dataset.si : S.idx, r = res(si); r[f] = Math.max(0, Math.round(((+r[f] || 0) + +b.dataset.d) * 10) / 10); var inp = S.root.querySelector('[data-f="' + f + '"]' + (b.dataset.si != null ? '[data-si="' + si + '"]' : '')); if (inp) inp.value = r[f]; return; }
     var a = b.dataset.p;
-    if (a === 'primary') { var was = S.running; primary(); if (S && !S.done) flash(S.running && !was ? '▶' : !S.running && was ? '❚❚' : '✓'); }
+    if (a === 'primary') {
+      var was = S.running;
+      primary();
+      if (S) {
+        var done = S.flashDone; S.flashDone = false;
+        if (!S.done) flash(done ? '✓' : S.running && !was ? '▶' : !S.running && was ? '❚❚' : '✓');
+      }
+    }
     else if (a === 'pause') { ensureAudio(); togglePause(); }
     else if (a === 'skip') advance();
     else if (a === 'back') enterStep(S.idx - 1);
