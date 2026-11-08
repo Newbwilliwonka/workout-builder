@@ -9,16 +9,53 @@
   function getW(id) { return data.workouts.filter(function (w) { return w.id === id; })[0]; }
   function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2200); }
   function go(h) { location.hash = h; }
+  function hashBody() { return location.hash.replace(/^#\/?/, '').split('?')[0]; }
+  function hashPage() { return hashBody().split('/')[0]; }
   backBtn.onclick = function () {
-    var page = location.hash.replace(/^#\/?/, '').split('/')[0];
+    var page = hashPage();
     if (page === 'signin' || page === 'join') return;
     var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd();
     go(p.length > 3 ? '#/w/' + p[2] : '#/');
   };
 
-  function hashPage() { return location.hash.replace(/^#\/?/, '').split('/')[0]; }
   function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join'; }
+  var INVITE_KEY = 'wb.invite', TRAINER_KEY = 'wb.trainer', pendingInviteNotice = null;
+  function pendingCode() { try { return sessionStorage.getItem(INVITE_KEY) || ''; } catch (e) { return ''; } }
+  function rememberCode(code) {
+    try { if (code) sessionStorage.setItem(INVITE_KEY, code); else sessionStorage.removeItem(INVITE_KEY); } catch (e) {}
+  }
+  function captureInvite() {
+    var code = '';
+    try {
+      code = new URLSearchParams(location.search).get('invite') || '';
+      if (!code) code = new URLSearchParams(location.hash.split('?')[1] || '').get('invite') || '';
+    } catch (e) {}
+    if (code) rememberCode(WBInvites.normalizeCode(code));
+  }
+  function takeInviteNotice() { var n = pendingInviteNotice; pendingInviteNotice = null; return n; }
+  function rememberTrainer(trainerId, clientId) {
+    try {
+      if (trainerId && clientId) localStorage.setItem(TRAINER_KEY, JSON.stringify({ trainerId: trainerId, clientId: clientId }));
+      else localStorage.removeItem(TRAINER_KEY);
+    } catch (e) {}
+  }
+  function rememberedTrainer() {
+    try {
+      var raw = localStorage.getItem(TRAINER_KEY) || '';
+      if (!raw) return null;
+      if (raw.charAt(0) !== '{') return { trainerId: raw, clientId: '' };
+      return JSON.parse(raw);
+    } catch (e) { return null; }
+  }
+  function syncTrainerWorkouts(conn, clientId) {
+    var prev = rememberedTrainer();
+    if (conn && conn.trainerId) { rememberTrainer(conn.trainerId, clientId); return; }
+    if (!prev || (clientId && prev.clientId && prev.clientId !== clientId)) return;
+    data.workouts = WBInvites.withoutTrainerWorkouts(data.workouts, prev.trainerId);
+    persist();
+    rememberTrainer('');
+  }
   // Temporary, until a payment processor exists. Not a subscription limit.
   var BUILDER_EMAILS = ['kinisiathletics@gmail.com', 'hempled@gmail.com'];
   function builderAllowed(session) {
@@ -45,7 +82,19 @@
     if (!pending || !pending.then) return go('#/subscriptions');
     pending.then(function (session) {
       if (!onAuthPage()) return;
-      go(builderAllowed(session) ? '#/' : '#/subscriptions');
+      var dest = builderAllowed(session) ? '#/' : '#/subscriptions';
+      var code = pendingCode();
+      if (!code || !WBAuth.redeemInvite) return go(dest);
+      WBAuth.redeemInvite(code).then(function (res) {
+        if (!onAuthPage()) return;
+        rememberCode('');
+        pendingInviteNotice = { text: (res && res.message) || 'Invite applied.', isError: false };
+        go(dest);
+      }).catch(function (err) {
+        if (!onAuthPage()) return;
+        pendingInviteNotice = { text: (err && err.message) || 'Could not use that invite.', isError: true };
+        go(dest);
+      });
     }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
   }
   function showSignInNotice(text, isError) {
@@ -68,6 +117,7 @@
     h += '<p class="lede">Built for trainers and the people they coach.</p>';
     h += '<label for="acct-email">Email</label><input id="acct-email" type="email" autocomplete="username">';
     h += '<label for="acct-pass">Password</label><input id="acct-pass" type="password" autocomplete="' + (create ? 'new-password' : 'current-password') + '">';
+    h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
     h += '<div class="actions"><button class="pri" data-auth="' + (create ? 'up' : 'in') + '" style="width:100%"' + (authBusy ? ' disabled' : '') + '>' + (create ? 'Create account' : 'Sign in') + '</button></div>';
     h += create
       ? '<button class="linkish" data-auth="switch" data-mode="in">Already have an account? Sign in</button>'
@@ -82,8 +132,9 @@
         return go(dest);
       }
       if (authBusy) return;
-      var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass');
+      var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass'), codeEl = document.getElementById('invite-code');
       var email = emailEl ? emailEl.value.trim() : '', password = passEl ? passEl.value : '';
+      rememberCode(WBInvites.normalizeCode(codeEl ? codeEl.value : ''));
       if (!email || password.length < 6) return renderSign(create ? 'up' : 'in', 'Enter your email and a password of at least 6 characters.', true);
       authBusy = true; b.disabled = true;
       var startedOn = hashPage();
@@ -100,6 +151,92 @@
       });
     };
   }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast('Copied'); }, function () { toast('Could not copy'); });
+    } else toast('Could not copy');
+  }
+  function redeemCard(conn) {
+    var h = '<div class="card" id="redeem">';
+    if (conn && conn.trainerId) {
+      h += '<div class="name">Your trainer</div><p class="mute">' + esc(conn.trainerEmail || 'Connected') + '</p>';
+      h += '<button class="danger" data-invite="end-self" style="width:100%">End connection</button>';
+    }
+    h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
+    h += '<button class="pri" data-invite="redeem" style="width:100%;margin-top:10px">Redeem invite</button></div>';
+    return h;
+  }
+  function trainerSection(roster) {
+    if (!roster) return '';
+    if (roster.error) return '<div class="errs">' + esc(roster.error) + '</div>';
+    if (!roster.role) return '';
+    var h = '<div class="card" id="invites"><div class="name">Invites</div>';
+    h += '<p class="mute">' + roster.clientCount + ' of ' + roster.cap + ' clients</p>';
+    h += '<button class="pri" data-invite="create" style="width:100%"' + (roster.canCreate ? '' : ' disabled') + '>Create invite</button>';
+    if (!roster.invites.length) h += '<p class="mute">No open invites.</p>';
+    roster.invites.forEach(function (inv) {
+      var link = WBInvites.inviteLink(inv.code);
+      h += '<div class="card" data-open-invite="' + esc(inv.code) + '"><div class="invite-code">' + esc(WBInvites.formatCode(inv.code)) + '</div>';
+      h += '<p class="mute">' + esc(WBInvites.timeLeft(inv.expiresAt, Date.now())) + '</p>';
+      h += '<p class="mute invite-code">' + esc(link) + '</p><div class="actions">';
+      h += '<button class="sm" data-invite="copy-code" data-code="' + esc(inv.code) + '">Copy code</button>';
+      h += '<button class="sm" data-invite="copy-link" data-link="' + esc(link) + '">Copy link</button>';
+      h += '<button class="sm danger" data-invite="cancel" data-code="' + esc(inv.code) + '">Cancel</button></div></div>';
+    });
+    h += '<div class="name">Clients</div>';
+    if (!roster.clients.length) h += '<p class="mute">No clients yet.</p>';
+    roster.clients.forEach(function (c) {
+      h += '<div class="row"><div class="grow"><b>' + esc(c.email || 'Client') + '</b><div class="mute">' + esc(c.plan) + '</div></div>';
+      h += '<button class="sm danger" data-invite="end" data-client="' + esc(c.id) + '">End connection</button></div>';
+    });
+    return h + '</div>';
+  }
+  function handleInvite(e, redraw) {
+    var b = e.target.closest('[data-invite]');
+    if (!b || b.disabled) return false;
+    var a = b.dataset.invite;
+    if (a === 'copy-code') { copyText(b.dataset.code); return true; }
+    if (a === 'copy-link') { copyText(b.dataset.link); return true; }
+    function fail(err) {
+      pendingInviteNotice = { text: (err && err.message) || 'Could not use invites.', isError: true };
+      redraw();
+    }
+    if (a === 'create') {
+      b.disabled = true;
+      WBAuth.createInvite().then(function () { redraw(); }).catch(fail);
+      return true;
+    }
+    if (a === 'cancel') {
+      WBAuth.cancelInvite(b.dataset.code).then(function () { redraw(); }).catch(fail);
+      return true;
+    }
+    if (a === 'end' || a === 'end-self') {
+      var clientId = a === 'end-self' ? null : b.dataset.client;
+      WBAuth.endConnection(clientId).then(function (res) {
+        if (res && res.trainerId && !clientId) {
+          data.workouts = WBInvites.withoutTrainerWorkouts(data.workouts, res.trainerId);
+          persist();
+          rememberTrainer('');
+        }
+        pendingInviteNotice = { text: (res && res.message) || 'Connection ended.', isError: false };
+        redraw();
+      }).catch(fail);
+      return true;
+    }
+    if (a === 'redeem') {
+      var input = document.getElementById('invite-code');
+      var code = WBInvites.normalizeCode(input ? input.value : '');
+      rememberCode(code);
+      if (!code) { pendingInviteNotice = { text: 'Enter an invite code.', isError: true }; redraw(); return true; }
+      WBAuth.redeemInvite(code).then(function (res) {
+        rememberCode('');
+        pendingInviteNotice = { text: (res && res.message) || 'Invite applied.', isError: false };
+        redraw();
+      }).catch(fail);
+      return true;
+    }
+    return false;
+  }
   function renderSubscriptions(message, isError) {
     titleEl.textContent = 'Subscriptions'; backBtn.hidden = false;
     app.innerHTML = '<p class="mute">Loading…</p>';
@@ -108,7 +245,14 @@
       if (!session) return go('#/signin');
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
-        drawSubscriptions(session, profile, message, isError);
+        var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null);
+        connP.then(function (conn) {
+          if (hashPage() !== 'subscriptions') return;
+          syncTrainerWorkouts(conn, session.user && session.user.id);
+          drawSubscriptions(session, profile, message, isError, conn);
+        }).catch(function () {
+          if (hashPage() === 'subscriptions') drawSubscriptions(session, profile, message, isError, null);
+        });
       }).catch(function () {
         if (hashPage() === 'subscriptions') drawSubscriptions(session, null, message || 'Signed in, but membership storage is not ready yet. Apply the profiles SQL in the Supabase SQL editor.', true);
       });
@@ -117,12 +261,15 @@
       showSignInNotice((e && e.message) || 'Could not reach sign-in', true);
     });
   }
-  function drawSubscriptions(session, profile, message, isError) {
+  function drawSubscriptions(session, profile, message, isError, conn) {
+    var note = takeInviteNotice();
     var h = '<div class="sales">';
+    if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="note">Beta pricing for the first 100 members.</p>';
+    h += redeemCard(conn);
     WBMembership.TIERS.forEach(function (t) {
       h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
       h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
@@ -139,6 +286,7 @@
     h += '<p class="foot">Choosing a plan saves your selection.</p></div>';
     app.innerHTML = h;
     app.onclick = function (e) {
+      if (handleInvite(e, function () { renderSubscriptions(); })) return;
       var b = e.target.closest('[data-plan]'); if (!b) return;
       if (planBusy || !WBMembership.canSelectIntended(b.dataset.plan)) return;
       planBusy = true; b.disabled = true;
@@ -162,24 +310,47 @@
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'account') return;
         if (!WBMembership.hasDesignated(profile)) return go('#/subscriptions');
-        var ent = WBMembership.entitlements(profile);
-        var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
-        var h = '<div class="gate"><div class="card"><div class="name">' + esc(session.user.email || 'Signed in') + '</div>' +
-          '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p>' +
-          '<button data-auth="out" style="width:100%">Sign out</button></div></div>';
-        app.innerHTML = h;
-        app.onclick = function (e) {
-          var b = e.target.closest('[data-auth]'); if (!b) return;
-          WBAuth.signOut().then(function () {
-            if (hashPage() !== 'account') return;
-            go('#/signin');
-          }).catch(function (err) {
-            if (hashPage() !== 'account') return;
-            app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
-          });
-        };
+        var rosterP = WBAuth.roster ? WBAuth.roster() : Promise.resolve({ role: null });
+        var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null);
+        Promise.all([
+          rosterP.then(function (v) { return v; }, function (err) { return { __err: err }; }),
+          connP.then(function (v) { return v; }, function () { return null; })
+        ]).then(function (pair) {
+          if (hashPage() !== 'account') return;
+          var roster = pair[0], conn = pair[1];
+          if (roster && roster.__err) {
+            roster = WBInvites.trainerRole(profile) ? { error: roster.__err.message || 'Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.' } : { role: null };
+          }
+          syncTrainerWorkouts(conn, session.user && session.user.id);
+          drawAccount(session, profile, roster, conn);
+        });
       }).catch(function () { if (hashPage() === 'account') go('#/subscriptions'); });
     }).catch(function () { if (hashPage() === 'account') go('#/signin'); });
+  }
+  function drawAccount(session, profile, roster, conn) {
+    var note = takeInviteNotice();
+    var ent = WBMembership.entitlements(profile);
+    var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
+    var h = '<div class="gate">';
+    if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
+    h += '<div class="card"><div class="name">' + esc(session.user.email || 'Signed in') + '</div>' +
+      '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p>' +
+      '<button data-auth="out" style="width:100%">Sign out</button></div>';
+    if (conn && conn.trainerId) h += redeemCard(conn);
+    h += trainerSection(roster);
+    h += '</div>';
+    app.innerHTML = h;
+    app.onclick = function (e) {
+      if (handleInvite(e, function () { renderSimpleAccount(); })) return;
+      var b = e.target.closest('[data-auth]'); if (!b) return;
+      WBAuth.signOut().then(function () {
+        if (hashPage() !== 'account') return;
+        go('#/signin');
+      }).catch(function (err) {
+        if (hashPage() !== 'account') return;
+        app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
+      });
+    };
   }
   function showBuilder() {
     var p = location.hash.replace(/^#\/?/, '').split('/');
@@ -228,7 +399,9 @@
   // ---------- Workout list ----------
   function renderList() {
     titleEl.textContent = 'Workouts'; backBtn.hidden = true;
-    var h = '<button style="width:100%;margin-bottom:8px" data-a="account">Account</button>' +
+    var note = takeInviteNotice();
+    var h = (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
+      '<button style="width:100%;margin-bottom:8px" data-a="account">Account</button>' +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     if (!data.workouts.length) h += '<div class="empty">No workouts yet.<br>Tap “New workout” to build one.</div>';
     data.workouts.forEach(function (w, wi) {
@@ -424,5 +597,6 @@
     return { ex: ex, errors: errs };
   }
   window.WB_buildFromDraft = buildFromDraft; window.WB_makeDraft = makeDraft; // exposed for testing
+  captureInvite();
   route();
 })();

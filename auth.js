@@ -91,7 +91,28 @@
         if (res.error) throw res.error;
         return res.data;
       });
+    },
+    roster: function () { return rpc('invite_roster'); },
+    createInvite: function () { return rpc('invite_create'); },
+    cancelInvite: function (code) { return rpc('invite_cancel', { p_code: code }); },
+    redeemInvite: function (code) { return rpc('invite_redeem', { p_code: code }); },
+    endConnection: function (clientId) { return rpc('invite_end', { p_client: clientId && clientId !== 'self' ? clientId : null }); },
+    myConnection: function () {
+      return rpc('invite_mine').then(function (row) { return row && row.trainerId ? row : null; });
     }
   };
+  function rpc(name, args) {
+    return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
+      if (res.error) throw inviteError(res.error);
+      return res.data;
+    });
+  }
+  function inviteError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205/i.test(msg)) {
+      return new Error('Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.');
+    }
+    return new Error(msg || 'Could not use invites');
+  }
   root.WBAuth = api;
 })(window);
