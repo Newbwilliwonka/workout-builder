@@ -163,7 +163,8 @@ function workout(name, items) {
       work: S.results[0].workSec,
       logged0: S.results[0].logged,
       logged1: !!(S.results[1] && S.results[1].logged),
-      rest: !!document.querySelector('.pl-screen.is-rest')
+      rest: !!document.querySelector('.pl-screen.is-rest'),
+      flash: (document.querySelector('.pl-flash') || {}).textContent || ''
     };
     performance.now = orig;
     return out;
@@ -175,6 +176,54 @@ function workout(name, items) {
   assert.strictEqual(ssEarly.logged0, true);
   assert.strictEqual(ssEarly.logged1, false);
   assert.strictEqual(ssEarly.rest, false);
+  assert.strictEqual(ssEarly.flash, '✓'); // finished hold advanced; not a pause
+
+  // Rest of 0, not a superset: Tap for next still finishes the hold and flashes the completion mark.
+  const noRest = workout('No rest', [
+    mk({ name: 'Plank', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'timer', modeConfig: { workSec: 30, restSec: 0, repsType: null } }),
+    mk({ name: 'Squat', sets: 1, weight: { unit: 'lb', value: 45 }, mode: 'reps', modeConfig: { repsType: 'number', count: 5, restSec: 20 } })
+  ]);
+  await boot(noRest);
+  await click('[data-p=primary]');
+  const paused = await p.evaluate(() => {
+    document.querySelector('[data-p=primary]').click();
+    const S = window.__wbPlayer;
+    return { phase: S.phase, running: S.running, flash: document.querySelector('.pl-flash').textContent };
+  });
+  assert.strictEqual(paused.phase, 'standoff');
+  assert.strictEqual(paused.running, false);
+  assert.strictEqual(paused.flash, '❚❚');
+  await boot(noRest);
+  await click('[data-p=primary]');
+  const hopped = await p.evaluate(() => {
+    const orig = performance.now.bind(performance);
+    const offset = window.__wbClockOffset || 0;
+    let frozen = orig();
+    performance.now = () => frozen;
+    frozen = window.__wbPlayer.t0 + 5000 - offset;
+    WBPlayer.step();
+    frozen = window.__wbPlayer.t0 + 8000 - offset;
+    WBPlayer.step();
+    const hint = document.querySelector('.pl-hint').textContent;
+    document.querySelector('[data-p=primary]').click();
+    const S = window.__wbPlayer;
+    const out = {
+      hint,
+      name: document.querySelector('.pl-info .pl-name').textContent,
+      phase: S.phase,
+      work: S.results[0].workSec,
+      logged: S.results[0].logged,
+      flash: (document.querySelector('.pl-flash') || {}).textContent || ''
+    };
+    performance.now = orig;
+    return out;
+  });
+  assert.strictEqual(hopped.hint, 'Tap for next');
+  assert.strictEqual(hopped.name, 'Squat');
+  assert.strictEqual(hopped.phase, 'work');
+  assert.strictEqual(hopped.work, 8);
+  assert.strictEqual(hopped.logged, true);
+  assert.strictEqual(hopped.flash, '✓');
 
   // ---------- 2. Only the active superset frame is highlighted ----------
   function pair(a, b) { const g = [mk(a), mk(b)]; M.linkSuperset({ items: g }, [g[0].id, g[1].id]); return g; }
@@ -333,6 +382,69 @@ function workout(name, items) {
   assert.strictEqual(doneTap.after.mark5, 'fail');
   assert.strictEqual(await p.$eval('.pl-ev:nth-child(2) [data-pf="pass"]', e => e.classList.contains('on')), false);
   await (await p.$('.pl-track')).screenshot({ path: SHOT + '/tracking-lap-events.png' });
+
+  // Restarting mid-attempt, or redoing a finished one, leaves pass/fail unset until the next tap.
+  const redoW = workout('Redo marks', [
+    mk({ name: 'Cone drill', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: {
+      lapsEnabled: true, lapCount: 2,
+      events: [{ lap: 1, name: 'catch a pass' }]
+    } }),
+    mk({ name: 'Jog', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'reps', modeConfig: { repsType: 'number', count: 10, restSec: 0 } })
+  ]);
+  await boot(redoW);
+  const marks = () => p.evaluate(() => {
+    const r = window.__wbPlayer.results[0];
+    const er = r.eventResults || {};
+    return {
+      phase: window.__wbPlayer.phase,
+      laps: r.laps.length,
+      duration: r.durationMs,
+      mark: er[1],
+      on: [...document.querySelectorAll('.pl-pf button.on')].map(b => b.dataset.pf),
+      rows: document.querySelectorAll('.pl-ev').length
+    };
+  });
+  await click('.pl-go');
+  await adv(400); await click('.pl-go');
+  await click('[data-pf="pass"]');
+  let m = await marks();
+  assert.strictEqual(m.mark, 'pass');
+  assert.deepStrictEqual(m.on, ['pass']);
+  await click('[data-sel="1"]');
+  await click('[data-sel="0"]');
+  m = await marks();
+  assert.strictEqual(m.phase, 'ready');
+  assert.strictEqual(m.mark, 'pass'); // old attempt stays visible until Start
+  await click('.pl-go');
+  m = await marks();
+  assert.strictEqual(m.phase, 'work');
+  assert.strictEqual(m.laps, 0);
+  assert.strictEqual(m.duration, 0);
+  assert.strictEqual(m.mark, undefined);
+  assert.strictEqual(m.rows, 0);
+  await adv(400); await click('.pl-go');
+  m = await marks();
+  assert.strictEqual(m.laps, 1);
+  assert.strictEqual(m.mark, undefined);
+  assert.deepStrictEqual(m.on, []);
+  assert.strictEqual(m.rows, 1);
+  await click('[data-pf="fail"]');
+  await adv(400); await click('.pl-go');
+  m = await marks();
+  assert.strictEqual(m.phase, 'complete');
+  assert.strictEqual(m.mark, 'fail');
+  await click('[data-sel="1"]');
+  await click('[data-sel="0"]');
+  await click('.pl-go');
+  m = await marks();
+  assert.strictEqual(m.laps, 0);
+  assert.strictEqual(m.mark, undefined);
+  await adv(300); await click('.pl-go');
+  m = await marks();
+  assert.strictEqual(m.laps, 1);
+  assert.strictEqual(m.mark, undefined);
+  assert.deepStrictEqual(m.on, []);
+  assert.strictEqual(m.rows, 1);
 
   // ---------- 4. Timer tones share the visible second ----------
   const tones = workout('Tones', [
