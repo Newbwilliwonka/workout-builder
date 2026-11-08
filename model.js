@@ -103,7 +103,14 @@
     if (ex.mode === 'reps') d.restSec = c.restSec || 0;
     else if (ex.mode === 'intervals') d.workSec = c.workSec;
     else if (ex.mode === 'timer') { d.workSec = c.workSec; d.restSec = c.restSec; }
-    else if (ex.mode === 'stopwatch') { d.lapsEnabled = c.lapsEnabled !== false; if (d.lapsEnabled) d.lapCount = c.lapCount; }
+    else if (ex.mode === 'stopwatch') {
+      d.lapsEnabled = c.lapsEnabled !== false;
+      if (d.lapsEnabled) {
+        d.lapCount = c.lapCount;
+        var evs = cleanLapEvents(c.events, c.lapCount);
+        if (evs.length) d.events = evs; // omitted when none so older saves stay identical
+      }
+    }
     out.modeConfig = d;
     out.notes = String(ex.notes || '');
     out.groupId = ex.groupId || null;
@@ -126,6 +133,22 @@
   }
 
   function repsText(c) { return !c.repsType ? '' : c.repsType === 'number' ? c.count + ' reps' : c.repsType === 'range' ? c.min + '–' + c.max + ' reps' : 'static hold'; }
+
+  // Stopwatch lap events: {lap, name} for laps the builder marked. Empty names are allowed.
+  // Laps outside 1..lapCount, duplicates, and non-integers are dropped. Order is lap number.
+  function cleanLapEvents(events, lapCount) {
+    if (!Array.isArray(events) || !(lapCount >= 1)) return [];
+    var seen = {}, out = [];
+    events.forEach(function (ev) {
+      if (!ev) return;
+      var lap = Number(ev.lap);
+      if (!Number.isInteger(lap) || lap < 1 || lap > lapCount || seen[lap]) return;
+      seen[lap] = 1;
+      out.push({ lap: lap, name: String(ev.name == null ? '' : ev.name).trim() });
+    });
+    out.sort(function (a, b) { return a.lap - b.lap; });
+    return out;
+  }
 
   // ---- workout operations (mutate workout in place, return it) ----
   function touch(w) { w.updatedAt = Date.now(); return w; }

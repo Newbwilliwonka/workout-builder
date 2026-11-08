@@ -523,6 +523,35 @@
       '<input type="number" inputmode="numeric" min="0" step="1" data-b="' + prefix + '.' + mk + '" value="' + esc(c[mk]) + '" placeholder="min"' + d + '><span>:</span>' +
       '<input type="number" inputmode="numeric" min="0" max="59" data-b="' + prefix + '.' + sk + '" value="' + esc(c[sk]) + '" placeholder="sec"' + d + '><span class="mute" style="font-size:14px;font-weight:400">mm:ss</span></div>';
   }
+  function lapQuantity(v) {
+    var n = M.num(v);
+    return Number.isInteger(n) && n >= 1 ? n : 0;
+  }
+  function ensureEventDraft(c) {
+    if (!c.eventDraft) {
+      c.eventDraft = [];
+      (c.events || []).forEach(function (ev) {
+        if (!ev || !(ev.lap >= 1)) return;
+        c.eventDraft[ev.lap - 1] = { on: true, name: ev.name || '' };
+      });
+    }
+    var n = lapQuantity(c.lapCount);
+    for (var i = 0; i < n; i++) if (!c.eventDraft[i]) c.eventDraft[i] = { on: false, name: '' };
+    return c.eventDraft;
+  }
+  function lapEventsHtml(c) {
+    var n = lapQuantity(c.lapCount);
+    if (!n) return '';
+    var rows = ensureEventDraft(c), h = '';
+    for (var i = 0; i < n; i++) {
+      var row = rows[i];
+      h += '<div class="lap-ev"><div class="row" style="margin-top:10px"><span class="grow" style="font-weight:600">Lap ' + (i + 1) + '</span>' +
+        '<label class="row" style="font-weight:400;margin:0"><input type="checkbox" class="sel" data-lev="' + i + '"' + (row.on ? ' checked' : '') + '> Event</label></div>';
+      if (row.on) h += '<input data-lename="' + i + '" value="' + esc(row.name) + '" placeholder="Event name" autocomplete="off">';
+      h += '</div>';
+    }
+    return h;
+  }
   function renderEditor(w, exId) {
     var isNew = exId === 'new', ex = isNew ? null : w.items.filter(function (x) { return x.id === exId; })[0];
     if (!isNew && !ex) return go('#/w/' + w.id);
@@ -556,7 +585,7 @@
     } else {
       h += '<p class="mute">Counts up from 0:00 during the workout. No settings needed.</p>' +
         '<label class="row" style="font-weight:400"><input type="checkbox" class="sel" data-b="cfg.lapsEnabled"' + (c.lapsEnabled ? ' checked' : '') + '> Record laps (agility / splits)</label>' +
-        (c.lapsEnabled ? '<label>Lap quantity</label>' + numIn('cfg.lapCount', c.lapCount, 'e.g. 4') : '');
+        (c.lapsEnabled ? '<label>Lap quantity</label>' + numIn('cfg.lapCount', c.lapCount, 'e.g. 4') + '<div id="lap-events">' + lapEventsHtml(c) + '</div>' : '');
     }
     h += '<label>Notes</label><textarea data-b="notes" placeholder="Cues, tempo, equipment…">' + esc(d.notes) + '</textarea>' +
       '<div class="media">🎬 Media coming soon</div><div id="errs"></div>' +
@@ -564,9 +593,30 @@
     app.innerHTML = h;
     app.onchange = null;
     app.oninput = app.onchange = function (e) {
-      var b = e.target.dataset.b; if (!b) return;
-      var v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+      var t = e.target;
+      if (t.dataset && t.dataset.lev != null) {
+        var row = ensureEventDraft(d.cfg.stopwatch)[+t.dataset.lev];
+        if (row) row.on = !!t.checked;
+        var evBox = document.getElementById('lap-events');
+        if (evBox) evBox.innerHTML = lapEventsHtml(d.cfg.stopwatch);
+        return;
+      }
+      if (t.dataset && t.dataset.lename != null) {
+        var named = ensureEventDraft(d.cfg.stopwatch)[+t.dataset.lename];
+        if (named) named.name = t.value;
+        return;
+      }
+      var b = t.dataset.b; if (!b) return;
+      var v = t.type === 'checkbox' ? t.checked : t.value;
       if (b.indexOf('cfg.') === 0) d.cfg[d.mode][b.slice(4)] = v; else d[b] = v;
+      if (b === 'cfg.lapCount') {
+        var box = document.getElementById('lap-events');
+        // Skip a no-op refresh (the field's change event on blur) so it doesn't
+        // replace a checkbox the user is clicking in the lap list.
+        var next = lapEventsHtml(d.cfg.stopwatch);
+        if (box && box.innerHTML !== next) box.innerHTML = next;
+        return;
+      }
       if (b === 'cfg.lapsEnabled') renderEditor(w, exId);
     };
     app.onclick = function (e) {
@@ -590,7 +640,18 @@
     if (d.mode === 'intervals') { ex.modeConfig = { workSec: M.toSec(c.wm, c.ws) }; raw.push(c.wm, c.ws); }
     if (d.mode === 'timer') { ex.modeConfig = { workSec: M.toSec(c.wm, c.ws), restSec: M.toSec(c.rm, c.rs) }; raw.push(c.wm, c.ws, c.rm, c.rs); }
     if (d.mode === 'intervals' || d.mode === 'timer') { Object.assign(ex.modeConfig, { repsType: c.repsType, count: intOf(c.count), min: intOf(c.min), max: intOf(c.max) }); if (c.repsType === 'number') raw.push(c.count); if (c.repsType === 'range') raw.push(c.min, c.max); }
-    if (d.mode === 'stopwatch') { ex.modeConfig = { lapsEnabled: !!c.lapsEnabled, lapCount: intOf(c.lapCount) }; if (c.lapsEnabled) raw.push(c.lapCount); }
+    if (d.mode === 'stopwatch') {
+      ex.modeConfig = { lapsEnabled: !!c.lapsEnabled };
+      if (c.lapsEnabled) {
+        ex.modeConfig.lapCount = intOf(c.lapCount);
+        raw.push(c.lapCount);
+        var evs = [];
+        (c.eventDraft || []).forEach(function (row, i) {
+          if (row && row.on && i < ex.modeConfig.lapCount) evs.push({ lap: i + 1, name: String(row.name || '').trim() });
+        });
+        if (evs.length) ex.modeConfig.events = evs;
+      }
+    }
     if (raw.some(function (v) { var n = M.num(v); return n !== null && n < 0; })) errs.push('Numbers cannot be negative.');
     if (d.mode !== 'stopwatch' && [c.ws, c.rs].some(function (v) { return M.num(v) > 59; })) errs.push('Seconds must be 0–59.');
     errs = errs.concat(M.validateExercise(ex).filter(function (m) { return errs.indexOf(m) < 0; }));

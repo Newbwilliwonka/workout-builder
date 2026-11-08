@@ -42,7 +42,7 @@ const data = M.emptyData(); data.workouts.push(w);
   // layout: current in media; partner frame below media (not stacked inside)
   assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Curl');
   assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Press');
-  assert.ok(!(await p.$('.pl-ss-extra .pl-ss-pane.dim'))); // reps: both lit
+  assert.ok(await p.$('.pl-ss-extra .pl-ss-pane.dim')); // waiting partner is grey; only the active frame stays lit
   await click('[data-p=primary]'); // Curl 1 -> logs Curl, starts Press
   let s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, phase: window.__wbPlayer.phase, name: document.querySelector('.pl-info .pl-name').textContent }));
   assert.deepStrictEqual(s, { idx: 1, logged0: true, phase: 'work', name: 'Press' }); // previous logged on advance
