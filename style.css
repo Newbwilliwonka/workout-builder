@@ -102,6 +102,16 @@ body.playing .bar{display:none}
 .pl-laps{display:flex;flex-direction:column;gap:2px;margin-top:10px;font:14px ui-monospace,Menlo,monospace;color:#cbd5e1;max-height:140px;overflow:auto}
 .pl-laps span{display:flex;gap:10px}.pl-laps i{margin-left:auto;color:#64748b;font-style:normal}
 .pl-laps.sm{flex-direction:row;flex-wrap:wrap;gap:4px 10px;font-size:12px;margin-top:4px}
+.pl-events{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.pl-ev{display:flex;flex-direction:column;gap:6px;padding-top:8px;border-top:1px solid #1f2937}
+.pl-ev>span{font-size:14px;color:#e5e7eb}
+.pl-pf{display:flex;gap:6px}
+.pl-pf button{flex:1;min-height:44px;border-radius:12px;background:#0b1220;color:#94a3b8;border:1px solid #1f2937;font-weight:600}
+.pl-pf button.on[data-pf="pass"]{background:#064e3b;color:#d1fae5;border-color:#047857}
+.pl-pf button.on[data-pf="fail"]{background:#450a0a;color:#fecaca;border-color:#b91c1c}
+.pl-events.sm{gap:2px;margin-top:6px}
+.pl-events.sm .pl-ev{flex-direction:row;border:0;padding:0}
+.lap-ev input[data-lename]{margin-top:6px}
 .pl-list{display:flex;flex-direction:column;gap:6px}
 .pl-li{display:flex;align-items:center;gap:10px;text-align:left;background:#111827;color:#e5e7eb;border:1px solid #1f2937;border-radius:14px;padding:10px 12px;min-height:56px}
 .pl-li em{width:16px;text-align:center}

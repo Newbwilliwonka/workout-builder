@@ -64,19 +64,46 @@
     return STANDOFF * 1000 + (S.queue[S.idx].set - S.run.firstSet) * S.run.w * 1000 + elapsed();
   }
   function stopTones() { (S.nodes || []).forEach(function (o) { try { o.stop(); } catch (e) {} }); S.nodes = []; }
-  function scheduleTones() { // (re)schedule every remaining tone relative to the timer clock
+  function scheduleTones() { // remaining schedule for tests / pause; playback itself follows the visible second
     stopTones(); if (!S.run) return;
     var r = runMs(); S.pending = [];
     S.run.sched.forEach(function (x) {
       var dt = x.t * 1000 - r; if (dt < -20) return;
       S.pending.push({ t: x.t, kind: x.kind });
-      if (audio) {
-        var at = audio.currentTime + Math.max(0, dt) / 1000;
-        if (x.kind === 'tick') tone(at, 660, 0.12);
-        else if (x.kind === 'go') { tone(at, 1320, 0.1); tone(at + 0.15, 1320, 0.1); }
-        else { tone(at, 880, 0.15); tone(at + 0.18, 1100, 0.15); tone(at + 0.36, 1320, 0.35); }
-      }
     });
+  }
+  function visibleSecond() {
+    var d = phaseDur();
+    if (d == null) return null;
+    return Math.ceil(Math.max(0, d - elapsed()) / 1000);
+  }
+  // Tones share the display clock. A beep fires on the frame the visible second changes,
+  // not from a pre-scheduled audio time that can drift away from the number on screen.
+  function fireTone(kind) {
+    (S.toneLog = S.toneLog || []).push({ kind: kind, vis: visibleSecond(), phase: S.phase, at: Math.round(runMs()) });
+    if (!audio) return;
+    try {
+      var t = audio.currentTime;
+      if (kind === 'tick') tone(t, 660, 0.12);
+      else if (kind === 'go') { tone(t, 1320, 0.1); tone(t + 0.15, 1320, 0.1); }
+      else { tone(t, 880, 0.15); tone(t + 0.18, 1100, 0.15); tone(t + 0.36, 1320, 0.35); }
+    } catch (e) {}
+  }
+  function playDueTones() {
+    if (!S || !S.run || !S.run.sched) return;
+    var r = runMs(), prev = S.toneMark == null ? -1 : S.toneMark, due = [];
+    S.run.sched.forEach(function (x) {
+      var ms = x.t * 1000;
+      if (ms > prev && ms <= r) due.push(x);
+    });
+    S.toneMark = r;
+    if (!due.length) return;
+    // A clock jump (early rest, or a test fast-forward) can cross several seconds at once.
+    // Sound only the latest boundary so the beep matches the second now on screen.
+    fireTone(due[due.length - 1].kind);
+  }
+  function armRun(run) {
+    S.toneMark = -1; S.toneLog = []; S.run = run; scheduleTones();
   }
   function lockScreen() { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (l) { wake = l; l.addEventListener('release', function () { wake = null; }); }).catch(function () {}); }
   function onVis() { if (S && document.visibilityState === 'visible') lockScreen(); }
@@ -174,7 +201,8 @@
   }
   function togglePause() {
     if (!(S.phase === 'work' || S.phase === 'rest' || S.phase === 'standoff') || (S.phase === 'work' && exOf(S.idx).mode === 'reps' && cfg(S.idx).repsType !== 'static')) return;
-    if (S.running) { S.acc += now() - S.t0; S.running = false; stopTones(); } else { S.t0 = now(); S.running = true; scheduleTones(); }
+    if (S.running) { S.acc += now() - S.t0; S.running = false; stopTones(); }
+    else { S.t0 = now(); S.running = true; S.toneMark = runMs(); scheduleTones(); }
     render();
   }
   function primary() {
@@ -190,15 +218,17 @@
     if (S.phase === 'ready') {
       if (ex.mode === 'intervals') { // 5s standoff, then the run continues through this exercise's consecutive intervals
         var n = 1; while (S.idx + n < S.queue.length && S.queue[S.idx + n].exerciseId === ex.id) n++;
-        startTimer('standoff'); S.run = { firstSet: S.queue[S.idx].set, w: c.workSec, n: n, sched: toneSchedule(c.workSec, n) };
-        scheduleTones(); return render();
+        startTimer('standoff');
+        armRun({ firstSet: S.queue[S.idx].set, w: c.workSec, n: n, sched: toneSchedule(c.workSec, n) });
+        return render();
       }
       if (ex.mode === 'timer') { // back-to-back through consecutive same-exercise sets; rest only when effectiveRest says so
         var tn = 1; while (S.idx + tn < S.queue.length && S.queue[S.idx + tn].exerciseId === ex.id) tn++;
         // tn>1 only happens outside rotated supersets (ungrouped); those sets all take c.restSec.
         var rs = tn === 1 ? effectiveRest(S.idx) : (c.restSec > 0 ? c.restSec : 0), lst = S.queue[S.idx + tn - 1];
-        startTimer('standoff'); S.run = { timer: true, firstSet: S.queue[S.idx].set, w: c.workSec, r: rs, n: tn, sched: timerSchedule(c.workSec, rs, tn, lst.set === lst.of) };
-        scheduleTones(); return render();
+        startTimer('standoff');
+        armRun({ timer: true, firstSet: S.queue[S.idx].set, w: c.workSec, r: rs, n: tn, sched: timerSchedule(c.workSec, rs, tn, lst.set === lst.of) });
+        return render();
       }
       if (ex.mode === 'stopwatch') { r.laps = []; r.durationMs = 0; }
       startTimer('work'); return render();
@@ -213,7 +243,27 @@
       }
       S.acc = tot; S.running = false; r.durationMs = tot; log(S.idx); beep(); S.phase = 'complete'; return render();
     }
-    togglePause(); // intervals / timer: primary acts as pause/resume while running
+    if (ex.mode === 'timer' && S.phase === 'work') return endTimerWorkEarly();
+    togglePause(); // intervals, and timer standoff/rest: pause/resume
+  }
+  // Timer work tap: the planned hold is a goal. Log the elapsed seconds, drop leftover work, start rest now.
+  function endTimerWorkEarly() {
+    var ex = exOf(S.idx), r = res(S.idx);
+    r.workSec = Math.max(0, Math.round(elapsed() / 1000));
+    if (S.run && S.run.r > 0) {
+      log(S.idx);
+      startTimer('rest'); // elapsed 0 — leftover work does not shorten or delay rest
+      scheduleTones();
+      return render();
+    }
+    var tx = S.idx + 1;
+    if (S.run && tx < S.queue.length && S.queue[tx].exerciseId === ex.id) {
+      log(S.idx); S.idx = tx; res(tx); startTimer('work'); scheduleTones(); return render();
+    }
+    stopTones();
+    if (S.run) { S.nodes = []; S.run = null; }
+    logOnLeave(); // no rest, including a non-final superset: log the short hold and move on
+    advance();
   }
   function phaseEnd(over) {
     var ex = exOf(S.idx), c = ex.modeConfig, r = res(S.idx);
@@ -294,7 +344,8 @@
     if (!S.saved) h += '<p class="mute">' + (s.results.length ? 'Session not saved (history is off for now).' : 'Nothing was logged.') + '</p>';
     s.results.forEach(function (r) {
       h += '<div class="pl-row"><div class="grow"><b>' + esc(r.name) + '</b> <span class="mute">' + (r.mode === 'stopwatch' ? 'attempt ' : 'set ') + r.set + '/' + r.of + '</span><div class="mute">' + esc(resultLine(r)) + '</div>' +
-        (r.laps && r.laps.length ? '<div class="pl-laps sm">' + r.laps.map(function (l, k) { return '<span>L' + (k + 1) + ' ' + M.formatStopwatch(l.lapMs) + '</span>'; }).join('') + '</div>' : '') + '</div></div>';
+        (r.laps && r.laps.length ? '<div class="pl-laps sm">' + r.laps.map(function (l, k) { return '<span>L' + (k + 1) + ' ' + M.formatStopwatch(l.lapMs) + '</span>'; }).join('') + '</div>' : '') +
+        eventSummaryHtml(r) + '</div></div>';
     });
     h += '</div><button class="pri" style="width:100%" data-p="exit">Done</button></div>';
     S.root.innerHTML = h;
@@ -311,6 +362,7 @@
     if (S.phase === 'rest') return S.running ? 'Pause rest' : 'Resume rest';
     if (S.phase === 'complete') return S.idx < S.queue.length - 1 ? 'Next exercise' : 'Finish workout';
     if (ex.mode === 'reps') return c.repsType === 'static' && S.phase === 'ready' ? 'Start hold' : 'Rest';
+    if (ex.mode === 'timer' && S.phase === 'work') return effectiveRest(S.idx) > 0 ? 'Rest' : 'Next';
     if (S.phase === 'ready') return 'Start';
     if (ex.mode === 'stopwatch') return !S.running ? 'Resume' : c.lapsEnabled ? 'Lap ' + (res(S.idx).laps.length + 1) + ' / ' + c.lapCount : 'Finish';
     return S.running ? 'Pause' : 'Resume';
@@ -334,9 +386,7 @@
       mems.forEach(function (mi) {
         if (mi === i) return; // only the OTHER member(s) — current stays in the media window
         var ex2 = exOf(mi), st2 = S.queue[mi];
-        var donePane = S.results[mi] && S.results[mi].logged;
-        var dimPane = donePane || ex.mode === 'timer' || ex.mode === 'intervals';
-        h += '<div class="pl-ss-pane' + (dimPane ? ' dim' : '') + '"><div class="pl-name">' + esc(ex2.name) + '</div><div class="pl-meta">' + esc(infoLine(ex2, st2)) + '</div></div>';
+        h += '<div class="pl-ss-pane dim"><div class="pl-name">' + esc(ex2.name) + '</div><div class="pl-meta">' + esc(infoLine(ex2, st2)) + '</div></div>';
       });
       h += '</div>';
     }
@@ -365,6 +415,7 @@
       else out += '<div class="pl-f"><span>Weight</span><div class="pl-bw">Bodyweight</div></div>';
       out += '</div>';
       if (rT.laps && rT.laps.length) out += '<div class="pl-laps">' + rT.laps.map(function (l, k) { return '<span><b>Lap ' + (k + 1) + '</b> ' + M.formatStopwatch(l.lapMs) + ' <i>' + M.formatStopwatch(l.totalMs) + '</i></span>'; }).join('') + '</div>';
+      out += eventRowsHtml(exT, rT, mi);
       return out;
     }
     h += '<div class="pl-track">';
@@ -388,11 +439,35 @@
     if (cu) car.scrollTop += cu.getBoundingClientRect().top - car.getBoundingClientRect().top - 24; // keep current in view
     tick(true);
   }
+  function eventSummaryHtml(r) {
+    var ex = S.w.items.filter(function (x) { return x.id === r.exerciseId; })[0];
+    var laps = r.laps ? r.laps.length : 0;
+    var evs = (ex && ex.modeConfig && ex.modeConfig.events || []).filter(function (ev) { return ev.lap <= laps; });
+    if (!evs.length) return '';
+    return '<div class="pl-events sm">' + evs.map(function (ev) {
+      var mark = r.eventResults && r.eventResults[ev.lap];
+      var pf = mark === 'pass' ? 'Pass' : mark === 'fail' ? 'Fail' : '';
+      return '<div class="pl-ev"><span>Lap ' + ev.lap + ' \u201c' + esc(ev.name) + '\u201d' + (pf ? ' ' + pf : '') + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function eventRowsHtml(ex, r, si) {
+    var laps = r.laps ? r.laps.length : 0;
+    var evs = (ex.modeConfig && ex.modeConfig.events || []).filter(function (ev) { return ev.lap <= laps; });
+    if (!evs.length) return '';
+    return '<div class="pl-events">' + evs.map(function (ev) {
+      var mark = r.eventResults && r.eventResults[ev.lap];
+      function btn(kind, label) {
+        return '<button type="button" data-pf="' + kind + '" data-lap="' + ev.lap + '" data-si="' + si + '"' + (mark === kind ? ' class="on"' : '') + '>' + label + '</button>';
+      }
+      return '<div class="pl-ev"><span>Lap ' + ev.lap + ' \u201c' + esc(ev.name) + '\u201d</span><div class="pl-pf">' + btn('pass', 'Pass') + btn('fail', 'Fail') + '</div></div>';
+    }).join('') + '</div>';
+  }
   function hint(ex) {
     var l = primaryLabel(ex);
     if (res(S.idx).logged && (S.phase === 'ready' || (S.phase === 'work' && !S.running && ex.mode === 'reps'))) return 'Logged · tap to redo';
     if (ex.mode === 'reps' && S.queue[S.idx].groupId && !isFinalInRound(S.idx) && (S.phase === 'work' || S.phase === 'ready') && !S.running)
       return 'Tap for next'; // no rest on non-final SS member
+    if (ex.mode === 'timer' && S.phase === 'work') return effectiveRest(S.idx) > 0 ? 'Tap to rest' : 'Tap for next';
     return S.running ? '' : 'Tap to ' + l.charAt(0).toLowerCase() + l.slice(1);
   }
   function flash(icon) {
@@ -408,16 +483,29 @@
   function tick(once) {
     if (!S || S.done) return;
     var d = phaseDur();
-    if (S.running && d != null && elapsed() >= d) { var over = elapsed() - d; S.running = false; phaseEnd(over); }
-    var ro = document.getElementById('ro'), pg = document.getElementById('pg');
-    if (ro) ro.textContent = readout();
-    if (pg) pg.style.width = (d ? Math.min(100, elapsed() / d * 100) : 0) + '%';
-    if (!once) S.raf = requestAnimationFrame(function () { tick(); });
+    if (S.running && d != null && elapsed() >= d) {
+      playDueTones(); // go / done on the same frame the next timer appears
+      var over = elapsed() - d; S.running = false; phaseEnd(over);
+    } else {
+      var ro = document.getElementById('ro'), pg = document.getElementById('pg');
+      if (ro) ro.textContent = readout();
+      if (pg) pg.style.width = (d ? Math.min(100, elapsed() / d * 100) : 0) + '%';
+      playDueTones(); // countdown ticks share this frame's visible second
+    }
+    if (!once && S && !S.done) S.raf = requestAnimationFrame(function () { tick(); });
   }
 
   // ---------- events ----------
   function onClick(e) {
     var b = e.target.closest('button,[data-p]'); if (!b || b.disabled) return;
+    if (b.dataset.pf) { // stopwatch event pass/fail — does not touch the clock or lap times
+      var si = b.dataset.si != null ? +b.dataset.si : S.idx, rr = res(si);
+      rr.eventResults = rr.eventResults || {};
+      rr.eventResults[+b.dataset.lap] = b.dataset.pf;
+      var box = b.parentNode;
+      Array.prototype.forEach.call(box.querySelectorAll('button'), function (btn) { btn.classList.toggle('on', btn === b); });
+      return;
+    }
     if (b.dataset.sel) return select(+b.dataset.sel);
     if (b.dataset.ex) { // first unlogged set of that exercise, else its first set
       var id = b.dataset.ex, first = -1, open = -1;
@@ -447,6 +535,7 @@
       window.__wbPlayer = S; // for tests / debugging
     },
     toneSchedule: toneSchedule,
+    step: function () { if (S) tick(true); },
     unmount: function () { if (!S) return; stopTones(); cancelAnimationFrame(S.raf); S.running = false; document.removeEventListener('visibilitychange', onVis); if (wake) wake.release().catch(function () {}); S = null; },
     requestEnd: function () {
       if (!S) return; if (S.done) return S.onExit();

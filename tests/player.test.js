@@ -29,7 +29,7 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-a=play]');
   let s = await st(); assert.strictEqual(s.name, 'Goblet squat'); assert.ok((await p.$eval('.pl-info .pl-meta', e => e.textContent)).includes('Set 1 of 2'));
   assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Plank'); // partner below media, not stacked inside
-  assert.ok(!(await p.$('.pl-ss-extra .dim'))); // reps: partner lit
+  assert.ok(await p.$('.pl-ss-extra .dim')); // inactive partner is grey in every mode, including reps
   assert.ok(await p.$('.pl-chain')); // chain between supersetted carousel items
   assert.strictEqual(await p.$$eval('.pl-ci', a => a[1].querySelector('b').textContent), 'Plank'); // A1 -> B1 order
   assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$eval('.pl-ci', e => e.classList.contains('cur')), true);
