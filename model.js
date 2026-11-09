@@ -42,7 +42,7 @@
       mode: 'reps', modeConfig: defaultModeConfig('reps'),
       notes: '',
       groupId: null,   // superset link: up to 2 exercises sharing a groupId (kept contiguous)
-      media: null      // library: { kind:'library', libraryId, view:'180'|'360' }; custom photo: { kind:'custom', imageKey }
+      media: null      // library: { kind:'library', libraryId, view:'180'|'360' }; custom image: { kind:'custom', imageKey }
     };
     return Object.assign(ex, over || {});
   }
@@ -118,7 +118,7 @@
     return out;
   }
 
-  // Library ids and local photo keys only. Never a remote image address.
+  // Library ids and local image keys only. Never a remote image address.
   function cleanMedia(media) {
     if (!media || typeof media !== 'object') return null;
     if (media.kind === 'library') {
@@ -260,12 +260,23 @@
   function unlinkExercise(w, id) { var i = findIdx(w, id); if (i >= 0) w.items[i].groupId = null; cleanGroups(w); return touch(w); }
 
   function duplicateWorkout(w) {
-    var c = clone(w), map = {};
+    var c = clone(w), map = {}, copies = [], seen = {};
     c.id = uid('wo'); c.name = w.name + ' (copy)'; c.createdAt = c.updatedAt = Date.now();
     c.items.forEach(function (it) {
       it.id = uid('ex');
       if (it.groupId) { map[it.groupId] = map[it.groupId] || uid('grp'); it.groupId = map[it.groupId]; }
+      var media = cleanMedia(it.media);
+      if (!media || media.kind !== 'custom') return;
+      // New key so the copy does not share the original's on-device image.
+      var next = seen[media.imageKey];
+      if (!next) {
+        next = uid('img');
+        seen[media.imageKey] = next;
+        copies.push({ from: media.imageKey, to: next });
+      }
+      it.media = { kind: 'custom', imageKey: next };
     });
+    if (copies.length) Object.defineProperty(c, 'imageCopies', { value: copies, enumerable: false, configurable: true });
     return c;
   }
 
