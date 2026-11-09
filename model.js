@@ -134,7 +134,7 @@
     return null;
   }
 
-  // base is the Bunny folder that contains 180/ and 360/. Empty until that host is set.
+  // base is the Bunny folder that contains 180/ and 360/. An empty base returns no URL.
   function exerciseGifUrl(libraryId, view, base) {
     var root = String(base == null ? '' : base).trim().replace(/\/+$/, '');
     var id = String(libraryId || '').trim();
