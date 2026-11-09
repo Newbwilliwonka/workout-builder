@@ -4,9 +4,9 @@
   var URL = 'https://thyrgloermygnezfareg.supabase.co';
   var PUBLISHABLE_KEY = 'sb_publishable_YT4vJriMUtcFRveDBA0GaA_eDiu5_Py';
   var REDIRECT = 'https://newbwilliwonka.github.io/workout-builder/';
-  // Bunny folder that contains 180/ and 360/. Leave empty until the GIFs are hosted.
+  // Bunny folder that contains 180/ and 360/.
   // A library demo is this value + "/180/" + id + ".gif" (or "/360/"). Not a secret.
-  var EXERCISE_GIF_BASE = '';
+  var EXERCISE_GIF_BASE = 'https://kinisiexercises.b-cdn.net';
   var LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js';
   var client = null, loading = null;
   var Mem = root.WBMembership;
