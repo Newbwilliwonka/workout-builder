@@ -393,7 +393,7 @@
       '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>' +
       '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
       (S.phase === 'rest' ? upNextHtml(i) : '') +
-      (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '<div class="pl-ro pl-target">' + esc(ex.modeConfig.repsType === 'range' ? c.min + '–' + c.max : c.count) + '<small>reps</small></div>');
+      (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '');
     h += '<div class="pl-info"><div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>';
     h += '<div class="pl-bar"><i id="pg"></i></div></div>'; // end screen
     if (showSsExtra) {
