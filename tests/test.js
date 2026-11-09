@@ -74,7 +74,7 @@ const v3 = { version: 3, workouts: [{ id: 'w', name: 'v3', items: [{ id: 't', na
   { id: 'n', name: 'N', sets: 1, weight: { unit: 'lb', value: null }, mode: 'timer', modeConfig: { workSec: 40, restSec: 20, repsType: 'number', count: 12 }, notes: '', groupId: null, media: null }] }], sessions: [] };
 const L4 = M.load({ s: { [M.STORAGE_KEY]: JSON.stringify(v3) }, getItem: mem.getItem, setItem: mem.setItem }).workouts[0].items;
 assert.strictEqual(L4[0].modeConfig.repsType, null); assert.ok(!('count' in L4[0].modeConfig)); assert.deepStrictEqual([L4[1].modeConfig.repsType, L4[1].modeConfig.count], ['number', 12]);
-// library media stays an id, never a hosted address; custom photos stay a local key
+// library media stays an id, never a hosted address; custom images stay a local key
 assert.strictEqual(M.exerciseGifUrl('0101', '180', ''), '');
 assert.strictEqual(M.exerciseGifUrl('0101', '360', 'https://cdn.example.test/exercises/'), 'https://cdn.example.test/exercises/360/0101.gif');
 assert.strictEqual(M.exerciseGifUrl('0101', 'side', 'https://cdn.example.test/exercises'), 'https://cdn.example.test/exercises/180/0101.gif');
@@ -83,6 +83,26 @@ const libEx = M.normalizeExercise(mk({ name: 'Test press', media: { kind: 'libra
 assert.deepStrictEqual(libEx.media, { kind: 'library', libraryId: '0101', view: '360' });
 const photoEx = M.normalizeExercise(mk({ name: 'Mine', media: { kind: 'custom', imageKey: 'img_local1' } }));
 assert.deepStrictEqual(photoEx.media, { kind: 'custom', imageKey: 'img_local1' });
+// Duplicating gives each custom image its own key. A shared key stays shared inside the copy, and the plan is not saved.
+(function () {
+  const src = M.newWorkout('Pics');
+  M.upsertExercise(src, mk({ name: 'A', media: { kind: 'custom', imageKey: 'img_shared' } }));
+  M.upsertExercise(src, mk({ name: 'B', media: { kind: 'custom', imageKey: 'img_shared' } }));
+  M.upsertExercise(src, mk({ name: 'C', media: { kind: 'custom', imageKey: 'img_other' } }));
+  M.upsertExercise(src, mk({ name: 'D', media: { kind: 'library', libraryId: '0101', view: '180' } }));
+  const copy = M.duplicateWorkout(src);
+  assert.strictEqual(src.items[0].media.imageKey, 'img_shared');
+  assert.notStrictEqual(copy.items[0].media.imageKey, 'img_shared');
+  assert.strictEqual(copy.items[0].media.imageKey, copy.items[1].media.imageKey);
+  assert.notStrictEqual(copy.items[2].media.imageKey, 'img_other');
+  assert.notStrictEqual(copy.items[2].media.imageKey, copy.items[0].media.imageKey);
+  assert.deepStrictEqual(copy.items[3].media, { kind: 'library', libraryId: '0101', view: '180' });
+  assert.deepStrictEqual(copy.imageCopies.map(function (pair) { return pair.from; }).sort(), ['img_other', 'img_shared']);
+  assert.strictEqual(copy.imageCopies[0].to, copy.items.find(function (it) { return it.name === 'A'; }).media.imageKey);
+  assert.strictEqual(Object.keys(copy).indexOf('imageCopies'), -1);
+  assert.strictEqual(JSON.parse(JSON.stringify(copy)).imageCopies, undefined);
+  assert.strictEqual(M.duplicateWorkout(M.newWorkout('Plain')).imageCopies, undefined);
+})();
 assert.strictEqual(M.normalizeExercise(mk({ name: 'x', media: { kind: 'library', libraryId: '' } })).media, null);
 assert.strictEqual(M.cleanMedia({ type: 'image', src: 'https://example.test/secret.gif' }), null);
 assert.strictEqual(M.cleanMedia(null), null);

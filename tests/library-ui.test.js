@@ -1,4 +1,4 @@
-// Library search/select and a photo that stays on this device.
+// Library search/select and an image that stays on this device.
 // node tests/library-ui.test.js [url]
 const assert = require('assert');
 const fs = require('fs');
@@ -79,7 +79,8 @@ data.workouts.push(w);
   await p.waitForSelector('[data-a=add]');
   await p.click('[data-a=add]');
   await p.waitForSelector('[data-b=name]');
-  assert.strictEqual(await p.$('#lib-q'), null, 'a new exercise starts by typing a name');
+  assert.strictEqual(await p.$('#lib-q'), null, 'a new exercise starts on Enter manually');
+  assert.deepStrictEqual(await p.$$eval('[data-seg=source]', function (els) { return els.map(function (el) { return el.textContent; }); }), ['Enter manually', 'Exercise library']);
   assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.placeholder; }), 'e.g. Goblet squat');
   await p.click('[data-seg=source][data-v=library]');
   await p.waitForSelector('#lib-q');
@@ -163,7 +164,7 @@ data.workouts.push(w);
       };
     });
   }, custom.media.imageKey);
-  assert.ok(stored > 0, 'photo is in IndexedDB');
+  assert.ok(stored > 0, 'image is in IndexedDB');
 
   await p.evaluate(function () { window.WBAuth.gifBase = ''; });
   await p.click('[data-a=play]');
@@ -186,7 +187,8 @@ data.workouts.push(w);
   await cards[1].click();
   await p.waitForSelector('[data-a=clearphoto]');
   await p.click('[data-a=clearphoto]');
-  assert.ok((await p.$eval('.media', function (el) { return el.textContent; })).includes('Optional photo'));
+  assert.ok((await p.$eval('.media', function (el) { return el.textContent; })).includes('Optional image'));
+  assert.ok(!(await p.$eval('#app', function (el) { return el.innerText; })).match(/type a name|photo/i));
   await p.click('[data-a=save]');
   await p.waitForSelector('[data-a=add]');
   const after = await p.evaluate(function (k) { return JSON.parse(localStorage.getItem(k)).workouts[0].items.find(function (it) { return it.name === 'My move'; }); }, M.STORAGE_KEY);
@@ -204,7 +206,7 @@ data.workouts.push(w);
       req.onerror = function () { reject(req.error); };
     });
   }, custom.media.imageKey);
-  assert.strictEqual(gone, 0, 'removing the photo deletes it from this device');
+  assert.strictEqual(gone, 0, 'removing the image deletes it from this device');
 
   assert.deepStrictEqual(errs, []);
   console.log('LIBRARY UI OK');

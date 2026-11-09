@@ -389,7 +389,13 @@
       go('#/signin');
     });
   }
+  function releasePendingImage() {
+    if (!draft || !draft.pendingUrl) return;
+    try { URL.revokeObjectURL(draft.pendingUrl); } catch (e) {}
+    draft.pendingUrl = '';
+  }
   window.addEventListener('hashchange', function () {
+    releasePendingImage();
     draft = null;
     if (hashPage() !== 'signin') pendingSignNotice = null;
     route();
@@ -427,8 +433,48 @@
       } else if (a === 'open') go('#/w/' + w.id);
       else if (a === 'run') { if (w.items.length) go('#/play/' + w.id); }
       else if (a === 'rename') { var r = prompt('Rename workout', w.name); if (r && r.trim()) { w.name = r.trim(); w.updatedAt = Date.now(); persist(); renderList(); } }
-      else if (a === 'dup') { var c = M.duplicateWorkout(w); data.workouts.splice(data.workouts.indexOf(w) + 1, 0, c); persist(); renderList(); toast('Duplicated'); }
-      else if (a === 'del') { if (confirm('Delete “' + w.name + '”? This cannot be undone.')) { data.workouts.splice(data.workouts.indexOf(w), 1); persist(); renderList(); toast('Deleted'); } }
+      else if (a === 'dup') {
+        var c = M.duplicateWorkout(w);
+        var copies = c.imageCopies ? c.imageCopies.slice() : [];
+        if (c.imageCopies) delete c.imageCopies;
+        var finishDup = function () {
+          var i = data.workouts.indexOf(w);
+          if (i < 0) return false;
+          data.workouts.splice(i + 1, 0, c);
+          persist();
+          if (!hashPage()) renderList();
+          toast('Duplicated');
+          return true;
+        };
+        if (!copies.length) { finishDup(); return; }
+        if (!window.WBMedia) { toast('Could not copy the images on this device'); return; }
+        var chain = Promise.resolve();
+        copies.forEach(function (pair) {
+          chain = chain.then(function () { return WBMedia.copy(pair.from, pair.to); });
+        });
+        chain.then(function () {
+          if (!finishDup()) copies.forEach(function (pair) { WBMedia.remove(pair.to); });
+        }).catch(function () {
+          copies.forEach(function (pair) { WBMedia.remove(pair.to); });
+          toast('Could not copy the images on this device');
+        });
+      }
+      else if (a === 'del') {
+        if (confirm('Delete “' + w.name + '”? This cannot be undone.')) {
+          var dropKeys = [];
+          (w.items || []).forEach(function (it) {
+            var gone = M.cleanMedia(it.media);
+            if (gone && gone.kind === 'custom' && dropKeys.indexOf(gone.imageKey) < 0) dropKeys.push(gone.imageKey);
+          });
+          data.workouts.splice(data.workouts.indexOf(w), 1);
+          dropKeys.forEach(function (key) {
+            if (!customKeyInUse(key) && window.WBMedia) WBMedia.remove(key);
+          });
+          persist();
+          renderList();
+          toast('Deleted');
+        }
+      }
       else if (a === 'wup' || a === 'wdown') {
         var i = data.workouts.indexOf(w), j = i + (a === 'wup' ? -1 : 1);
         if (j >= 0 && j < data.workouts.length) { var t = data.workouts[i]; data.workouts[i] = data.workouts[j]; data.workouts[j] = t; persist(); renderList(); }
@@ -603,14 +649,37 @@
     var box = document.getElementById('lib-results');
     if (box && draft) box.innerHTML = resultsHtml(draft);
   }
-  function scheduleLibSearch(append) {
+  function scheduleLibSearch(append, immediate) {
     clearTimeout(scheduleLibSearch.t);
     var token = ++libToken;
-    scheduleLibSearch.t = setTimeout(function () { runLibSearch(token, !!append); }, append ? 0 : 280);
+    scheduleLibSearch.t = setTimeout(function () { runLibSearch(token, !!append); }, (append || immediate) ? 0 : 280);
+  }
+  // Leaving or returning to the library must drop a search that is waiting or in flight, then start a fresh one.
+  function onLibrarySourceChange() {
+    if (!draft) return;
+    draft.libError = false;
+    draft.libBusy = false;
+    draft.libMore = false;
+    if (draft.source !== 'library') {
+      clearTimeout(scheduleLibSearch.t);
+      libToken++;
+      draft.libStatus = '';
+      return;
+    }
+    var q = String(draft.libQuery || '').trim();
+    var filtered = draft.libBody || draft.libEquip || draft.libTarget;
+    if (q.length >= 2 || filtered) {
+      draft.libRows = [];
+      draft.libStatus = 'Searching\u2026';
+    } else {
+      draft.libRows = [];
+      draft.libStatus = '';
+    }
+    scheduleLibSearch(false, true);
   }
   function runLibSearch(token, append) {
     var d = draft;
-    if (!d || d.source !== 'library') return;
+    if (token !== libToken || !d || d.source !== 'library') return;
     var q = String(d.libQuery || '').trim();
     var filters = { bodyPart: d.libBody || '', equipment: d.libEquip || '', target: d.libTarget || '' };
     if (q.length < 2 && !filters.bodyPart && !filters.equipment && !filters.target) {
@@ -667,22 +736,22 @@
       var pic = url ? '<img class="ex-gif" alt="" data-gif="1" src="' + esc(url) + '">' : '<span>Demo will show here once it\u2019s connected.</span>';
       return '<div class="media has-pic">' + pic + seg('view', [['180', '180'], ['360', '360']], d.view === '360' ? '360' : '180') + '</div>';
     }
-    var pic = '<span>Optional photo</span>';
+    var pic = '<span>Optional image</span>';
     if (!d.clearImage && d.pendingUrl) pic = '<img class="ex-gif" alt="" src="' + esc(d.pendingUrl) + '">';
-    else if (!d.clearImage && d.imageKey) pic = '<span class="media-note" data-local-img="' + esc(d.imageKey) + '">No photo on this device</span>';
+    else if (!d.clearImage && d.imageKey) pic = '<span class="media-note" data-local-img="' + esc(d.imageKey) + '">No image on this device</span>';
     var hasPhoto = !d.clearImage && (d.pendingUrl || d.imageKey);
     return '<div class="media has-pic">' + pic +
-      '<label class="file-btn">' + (hasPhoto ? 'Replace photo' : 'Add a photo') + '<input id="ex-photo" type="file" accept="image/*"></label>' +
-      (hasPhoto ? '<button type="button" data-a="clearphoto">Remove photo</button>' : '') +
+      '<label class="file-btn">' + (hasPhoto ? 'Replace image' : 'Add an image') + '<input id="ex-photo" type="file" accept="image/*"></label>' +
+      (hasPhoto ? '<button type="button" data-a="clearphoto">Remove image</button>' : '') +
       '<span class="mute">Stays on this device only. Clearing site data removes it.</span></div>';
   }
   function planMedia(d) {
     var saved = M.cleanMedia(d.savedMedia);
     var oldKey = saved && saved.kind === 'custom' ? saved.imageKey : '';
     if (d.source === 'library') {
-      if (!d.libraryId) return { error: 'Choose an exercise from the library, or type a name instead.', media: null };
+      if (!d.libraryId) return { error: 'Choose an exercise from the library, or enter one manually instead.', media: null };
       var picked = M.cleanMedia({ kind: 'library', libraryId: d.libraryId, view: d.view });
-      if (!picked) return { error: 'Choose an exercise from the library, or type a name instead.', media: null };
+      if (!picked) return { error: 'Choose an exercise from the library, or enter one manually instead.', media: null };
       return { media: picked, dropKey: oldKey };
     }
     if (d.clearImage) return { media: null, dropKey: oldKey };
@@ -703,7 +772,7 @@
     var ssNonFinal = !!(ssBlock && ssBlock.items[ssBlock.items.length - 1].id !== d.id);
     titleEl.textContent = isNew ? 'New exercise' : 'Edit exercise'; backBtn.hidden = false;
     var h = '<div class="card">' + (ssBlock ? '<div class="warn" role="status">Only the final rest period will function in each set of a superset</div>' : '') +
-      seg('source', [['custom', 'Type a name'], ['library', 'Exercise library']], d.source || 'custom') +
+      seg('source', [['custom', 'Enter manually'], ['library', 'Exercise library']], d.source || 'custom') +
       (d.source === 'library'
         ? '<input id="lib-q" aria-label="Search exercises" placeholder="Search exercises" autocomplete="off" value="' + esc(d.libQuery || '') + '">' +
           '<div class="lib-filters">' +
@@ -752,9 +821,9 @@
         if (e.type !== 'change') return;
         var file = t.files && t.files[0];
         if (!file) return;
-        if (!/^image\//.test(file.type || '')) { toast('Choose a photo'); return; }
-        if (file.size > PHOTO_LIMIT) { toast('Choose a photo under 5 MB'); return; }
-        if (d.pendingUrl) URL.revokeObjectURL(d.pendingUrl);
+        if (!/^image\//.test(file.type || '')) { toast('Choose an image'); return; }
+        if (file.size > PHOTO_LIMIT) { toast('Choose an image under 5 MB'); return; }
+        releasePendingImage();
         d.pendingBlob = file; d.pendingUrl = URL.createObjectURL(file); d.clearImage = false;
         if (!d.imageKey) d.imageKey = M.uid('img');
         renderEditor(w, exId);
@@ -797,13 +866,16 @@
       var s = e.target.closest('[data-seg]');
       if (s) {
         var k = s.dataset.seg;
-        if (k === 'source') libToken++;
+        if (k === 'source') {
+          if (d.source !== s.dataset.v) { d.source = s.dataset.v; onLibrarySourceChange(); }
+          return renderEditor(w, exId);
+        }
         if (k === 'repsType') { var cc = d.cfg[d.mode]; cc.repsType = d.mode !== 'reps' && cc.repsType === s.dataset.v ? null : s.dataset.v; }
         else d[k] = s.dataset.v;
         return renderEditor(w, exId);
       }
       var b = e.target.closest('[data-a]'); if (!b) return;
-      if (b.dataset.a === 'cancel') { if (d.pendingUrl) URL.revokeObjectURL(d.pendingUrl); return go('#/w/' + w.id); }
+      if (b.dataset.a === 'cancel') { releasePendingImage(); return go('#/w/' + w.id); }
       if (b.dataset.a === 'pick') {
         d.libraryId = b.dataset.id || '';
         d.name = b.dataset.name || d.name;
@@ -813,8 +885,8 @@
       }
       if (b.dataset.a === 'libmore') { scheduleLibSearch(true); return; }
       if (b.dataset.a === 'clearphoto') {
-        if (d.pendingUrl) URL.revokeObjectURL(d.pendingUrl);
-        d.pendingBlob = null; d.pendingUrl = ''; d.clearImage = true;
+        releasePendingImage();
+        d.pendingBlob = null; d.clearImage = true;
         return renderEditor(w, exId);
       }
       if (b.dataset.a === 'save') {
@@ -829,11 +901,11 @@
         write.then(function () {
           if (plan.dropKey && !customKeyInUse(plan.dropKey, d.id) && window.WBMedia) return WBMedia.remove(plan.dropKey);
         }).then(function () {
-          if (d.pendingUrl) URL.revokeObjectURL(d.pendingUrl);
+          releasePendingImage();
           M.upsertExercise(w, res.ex); persist(); toast('Saved'); go('#/w/' + w.id);
         }).catch(function () {
           d.saving = false;
-          toast('Could not keep that photo on this device');
+          toast('Could not keep that image on this device');
         });
       }
     };

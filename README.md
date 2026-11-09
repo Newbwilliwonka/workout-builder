@@ -21,7 +21,7 @@ modeConfig:
   timer     { workSec, restSec }
   stopwatch { lapsEnabled: true, lapCount }  // lapCount only when laps on; WB.formatStopwatch(ms) -> 'MM:SS.hh'
 ```
-Library demos use `EXERCISE_GIF_BASE` in `auth.js` (`{base}/180/{id}.gif` and `{base}/360/{id}.gif`). Leave it empty until the GIF host is set. Custom photos stay in IndexedDB (`wb.exercise-images`) on that device.
+Library demos use `EXERCISE_GIF_BASE` in `auth.js` (`{base}/180/{id}.gif` and `{base}/360/{id}.gif`). Leave it empty until the GIF host is set. Custom images stay in IndexedDB (`wb.exercise-images`) on that device.
 Migrations: `WB.migrate` upgrades v1 data on load (reps restSec=0, stopwatch lapCount=1).
 Planned session record for the player: `{ id, workoutId, startedAt, endedAt, results: [{ exerciseId, set, laps: [ms...], totalMs }] }`.
 `WB.buildPlayQueue(workout)` already returns the ordered steps, rotating supersets one set at a time (A1 B1 A2 B2 …).
