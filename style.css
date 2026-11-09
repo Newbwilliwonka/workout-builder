@@ -90,7 +90,7 @@ body.playing .bar{display:none}
 .pl-chip{background:#1e293b;backdrop-filter:none;color:#fff;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
 .pl-chip.ss{background:rgba(124,58,237,.35);backdrop-filter:blur(6px);color:#e2e8f0;margin-bottom:0} /* builder .ss margin was stretching the status chip */
 .is-rest .pl-chip:not(.ss){color:#6ee7b7}
-.pl-ro{position:absolute;left:0;right:0;top:40%;transform:translateY(-50%);text-align:center;font:700 clamp(36px,11vw,56px)/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pl-ro{position:absolute;left:0;right:0;top:40%;transform:translateY(-50%);text-align:center;font:700 clamp(36px,11vw,56px)/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#2563eb;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .pl-info{position:absolute;left:0;right:0;bottom:0;background:transparent}
 .pl-name{font-size:18px;font-weight:700;color:#fff;line-height:1.15;word-break:break-word}
 .pl-info .pl-name{color:#2563eb}
@@ -147,7 +147,7 @@ body.playing .bar{display:none}
 .pl-screen{cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
 .pl-screen.is-static{cursor:default}
 .pl-go{display:block;width:100%;min-height:99px;border-radius:16px;background:#38bdf8;color:#04121f;font-size:18px;font-weight:700}
-.pl-hint{position:absolute;top:50%;left:0;right:0;transform:translateY(40px);text-align:center;font-size:13px;color:#cbd5e1;opacity:.85;pointer-events:none;z-index:2}
+.pl-hint{position:absolute;top:50%;left:0;right:0;transform:translateY(40px);text-align:center;font-size:13px;color:#2563eb;pointer-events:none;z-index:2}
 .pl-flash{position:absolute;top:50%;left:50%;width:72px;height:72px;margin:-36px 0 0 -36px;border-radius:50%;background:rgba(2,6,23,.55);color:#fff;font-size:30px;display:flex;align-items:center;justify-content:center;pointer-events:none;animation:plf .7s ease-out forwards;z-index:3}
 @keyframes plf{0%{opacity:0;transform:scale(.7)}20%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.25)}}
 .pl-endw{display:block;width:100%;margin:28px 0 8px;min-height:48px;background:transparent;border:1px solid #7f1d1d;color:#f87171;border-radius:14px;font-size:15px}
