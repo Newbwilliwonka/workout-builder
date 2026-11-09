@@ -368,6 +368,20 @@
     if (ex.mode === 'stopwatch') return !S.running ? 'Resume' : c.lapsEnabled ? 'Lap ' + (res(S.idx).laps.length + 1) + ' / ' + c.lapCount : 'Finish';
     return S.running ? 'Pause' : 'Resume';
   }
+  function playerMedia(ex) {
+    var m = M.cleanMedia(ex && ex.media);
+    if (m && m.kind === 'library') {
+      var url = M.exerciseGifUrl(m.libraryId, m.view, (window.WBAuth && WBAuth.gifBase) || '');
+      if (url) return '<img class="ex-gif" alt="" data-gif="1" src="' + esc(url) + '">';
+      return '<span class="media-note">Demo isn\u2019t connected yet</span>';
+    }
+    if (m && m.kind === 'custom' && m.imageKey) {
+      var cached = window.WBMedia && WBMedia.peek(m.imageKey);
+      if (cached) return '<img class="ex-gif" alt="" src="' + esc(cached) + '">';
+      return '<span class="media-note" data-local-img="' + esc(m.imageKey) + '">No photo on this device</span>';
+    }
+    return '<svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span>';
+  }
   function render() {
     var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i);
     var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? (ex.mode === 'stopwatch' ? 'Attempt complete' : 'Set complete') : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? (ex.mode === 'intervals' ? 'Interval' : 'Ready') : 'Set ' + st.set;
@@ -376,7 +390,7 @@
     // stage: visual screen + side carousel. Stopwatch taps live on .pl-go, so its media stays display-only.
     var mems = roundMembers(i), showSsExtra = mems.length >= 2 && S.phase !== 'rest', sw = ex.mode === 'stopwatch';
     h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + (sw ? ' is-static' : '') + '"' + (sw ? '' : ' data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '"') + '>' + (sw ? '' : '<div class="pl-hint">' + esc(hint(ex)) + '</div>') +
-      '<div class="pl-media" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span></div>' +
+      '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>' +
       '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
       (S.phase === 'rest' ? upNextHtml(i) : '') +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '<div class="pl-ro pl-target">' + esc(ex.modeConfig.repsType === 'range' ? c.min + '–' + c.max : c.count) + '<small>reps</small></div>');
@@ -436,6 +450,7 @@
     h += '</div><button class="pl-endw" data-p="end">End workout</button></div>';
     if (S.prompt) h += '<div class="pl-modal"><div class="card"><h3>Workout complete</h3><p class="mute">End the workout now, or keep editing your logged sets.</p><button class="pri" data-p="endnow">End workout</button><button data-p="keep">Keep editing</button></div></div>';
     S.root.innerHTML = h;
+    if (window.WBMedia) WBMedia.bind(S.root);
     var car = S.root.querySelector('.pl-car'), cu = car.querySelector('.cur');
     if (cu) car.scrollTop += cu.getBoundingClientRect().top - car.getBoundingClientRect().top - 24; // keep current in view
     tick(true);

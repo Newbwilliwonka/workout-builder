@@ -490,7 +490,12 @@
         if (M.supersetLinkSize(w, ids) > 2) { toast('Supersets are limited to 2 exercises'); return; }
         M.linkSuperset(w, ids); selected = {}; toast('Superset linked — only the final rest period will function in each set');
       }
-      else if (a === 'delex') { var ex = w.items.filter(function (x) { return x.id === id; })[0]; if (!confirm('Delete “' + ex.name + '”?')) return; M.deleteExercise(w, id); delete selected[id]; }
+      else if (a === 'delex') {
+        var ex = w.items.filter(function (x) { return x.id === id; })[0]; if (!confirm('Delete “' + ex.name + '”?')) return;
+        var gone = M.cleanMedia(ex.media);
+        M.deleteExercise(w, id); delete selected[id];
+        if (gone && gone.kind === 'custom' && !customKeyInUse(gone.imageKey, id) && window.WBMedia) WBMedia.remove(gone.imageKey);
+      }
       persist(); renderWorkout(w);
     };
   }
@@ -498,8 +503,15 @@
   // ---------- Exercise editor ----------
   // Draft holds raw input strings + a config per mode, so switching mode/type keeps what was typed.
   function makeDraft(ex) {
+    var media = M.cleanMedia(ex.media);
     var d = { id: ex.id, name: ex.name, sets: String(ex.sets), unit: ex.weight.unit, wval: ex.weight.value == null ? '' : String(ex.weight.value),
-      mode: ex.mode, notes: ex.notes, groupId: ex.groupId, media: ex.media, cfg: {} };
+      mode: ex.mode, notes: ex.notes, groupId: ex.groupId, media: media, cfg: {},
+      source: media && media.kind === 'library' ? 'library' : 'custom',
+      libraryId: media && media.kind === 'library' ? media.libraryId : '',
+      view: media && media.kind === 'library' ? media.view : '180',
+      imageKey: media && media.kind === 'custom' ? media.imageKey : '',
+      pendingBlob: null, pendingUrl: '', clearImage: false, savedMedia: media,
+      libQuery: '', libBody: '', libEquip: '', libTarget: '', libRows: [], libMore: false, libStatus: '', libError: false };
     M.MODES.forEach(function (m) { d.cfg[m] = M.defaultModeConfig(m); });
     Object.assign(d.cfg[ex.mode], ex.modeConfig);
     ['reps', 'intervals', 'timer'].forEach(function (m) { var x = d.cfg[m]; ['count', 'min', 'max'].forEach(function (k) { x[k] = x[k] == null ? '' : String(x[k]); }); });
@@ -552,6 +564,136 @@
     }
     return h;
   }
+  var libToken = 0, libFilters = { bodyParts: [], equipment: [], targets: [] }, libFiltersLoaded = false;
+  var PHOTO_LIMIT = 5 * 1024 * 1024;
+  function gifBase() { return (window.WBAuth && WBAuth.gifBase) || ''; }
+  function customKeyInUse(key, exceptId) {
+    if (!key) return false;
+    return data.workouts.some(function (w) {
+      return (w.items || []).some(function (it) {
+        if (exceptId && it.id === exceptId) return false;
+        var m = M.cleanMedia(it.media);
+        return m && m.kind === 'custom' && m.imageKey === key;
+      });
+    });
+  }
+  function filterSelect(id, label, value, options) {
+    var h = '<select id="' + id + '" aria-label="' + esc(label) + '"><option value="">' + esc(label) + '</option>';
+    (options || []).forEach(function (o) {
+      h += '<option value="' + esc(o) + '"' + (o === value ? ' selected' : '') + '>' + esc(o) + '</option>';
+    });
+    return h + '</select>';
+  }
+  function libMeta(row) { return [row.body_part, row.equipment, row.target].filter(Boolean).join(' · '); }
+  function resultsHtml(d) {
+    if (d.libStatus) return '<p class="' + (d.libError ? 'errs' : 'mute') + '">' + esc(d.libStatus) + '</p>';
+    var q = String(d.libQuery || '').trim();
+    var filtered = d.libBody || d.libEquip || d.libTarget;
+    if (q.length < 2 && !filtered) return '<p class="mute">Type at least 2 letters, or choose a filter.</p>';
+    if (!d.libRows || !d.libRows.length) return '<p class="mute">No exercises match that search.</p>';
+    var h = d.libRows.map(function (row) {
+      var on = row.id === d.libraryId ? ' on' : '';
+      return '<button type="button" class="lib-hit' + on + '" data-a="pick" data-id="' + esc(row.id) + '" data-name="' + esc(row.name) + '"><span class="name">' + esc(row.name) + '</span>' +
+        (libMeta(row) ? '<span class="mute">' + esc(libMeta(row)) + '</span>' : '') + '</button>';
+    }).join('');
+    if (d.libMore && !d.libBusy) h += '<button type="button" data-a="libmore">More</button>';
+    return h;
+  }
+  function paintLib() {
+    var box = document.getElementById('lib-results');
+    if (box && draft) box.innerHTML = resultsHtml(draft);
+  }
+  function scheduleLibSearch(append) {
+    clearTimeout(scheduleLibSearch.t);
+    var token = ++libToken;
+    scheduleLibSearch.t = setTimeout(function () { runLibSearch(token, !!append); }, append ? 0 : 280);
+  }
+  function runLibSearch(token, append) {
+    var d = draft;
+    if (!d || d.source !== 'library') return;
+    var q = String(d.libQuery || '').trim();
+    var filters = { bodyPart: d.libBody || '', equipment: d.libEquip || '', target: d.libTarget || '' };
+    if (q.length < 2 && !filters.bodyPart && !filters.equipment && !filters.target) {
+      d.libRows = []; d.libMore = false; d.libStatus = ''; d.libError = false; d.libBusy = false; paintLib(); return;
+    }
+    var search = window.WBAuth && WBAuth.searchExercises;
+    if (!search) { d.libStatus = 'The exercise library is not ready yet.'; d.libError = true; d.libBusy = false; paintLib(); return; }
+    d.libBusy = true;
+    if (!append) { d.libStatus = 'Searching\u2026'; d.libError = false; }
+    paintLib();
+    var offset = append ? (d.libRows || []).length : 0;
+    search(q, filters, 21, offset).then(function (rows) {
+      if (token !== libToken || !draft || draft.source !== 'library') return;
+      rows = Array.isArray(rows) ? rows : [];
+      var more = rows.length > 20;
+      if (more) rows = rows.slice(0, 20);
+      draft.libMore = more;
+      draft.libRows = append ? (draft.libRows || []).concat(rows) : rows;
+      draft.libStatus = ''; draft.libError = false; draft.libBusy = false;
+      paintLib();
+    }).catch(function (err) {
+      if (token !== libToken || !draft) return;
+      draft.libStatus = (err && err.message) || 'Could not search the exercise library.';
+      draft.libError = true; draft.libBusy = false;
+      if (!append) draft.libRows = [];
+      paintLib();
+    });
+  }
+  function ensureLibFilters() {
+    if (libFiltersLoaded || !window.WBAuth || !WBAuth.exerciseFilters) return;
+    libFiltersLoaded = true;
+    WBAuth.exerciseFilters().then(function (f) {
+      f = f || {};
+      libFilters = {
+        bodyParts: Array.isArray(f.bodyParts) ? f.bodyParts : [],
+        equipment: Array.isArray(f.equipment) ? f.equipment : [],
+        targets: Array.isArray(f.targets) ? f.targets : []
+      };
+      ['lib-body', 'lib-equip', 'lib-target'].forEach(function (id, i) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var opts = [libFilters.bodyParts, libFilters.equipment, libFilters.targets][i];
+        var cur = el.value, label = el.getAttribute('aria-label') || '';
+        var html = '<option value="">' + esc(label) + '</option>';
+        opts.forEach(function (o) { html += '<option value="' + esc(o) + '"' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>'; });
+        el.innerHTML = html;
+      });
+    }).catch(function () { libFiltersLoaded = false; });
+  }
+  function editorMediaHtml(d) {
+    if (d.source === 'library') {
+      if (!d.libraryId) return '<div class="media"><span>Choose an exercise to see its demo.</span></div>';
+      var url = M.exerciseGifUrl(d.libraryId, d.view, gifBase());
+      var pic = url ? '<img class="ex-gif" alt="" data-gif="1" src="' + esc(url) + '">' : '<span>Demo will show here once it\u2019s connected.</span>';
+      return '<div class="media has-pic">' + pic + seg('view', [['180', '180'], ['360', '360']], d.view === '360' ? '360' : '180') + '</div>';
+    }
+    var pic = '<span>Optional photo</span>';
+    if (!d.clearImage && d.pendingUrl) pic = '<img class="ex-gif" alt="" src="' + esc(d.pendingUrl) + '">';
+    else if (!d.clearImage && d.imageKey) pic = '<span class="media-note" data-local-img="' + esc(d.imageKey) + '">No photo on this device</span>';
+    var hasPhoto = !d.clearImage && (d.pendingUrl || d.imageKey);
+    return '<div class="media has-pic">' + pic +
+      '<label class="file-btn">' + (hasPhoto ? 'Replace photo' : 'Add a photo') + '<input id="ex-photo" type="file" accept="image/*"></label>' +
+      (hasPhoto ? '<button type="button" data-a="clearphoto">Remove photo</button>' : '') +
+      '<span class="mute">Stays on this device only. Clearing site data removes it.</span></div>';
+  }
+  function planMedia(d) {
+    var saved = M.cleanMedia(d.savedMedia);
+    var oldKey = saved && saved.kind === 'custom' ? saved.imageKey : '';
+    if (d.source === 'library') {
+      if (!d.libraryId) return { error: 'Choose an exercise from the library, or type a name instead.', media: null };
+      var picked = M.cleanMedia({ kind: 'library', libraryId: d.libraryId, view: d.view });
+      if (!picked) return { error: 'Choose an exercise from the library, or type a name instead.', media: null };
+      return { media: picked, dropKey: oldKey };
+    }
+    if (d.clearImage) return { media: null, dropKey: oldKey };
+    if (d.pendingBlob) {
+      var key = d.imageKey || M.uid('img');
+      d.imageKey = key;
+      return { media: { kind: 'custom', imageKey: key }, blob: d.pendingBlob, key: key, dropKey: oldKey && oldKey !== key ? oldKey : '' };
+    }
+    if (d.imageKey && M.cleanMedia({ kind: 'custom', imageKey: d.imageKey })) return { media: { kind: 'custom', imageKey: d.imageKey }, dropKey: '' };
+    return { media: null, dropKey: oldKey };
+  }
   function renderEditor(w, exId) {
     var isNew = exId === 'new', ex = isNew ? null : w.items.filter(function (x) { return x.id === exId; })[0];
     if (!isNew && !ex) return go('#/w/' + w.id);
@@ -561,7 +703,17 @@
     var ssNonFinal = !!(ssBlock && ssBlock.items[ssBlock.items.length - 1].id !== d.id);
     titleEl.textContent = isNew ? 'New exercise' : 'Edit exercise'; backBtn.hidden = false;
     var h = '<div class="card">' + (ssBlock ? '<div class="warn" role="status">Only the final rest period will function in each set of a superset</div>' : '') +
+      seg('source', [['custom', 'Type a name'], ['library', 'Exercise library']], d.source || 'custom') +
+      (d.source === 'library'
+        ? '<input id="lib-q" aria-label="Search exercises" placeholder="Search exercises" autocomplete="off" value="' + esc(d.libQuery || '') + '">' +
+          '<div class="lib-filters">' +
+            filterSelect('lib-body', 'Any body part', d.libBody, libFilters.bodyParts) +
+            filterSelect('lib-equip', 'Any equipment', d.libEquip, libFilters.equipment) +
+            filterSelect('lib-target', 'Any target', d.libTarget, libFilters.targets) +
+          '</div><div id="lib-results">' + resultsHtml(d) + '</div>'
+        : '') +
       '<label>Exercise name</label><input data-b="name" value="' + esc(d.name) + '" placeholder="e.g. Goblet squat" autocomplete="off">' +
+      (d.source === 'library' && d.libraryId ? '<p class="mute">Library demo is attached.</p>' : '') +
       '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode) +
       (d.mode === 'stopwatch' ? '<label>Attempts</label>' + numIn('sets', d.sets, 'e.g. 3') : d.mode === 'intervals' ? '<label># of intervals</label>' + numIn('sets', d.sets, 'e.g. 8') : '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3')) +
       '<label>Weight</label>' + seg('unit', [['lb', 'lb'], ['kg', 'kg'], ['bodyweight', 'Bodyweight']], d.unit) +
@@ -588,12 +740,34 @@
         (c.lapsEnabled ? '<label>Lap quantity</label>' + numIn('cfg.lapCount', c.lapCount, 'e.g. 4') + '<div id="lap-events">' + lapEventsHtml(c) + '</div>' : '');
     }
     h += '<label>Notes</label><textarea data-b="notes" placeholder="Cues, tempo, equipment…">' + esc(d.notes) + '</textarea>' +
-      '<div class="media">🎬 Media coming soon</div><div id="errs"></div>' +
+      editorMediaHtml(d) + '<div id="errs"></div>' +
       '<div class="actions" style="margin-top:16px"><button class="pri grow" data-a="save">Save exercise</button><button data-a="cancel">Cancel</button></div></div>';
     app.innerHTML = h;
+    if (window.WBMedia) WBMedia.bind(app);
+    if (d.source === 'library') ensureLibFilters();
     app.onchange = null;
     app.oninput = app.onchange = function (e) {
       var t = e.target;
+      if (t.id === 'ex-photo') {
+        if (e.type !== 'change') return;
+        var file = t.files && t.files[0];
+        if (!file) return;
+        if (!/^image\//.test(file.type || '')) { toast('Choose a photo'); return; }
+        if (file.size > PHOTO_LIMIT) { toast('Choose a photo under 5 MB'); return; }
+        if (d.pendingUrl) URL.revokeObjectURL(d.pendingUrl);
+        d.pendingBlob = file; d.pendingUrl = URL.createObjectURL(file); d.clearImage = false;
+        if (!d.imageKey) d.imageKey = M.uid('img');
+        renderEditor(w, exId);
+        return;
+      }
+      if (t.id === 'lib-q' || t.id === 'lib-body' || t.id === 'lib-equip' || t.id === 'lib-target') {
+        d.libQuery = (document.getElementById('lib-q') || {}).value || '';
+        d.libBody = (document.getElementById('lib-body') || {}).value || '';
+        d.libEquip = (document.getElementById('lib-equip') || {}).value || '';
+        d.libTarget = (document.getElementById('lib-target') || {}).value || '';
+        scheduleLibSearch(false);
+        return;
+      }
       if (t.dataset && t.dataset.lev != null) {
         var row = ensureEventDraft(d.cfg.stopwatch)[+t.dataset.lev];
         if (row) row.on = !!t.checked;
@@ -621,13 +795,46 @@
     };
     app.onclick = function (e) {
       var s = e.target.closest('[data-seg]');
-      if (s) { var k = s.dataset.seg; if (k === 'repsType') { var cc = d.cfg[d.mode]; cc.repsType = d.mode !== 'reps' && cc.repsType === s.dataset.v ? null : s.dataset.v; } else d[k] = s.dataset.v; return renderEditor(w, exId); }
+      if (s) {
+        var k = s.dataset.seg;
+        if (k === 'source') libToken++;
+        if (k === 'repsType') { var cc = d.cfg[d.mode]; cc.repsType = d.mode !== 'reps' && cc.repsType === s.dataset.v ? null : s.dataset.v; }
+        else d[k] = s.dataset.v;
+        return renderEditor(w, exId);
+      }
       var b = e.target.closest('[data-a]'); if (!b) return;
-      if (b.dataset.a === 'cancel') return go('#/w/' + w.id);
+      if (b.dataset.a === 'cancel') { if (d.pendingUrl) URL.revokeObjectURL(d.pendingUrl); return go('#/w/' + w.id); }
+      if (b.dataset.a === 'pick') {
+        d.libraryId = b.dataset.id || '';
+        d.name = b.dataset.name || d.name;
+        d.source = 'library';
+        if (d.view !== '360') d.view = '180';
+        return renderEditor(w, exId);
+      }
+      if (b.dataset.a === 'libmore') { scheduleLibSearch(true); return; }
+      if (b.dataset.a === 'clearphoto') {
+        if (d.pendingUrl) URL.revokeObjectURL(d.pendingUrl);
+        d.pendingBlob = null; d.pendingUrl = ''; d.clearImage = true;
+        return renderEditor(w, exId);
+      }
       if (b.dataset.a === 'save') {
+        if (d.saving) return;
+        var plan = planMedia(d);
+        d.media = plan.media;
         var res = buildFromDraft(d);
+        if (plan.error) res.errors.unshift(plan.error);
         if (res.errors.length) { document.getElementById('errs').innerHTML = '<div class="errs">' + res.errors.map(esc).join('<br>') + '</div>'; document.getElementById('errs').scrollIntoView({ block: 'center' }); return; }
-        M.upsertExercise(w, res.ex); persist(); toast('Saved'); go('#/w/' + w.id);
+        d.saving = true;
+        var write = plan.blob && window.WBMedia ? WBMedia.put(plan.key, plan.blob) : Promise.resolve();
+        write.then(function () {
+          if (plan.dropKey && !customKeyInUse(plan.dropKey, d.id) && window.WBMedia) return WBMedia.remove(plan.dropKey);
+        }).then(function () {
+          if (d.pendingUrl) URL.revokeObjectURL(d.pendingUrl);
+          M.upsertExercise(w, res.ex); persist(); toast('Saved'); go('#/w/' + w.id);
+        }).catch(function () {
+          d.saving = false;
+          toast('Could not keep that photo on this device');
+        });
       }
     };
   }

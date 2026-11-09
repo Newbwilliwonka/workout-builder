@@ -4,6 +4,9 @@
   var URL = 'https://thyrgloermygnezfareg.supabase.co';
   var PUBLISHABLE_KEY = 'sb_publishable_YT4vJriMUtcFRveDBA0GaA_eDiu5_Py';
   var REDIRECT = 'https://newbwilliwonka.github.io/workout-builder/';
+  // Bunny folder that contains 180/ and 360/. Leave empty until the GIFs are hosted.
+  // A library demo is this value + "/180/" + id + ".gif" (or "/360/"). Not a secret.
+  var EXERCISE_GIF_BASE = '';
   var LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js';
   var client = null, loading = null;
   var Mem = root.WBMembership;
@@ -99,8 +102,42 @@
     endConnection: function (clientId) { return rpc('invite_end', { p_client: clientId && clientId !== 'self' ? clientId : null }); },
     myConnection: function () {
       return rpc('invite_mine').then(function (row) { return row && row.trainerId ? row : null; });
+    },
+    gifBase: EXERCISE_GIF_BASE,
+    searchExercises: function (query, filters, limit, offset) {
+      filters = filters || {};
+      return db().then(function (c) {
+        return c.rpc('search_exercises', {
+          p_query: query || '',
+          p_body_part: filters.bodyPart || '',
+          p_equipment: filters.equipment || '',
+          p_target: filters.target || '',
+          p_limit: limit || 20,
+          p_offset: offset || 0
+        });
+      }).then(function (res) {
+        if (res.error) throw libraryError(res.error);
+        return res.data || [];
+      });
+    },
+    exerciseFilters: function () {
+      return db().then(function (c) { return c.rpc('exercise_filter_options'); }).then(function (res) {
+        if (res.error) throw libraryError(res.error);
+        return res.data || { bodyParts: [], equipment: [], targets: [] };
+      });
     }
   };
+  function libraryError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    try { console.error(err); } catch (e) {}
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205/i.test(msg)) {
+      return new Error('The exercise library is not ready yet.');
+    }
+    if (/JWT|not authenticated|permission denied|42501/i.test(msg)) {
+      return new Error('Sign in to search the exercise library.');
+    }
+    return new Error('Could not search the exercise library.');
+  }
   function rpc(name, args) {
     return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
       if (res.error) throw inviteError(res.error);

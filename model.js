@@ -42,7 +42,7 @@
       mode: 'reps', modeConfig: defaultModeConfig('reps'),
       notes: '',
       groupId: null,   // superset link: up to 2 exercises sharing a groupId (kept contiguous)
-      media: null      // future: { type: 'image'|'video', src, thumb }
+      media: null      // library: { kind:'library', libraryId, view:'180'|'360' }; custom photo: { kind:'custom', imageKey }
     };
     return Object.assign(ex, over || {});
   }
@@ -114,8 +114,32 @@
     out.modeConfig = d;
     out.notes = String(ex.notes || '');
     out.groupId = ex.groupId || null;
-    out.media = ex.media || null;
+    out.media = cleanMedia(ex.media);
     return out;
+  }
+
+  // Library ids and local photo keys only. Never a remote image address.
+  function cleanMedia(media) {
+    if (!media || typeof media !== 'object') return null;
+    if (media.kind === 'library') {
+      var id = String(media.libraryId || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) return null;
+      return { kind: 'library', libraryId: id, view: media.view === '360' ? '360' : '180' };
+    }
+    if (media.kind === 'custom') {
+      var key = String(media.imageKey || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(key)) return null;
+      return { kind: 'custom', imageKey: key };
+    }
+    return null;
+  }
+
+  // base is the Bunny folder that contains 180/ and 360/. Empty until that host is set.
+  function exerciseGifUrl(libraryId, view, base) {
+    var root = String(base == null ? '' : base).trim().replace(/\/+$/, '');
+    var id = String(libraryId || '').trim();
+    if (!root || !/^[A-Za-z0-9_-]{1,32}$/.test(id)) return '';
+    return root + '/' + (view === '360' ? '360' : '180') + '/' + id + '.gif';
   }
 
   // Human-readable summary line for list views.
@@ -305,7 +329,7 @@
     SCHEMA_VERSION: SCHEMA_VERSION, STORAGE_KEY: STORAGE_KEY, MODES: MODES, REPS_TYPES: REPS_TYPES, UNITS: UNITS,
     SAVE_SESSIONS: SAVE_SESSIONS, REPS_MODE_TYPES: REPS_MODE_TYPES, repsText: repsText, uid: uid, clone: clone, formatStopwatch: formatStopwatch, migrate: migrate, num: num, fmtTime: fmtTime, toSec: toSec,
     defaultModeConfig: defaultModeConfig, newExercise: newExercise, newWorkout: newWorkout, emptyData: emptyData,
-    validateExercise: validateExercise, normalizeExercise: normalizeExercise, summarize: summarize,
+    validateExercise: validateExercise, normalizeExercise: normalizeExercise, cleanMedia: cleanMedia, exerciseGifUrl: exerciseGifUrl, summarize: summarize,
     blocks: blocks, cleanGroups: cleanGroups, upsertExercise: upsertExercise, deleteExercise: deleteExercise,
     moveExercise: moveExercise, moveGroup: moveGroup, supersetLinkSize: supersetLinkSize, linkSuperset: linkSuperset, unlinkGroup: unlinkGroup,
     unlinkExercise: unlinkExercise, duplicateWorkout: duplicateWorkout, buildPlayQueue: buildPlayQueue,
