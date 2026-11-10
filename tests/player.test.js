@@ -146,14 +146,18 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.deepStrictEqual(sched.map(x => x.t + x.kind[0]).join(' '), '0t 1t 2t 3t 4t 5g 22t 23t 24t 25g 42t 43t 44t 45d');
   await click('[data-st=reps][data-d="-1"]'); await click('[data-p=primary]'); s = await st();
   assert.strictEqual(s.phase, 'standoff'); assert.strictEqual(s.ro, '0:05');
+  assert.ok(!s.results[4].logged); // get-ready is not the interval yet
   assert.deepStrictEqual(await p.evaluate(() => window.__wbPlayer.pending.length), 14);
   await adv(2000); assert.strictEqual((await st()).ro, '0:03');
   await click('[data-p=primary]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.nodes.length), 0); // pause cancels tones
   await adv(30000); await click('[data-p=primary]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.pending[0].t), 3); // resume reschedules remaining
   await adv(3100); s = await st(); assert.strictEqual(s.phase, 'work'); assert.strictEqual(s.idx, 4);
+  assert.ok(s.results[4].logged); // interval counts as soon as its countdown starts
+  assert.ok(!(s.results[5] && s.results[5].logged));
   await adv(10000); assert.strictEqual((await st()).ro, '0:10');
   await adv(10000); s = await st(); assert.strictEqual(s.idx, 5); assert.strictEqual(s.phase, 'work'); // auto-advanced, no tap
   assert.ok(s.results[4].logged); assert.strictEqual(s.results[4].reps, 14);
+  assert.ok(s.results[5].logged); // the next interval is logged while it is still running
   assert.ok((await p.$eval('.pl-th', e => e.textContent)).includes('Interval 2/2'));
   assert.ok(!/Interval \d+ of/.test(await p.$eval('.pl-meta', e => e.textContent)));
   await adv(20100); s = await st(); assert.strictEqual(s.idx, 6); assert.ok(s.results[5].logged); assert.strictEqual(s.name, 'Jump rope');
