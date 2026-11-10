@@ -549,6 +549,9 @@
   function readout() {
     var d = phaseDur(), el = elapsed(), ex = exOf(S.idx);
     if (d == null && S.phase === 'ready' && (ex.mode === 'intervals' || ex.mode === 'timer')) return M.fmtTime(ex.modeConfig.workSec);
+    // Static hold counts up. Show whole minutes and seconds, same shape as the countdowns.
+    // The stored elapsed time and holdSec logging stay in milliseconds.
+    if (d == null && ex.mode === 'reps' && ex.modeConfig.repsType === 'static') return M.fmtTime(Math.floor(Math.max(0, el) / 1000));
     return d != null ? M.fmtTime(Math.ceil(Math.max(0, d - el) / 1000)) : M.formatStopwatch(el);
   }
   function tick(once) {

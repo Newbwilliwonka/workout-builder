@@ -1,4 +1,4 @@
-// Interval ready time and get-ready sit with the other clocks. Logging is not involved.
+// Every media-window clock shares one vertical spot. Logging is not involved.
 // node tests/interval-position.test.js [url]
 const assert = require('assert'); const M = require('../model.js'); const pp = require('puppeteer-core');
 const URL = process.argv[2] || 'http://127.0.0.1:8787/';
@@ -18,6 +18,7 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
     mk({ name: 'Jump rope', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'intervals', modeConfig: { workSec: 8, repsType: 'static' } }),
     mk({ name: 'Wall sit', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'timer', modeConfig: { workSec: 20, restSec: 10, repsType: null } }),
     mk({ name: 'Shuttle', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } }),
+    mk({ name: 'Dead hang', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'reps', modeConfig: { repsType: 'static', restSec: 10 } }),
   ];
   const data = M.emptyData(); data.workouts.push(w);
   function geom() {
@@ -37,6 +38,7 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
     const S = window.__wbPlayer;
     return {
       pct: +(((ro.top + ro.bottom) / 2 - sr.top) / sr.height * 100).toFixed(1),
+      text: document.getElementById('ro').textContent,
       color: rs.color, font: rs.fontSize, cls: screen.className,
       overlap: hit(hint) || hit(chip) || hit(bar),
       logged: !!(S.results[S.idx] && S.results[S.idx].logged),
@@ -84,9 +86,25 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
     assert.strictEqual(paused.overlap, false, vp.name + ' paused overlap');
     await p.evaluate(() => WBPlayer.selectStep(3)); await wait(80);
     const timerReady = await p.evaluate(geom);
-    assert.strictEqual(timerReady.pct, 40, vp.name + ' timer ready moved');
+    assert.strictEqual(timerReady.pct, 52, vp.name + ' timer ready ' + timerReady.pct);
+    assert.strictEqual(timerReady.text, '0:20');
+    assert.strictEqual(timerReady.color, 'rgb(37, 99, 235)', vp.name + ' timer ready color');
+    assert.strictEqual(timerReady.font, ready.font, vp.name + ' timer ready size');
+    assert.strictEqual(timerReady.overlap, false, vp.name + ' timer ready overlap');
+    assert.strictEqual(timerReady.logged, false);
     await click('[data-p=primary]');
-    assert.strictEqual((await p.evaluate(geom)).pct, 40, vp.name + ' timer get-ready moved');
+    const timerReadyGo = await p.evaluate(geom);
+    assert.strictEqual(timerReadyGo.pct, 52, vp.name + ' timer get-ready');
+    assert.ok(/^0:0[1-5]$/.test(timerReadyGo.text), timerReadyGo.text);
+    assert.strictEqual(timerReadyGo.color, 'rgb(37, 99, 235)');
+    assert.strictEqual(timerReadyGo.font, ready.font);
+    assert.strictEqual(timerReadyGo.overlap, false, vp.name + ' timer get-ready overlap');
+    await click('[data-p=primary]'); // pause, so the tap hint is on screen with the countdown
+    const timerPaused = await p.evaluate(geom);
+    assert.strictEqual(timerPaused.pct, 52, vp.name + ' timer get-ready paused');
+    assert.strictEqual(timerPaused.overlap, false, vp.name + ' timer get-ready paused overlap');
+    assert.strictEqual(timerPaused.logged, false);
+    await click('[data-p=primary]');
     await adv(5200);
     const timerWork = await p.evaluate(geom);
     assert.strictEqual(timerWork.pct, 52);
@@ -102,6 +120,45 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
     assert.strictEqual(sw.pct, 52, vp.name + ' stopwatch');
     assert.strictEqual(sw.color, 'rgb(37, 99, 235)');
     assert.strictEqual(sw.font, work.font, vp.name + ' size drifted');
+    assert.ok(/^\d\d:\d\d\.\d\d$/.test(sw.text), vp.name + ' stopwatch format ' + sw.text);
+    await p.evaluate(() => WBPlayer.selectStep(5)); await wait(80);
+    const holdReady = await p.evaluate(geom);
+    assert.strictEqual(holdReady.pct, 52, vp.name + ' hold ready ' + holdReady.pct);
+    assert.strictEqual(holdReady.text, '0:00');
+    assert.strictEqual(holdReady.color, 'rgb(37, 99, 235)');
+    assert.strictEqual(holdReady.font, ready.font, vp.name + ' hold size');
+    assert.strictEqual(holdReady.overlap, false, vp.name + ' hold ready overlap');
+    assert.strictEqual(holdReady.logged, false);
+    await click('[data-p=primary]');
+    await p.evaluate(() => {
+      const S = window.__wbPlayer;
+      S.running = false;
+      S.acc = 65000;
+      WBPlayer.step();
+    });
+    await wait(40);
+    const holdRun = await p.evaluate(geom);
+    assert.strictEqual(holdRun.pct, 52, vp.name + ' hold count');
+    assert.strictEqual(holdRun.text, '1:05');
+    assert.strictEqual(holdRun.color, 'rgb(37, 99, 235)');
+    assert.strictEqual(holdRun.font, ready.font);
+    assert.strictEqual(holdRun.overlap, false, vp.name + ' hold count overlap');
+    assert.strictEqual(holdRun.logged, false);
+    assert.strictEqual(await p.evaluate(() => window.__wbPlayer.results[5].holdSec), 0); // display freeze does not log
+    await p.evaluate(() => { window.__wbPlayer.acc = 65400; window.__wbPlayer.running = false; });
+    await click('[data-p=primary]');
+    const holdRest = await p.evaluate(geom);
+    assert.strictEqual(holdRest.pct, 52, vp.name + ' hold rest');
+    assert.strictEqual(holdRest.text, '0:10');
+    assert.strictEqual(holdRest.color, 'rgb(110, 231, 183)');
+    assert.strictEqual(holdRest.overlap, false, vp.name + ' hold rest overlap');
+    const logged = await p.evaluate(() => {
+      const r = window.__wbPlayer.results[5];
+      return { hold: r.holdSec, logged: r.logged, phase: window.__wbPlayer.phase };
+    });
+    assert.strictEqual(logged.hold, 65); // still rounded milliseconds, not the floored clock
+    assert.strictEqual(logged.logged, true);
+    assert.strictEqual(logged.phase, 'rest');
   }
   assert.deepStrictEqual(errs, []);
   console.log('INTERVAL POSITION OK');
