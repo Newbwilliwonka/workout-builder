@@ -47,16 +47,18 @@ const data = M.emptyData(); data.workouts.push(w); const editW = M.newWorkout('E
   assert.strictEqual(await p.$eval('.pl-go', e => getComputedStyle(e).minHeight), '99px');
   assert.strictEqual(await p.$('.pl-info'), null); // stopwatch media has no exercise info frame
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '3 Laps');
-  assert.strictEqual(await p.$eval('.pl-ci.cur span', e => e.textContent), 'Attempt 1/1');
+  assert.strictEqual(await p.$eval('.pl-ci.cur b', e => e.textContent), 'Cone shuttle down the hall');
+  assert.ok(!/Attempt|Set \d/.test(await p.$eval('.pl-ci.cur', e => e.innerText)));
   assert.ok(/Attempt 1\/1/.test(await p.$eval('.pl-th', e => e.textContent)));
   assert.strictEqual(await p.$eval('.pl-car-h', e => e.textContent), 'Steps');
   assert.strictEqual(await p.$eval('.pl-li.cur .pl-cnt', e => e.textContent), '0/1');
   await click('.pl-go');
   assert.strictEqual(await p.$eval('.pl-go', e => e.textContent), 'Lap 1 / 3');
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '3 Laps'); // lap total stays for the whole attempt
-  await p.evaluate(() => document.querySelectorAll('.pl-ci')[1].click()); await wait(80);
+  await p.evaluate(() => WBPlayer.selectStep(1)); await wait(80);
   assert.strictEqual(await p.$('.pl-go'), null);
-  assert.ok(/Set 1\/2/.test(await p.$eval('.pl-ci.cur span', e => e.textContent)));
+  assert.strictEqual(await p.$eval('.pl-ci.cur b', e => e.textContent), 'Dumbbell row');
+  assert.ok(!/Set \d/.test(await p.$eval('.pl-ci.cur', e => e.innerText)));
   const rowInfo = await p.$eval('.pl-info', e => e.textContent);
   assert.ok(rowInfo.includes('10 reps'), rowInfo);
   assert.ok(!/Set \d+ of/.test(rowInfo), rowInfo);

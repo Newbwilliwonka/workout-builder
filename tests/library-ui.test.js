@@ -173,9 +173,9 @@ data.workouts.push(w);
   await wait(2400);
   await p.screenshot({ path: path.join(shotDir, 'player_demo_waiting.png') });
   await p.evaluate(function () { window.WBAuth.gifBase = 'https://cdn.example.test/exercises'; });
-  await p.click('.pl-ci:nth-child(3)');
+  await p.evaluate(function () { WBPlayer.selectStep(1); });
   await wait(120);
-  await p.click('.pl-ci:nth-child(2)');
+  await p.evaluate(function () { WBPlayer.selectStep(0); });
   await p.waitForSelector('.pl-media img');
   assert.strictEqual(await p.$eval('.pl-media img', function (el) { return el.getAttribute('src'); }), 'https://cdn.example.test/exercises/360/0101.gif');
 
