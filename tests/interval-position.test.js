@@ -160,6 +160,79 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
     assert.strictEqual(logged.logged, true);
     assert.strictEqual(logged.phase, 'rest');
   }
+  // Finished screens use the countdown shape. The stopwatch keeps hundredths.
+  async function loadFormat(items) {
+    const wf = M.newWorkout('Formats');
+    wf.items = items.map(mk);
+    const dataF = M.emptyData();
+    dataF.workouts.push(wf);
+    await p.setViewport(viewports[0]);
+    await p.goto(URL);
+    await p.evaluate((k, v) => localStorage.setItem(k, v), M.STORAGE_KEY, JSON.stringify(dataF));
+    await p.goto(URL + '#/w/' + wf.id);
+    await p.reload();
+    await p.waitForSelector('[data-a=play]');
+    await p.evaluate(() => { window.__wbClockOffset = 0; });
+    await click('[data-a=play]');
+  }
+  function clockNow() {
+    return p.evaluate(() => {
+      const ro = document.getElementById('ro');
+      const S = window.__wbPlayer;
+      const ex = S.w.items.filter(x => x.id === S.queue[S.idx].exerciseId)[0];
+      return { text: ro && ro.textContent, phase: S.phase, mode: ex.mode, prompt: !!document.querySelector('.pl-modal') };
+    });
+  }
+  await loadFormat([
+    { name: 'Wall sit', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'timer', modeConfig: { workSec: 10, restSec: 5, repsType: null } },
+  ]);
+  let fin = await clockNow();
+  assert.strictEqual(fin.text, '0:10');
+  await click('[data-p=primary]');
+  fin = await clockNow();
+  assert.ok(/^0:0[1-5]$/.test(fin.text), 'timer get-ready ' + fin.text);
+  await p.evaluate(() => { window.__wbClockOffset = 7000; });
+  await wait(250);
+  fin = await clockNow();
+  assert.strictEqual(fin.phase, 'work');
+  assert.ok(/^\d+:\d\d$/.test(fin.text) && fin.text.indexOf('.') < 0, 'timer work ' + fin.text);
+  await p.evaluate(() => { window.__wbClockOffset = 22000; });
+  await wait(400);
+  fin = await clockNow();
+  assert.strictEqual(fin.phase, 'complete');
+  assert.strictEqual(fin.prompt, true);
+  assert.strictEqual(fin.text, '0:00');
+  await loadFormat([
+    { name: 'Bike sprints', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'intervals', modeConfig: { workSec: 8, repsType: null } },
+  ]);
+  fin = await clockNow();
+  assert.strictEqual(fin.text, '0:08');
+  await click('[data-p=primary]');
+  await p.evaluate(() => { window.__wbClockOffset = 20000; });
+  await wait(400);
+  fin = await clockNow();
+  assert.strictEqual(fin.phase, 'complete');
+  assert.strictEqual(fin.mode, 'intervals');
+  assert.strictEqual(fin.text, '0:00');
+  await loadFormat([
+    { name: 'Shuttle', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } },
+  ]);
+  fin = await clockNow();
+  assert.strictEqual(fin.text, '00:00.00');
+  await click('.pl-go');
+  await p.evaluate(() => {
+    const S = window.__wbPlayer;
+    S.acc = 3250;
+    S.running = true;
+    S.t0 = performance.now() + (window.__wbClockOffset || 0);
+    WBPlayer.step();
+  });
+  await click('.pl-go');
+  fin = await clockNow();
+  assert.strictEqual(fin.phase, 'complete');
+  assert.strictEqual(fin.mode, 'stopwatch');
+  assert.ok(/^00:03\.\d\d$/.test(fin.text) || /^\d\d:\d\d\.\d\d$/.test(fin.text), 'stopwatch complete ' + fin.text);
+  assert.ok(/\.\d\d$/.test(fin.text), fin.text);
   assert.deepStrictEqual(errs, []);
   console.log('INTERVAL POSITION OK');
   await b.close();
