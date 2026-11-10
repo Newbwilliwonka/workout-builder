@@ -491,12 +491,10 @@
     else h += trackBlock(i);
     h += '</div>';
     // Workout list: name and notes only. Tapping a row does not change the exercise.
-    var done = {}; Object.keys(S.results).forEach(function (k) { var x = S.results[k]; if (x.logged) done[x.exerciseId] = (done[x.exerciseId] || 0) + 1; });
     h += '<div class="pl-list"><div class="pl-car-h">Workout</div>';
     S.w.items.forEach(function (it) {
-      var cur = it.id === ex.id, n = done[it.id] || 0;
       var note = String(it.notes || ''), canNote = note.trim().length > 0, noteOpen = !!(canNote && S.notesOpen && S.notesOpen[it.id]);
-      h += '<div class="pl-li' + (cur ? ' cur' : '') + (n >= it.sets ? ' fin' : '') + '"><div class="pl-li-top"><b>' + esc(it.name) + '</b>' +
+      h += '<div class="pl-li"><div class="pl-li-top"><b>' + esc(it.name) + '</b>' +
         '<button type="button" class="pl-notes-btn" data-notes="' + esc(it.id) + '"' + (canNote ? '' : ' disabled title="No notes" aria-label="No notes"') +
         ' aria-expanded="' + (noteOpen ? 'true' : 'false') + '">Notes</button></div>' +
         (noteOpen ? '<div class="pl-notes">' + esc(note) + '</div>' : '') + '</div>';

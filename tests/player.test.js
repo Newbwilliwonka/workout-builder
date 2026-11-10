@@ -42,14 +42,15 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.ok(/Set 1\/2/.test(await p.$eval('.pl-ci', e => e.innerText)));
   assert.strictEqual(await p.$$eval('.pl-car .pl-notes-btn', a => a.length), 0);
   assert.strictEqual(await p.$$eval('.pl-list .pl-notes-btn', a => a.length), 7);
-  assert.strictEqual(await p.$eval('.pl-li.cur .pl-notes-btn', e => e.disabled), false);
+  assert.strictEqual(await p.$$eval('.pl-li.cur, .pl-li.fin', a => a.length), 0);
+  assert.strictEqual(await p.$eval('.pl-li .pl-notes-btn', e => e.disabled), false);
   assert.strictEqual(await p.$$eval('.pl-li', a => a[1].querySelector('.pl-notes-btn').disabled), true); // Plank has no notes
   assert.strictEqual(await p.$('.pl-li small'), null);
   assert.strictEqual(await p.$('.pl-cnt'), null);
   const beforeTap = (await st()).idx;
-  await click('.pl-li.cur b');
+  await click('.pl-li b');
   assert.strictEqual((await st()).idx, beforeTap); // workout list name is not navigation
-  await click('.pl-li.cur .pl-notes-btn');
+  await click('.pl-li .pl-notes-btn');
   assert.strictEqual(await p.$eval('.pl-notes', e => e.textContent), 'Chest up\nHeels down');
   assert.strictEqual((await st()).idx, beforeTap);
   assert.strictEqual((await st()).phase, 'work');
@@ -64,7 +65,7 @@ const data = M.emptyData(); data.workouts.push(w);
     };
   });
   assert.ok(notesFit.inside && notesFit.separated, JSON.stringify(notesFit));
-  await click('.pl-li.cur .pl-notes-btn');
+  await click('.pl-li .pl-notes-btn');
   assert.strictEqual(await p.$('.pl-notes'), null);
   assert.strictEqual(await p.$$eval('.pl-ctl,.pl-go', a => a.length), 0); assert.ok(await p.$('.pl-endw')); assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
   await wait(400); await p.screenshot({ path: '/workspace/player-superset-v3.png' }); await p.screenshot({ path: '/workspace/player-superset.png' });
@@ -120,6 +121,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual(s.name, 'Goblet squat'); // A2
   // A2 tap: non-final logs now and jumps to B2
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.idx, 3); assert.ok(s.results[2].logged);
+  assert.strictEqual(await p.$$eval('.pl-li.cur, .pl-li.fin', a => a.length), 0); // finished Goblet squat stays a plain name row
   // carousel keeps every set; round-1 + A2 logged
   assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$$eval('.pl-ci.done .pl-ck', a => a.length), 3);
   await wait(400); await p.screenshot({ path: '/workspace/player-carousel.png' });
