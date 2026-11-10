@@ -126,17 +126,15 @@
     if (ex.mode === 'timer') return M.fmtTime(c.workSec) + ' work · ' + M.fmtTime(c.restSec) + ' rest' + (c.repsType ? ' · ' + M.repsText(c) : '');
     return c.lapsEnabled ? c.lapCount + (c.lapCount === 1 ? ' lap' : ' laps') : 'Stopwatch';
   }
-  function infoLines(ex, st) { // compact, non-repeating: [weight · reps, time + set/interval]
-    var c = ex.modeConfig, w = ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : '';
+  function infoLines(ex) { // weight, reps/laps, and work/rest — no set or attempt counters
+    var c = ex.modeConfig || {}, w = ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : '';
     var reps = ex.mode === 'stopwatch' ? (c.lapsEnabled ? c.lapCount + (c.lapCount === 1 ? ' lap' : ' laps') : '') : ex.mode === 'reps' && c.repsType === 'static' ? 'Static hold' : c.repsType ? M.repsText(c) : '';
-    if (ex.mode === 'stopwatch') return [[w, reps, 'Attempt ' + st.set + ' of ' + st.of].filter(Boolean).join(' · ')];
-    var setTx = (ex.mode === 'intervals' ? 'Interval ' : 'Set ') + st.set + ' of ' + st.of, l3;
-    if (ex.mode === 'intervals') l3 = M.fmtTime(c.workSec) + ' ' + setTx;
-    else if (ex.mode === 'timer') l3 = M.fmtTime(c.workSec) + ' work' + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '') + ' · ' + setTx;
-    else l3 = setTx + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '');
-    return [[w, reps, l3].filter(Boolean).join(' · ')];
+    var time = '';
+    if (ex.mode === 'intervals') time = M.fmtTime(c.workSec);
+    else if (ex.mode === 'timer') time = M.fmtTime(c.workSec) + ' work' + (c.restSec ? ' · ' + M.fmtTime(c.restSec) + ' rest' : '');
+    else if (ex.mode === 'reps' && c.restSec) time = M.fmtTime(c.restSec) + ' rest';
+    return [[w, reps, time].filter(Boolean).join(' · ')];
   }
-  function weightTxt(ex) { return ex.weight.unit === 'bodyweight' ? 'Bodyweight' : ex.weight.value != null ? ex.weight.value + ' ' + ex.weight.unit : ex.weight.unit; }
   // Superset round: consecutive queue items with the same groupId and set number.
   function isFinalInRound(i) {
     var q = S.queue[i]; if (!q.groupId) return true;
@@ -148,14 +146,26 @@
     var out = []; for (var j = 0; j < S.queue.length; j++) if (S.queue[j].groupId === q.groupId && S.queue[j].set === q.set) out.push(j);
     return out;
   }
-  function infoLine(ex, st) { return (infoLines(ex, st)[0] || ''); }
-  function upNextHtml(i) {
-    if (i + 1 >= S.queue.length) return '';
-    var nx = exOf(i + 1), nst = S.queue[i + 1], line = infoLine(nx, nst);
-    // Prefer name + weight if the full info line is long; keep as one green line.
-    var w = weightTxt(nx);
-    if (line.length > 42) line = [w, (nx.mode === 'stopwatch' ? 'Attempt ' : nx.mode === 'intervals' ? 'Interval ' : 'Set ') + nst.set + ' of ' + nst.of].filter(Boolean).join(' · ');
-    return '<div class="pl-up"><div class="pl-up-l">Up next</div><div class="pl-up-n">' + esc(nx.name) + '</div><div class="pl-up-i">' + esc(line) + '</div></div>';
+  // Reps bubble replaces the old "Set N" chip. Static means a hold with no rep target.
+  function repsBubble(ex) {
+    var c = ex.modeConfig || {};
+    if (c.repsType === 'number') return c.count + (c.count === 1 ? ' Rep' : ' Reps');
+    if (c.repsType === 'range') return c.min + '-' + c.max + ' Reps';
+    return 'Static';
+  }
+  function statusChip(ex) {
+    if (ex.mode === 'stopwatch') {
+      if (S.phase === 'complete') return 'Attempt complete';
+      var c = ex.modeConfig || {};
+      if (c.lapsEnabled) return c.lapCount + (c.lapCount === 1 ? ' Lap' : ' Laps');
+      return 'Stopwatch'; // laps off: no lap total, so the chip stays on the mode instead of Ready/Work
+    }
+    if (S.phase === 'standoff') return 'Get ready';
+    if (S.phase === 'rest') return 'Rest';
+    if (S.phase === 'complete') return 'Set complete';
+    if (S.phase === 'work' && ex.mode !== 'reps') return ex.mode === 'intervals' ? 'Interval' : 'Work';
+    if (S.phase === 'ready') return ex.mode === 'intervals' ? 'Interval' : 'Ready';
+    return repsBubble(ex);
   }
 
   // ---------- state machine ----------
@@ -384,26 +394,21 @@
   }
   function render() {
     var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i);
-    var chip = S.phase === 'standoff' ? 'Get ready' : S.phase === 'rest' ? 'Rest' : S.phase === 'complete' ? (ex.mode === 'stopwatch' ? 'Attempt complete' : 'Set complete') : S.phase === 'work' && ex.mode !== 'reps' ? (ex.mode === 'intervals' ? 'Interval' : 'Work') : S.phase === 'ready' ? (ex.mode === 'intervals' ? 'Interval' : 'Ready') : 'Set ' + st.set;
+    var chip = statusChip(ex);
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
     // stage: visual screen + side carousel. Stopwatch taps live on .pl-go, so its media stays display-only.
-    var mems = roundMembers(i), showSsExtra = mems.length >= 2 && S.phase !== 'rest', sw = ex.mode === 'stopwatch';
-    h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (S.phase === 'rest' ? 'is-rest' : '') + (sw ? ' is-static' : '') + '"' + (sw ? '' : ' data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '"') + '>' + (sw ? '' : '<div class="pl-hint">' + esc(hint(ex)) + '</div>') +
-      '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>' +
-      '<div class="pl-top"><span class="pl-chip">' + chip + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
-      (S.phase === 'rest' ? upNextHtml(i) : '') +
+    var mems = roundMembers(i), sw = ex.mode === 'stopwatch', resting = S.phase === 'rest';
+    var infoEx = ex;
+    if (resting && i + 1 < S.queue.length) infoEx = exOf(i + 1); // rest frame is the upcoming exercise, with no "Up next" label
+    h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (resting ? 'is-rest' : '') + (sw ? ' is-static' : '') + '"' + (sw ? '' : ' data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '"') + '>' + (sw ? '' : '<div class="pl-hint">' + esc(hint(ex)) + '</div>') +
+      (resting ? '' : '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>') +
+      '<div class="pl-top"><span class="pl-chip">' + esc(chip) + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '');
-    h += '<div class="pl-info"><div class="pl-name">' + esc(ex.name) + '</div><div class="pl-meta">' + infoLines(ex, st).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div></div>';
     h += '<div class="pl-bar"><i id="pg"></i></div></div>'; // end screen
-    if (showSsExtra) {
-      h += '<div class="pl-ss-extra" aria-label="Superset partner">';
-      mems.forEach(function (mi) {
-        if (mi === i) return; // only the OTHER member(s) — current stays in the media window
-        var ex2 = exOf(mi), st2 = S.queue[mi];
-        h += '<div class="pl-ss-pane dim"><div class="pl-name">' + esc(ex2.name) + '</div><div class="pl-meta">' + esc(infoLine(ex2, st2)) + '</div></div>';
-      });
-      h += '</div>';
+    if (!sw) {
+      h += '<div class="pl-info"><div class="pl-name">' + esc(infoEx.name) + '</div><div class="pl-meta">' + infoLines(infoEx).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div>' +
+        (resting ? '<div class="pl-rest-veil" id="rest-veil" aria-hidden="true"></div>' : '') + '</div>';
     }
     h += '</div>'; // end pl-main (media column)
     var mixedSw = S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) && S.w.items.some(function (it) { return it.mode !== 'stopwatch'; });
@@ -503,9 +508,11 @@
       playDueTones(); // go / done on the same frame the next timer appears
       var over = elapsed() - d; S.running = false; phaseEnd(over);
     } else {
-      var ro = document.getElementById('ro'), pg = document.getElementById('pg');
+      var ro = document.getElementById('ro'), pg = document.getElementById('pg'), veil = document.getElementById('rest-veil');
       if (ro) ro.textContent = readout();
       if (pg) pg.style.width = (d ? Math.min(100, elapsed() / d * 100) : 0) + '%';
+      // Same clock as the rest countdown: full cover at the start, gone at zero, frozen while paused.
+      if (veil) veil.style.width = (d ? Math.max(0, 1 - Math.min(1, elapsed() / d)) * 100 : 0) + '%';
       playDueTones(); // countdown ticks share this frame's visible second
     }
     if (!once && S && !S.done) S.raf = requestAnimationFrame(function () { tick(); });

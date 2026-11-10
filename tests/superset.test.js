@@ -39,21 +39,25 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-a=play]');
   assert.ok(await p.$('.pl-list .pl-chain')); assert.ok(!(await p.$('.pl-li em')));
   assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
-  // layout: current in media; partner frame below media (not stacked inside)
+  // layout: one info frame for the current exercise, under the media
   assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Curl');
-  assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Press');
-  assert.ok(await p.$('.pl-ss-extra .pl-ss-pane.dim')); // waiting partner is grey; only the active frame stays lit
+  assert.strictEqual(await p.$$eval('.pl-info', a => a.length), 1);
+  assert.strictEqual(await p.$('.pl-ss-extra'), null);
+  assert.ok(!/Set \d+ of/.test(await p.$eval('.pl-info', e => e.textContent)));
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '10 Reps');
   await click('[data-p=primary]'); // Curl 1 -> logs Curl, starts Press
   let s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, phase: window.__wbPlayer.phase, name: document.querySelector('.pl-info .pl-name').textContent }));
   assert.deepStrictEqual(s, { idx: 1, logged0: true, phase: 'work', name: 'Press' }); // previous logged on advance
-  assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Curl');
-  assert.ok((await p.$eval('.pl-ss-extra .pl-ss-pane', e => e.className)).includes('dim')); // completed Curl is grey
-  const fade = await p.evaluate(() => ({ partner: getComputedStyle(document.querySelector('.pl-ss-extra .pl-ss-pane')).opacity, active: getComputedStyle(document.querySelector('.pl-info')).opacity }));
-  assert.ok(Number(fade.partner) < 1); assert.strictEqual(fade.active, '1');
+  assert.strictEqual(await p.$$eval('.pl-info .pl-name', a => a.map(e => e.textContent).join('|')), 'Press');
+  assert.strictEqual(await p.$('.pl-ss-extra'), null);
+  assert.strictEqual(await p.evaluate(() => getComputedStyle(document.querySelector('.pl-info')).opacity), '1');
   await click('[data-p=primary]'); s = await p.evaluate(() => ({ phase: window.__wbPlayer.phase, ro: document.getElementById('ro').textContent, logged0: window.__wbPlayer.results[0].logged, logged1: !!window.__wbPlayer.results[1]?.logged }));
   assert.strictEqual(s.phase, 'rest'); assert.strictEqual(s.ro, '0:20'); assert.ok(s.logged0); assert.ok(s.logged1); // Press logs when shared rest starts
   assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 2);
-  assert.strictEqual(await p.$eval('.pl-up-n', e => e.textContent), 'Curl');
+  assert.strictEqual(await p.$('.pl-up'), null);
+  assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Curl'); // frame switches to the next exercise
+  assert.ok(await p.$('#rest-veil'));
+  assert.strictEqual(await p.$('.pl-screen.is-rest .pl-media'), null);
   assert.strictEqual(await p.$$eval('.pl-track-g', a => a.length), 2);
   await adv(20100);
   s = await p.evaluate(() => ({ idx: window.__wbPlayer.idx, logged0: window.__wbPlayer.results[0].logged, logged1: window.__wbPlayer.results[1].logged, name: document.querySelector('.pl-info .pl-name').textContent }));
