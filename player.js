@@ -200,9 +200,6 @@
   function startTimer(phase) {
     S.phase = phase; S.acc = 0; S.t0 = now(); S.running = true;
     if (phase === 'rest') S.restCue = null;
-    // Intervals count as done when that interval's countdown starts, not when it ends.
-    // End-of-interval log() calls stay and do not log a second time.
-    if (phase === 'work' && exOf(S.idx).mode === 'intervals') log(S.idx);
     lockScreen();
   }
   function log(i) { var r = res(i); if (r.logged) return; r.logged = true; r.at = Date.now(); }
