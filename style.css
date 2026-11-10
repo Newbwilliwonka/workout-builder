@@ -168,6 +168,7 @@ body.playing .bar{display:none}
 .time.is-off{opacity:.45}
 .time.is-off input{pointer-events:none;background:#0b1220}
 .is-work .pl-ro{top:52%;color:var(--pl-current)} /* same spot as rest; rest green stays on the rule below */
+.is-static .pl-ro{top:52%} /* stopwatch clock only; color and size stay on .pl-ro */
 .is-rest .pl-ro{top:52%;color:#6ee7b7}
 .is-rest .pl-hint{color:#6ee7b7}
 .pl-main:has(.pl-info) .pl-screen{border-radius:20px 20px 0 0} /* flush with the info frame under the media */
