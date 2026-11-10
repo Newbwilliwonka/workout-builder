@@ -50,7 +50,8 @@ const data = M.emptyData(); data.workouts.push(w); const editW = M.newWorkout('E
   assert.strictEqual(await p.$eval('.pl-ci.cur span', e => e.textContent), 'Attempt 1/1');
   assert.ok(/Attempt 1\/1/.test(await p.$eval('.pl-th', e => e.textContent)));
   assert.strictEqual(await p.$eval('.pl-car-h', e => e.textContent), 'Steps');
-  assert.strictEqual(await p.$eval('.pl-li.cur b', e => e.textContent), 'Cone shuttle down the hall');
+  assert.strictEqual(await p.$eval('.pl-li b', e => e.textContent), 'Cone shuttle down the hall');
+  assert.strictEqual(await p.$$eval('.pl-li.cur, .pl-li.fin', a => a.length), 0);
   assert.strictEqual(await p.$('.pl-cnt'), null);
   await click('.pl-go');
   assert.strictEqual(await p.$eval('.pl-go', e => e.textContent), 'Lap 1 / 3');
@@ -62,8 +63,10 @@ const data = M.emptyData(); data.workouts.push(w); const editW = M.newWorkout('E
   assert.ok(rowInfo.includes('10 reps'), rowInfo);
   assert.ok(!/Set \d+ of/.test(rowInfo), rowInfo);
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '10 Reps');
-  assert.strictEqual(await p.$eval('.pl-li.cur b', e => e.textContent), 'Dumbbell row');
-  assert.ok(!/reps|0\/2/.test(await p.$eval('.pl-li.cur', e => e.innerText)));
+  const dbRow = await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.querySelector('b').textContent === 'Dumbbell row').innerText);
+  assert.ok(dbRow.includes('Dumbbell row'), dbRow);
+  assert.ok(!/reps|0\/2/.test(dbRow), dbRow);
+  assert.strictEqual(await p.$$eval('.pl-li.cur, .pl-li.fin', a => a.length), 0);
   async function summaryOf(items) {
     const ww = M.newWorkout('Sum'); ww.items = items;
     const dd = M.emptyData(); dd.workouts.push(ww);
