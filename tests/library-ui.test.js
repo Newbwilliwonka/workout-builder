@@ -24,6 +24,21 @@ assert.ok(!/insert into public\.exercises/i.test(sql));
 assert.ok(/search_exercises/.test(sql));
 assert.ok(/least\(greatest\(coalesce\(p_limit/.test(sql));
 assert.ok(!/3\/4 sit-up/.test(sql));
+assert.ok(/description text not null default ''/.test(sql));
+
+const searchSql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261110220000_exercise_search_description.sql'), 'utf8');
+assert.ok(/drop function if exists public\.search_exercises\(text, text, text, text, integer, integer\)/i.test(searchSql));
+assert.ok(/description text/.test(searchSql));
+assert.ok(/e\.id, e\.name, e\.body_part, e\.equipment, e\.target, e\.description/.test(searchSql));
+assert.ok(/grant execute on function public\.search_exercises\(text, text, text, text, integer, integer\) to authenticated/.test(searchSql));
+assert.ok(/revoke all on function public\.search_exercises\(text, text, text, text, integer, integer\) from public, anon/.test(searchSql));
+assert.ok(!/insert into public\.exercises/i.test(searchSql));
+assert.ok(!/3\/4 sit-up/.test(searchSql));
+
+const PRESS_DESC = 'Lower the bar to your chest, then press it up until your arms are straight.';
+const OTHER_DESC = 'Press the dumbbells from shoulder height overhead, then lower them with control.';
+assert.ok(PRESS_DESC.length >= 52 && PRESS_DESC.length <= 237, PRESS_DESC.length);
+assert.ok(OTHER_DESC.length >= 52 && OTHER_DESC.length <= 237, OTHER_DESC.length);
 
 const URL = process.argv[2] || 'http://127.0.0.1:8787/';
 const pp = require('puppeteer-core');
@@ -36,7 +51,7 @@ data.workouts.push(w);
   const p = await b.newPage();
   await p.setViewport({ width: 390, height: 844, isMobile: true });
   await require('./allow.js')(p);
-  await p.evaluateOnNewDocument(function () {
+  await p.evaluateOnNewDocument(function (pressDesc, otherDesc) {
     var desc = Object.getOwnPropertyDescriptor(window, 'WBAuth');
     var current;
     function patch(api) {
@@ -51,8 +66,8 @@ data.workouts.push(w);
         if (query.indexOf('press') < 0 && !filtered) return Promise.resolve([]);
         if (offset) return Promise.resolve([]);
         return Promise.resolve([
-          { id: '0101', name: 'Test press', body_part: 'chest', equipment: 'barbell', target: 'pectorals' },
-          { id: '0102', name: 'Other press', body_part: 'chest', equipment: 'dumbbell', target: 'pectorals' }
+          { id: '0101', name: 'Test press', body_part: 'chest', equipment: 'barbell', target: 'pectorals', description: pressDesc },
+          { id: '0102', name: 'Other press', body_part: 'chest', equipment: 'dumbbell', target: 'pectorals', description: otherDesc }
         ]);
       };
       api.exerciseFilters = function () {
@@ -67,11 +82,32 @@ data.workouts.push(w);
       get: function () { return current; },
       set: function (v) { if (desc && desc.set) desc.set(v); current = patch((desc && desc.get && desc.get()) || v); }
     });
-  });
+  }, PRESS_DESC, OTHER_DESC);
   const errs = [];
   p.on('pageerror', function (e) { errs.push(e.message); });
   p.on('dialog', function (d) { d.accept(); });
   const wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  const notes = function () { return p.$eval('[data-b=notes]', function (el) { return el.value; }); };
+  async function setNotes(value) {
+    await p.$eval('[data-b=notes]', function (el, value) {
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, value);
+  }
+  async function pickNamed(name) {
+    await p.evaluate(function (name) {
+      var hits = document.querySelectorAll('.lib-hit');
+      for (var i = 0; i < hits.length; i++) {
+        var label = hits[i].querySelector('.name');
+        if (label && label.textContent === name) { hits[i].click(); return; }
+      }
+      throw new Error('no library hit named ' + name);
+    }, name);
+    await p.waitForFunction(function (name) {
+      var input = document.querySelector('[data-b=name]');
+      return input && input.value === name;
+    }, {}, name);
+  }
   await p.goto(URL);
   await p.evaluate(function (k, v) { localStorage.setItem(k, v); }, M.STORAGE_KEY, JSON.stringify(data));
   await p.goto(URL + '#/w/' + w.id);
@@ -82,6 +118,8 @@ data.workouts.push(w);
   assert.strictEqual(await p.$('#lib-q'), null, 'a new exercise starts on Enter manually');
   assert.deepStrictEqual(await p.$$eval('[data-seg=source]', function (els) { return els.map(function (el) { return el.textContent; }); }), ['Enter manually', 'Exercise library']);
   assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.placeholder; }), 'e.g. Goblet squat');
+  assert.strictEqual(await notes(), '', 'a manual exercise starts with empty notes');
+  await setNotes('My cue');
   await p.click('[data-seg=source][data-v=library]');
   await p.waitForSelector('#lib-q');
   await wait(400);
@@ -102,10 +140,33 @@ data.workouts.push(w);
   assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 2);
   await p.click('.lib-hit');
   assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.value; }), 'Test press');
+  assert.strictEqual(await notes(), 'My cue', 'typed notes are not replaced by a library description');
+  await setNotes('');
+  await pickNamed('Test press');
+  assert.strictEqual(await notes(), PRESS_DESC);
+  await setNotes('   ');
+  await pickNamed('Other press');
+  assert.strictEqual(await notes(), OTHER_DESC, 'whitespace notes are filled from the library description');
+  await pickNamed('Test press');
+  assert.strictEqual(await notes(), PRESS_DESC, 'an unedited auto-fill is replaced when the library exercise changes');
+  await setNotes(PRESS_DESC + ' Stay tight.');
+  await pickNamed('Other press');
+  assert.strictEqual(await notes(), PRESS_DESC + ' Stay tight.', 'edited notes stay when the library exercise changes');
+  await setNotes('');
+  await pickNamed('Test press');
+  assert.strictEqual(await notes(), PRESS_DESC);
   assert.ok((await p.$eval('.media', function (el) { return el.textContent; })).includes('once'));
   const shotDir = '/opt/cursor/artifacts';
   fs.mkdirSync(shotDir, { recursive: true });
   await p.screenshot({ path: path.join(shotDir, 'library_exercise_editor.png'), fullPage: true });
+  await p.evaluate(function () {
+    var field = document.querySelector('[data-b=notes]');
+    var top = field.getBoundingClientRect().bottom + window.scrollY - (window.innerHeight - 36);
+    window.scrollTo(0, Math.max(0, top));
+  });
+  await wait(100);
+  await p.screenshot({ path: path.join(shotDir, 'editor_notes_filled.png') });
+  await p.evaluate(function () { window.scrollTo(0, 0); });
   const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
   await p.setRequestInterception(true);
   p.on('request', function (req) {
@@ -120,17 +181,24 @@ data.workouts.push(w);
   await p.waitForSelector('[data-a=add]');
   const saved = await p.evaluate(function (k) { return JSON.parse(localStorage.getItem(k)).workouts[0].items[0]; }, M.STORAGE_KEY);
   assert.strictEqual(saved.name, 'Test press');
+  assert.strictEqual(saved.notes, PRESS_DESC);
   assert.deepStrictEqual(saved.media, { kind: 'library', libraryId: '0101', view: '360' });
   assert.ok(!JSON.stringify(saved).includes('cdn.example'));
   assert.ok(!JSON.stringify(saved).includes('.gif'));
 
   await p.click('[data-a=edit]');
   await p.waitForSelector('.media img');
+  assert.strictEqual(await notes(), PRESS_DESC);
+  await p.type('#lib-q', 'press');
+  await p.waitForSelector('.lib-hit');
+  await pickNamed('Other press');
+  assert.strictEqual(await notes(), PRESS_DESC, 'saved notes are kept when another library exercise is chosen');
   await p.click('#back');
   await p.waitForSelector('[data-a=add]');
   await p.click('[data-a=add]');
   await p.waitForSelector('[data-b=name]');
   await p.type('[data-b=name]', 'My move');
+  assert.strictEqual(await notes(), '', 'a custom name does not auto-fill notes');
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   const photo = '/tmp/wb-tiny-photo.png';
   fs.writeFileSync(photo, png);
@@ -143,6 +211,7 @@ data.workouts.push(w);
   await p.waitForSelector('[data-a=add]');
   const items = await p.evaluate(function (k) { return JSON.parse(localStorage.getItem(k)).workouts[0].items; }, M.STORAGE_KEY);
   const custom = items.find(function (it) { return it.name === 'My move'; });
+  assert.strictEqual(custom.notes, '');
   assert.strictEqual(custom.media.kind, 'custom');
   assert.ok(custom.media.imageKey);
   assert.ok(!JSON.stringify(custom).includes('data:image'));
@@ -172,6 +241,25 @@ data.workouts.push(w);
   assert.ok((await p.$eval('.pl-media', function (el) { return el.textContent; })).includes('connected'));
   await wait(2400);
   await p.screenshot({ path: path.join(shotDir, 'player_demo_waiting.png') });
+  await p.click('.pl-list .pl-notes-btn');
+  await p.waitForSelector('.pl-notes');
+  const opened = await p.evaluate(function () {
+    var note = document.querySelector('.pl-notes');
+    var row = note.closest('.pl-li');
+    return { name: row.querySelector('b').textContent, notes: note.textContent };
+  });
+  assert.strictEqual(opened.name, 'Test press');
+  assert.strictEqual(opened.notes, PRESS_DESC);
+  assert.deepStrictEqual(await p.$$eval('.pl-list .pl-notes-btn', function (els) { return els.map(function (el) { return el.disabled; }); }), [false, true]);
+  await p.evaluate(function () {
+    var list = document.querySelector('.pl-list');
+    var top = list.getBoundingClientRect().top + window.scrollY - 8;
+    window.scrollTo(0, Math.max(0, top));
+  });
+  await wait(150);
+  await p.screenshot({ path: path.join(shotDir, 'player_workout_notes.png') });
+  await p.click('.pl-list .pl-notes-btn');
+  await p.waitForFunction(function () { return !document.querySelector('.pl-notes'); });
   await p.evaluate(function () { window.WBAuth.gifBase = 'https://cdn.example.test/exercises'; });
   await p.click('.pl-ci:nth-child(3)');
   await wait(120);
