@@ -8,7 +8,21 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function getW(id) { return data.workouts.filter(function (w) { return w.id === id; })[0]; }
   function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2200); }
-  function go(h) { location.hash = h; }
+  function hashParams() {
+    try { return new URLSearchParams((location.hash.split('?')[1]) || ''); }
+    catch (e) { return new URLSearchParams(); }
+  }
+  function allowPreview() { return hashParams().get('preview') === '1'; }
+  function previewEnthusiast() { return hashParams().get('as') === 'enthusiast'; }
+  function previewLocked() { return allowPreview() && previewEnthusiast(); }
+  function go(h) {
+    var params = hashParams();
+    var keep = [];
+    if (params.get('preview') === '1' && h.indexOf('preview=1') === -1 && h.indexOf('#/signin') !== 0 && h.indexOf('#/join') !== 0) keep.push('preview=1');
+    if (params.get('as') === 'enthusiast' && h.indexOf('as=enthusiast') === -1 && /#\/(account|subscriptions)\b/.test(h)) keep.push('as=enthusiast');
+    if (keep.length) h += (h.indexOf('?') === -1 ? '?' : '&') + keep.join('&');
+    location.hash = h;
+  }
   function hashBody() { return location.hash.replace(/^#\/?/, '').split('?')[0]; }
   function hashPage() { return hashBody().split('/')[0]; }
   backBtn.onclick = function () {
@@ -16,8 +30,71 @@
     if (page === 'signin' || page === 'join') return;
     var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd();
+    if ((p[1] === 'messages' || p[1] === 'received') && p[2] && p[2].charAt(0) !== '?') return go('#/' + p[1]);
     go(p.length > 3 ? '#/w/' + p[2] : '#/');
   };
+  var SHARE_KEY = 'wb.shareWorkouts';
+  function shareOn() {
+    try { return sessionStorage.getItem(SHARE_KEY) !== '0'; } catch (e) { return true; }
+  }
+  function rememberShare(on) {
+    try { sessionStorage.setItem(SHARE_KEY, on ? '1' : '0'); } catch (e) {}
+  }
+  function preferRole(next) {
+    if (window.WBConnect && WBConnect.prefer) WBConnect.prefer(next);
+  }
+  function preferMessages(profile) {
+    if (window.WBInvites && WBInvites.trainerRole(profile)) preferRole('trainer');
+    else if (profile && (profile.membership === 'free_client' || (window.WBInvites && WBInvites.isEnthusiast(profile)))) preferRole('client');
+  }
+  function followGo(e, profile) {
+    var nav = e.target.closest('[data-go]');
+    if (!nav) return false;
+    var dest = nav.dataset.go;
+    if (dest !== 'account' && dest !== 'messages' && dest !== 'send' && dest !== 'received' && dest !== 'subscriptions') return false;
+    if (dest === 'send') preferRole('trainer');
+    else if (dest === 'received') preferRole('client');
+    else if (dest === 'messages') preferMessages(profile);
+    go('#/' + dest);
+    return true;
+  }
+  function toggleShare(e) {
+    var sw = e.target.closest('[data-share-toggle]');
+    if (!sw) return false;
+    var on = sw.getAttribute('aria-checked') !== 'true';
+    sw.classList.toggle('on', on);
+    sw.setAttribute('aria-checked', on ? 'true' : 'false');
+    rememberShare(on);
+    return true;
+  }
+  function watchShare() {
+    app.onchange = function (e) {
+      var el = e.target;
+      if (!el || el.getAttribute('data-share') !== 'workouts') return;
+      rememberShare(!!el.checked);
+    };
+  }
+  function enthusiastNow(profile) {
+    if (previewEnthusiast()) return true;
+    return !!(window.WBInvites && WBInvites.isEnthusiast(profile));
+  }
+  function shareOption() {
+    return '<label class="checkline"><input id="share-link" class="tick" type="checkbox" data-share="workouts"' + (shareOn() ? ' checked' : '') + '>' +
+      '<span><span class="name" style="display:block;font-size:16px">Let your trainer view your workouts and tracking</span>' +
+      '<span class="mute" style="display:block;margin-top:4px">This helps avoid training conflicts when you also train on your own.</span></span></label>';
+  }
+  function accountShare(profile, conn) {
+    var linked = !!(conn && conn.trainerId);
+    if (!enthusiastNow(profile) || !(linked || previewEnthusiast())) return '';
+    var on = shareOn();
+    return '<div class="card" id="share-card"><div class="row">' +
+      '<button type="button" class="switch' + (on ? ' on' : '') + '" id="share-account" data-share-toggle role="switch" aria-checked="' + (on ? 'true' : 'false') + '" aria-label="Share my workouts and tracking with my trainer"><i></i></button>' +
+      '<div class="grow"><div class="name" style="font-size:16px">Share my workouts and tracking with my trainer</div>' +
+      '<p class="mute" style="margin:4px 0 0">This helps avoid training conflicts when you also train on your own.</p></div></div></div>';
+  }
+  function previewBanner() {
+    return previewLocked() ? '<p class="note" id="preview-note">Preview with sample details. Nothing is saved.</p>' : '';
+  }
 
   function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join'; }
   var INVITE_KEY = 'wb.invite', TRAINER_KEY = 'wb.trainer', pendingInviteNotice = null;
@@ -156,13 +233,14 @@
       navigator.clipboard.writeText(text).then(function () { toast('Copied'); }, function () { toast('Could not copy'); });
     } else toast('Could not copy');
   }
-  function redeemCard(conn) {
+  function redeemCard(conn, profile) {
     var h = '<div class="card" id="redeem">';
     if (conn && conn.trainerId) {
       h += '<div class="name">Your trainer</div><p class="mute">' + esc(conn.trainerEmail || 'Connected') + '</p>';
       h += '<button class="danger" data-invite="end-self" style="width:100%">End connection</button>';
     }
     h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
+    if (!(conn && conn.trainerId) && enthusiastNow(profile)) h += shareOption();
     h += '<button class="pri" data-invite="redeem" style="width:100%;margin-top:10px">Redeem invite</button></div>';
     return h;
   }
@@ -195,6 +273,7 @@
     var b = e.target.closest('[data-invite]');
     if (!b || b.disabled) return false;
     var a = b.dataset.invite;
+    if (previewLocked() && a !== 'copy-code' && a !== 'copy-link') { toast('Preview only. Nothing was saved.'); return true; }
     if (a === 'copy-code') { copyText(b.dataset.code); return true; }
     if (a === 'copy-link') { copyText(b.dataset.link); return true; }
     function fail(err) {
@@ -262,14 +341,18 @@
     });
   }
   function drawSubscriptions(session, profile, message, isError, conn) {
+    titleEl.textContent = 'Subscriptions'; backBtn.hidden = false;
     var note = takeInviteNotice();
     var h = '<div class="sales">';
+    h += previewBanner();
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
+    h += '<div class="row" id="coaching-nav" style="margin-bottom:12px"><button class="grow" data-go="account">Account</button>' +
+      '<button class="grow" data-go="messages">Messages</button></div>';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="note">Beta pricing for the first 100 members.</p>';
-    h += redeemCard(conn);
+    h += redeemCard(conn, profile);
     WBMembership.TIERS.forEach(function (t) {
       h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
       h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
@@ -285,9 +368,12 @@
     });
     h += '<p class="foot">Choosing a plan saves your selection.</p></div>';
     app.innerHTML = h;
+    watchShare();
     app.onclick = function (e) {
+      if (followGo(e, profile)) return;
       if (handleInvite(e, function () { renderSubscriptions(); })) return;
       var b = e.target.closest('[data-plan]'); if (!b) return;
+      if (previewLocked()) { toast('Preview only. Nothing was saved.'); return; }
       if (planBusy || !WBMembership.canSelectIntended(b.dataset.plan)) return;
       planBusy = true; b.disabled = true;
       WBAuth.saveIntended(b.dataset.plan).then(function () {
@@ -328,21 +414,34 @@
     }).catch(function () { if (hashPage() === 'account') go('#/signin'); });
   }
   function drawAccount(session, profile, roster, conn) {
+    titleEl.textContent = 'Account'; backBtn.hidden = false;
     var note = takeInviteNotice();
     var ent = WBMembership.entitlements(profile);
     var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
+    var trainer = window.WBInvites && WBInvites.trainerRole(profile);
     var h = '<div class="gate">';
+    h += previewBanner();
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     h += '<div class="card"><div class="name">' + esc(session.user.email || 'Signed in') + '</div>' +
       '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p>' +
       '<button data-auth="out" style="width:100%">Sign out</button></div>';
-    if (conn && conn.trainerId) h += redeemCard(conn);
+    h += '<div class="row" id="coaching-nav" style="margin-bottom:12px"><button class="grow" data-go="messages">Messages</button>';
+    h += trainer
+      ? '<button class="grow" data-go="send">Send workout</button>'
+      : '<button class="grow" data-go="received">Workouts</button>';
+    h += '</div>';
+    h += accountShare(profile, conn);
+    if (conn && conn.trainerId) h += redeemCard(conn, profile);
     h += trainerSection(roster);
     h += '</div>';
     app.innerHTML = h;
+    watchShare();
     app.onclick = function (e) {
+      if (toggleShare(e)) return;
+      if (followGo(e, profile)) return;
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
       var b = e.target.closest('[data-auth]'); if (!b) return;
+      if (previewLocked()) { toast('Preview only. Nothing was saved.'); return; }
       WBAuth.signOut().then(function () {
         if (hashPage() !== 'account') return;
         go('#/signin');
@@ -371,8 +470,30 @@
     var page = hashPage();
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
-    if (page === 'subscriptions') return renderSubscriptions();
-    if (page === 'account') return renderSimpleAccount();
+    if (page === 'subscriptions') {
+      if (previewLocked()) {
+        app.onclick = null; app.oninput = null; app.onchange = null;
+        return drawSubscriptions(
+          { user: { id: 'maya', email: 'maya@example.com' } },
+          { id: 'maya', email: 'maya@example.com', membership: 'none', intended_plan: 'enthusiast' },
+          null, false, null
+        );
+      }
+      return renderSubscriptions();
+    }
+    if (page === 'account') {
+      if (previewLocked()) {
+        app.onclick = null; app.oninput = null; app.onchange = null;
+        return drawAccount(
+          { user: { id: 'maya', email: 'maya@example.com' } },
+          { id: 'maya', email: 'maya@example.com', membership: 'enthusiast', intended_plan: 'enthusiast' },
+          { role: null },
+          { trainerId: 'alex', trainerEmail: 'alex@example.com' }
+        );
+      }
+      return renderSimpleAccount();
+    }
+    if (page === 'messages' || page === 'send' || page === 'received') return openConnect(token);
     var requested = location.hash;
     app.innerHTML = '';
     app.onclick = null; app.oninput = null; app.onchange = null;
@@ -384,6 +505,30 @@
       if (!session) return go('#/signin');
       if (!builderAllowed(session)) return go('#/subscriptions');
       showBuilder();
+    }).catch(function () {
+      if (token !== routeToken || location.hash !== requested) return;
+      go('#/signin');
+    });
+  }
+  function openConnect(token) {
+    var requested = location.hash;
+    backBtn.hidden = false;
+    app.onclick = null; app.oninput = null; app.onchange = null;
+    function show(profile) {
+      if (token !== routeToken || location.hash !== requested) return;
+      if (!window.WBConnect) return;
+      WBConnect.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast, profile: profile || null });
+    }
+    if (allowPreview()) return show(null);
+    app.innerHTML = '<p class="mute">Loading…</p>';
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return go('#/signin'); }
+    if (!pending || !pending.then) return go('#/signin');
+    pending.then(function (session) {
+      if (token !== routeToken || location.hash !== requested) return;
+      if (!session) return go('#/signin');
+      var profileP = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
+      profileP.then(function (profile) { show(profile); }, function () { show(null); });
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
       go('#/signin');
@@ -408,6 +553,8 @@
     var note = takeInviteNotice();
     var h = (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
       '<button style="width:100%;margin-bottom:8px" data-a="account">Account</button>' +
+      '<div class="row" style="margin-bottom:8px"><button class="grow" data-a="messages">Messages</button>' +
+      '<button class="grow" data-a="send">Send workout</button></div>' +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     if (!data.workouts.length) h += '<div class="empty">No workouts yet.<br>Tap “New workout” to build one.</div>';
     data.workouts.forEach(function (w, wi) {
@@ -425,8 +572,11 @@
     app.innerHTML = h;
     app.onclick = function (e) {
       var b = e.target.closest('[data-a]'); if (!b) return;
-      var a = b.dataset.a, w = getW(b.dataset.id);
+      var a = b.dataset.a;
       if (a === 'account') return openAccount();
+      if (a === 'messages') { preferRole('trainer'); return go('#/messages'); }
+      if (a === 'send') { preferRole('trainer'); return go('#/send'); }
+      var w = getW(b.dataset.id);
       if (a === 'new') {
         var name = prompt('Workout name', 'New workout'); if (name === null) return;
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);
