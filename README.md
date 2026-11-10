@@ -24,7 +24,7 @@ modeConfig:
 Library demos use `EXERCISE_GIF_BASE` in `auth.js` (`{base}/180/{id}.gif` and `{base}/360/{id}.gif`). The host is `https://kinisiexercises.b-cdn.net`. Custom images stay in IndexedDB (`wb.exercise-images`) on that device.
 Migrations: `WB.migrate` upgrades v1 data on load (reps restSec=0, stopwatch lapCount=1).
 Planned session record for the player: `{ id, workoutId, startedAt, endedAt, results: [{ exerciseId, set, laps: [ms...], totalMs }] }`.
-`WB.buildPlayQueue(workout)` already returns the ordered steps, rotating supersets one set at a time (A1 B1 A2 B2 …).
+`WB.buildPlayQueue(workout)` already returns the ordered steps, rotating supersets one set at a time (A1 B1 C1 … A2 B2 C2 …).
 
 ## Player (Stage 3)
 `player.js` (`window.WBPlayer`), route `#/play/<workoutId>`. Steps come from `WB.buildPlayQueue`.

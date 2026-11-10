@@ -20,7 +20,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.ok(await p.$('.ss-head .chain-ico')); assert.ok(await p.$('.ss-chain .chain-ico'));
   assert.ok(!(await p.$('.badge')));
   assert.ok(!(await p.$eval('.ss-head', e => e.textContent)).match(/\b[A-Z]\b.*Superset/) && !(await p.$('.badge')));
-  assert.ok((await p.content()).includes('Tick 2 exercises'));
+  assert.ok((await p.content()).includes('Tick 2 or more exercises'));
   await wait(300); await p.screenshot({ path: '/workspace/builder-chain.png' });
   const click = async s => { await p.click(s); await wait(80); };
   const adv = async ms => { await p.evaluate(ms => { window.__wbClockOffset = (window.__wbClockOffset || 0) + ms; }, ms); await wait(150); };

@@ -17,11 +17,22 @@ M.linkSuperset(w, [w.items[0].id, w.items[4].id]);  // non-adjacent -> made cont
 assert.deepStrictEqual(w.items.map(x => x.name), ['Squat', 'Burpee', 'Row', 'Plank', 'Bike', 'Cone drill']);
 assert.strictEqual(w.items[0].groupId, w.items[1].groupId);
 assert.strictEqual(M.supersetLinkSize(w, [w.items[0].id, w.items[1].id]), 2);
-assert.throws(() => M.linkSuperset(w, [w.items[0].id, w.items[2].id]), /limited to 2/); // would merge into 3
+assert.strictEqual(M.supersetLinkSize(w, [w.items[0].id, w.items[2].id]), 3); // pair plus the next exercise
+assert.throws(() => M.linkSuperset(w, [w.items[0].id]), /at least 2/);
 (function () {
-  const x = M.newWorkout('cap'); ['A','B','C'].forEach(n => M.upsertExercise(x, M.newExercise({ name: n })));
-  assert.throws(() => M.linkSuperset(x, x.items.map(i => i.id)), /limited to 2/);
-  M.linkSuperset(x, [x.items[0].id, x.items[1].id]); assert.strictEqual(x.items.filter(i => i.groupId).length, 2);
+  const x = M.newWorkout('many');
+  ['A', 'B', 'C', 'D', 'E'].forEach(n => M.upsertExercise(x, M.newExercise({ name: n, sets: n === 'C' ? 1 : 2 })));
+  assert.throws(() => M.linkSuperset(x, []), /at least 2/);
+  assert.throws(() => M.linkSuperset(x, [x.items[0].id]), /at least 2/);
+  M.linkSuperset(x, x.items.slice(0, 3).map(i => i.id));
+  assert.strictEqual(x.items.filter(i => i.groupId).length, 3);
+  assert.strictEqual(new Set(x.items.slice(0, 3).map(i => i.groupId)).size, 1);
+  M.linkSuperset(x, [x.items[3].id, x.items[4].id]);
+  M.linkSuperset(x, [x.items[0].id, x.items[3].id]); // one member of each group merges both groups
+  assert.strictEqual(x.items.filter(i => i.groupId === x.items[0].groupId).length, 5);
+  assert.deepStrictEqual(x.items.map(i => i.name), ['A', 'B', 'C', 'D', 'E']);
+  const q = M.buildPlayQueue(x).map(s => x.items.find(it => it.id === s.exerciseId).name + s.set);
+  assert.deepStrictEqual(q, ['A1', 'B1', 'C1', 'D1', 'E1', 'A2', 'B2', 'D2', 'E2']); // C drops out after its only set
 })();
 M.save(mem, d); const r = M.load(mem); assert.deepStrictEqual(r, JSON.parse(JSON.stringify(d)));
 const q = M.buildPlayQueue(r.workouts[0]).slice(0, 6).map(s => r.workouts[0].items.find(x => x.id === s.exerciseId).name + s.set);
@@ -143,13 +154,15 @@ console.log('MODEL OK');
   await (await p.$$('[data-sel]'))[1].click(); await new Promise(r => setTimeout(r, 60));
   await click('[data-a=link]');
   assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 2);
-  // linking a 3rd into an existing pair: control stays tappable, notice + block
+  // linking a 3rd into an existing pair merges the whole group (no size cap)
   await (await p.$$('[data-sel]'))[0].click(); await new Promise(r => setTimeout(r, 60));
   await (await p.$$('[data-sel]'))[2].click(); await new Promise(r => setTimeout(r, 60));
   assert.ok(!(await p.$eval('[data-a=link]', b => b.disabled)));
   await click('[data-a=link]');
-  assert.ok((await p.content()).includes('Supersets are limited to 2 exercises') || (await p.$eval('#toast', t => t.textContent)).includes('limited to 2'));
-  assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 2); // still only the pair
+  assert.ok((await p.$eval('#toast', t => t.textContent)).includes('Superset linked'));
+  assert.ok(!(await p.content()).includes('limited to 2'));
+  assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 3);
+  assert.deepStrictEqual(await p.$$eval('.ss .name', a => a.map(e => e.textContent)), ['Squat', 'Row', 'Plank']);
   await p.evaluate(() => { document.querySelectorAll('[data-sel]:checked').forEach(c => c.click()); });
   await new Promise(r => setTimeout(r, 60));
   await p.reload(); await new Promise(r => setTimeout(r, 200));
@@ -158,7 +171,7 @@ console.log('MODEL OK');
   assert.strictEqual(ws.items.length, 6); assert.strictEqual(stored.version, 4); assert.strictEqual(ws.items.find(x => x.name === 'Plank').modeConfig.repsType, null); assert.deepStrictEqual(ws.items.find(x => x.name === 'Bike').modeConfig, { repsType: 'range', min: 10, max: 15, workSec: 30 }); assert.strictEqual(ws.items.find(x => x.name === 'Bike').sets, 8);
   assert.strictEqual(ws.items.find(x => x.name === 'Squat').modeConfig.restSec, 90); assert.strictEqual(ws.items.find(x => x.name === 'Plank').modeConfig.restSec, 0);
   assert.deepStrictEqual(ws.items.find(x => x.name === 'Cone drill').modeConfig, { lapsEnabled: true, lapCount: 6 });
-  assert.ok((await p.content()).includes('6 laps')); assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 2);
+  assert.ok((await p.content()).includes('6 laps')); assert.strictEqual(await p.$$eval('.ss .card', a => a.length), 3);
   assert.ok(!(await p.$eval('[data-a=play]', b => b.disabled))); // Start enabled when workout has exercises
   // home: workout reorder persists (same ▲/▼ style as exercises)
   await p.evaluate(() => { const d = JSON.parse(localStorage.getItem('wb.data.v1')); if (d.workouts.length < 2) { d.workouts.push(JSON.parse(JSON.stringify(d.workouts[0]))); d.workouts[1].id = 'w-copy'; d.workouts[1].name = 'Copy'; localStorage.setItem('wb.data.v1', JSON.stringify(d)); } });

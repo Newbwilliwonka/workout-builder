@@ -41,7 +41,7 @@
       weight: { unit: 'lb', value: null },
       mode: 'reps', modeConfig: defaultModeConfig('reps'),
       notes: '',
-      groupId: null,   // superset link: up to 2 exercises sharing a groupId (kept contiguous)
+      groupId: null,   // superset link: 2 or more exercises sharing a groupId (kept contiguous)
       media: null      // library: { kind:'library', libraryId, view:'180'|'360' }; custom image: { kind:'custom', imageKey }
     };
     return Object.assign(ex, over || {});
@@ -246,10 +246,9 @@
     });
     return Object.keys(seen).length;
   }
-  // Link exactly 2 exercises into one superset. Selected items already in groups are merged (still max 2).
+  // Link 2 or more exercises into one superset. Selected items already in groups are merged.
   function linkSuperset(w, ids) {
     if (!ids || ids.length < 2) throw new Error('Select at least 2 exercises to make a superset.');
-    if (supersetLinkSize(w, ids) > 2) throw new Error('Supersets are limited to 2 exercises.');
     var gid = uid('grp'), groupsHit = {};
     w.items.forEach(function (it) { if (ids.indexOf(it.id) >= 0 && it.groupId) groupsHit[it.groupId] = 1; });
     w.items.forEach(function (it) { if (ids.indexOf(it.id) >= 0 || groupsHit[it.groupId]) it.groupId = gid; });
@@ -281,7 +280,7 @@
   }
 
   // For the future player: flatten a workout into an ordered list of steps.
-  // Supersets rotate one set at a time: A1 B1 A2 B2 ... (exercises with fewer sets drop out).
+  // Supersets rotate one set at a time: A1 B1 C1 … A2 B2 C2 … (exercises with fewer sets drop out).
   function buildPlayQueue(w) {
     var steps = [];
     blocks(w).forEach(function (b) {
