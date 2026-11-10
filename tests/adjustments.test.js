@@ -505,7 +505,7 @@ function workout(name, items) {
   expectTone(tone[10], { kind: 'tick', vis: 3, phase: 'rest', ro: '0:03', at: 17000 });
   expectTone(tone[11], { kind: 'tick', vis: 2, phase: 'rest', ro: '0:02', at: 18000 });
   expectTone(tone[12], { kind: 'tick', vis: 1, phase: 'rest', ro: '0:01', at: 19000 });
-  expectTone(tone[13], { kind: 'done', vis: 0, phase: 'rest', ro: '00:00.00', at: 20000 });
+  expectTone(tone[13], { kind: 'done', vis: 0, phase: 'rest', ro: '0:00', at: 20000 });
   // Each seek added one tone — no extra beeps from the jump.
   tone.forEach((row, i) => assert.strictEqual(row.n, i + 1, row.label));
 

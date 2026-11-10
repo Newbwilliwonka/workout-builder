@@ -548,8 +548,11 @@
   }
   function readout() {
     var d = phaseDur(), el = elapsed(), ex = exOf(S.idx);
+    if (ex.mode === 'stopwatch') return M.formatStopwatch(el); // hundredths stay on the stopwatch only
     if (d == null && S.phase === 'ready' && (ex.mode === 'intervals' || ex.mode === 'timer')) return M.fmtTime(ex.modeConfig.workSec);
-    return d != null ? M.fmtTime(Math.ceil(Math.max(0, d - el) / 1000)) : M.formatStopwatch(el);
+    // Count-up holds and finished screens use the countdown shape. Logging still uses the elapsed milliseconds.
+    if (d == null) return M.fmtTime(Math.floor(Math.max(0, el) / 1000));
+    return M.fmtTime(Math.ceil(Math.max(0, d - el) / 1000));
   }
   function tick(once) {
     if (!S || S.done) return;
