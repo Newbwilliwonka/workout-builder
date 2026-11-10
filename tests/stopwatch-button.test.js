@@ -44,7 +44,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual((await st()).laps, 1);
   assert.strictEqual(await p.$eval('.pl-go', e => e.textContent), 'Lap 2 / 3');
   // no-lap stopwatch: same button finishes the set
-  await p.evaluate(() => [...document.querySelectorAll('.pl-ci')].find(e => e.textContent.includes('Sprint')).click());
+  await p.evaluate(() => WBPlayer.selectStep(1));
   await wait(80);
   assert.strictEqual(await p.$eval('.pl-go', e => e.textContent), 'Start');
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Stopwatch');

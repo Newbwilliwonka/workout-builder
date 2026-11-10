@@ -245,7 +245,7 @@ function workout(name, items) {
   await boot(frames);
   const names = ['Curl', 'Press', 'Plank', 'Row', 'Squat', 'Wall sit', 'Hollow', 'Arch', 'Sprint', 'Walk back', 'Shuttle', 'Stretch'];
   for (let i = 0; i < names.length; i++) {
-    await p.evaluate(i => document.querySelector('[data-sel="' + i + '"]').click(), i);
+    await p.evaluate(i => WBPlayer.selectStep(i), i);
     await wait(40);
     const frame = await p.evaluate(() => {
       const infos = [...document.querySelectorAll('.pl-info')];
@@ -269,7 +269,7 @@ function workout(name, items) {
     if (i === 4) await (await p.$('.pl-stage')).screenshot({ path: SHOT + '/superset-active-frame.png' });
   }
   // Advancing the round keeps a single frame for the exercise now playing.
-  await p.evaluate(() => document.querySelector('[data-sel="0"]').click());
+  await p.evaluate(() => WBPlayer.selectStep(0));
   await wait(40);
   await click('[data-p=primary]');
   const doneFrame = await p.evaluate(() => ({
@@ -410,8 +410,8 @@ function workout(name, items) {
   let m = await marks();
   assert.strictEqual(m.mark, 'pass');
   assert.deepStrictEqual(m.on, ['pass']);
-  await click('[data-sel="1"]');
-  await click('[data-sel="0"]');
+  await p.evaluate(() => WBPlayer.selectStep(1)); await wait(40);
+  await p.evaluate(() => WBPlayer.selectStep(0)); await wait(40);
   m = await marks();
   assert.strictEqual(m.phase, 'ready');
   assert.strictEqual(m.mark, 'pass'); // old attempt stays visible until Start
@@ -433,8 +433,8 @@ function workout(name, items) {
   m = await marks();
   assert.strictEqual(m.phase, 'complete');
   assert.strictEqual(m.mark, 'fail');
-  await click('[data-sel="1"]');
-  await click('[data-sel="0"]');
+  await p.evaluate(() => WBPlayer.selectStep(1)); await wait(40);
+  await p.evaluate(() => WBPlayer.selectStep(0)); await wait(40);
   await click('.pl-go');
   m = await marks();
   assert.strictEqual(m.laps, 0);
@@ -508,6 +508,75 @@ function workout(name, items) {
   expectTone(tone[13], { kind: 'done', vis: 0, phase: 'rest', ro: '00:00.00', at: 20000 });
   // Each seek added one tone — no extra beeps from the jump.
   tone.forEach((row, i) => assert.strictEqual(row.n, i + 1, row.label));
+
+  // ---------- 5. Reps rest: ticks at 3, 2, 1, double beep at 0, full gain, pause and skip stay quiet ----------
+  const repsRest = workout('Reps rest', [
+    mk({ name: 'Curl', sets: 1, weight: { unit: 'lb', value: 20 }, mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 5 }, notes: 'Elbows in' }),
+    mk({ name: 'Press', sets: 1, weight: { unit: 'lb', value: 30 }, mode: 'reps', modeConfig: { repsType: 'number', count: 6, restSec: 0 } })
+  ]);
+  await boot(repsRest);
+  const repsCue = await p.evaluate(() => {
+    const peaks = [];
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const origGain = AC.prototype.createGain;
+    AC.prototype.createGain = function () {
+      const g = origGain.call(this);
+      const ramp = g.gain.exponentialRampToValueAtTime.bind(g.gain);
+      g.gain.exponentialRampToValueAtTime = function (v, t) { peaks.push(v); return ramp(v, t); };
+      return g;
+    };
+    const orig = performance.now.bind(performance);
+    const offset = window.__wbClockOffset || 0;
+    let frozen = orig();
+    performance.now = () => frozen;
+    document.querySelector('[data-p=primary]').click();
+    const S = window.__wbPlayer;
+    function at(ms) { S.running = true; S.acc = 0; S.t0 = frozen + offset - ms; WBPlayer.step(); }
+    function kinds() { return (S.toneLog || []).map(t => t.kind + ':' + t.vis + ':' + t.phase); }
+    at(20); at(2000); at(3000); at(4000);
+    const mid = kinds();
+    S.acc = 4000; S.running = false; // pause on 0:01
+    frozen += 2000; WBPlayer.step();
+    const paused = kinds();
+    S.t0 = frozen + offset; S.running = true; // resume, same second
+    WBPlayer.step();
+    const resumed = kinds();
+    at(5200);
+    const ended = { phase: S.phase, idx: S.idx, kinds: kinds(), logged: S.results[0].logged, peaks: peaks.slice() };
+    performance.now = orig;
+    AC.prototype.createGain = origGain;
+    return { mid, paused, resumed, ended };
+  });
+  assert.deepStrictEqual(repsCue.mid, ['tick:3:rest', 'tick:2:rest', 'tick:1:rest']);
+  assert.deepStrictEqual(repsCue.paused, repsCue.mid); // paused clock does not beep
+  assert.deepStrictEqual(repsCue.resumed, repsCue.mid);
+  assert.strictEqual(repsCue.ended.phase, 'work');
+  assert.strictEqual(repsCue.ended.idx, 1);
+  assert.strictEqual(repsCue.ended.logged, true);
+  assert.deepStrictEqual(repsCue.ended.kinds, ['tick:3:rest', 'tick:2:rest', 'tick:1:rest', 'go:0:rest']);
+  assert.ok(repsCue.ended.peaks.includes(1), JSON.stringify(repsCue.ended.peaks));
+  assert.ok(repsCue.ended.peaks.every(v => v <= 1), JSON.stringify(repsCue.ended.peaks));
+  await boot(repsRest);
+  const skipped = await p.evaluate(() => {
+    const orig = performance.now.bind(performance);
+    const offset = window.__wbClockOffset || 0;
+    let frozen = orig();
+    performance.now = () => frozen;
+    document.querySelector('[data-p=primary]').click();
+    const S = window.__wbPlayer;
+    frozen = S.t0 + 1000 - offset; // still on 0:04, before the last 3 seconds
+    WBPlayer.step();
+    const before = (S.toneLog || []).length;
+    document.querySelector('[data-p=primary]').click(); // skip
+    const out = { before, after: (S.toneLog || []).length, idx: S.idx, phase: S.phase, logged: S.results[0].logged, running: S.running };
+    performance.now = orig;
+    return out;
+  });
+  assert.strictEqual(skipped.before, 0);
+  assert.strictEqual(skipped.after, 0);
+  assert.strictEqual(skipped.idx, 1);
+  assert.strictEqual(skipped.phase, 'work');
+  assert.strictEqual(skipped.logged, true);
 
   assert.deepStrictEqual(errs, []);
   console.log('ADJUSTMENTS OK');
