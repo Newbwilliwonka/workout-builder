@@ -744,6 +744,20 @@
       (hasPhoto ? '<button type="button" data-a="clearphoto">Remove image</button>' : '') +
       '<span class="mute">Stays on this device only. Clearing site data removes it.</span></div>';
   }
+  // Library text fills Notes only when they are blank, or still the previous
+  // unedited auto-fill. Anything the trainer typed stays. Manual entry never calls this.
+  function applyLibraryDescription(d, row) {
+    if (!row || typeof row.description !== 'string') return;
+    var notes = d.notes == null ? '' : String(d.notes);
+    if (notes.trim() !== '' && notes !== d.autoDescription) return;
+    d.notes = row.description;
+    d.autoDescription = row.description;
+  }
+  function libRowById(d, id) {
+    var rows = d.libRows || [], i;
+    for (i = 0; i < rows.length; i++) if (rows[i] && String(rows[i].id) === id) return rows[i];
+    return null;
+  }
   function planMedia(d) {
     var saved = M.cleanMedia(d.savedMedia);
     var oldKey = saved && saved.kind === 'custom' ? saved.imageKey : '';
@@ -880,6 +894,7 @@
         d.name = b.dataset.name || d.name;
         d.source = 'library';
         if (d.view !== '360') d.view = '180';
+        applyLibraryDescription(d, libRowById(d, d.libraryId));
         return renderEditor(w, exId);
       }
       if (b.dataset.a === 'libmore') { scheduleLibSearch(true); return; }
