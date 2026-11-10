@@ -245,7 +245,7 @@ function workout(name, items) {
   await boot(frames);
   const names = ['Curl', 'Press', 'Plank', 'Row', 'Squat', 'Wall sit', 'Hollow', 'Arch', 'Sprint', 'Walk back', 'Shuttle', 'Stretch'];
   for (let i = 0; i < names.length; i++) {
-    await p.evaluate(i => WBPlayer.selectStep(i), i);
+    await p.evaluate(i => document.querySelector('[data-sel="' + i + '"]').click(), i);
     await wait(40);
     const frame = await p.evaluate(() => {
       const infos = [...document.querySelectorAll('.pl-info')];
@@ -269,7 +269,7 @@ function workout(name, items) {
     if (i === 4) await (await p.$('.pl-stage')).screenshot({ path: SHOT + '/superset-active-frame.png' });
   }
   // Advancing the round keeps a single frame for the exercise now playing.
-  await p.evaluate(() => WBPlayer.selectStep(0));
+  await p.evaluate(() => document.querySelector('[data-sel="0"]').click());
   await wait(40);
   await click('[data-p=primary]');
   const doneFrame = await p.evaluate(() => ({
@@ -410,8 +410,8 @@ function workout(name, items) {
   let m = await marks();
   assert.strictEqual(m.mark, 'pass');
   assert.deepStrictEqual(m.on, ['pass']);
-  await p.evaluate(() => WBPlayer.selectStep(1)); await wait(40);
-  await p.evaluate(() => WBPlayer.selectStep(0)); await wait(40);
+  await click('[data-sel="1"]');
+  await click('[data-sel="0"]');
   m = await marks();
   assert.strictEqual(m.phase, 'ready');
   assert.strictEqual(m.mark, 'pass'); // old attempt stays visible until Start
@@ -433,8 +433,8 @@ function workout(name, items) {
   m = await marks();
   assert.strictEqual(m.phase, 'complete');
   assert.strictEqual(m.mark, 'fail');
-  await p.evaluate(() => WBPlayer.selectStep(1)); await wait(40);
-  await p.evaluate(() => WBPlayer.selectStep(0)); await wait(40);
+  await click('[data-sel="1"]');
+  await click('[data-sel="0"]');
   await click('.pl-go');
   m = await marks();
   assert.strictEqual(m.laps, 0);

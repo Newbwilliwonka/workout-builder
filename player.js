@@ -459,19 +459,13 @@
     h += '</div>'; // end pl-main (media column)
     var mixedSw = S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) && S.w.items.some(function (it) { return it.mode !== 'stopwatch'; });
     var carHead = mixedSw ? 'Steps' : (S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) ? 'Attempts' : 'Sets');
-    var anyNotes = false;
-    for (var nj = 0; nj < S.queue.length; nj++) {
-      if (S.notesOpen && S.notesOpen[nj] && String(exOf(nj).notes || '').trim()) anyNotes = true;
-    }
-    h += '<div class="pl-car' + (anyNotes ? ' has-notes' : '') + '" aria-label="All ' + carHead.toLowerCase() + '"><div class="pl-car-h">' + carHead + '</div>';
+    h += '<div class="pl-car" aria-label="All ' + carHead.toLowerCase() + '"><div class="pl-car-h">' + carHead + '</div>';
     for (var j = 0; j < S.queue.length; j++) {
-      var e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
-      var note = String(e2.notes || ''), canNote = note.trim().length > 0, noteOpen = !!(canNote && S.notesOpen && S.notesOpen[j]);
-      h += '<div class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '"' + (j === i ? ' aria-current="true"' : '') + '>' +
-        '<div class="pl-ci-top">' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b>' +
-        '<button type="button" class="pl-notes-btn" data-notes="' + j + '"' + (canNote ? '' : ' disabled title="No notes" aria-label="No notes"') +
-        ' aria-expanded="' + (noteOpen ? 'true' : 'false') + '">Notes</button></div>' +
-        (noteOpen ? '<div class="pl-notes">' + esc(note) + '</div>' : '') + '</div>';
+      var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
+      var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
+      if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
+      var sub = e2.mode === 'stopwatch' ? 'Attempt ' + q.set + '/' + q.of : (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of);
+      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b>' + (sub ? '<span>' + esc(sub) + '</span>' : '') + '</button>';
     }
     h += '</div></div>'; // end car + stage
     if (sw) h += '<button class="pl-go" data-p="primary">' + esc(primaryLabel(ex)) + '</button>';
@@ -494,15 +488,16 @@
     if (S.phase === 'rest' && st.groupId && mems.length > 1) mems.forEach(function (mi) { h += '<div class="pl-track-g">' + trackBlock(mi) + '</div>'; });
     else h += trackBlock(i);
     h += '</div>';
-    // summary list
+    // Workout list: name and notes only. Tapping a row does not change the exercise.
     var done = {}; Object.keys(S.results).forEach(function (k) { var x = S.results[k]; if (x.logged) done[x.exerciseId] = (done[x.exerciseId] || 0) + 1; });
     h += '<div class="pl-list"><div class="pl-car-h">Workout</div>';
-    S.w.items.forEach(function (it, ix) {
+    S.w.items.forEach(function (it) {
       var cur = it.id === ex.id, n = done[it.id] || 0;
-      var prev = ix > 0 ? S.w.items[ix - 1] : null;
-      if (prev && it.groupId && prev.groupId === it.groupId) h += '<div class="pl-chain pl-chain-list" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
-      h += '<button class="pl-li' + (cur ? ' cur' : '') + (n >= it.sets ? ' fin' : '') + '" data-ex="' + it.id + '">' +
-        '<span class="grow"><b>' + esc(it.name) + '</b><small>' + esc(target(it)) + '</small></span><span class="pl-cnt">' + n + '/' + it.sets + '</span></button>';
+      var note = String(it.notes || ''), canNote = note.trim().length > 0, noteOpen = !!(canNote && S.notesOpen && S.notesOpen[it.id]);
+      h += '<div class="pl-li' + (cur ? ' cur' : '') + (n >= it.sets ? ' fin' : '') + '"><div class="pl-li-top"><b>' + esc(it.name) + '</b>' +
+        '<button type="button" class="pl-notes-btn" data-notes="' + esc(it.id) + '"' + (canNote ? '' : ' disabled title="No notes" aria-label="No notes"') +
+        ' aria-expanded="' + (noteOpen ? 'true' : 'false') + '">Notes</button></div>' +
+        (noteOpen ? '<div class="pl-notes">' + esc(note) + '</div>' : '') + '</div>';
     });
     h += '</div><button class="pl-endw" data-p="end">End workout</button></div>';
     if (S.prompt) h += '<div class="pl-modal"><div class="card"><h3>Workout complete</h3><p class="mute">End the workout now, or keep editing your logged sets.</p><button class="pri" data-p="endnow">End workout</button><button data-p="keep">Keep editing</button></div></div>';
@@ -584,18 +579,13 @@
       Array.prototype.forEach.call(box.querySelectorAll('button'), function (btn) { btn.classList.toggle('on', btn === b); });
       return;
     }
-    if (b.dataset.notes != null) { // list notes only — does not move the workout
-      var nk = +b.dataset.notes;
+    if (b.dataset.notes != null) { // workout-list notes only — does not move the workout
+      var nk = b.dataset.notes;
       S.notesOpen = S.notesOpen || {};
       S.notesOpen[nk] = !S.notesOpen[nk];
       return render();
     }
     if (b.dataset.sel) return select(+b.dataset.sel);
-    if (b.dataset.ex) { // first unlogged set of that exercise, else its first set
-      var id = b.dataset.ex, first = -1, open = -1;
-      S.queue.forEach(function (q, k) { if (q.exerciseId === id) { if (first < 0) first = k; if (open < 0 && !(S.results[k] && S.results[k].logged)) open = k; } });
-      return select(open >= 0 ? open : first);
-    }
     if (b.dataset.st) { var f = b.dataset.st, si = b.dataset.si != null ? +b.dataset.si : S.idx, r = res(si); r[f] = Math.max(0, Math.round(((+r[f] || 0) + +b.dataset.d) * 10) / 10); var inp = S.root.querySelector('[data-f="' + f + '"]' + (b.dataset.si != null ? '[data-si="' + si + '"]' : '')); if (inp) inp.value = r[f]; return; }
     var a = b.dataset.p;
       if (a === 'primary') {

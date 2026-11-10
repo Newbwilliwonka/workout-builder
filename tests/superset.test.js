@@ -37,7 +37,7 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-a=cancel]');
   // Player: Curl (non-final) skips its 45s rest; Press (final) takes 20s rest
   await click('[data-a=play]');
-  assert.ok(await p.$('.pl-list .pl-chain')); assert.ok(!(await p.$('.pl-li em')));
+  assert.strictEqual(await p.$$eval('.pl-list .pl-chain', a => a.length), 0); assert.ok(await p.$('.pl-car .pl-chain')); assert.ok(!(await p.$('.pl-li em')));
   assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
   // layout: one info frame for the current exercise, under the media
   assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Curl');

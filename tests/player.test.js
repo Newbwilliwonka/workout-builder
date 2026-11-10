@@ -35,43 +35,46 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual(await p.$$eval('.pl-info', a => a.length), 1); // one frame, under the media
   assert.strictEqual(await p.$('.pl-ss-extra'), null);
   assert.strictEqual(await p.evaluate(() => !!document.querySelector('.pl-info').closest('.pl-screen')), false);
-  assert.strictEqual(await p.$$eval('.pl-car .pl-chain', a => a.length), 0); // no chain icon in the exercise list
-  assert.ok(await p.$('.pl-list .pl-chain')); // workout summary below still groups the superset
+  assert.ok(await p.$('.pl-car .pl-chain')); // chain stays on the carousel
+  assert.strictEqual(await p.$$eval('.pl-list .pl-chain', a => a.length), 0);
   assert.strictEqual(await p.$$eval('.pl-ci', a => a[1].querySelector('b').textContent), 'Plank'); // A1 -> B1 order
   assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$eval('.pl-ci', e => e.classList.contains('cur')), true);
-  assert.strictEqual(await p.$$eval('.pl-ci', a => a.every(el => !/Set \d|Attempt |Interval /.test(el.innerText))), true);
-  assert.strictEqual(await p.$$eval('.pl-notes-btn', a => a.length), 10);
-  assert.strictEqual(await p.$eval('.pl-ci.cur .pl-notes-btn', e => e.disabled), false);
-  assert.strictEqual(await p.$$eval('.pl-ci', a => a[1].querySelector('.pl-notes-btn').disabled), true); // Plank has no notes
+  assert.ok(/Set 1\/2/.test(await p.$eval('.pl-ci', e => e.innerText)));
+  assert.strictEqual(await p.$$eval('.pl-car .pl-notes-btn', a => a.length), 0);
+  assert.strictEqual(await p.$$eval('.pl-list .pl-notes-btn', a => a.length), 7);
+  assert.strictEqual(await p.$eval('.pl-li.cur .pl-notes-btn', e => e.disabled), false);
+  assert.strictEqual(await p.$$eval('.pl-li', a => a[1].querySelector('.pl-notes-btn').disabled), true); // Plank has no notes
+  assert.strictEqual(await p.$('.pl-li small'), null);
+  assert.strictEqual(await p.$('.pl-cnt'), null);
   const beforeTap = (await st()).idx;
-  await click('.pl-ci.cur b');
-  assert.strictEqual((await st()).idx, beforeTap); // list name is not navigation
-  await click('.pl-ci.cur .pl-notes-btn');
+  await click('.pl-li.cur b');
+  assert.strictEqual((await st()).idx, beforeTap); // workout list name is not navigation
+  await click('.pl-li.cur .pl-notes-btn');
   assert.strictEqual(await p.$eval('.pl-notes', e => e.textContent), 'Chest up\nHeels down');
   assert.strictEqual((await st()).idx, beforeTap);
   assert.strictEqual((await st()).phase, 'work');
   const notesFit = await p.evaluate(() => {
-    const items = [...document.querySelectorAll('.pl-ci')];
-    const car = document.querySelector('.pl-car');
+    const items = [...document.querySelectorAll('.pl-li')];
     const n = document.querySelector('.pl-notes').getBoundingClientRect();
     const a = items[0].getBoundingClientRect();
     const b = items[1].getBoundingClientRect();
-    const cr = car.getBoundingClientRect();
     return {
       inside: n.top >= a.top - 1 && n.bottom <= a.bottom + 1,
-      separated: b.top >= a.bottom - 1,
-      grown: n.bottom <= cr.bottom + 1 && getComputedStyle(car).overflowY === 'visible'
+      separated: b.top >= a.bottom - 1
     };
   });
-  assert.ok(notesFit.inside && notesFit.separated && notesFit.grown, JSON.stringify(notesFit));
-  await click('.pl-ci.cur .pl-notes-btn');
+  assert.ok(notesFit.inside && notesFit.separated, JSON.stringify(notesFit));
+  await click('.pl-li.cur .pl-notes-btn');
   assert.strictEqual(await p.$('.pl-notes'), null);
   assert.strictEqual(await p.$$eval('.pl-ctl,.pl-go', a => a.length), 0); assert.ok(await p.$('.pl-endw')); assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
   await wait(400); await p.screenshot({ path: '/workspace/player-superset-v3.png' }); await p.screenshot({ path: '/workspace/player-superset.png' });
-  await p.evaluate(() => WBPlayer.selectStep(1)); await wait(80); assert.strictEqual((await st()).name, 'Plank');
+  await click('[data-sel="1"]'); assert.strictEqual((await st()).name, 'Plank'); // carousel tap jumps
   assert.strictEqual(await p.$$eval('.pl-info .pl-name', a => a.map(e => e.textContent).join('|')), 'Plank');
   assert.strictEqual(await p.$('.pl-ss-extra'), null);
-  await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.textContent.includes('Goblet')).click()); await wait(80); assert.strictEqual((await st()).idx, 0);
+  const stay = (await st()).idx;
+  await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.querySelector('b').textContent === 'Goblet squat').querySelector('b').click());
+  await wait(80); assert.strictEqual((await st()).idx, stay); // workout row does not jump
+  await click('[data-sel="0"]'); assert.strictEqual((await st()).idx, 0);
   // edit tracking bar: reps +2, weight typed 140
   await click('[data-st=reps][data-d="1"]'); await click('[data-st=reps][data-d="1"]');
   await p.$eval('[data-f=weight]', e => e.value = ''); await p.type('[data-f=weight]', '140');
@@ -120,13 +123,13 @@ const data = M.emptyData(); data.workouts.push(w);
   // carousel keeps every set; round-1 + A2 logged
   assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$$eval('.pl-ci.done .pl-ck', a => a.length), 3);
   await wait(400); await p.screenshot({ path: '/workspace/player-carousel.png' });
-  await p.evaluate(() => WBPlayer.selectStep(0)); await wait(80); s = await st(); assert.strictEqual(s.idx, 0);
+  await click('[data-sel="0"]'); s = await st(); assert.strictEqual(s.idx, 0);
   assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '12'); assert.strictEqual(await p.$eval('[data-f=weight]', e => e.value), '140');
   assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Logged · tap to redo'); // round 1 logged
   await click('[data-st=reps][data-d="-1"]'); assert.strictEqual((await st()).results[0].reps, 11); assert.ok((await st()).results[0].logged);
-  await p.evaluate(() => WBPlayer.selectStep(1)); await wait(80); await p.evaluate(() => WBPlayer.selectStep(0)); await wait(80); assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '11'); // edit kept
-  // B2 via selectStep, finish Plank (final of round 2) with its rest; A2 already logged from tap
-  await p.evaluate(() => WBPlayer.selectStep(3)); await wait(80);
+  await click('[data-sel="1"]'); await click('[data-sel="0"]'); assert.strictEqual(await p.$eval('[data-f=reps]', e => e.value), '11'); // edit kept
+  // B2 via carousel, finish Plank (final of round 2) with its rest; A2 already logged from tap
+  await click('[data-sel="3"]');
   await click('[data-p=primary]'); await adv(5100); await adv(20100); s = await st(); assert.strictEqual(s.phase, 'rest');
   assert.ok(s.results[2].logged); assert.ok(s.results[3].logged); // final logs when shared rest starts
   await adv(15100); s = await st(); assert.ok(s.results[2].logged); assert.ok(s.results[3].logged);
@@ -138,8 +141,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.deepStrictEqual(await p.$$eval('.pl-meta div', a => a.map(d => d.textContent)), ['Bodyweight · 15 reps · 0:20']);
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Interval');
   await p.screenshot({ path: '/workspace/player-v2.png' });
-  assert.strictEqual((await st()).ro, '0:20'); assert.strictEqual(await p.$$eval('.pl-ci', a => a[5].querySelector('b').textContent), 'Bike sprints');
-  assert.ok(!/Interval/.test(await p.$$eval('.pl-ci', a => a[5].innerText)));
+  assert.strictEqual((await st()).ro, '0:20'); assert.strictEqual(await p.$$eval('.pl-ci', a => a[5].querySelector('span').textContent), 'Interval 2 of 2');
   const sched = await p.evaluate(() => WBPlayer.toneSchedule(20, 2));
   assert.deepStrictEqual(sched.map(x => x.t + x.kind[0]).join(' '), '0t 1t 2t 3t 4t 5g 22t 23t 24t 25g 42t 43t 44t 45d');
   await click('[data-st=reps][data-d="-1"]'); await click('[data-p=primary]'); s = await st();
