@@ -143,7 +143,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.deepStrictEqual(await p.$$eval('.pl-meta div', a => a.map(d => d.textContent)), ['Bodyweight · 15 reps · 0:20']);
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Interval');
   await p.screenshot({ path: '/workspace/player-v2.png' });
-  assert.strictEqual((await st()).ro, '0:20'); assert.strictEqual(await p.$$eval('.pl-ci', a => a[5].querySelector('span').textContent), 'Interval 2 of 2');
+  assert.strictEqual((await st()).ro, '0:20'); assert.strictEqual(await p.$$eval('.pl-ci', a => a[5].querySelector('span').textContent), 'Interval 2/2');
   const sched = await p.evaluate(() => WBPlayer.toneSchedule(20, 2));
   assert.deepStrictEqual(sched.map(x => x.t + x.kind[0]).join(' '), '0t 1t 2t 3t 4t 5g 22t 23t 24t 25g 42t 43t 44t 45d');
   await click('[data-st=reps][data-d="-1"]'); await click('[data-p=primary]'); s = await st();

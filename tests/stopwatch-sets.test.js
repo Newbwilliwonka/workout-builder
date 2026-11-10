@@ -49,7 +49,8 @@ const data = M.emptyData(); data.workouts.push(w); const editW = M.newWorkout('E
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '3 Laps');
   assert.strictEqual(await p.$eval('.pl-ci.cur span', e => e.textContent), 'Attempt 1/1');
   assert.ok(/Attempt 1\/1/.test(await p.$eval('.pl-th', e => e.textContent)));
-  assert.strictEqual(await p.$eval('.pl-car-h', e => e.textContent), 'Steps');
+  assert.strictEqual(await p.$('.pl-car .pl-car-h'), null); // carousel has no Sets / Attempts / Steps title
+  assert.strictEqual(await p.$eval('.pl-list .pl-car-h', e => e.textContent), 'Workout');
   assert.strictEqual(await p.$eval('.pl-li b', e => e.textContent), 'Cone shuttle down the hall');
   assert.strictEqual(await p.$$eval('.pl-li.cur, .pl-li.fin', a => a.length), 0);
   assert.strictEqual(await p.$('.pl-cnt'), null);
