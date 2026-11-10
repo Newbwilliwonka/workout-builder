@@ -500,7 +500,7 @@
     Object.keys(selected).forEach(function (k) { if (!w.items.some(function (x) { return x.id === k; })) delete selected[k]; });
     var bl = M.blocks(w), h = '', chain = '<svg class="chain-ico" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg>';
     if (!w.items.length) h += '<div class="empty">No exercises yet.<br>Tap “+ Exercise” below.</div>';
-    else h += '<p class="mute">Tick 2 exercises, then tap “Link superset”.</p>';
+    else h += '<p class="mute">Tick 2 or more exercises, then tap “Link superset”.</p>';
     bl.forEach(function (b, bi) {
       if (b.groupId) {
         h += '<div class="ss"><div class="ss-head"><span class="grow">' + chain + ' Superset · ' + b.items.length + ' exercises</span>' +
@@ -533,7 +533,6 @@
       else if (a === 'unlink1') M.unlinkExercise(w, id);
       else if (a === 'link') {
         var ids = Object.keys(selected);
-        if (M.supersetLinkSize(w, ids) > 2) { toast('Supersets are limited to 2 exercises'); return; }
         M.linkSuperset(w, ids); selected = {}; toast('Superset linked — only the final rest period will function in each set');
       }
       else if (a === 'delex') {
