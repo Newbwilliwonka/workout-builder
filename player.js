@@ -461,12 +461,12 @@
     h += '</div>'; // end pl-main (media column)
     var mixedSw = S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) && S.w.items.some(function (it) { return it.mode !== 'stopwatch'; });
     var carHead = mixedSw ? 'Steps' : (S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) ? 'Attempts' : 'Sets');
-    h += '<div class="pl-car" aria-label="All ' + carHead.toLowerCase() + '"><div class="pl-car-h">' + carHead + '</div>';
+    h += '<div class="pl-car" aria-label="All ' + carHead.toLowerCase() + '">';
     for (var j = 0; j < S.queue.length; j++) {
       var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
       var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
       if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
-      var sub = e2.mode === 'stopwatch' ? 'Attempt ' + q.set + '/' + q.of : (e2.mode === 'intervals' ? 'Interval ' + q.set + ' of ' + q.of : 'Set ' + q.set + '/' + q.of);
+      var sub = e2.mode === 'stopwatch' ? 'Attempt ' + q.set + '/' + q.of : (e2.mode === 'intervals' ? 'Interval ' + q.set + '/' + q.of : 'Set ' + q.set + '/' + q.of);
       h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b>' + (sub ? '<span>' + esc(sub) + '</span>' : '') + '</button>';
     }
     h += '</div></div>'; // end car + stage
