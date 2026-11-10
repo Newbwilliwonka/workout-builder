@@ -23,21 +23,26 @@ const data = M.emptyData(); data.workouts.push(w);
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const click = async s => { await p.click(s); await wait(80); };
   const adv = async ms => { await p.evaluate(ms => { window.__wbClockOffset = (window.__wbClockOffset || 0) + ms; }, ms); await wait(150); };
-  const st = () => p.evaluate(() => { const S = window.__wbPlayer; const on = document.querySelector('.pl-info .pl-name') || document.querySelector('.pl-name');
+  const st = () => p.evaluate(() => { const S = window.__wbPlayer; const on = document.querySelector('.pl-info .pl-name') || document.querySelector('.pl-th b');
     return { idx: S.idx, phase: S.phase, rep: S.rep, beeps: S.beeps || 0, name: on && on.textContent,
     track: document.querySelector('.pl-th b') && document.querySelector('.pl-th b').textContent, ro: document.getElementById('ro') && document.getElementById('ro').textContent, results: S.results }; });
   await click('[data-a=play]');
-  let s = await st(); assert.strictEqual(s.name, 'Goblet squat'); assert.ok((await p.$eval('.pl-info .pl-meta', e => e.textContent)).includes('Set 1 of 2'));
-  assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Plank'); // partner below media, not stacked inside
-  assert.ok(await p.$('.pl-ss-extra .dim')); // inactive partner is grey in every mode, including reps
+  let s = await st(); assert.strictEqual(s.name, 'Goblet squat');
+  const meta0 = await p.$eval('.pl-info .pl-meta', e => e.textContent);
+  assert.ok(meta0.includes('135 lb') && meta0.includes('10 reps'), meta0);
+  assert.ok(!/Set \d+ of/.test(meta0), meta0);
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '10 Reps');
+  assert.strictEqual(await p.$$eval('.pl-info', a => a.length), 1); // one frame, under the media
+  assert.strictEqual(await p.$('.pl-ss-extra'), null);
+  assert.strictEqual(await p.evaluate(() => !!document.querySelector('.pl-info').closest('.pl-screen')), false);
   assert.ok(await p.$('.pl-chain')); // chain between supersetted carousel items
   assert.strictEqual(await p.$$eval('.pl-ci', a => a[1].querySelector('b').textContent), 'Plank'); // A1 -> B1 order
   assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$eval('.pl-ci', e => e.classList.contains('cur')), true);
   assert.strictEqual(await p.$$eval('.pl-ctl,.pl-go', a => a.length), 0); assert.ok(await p.$('.pl-endw')); assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
   await wait(400); await p.screenshot({ path: '/workspace/player-superset-v3.png' }); await p.screenshot({ path: '/workspace/player-superset.png' });
   await click('[data-sel="1"]'); assert.strictEqual((await st()).name, 'Plank'); // carousel tap jumps
-  assert.ok((await p.$eval('.pl-ss-extra .pl-name', e => e.textContent)).includes('Goblet'));
-  assert.ok((await p.$eval('.pl-ss-extra .pl-ss-pane', e => e.className)).includes('dim')); // timer current -> partner dim
+  assert.strictEqual(await p.$$eval('.pl-info .pl-name', a => a.map(e => e.textContent).join('|')), 'Plank');
+  assert.strictEqual(await p.$('.pl-ss-extra'), null);
   await p.evaluate(() => [...document.querySelectorAll('.pl-li')].find(e => e.textContent.includes('Goblet')).click()); await wait(80); assert.strictEqual((await st()).idx, 0);
   // edit tracking bar: reps +2, weight typed 140
   await click('[data-st=reps][data-d="1"]'); await click('[data-st=reps][data-d="1"]');
@@ -52,12 +57,31 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.ok((await p.evaluate(() => window.__wbPlayer.pending.map(x => x.t + x.kind[0]).join(' '))).includes('5g'));
   await adv(5100); assert.strictEqual((await st()).phase, 'work'); await adv(10000); assert.strictEqual((await st()).ro, '0:10');
   await adv(10100); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[1].logged); assert.ok(s.results[0].logged); assert.strictEqual(s.ro, '0:15');
-  assert.strictEqual(await p.$eval('.pl-up-n', e => e.textContent), 'Goblet squat'); // Up next below Rest chip
-  assert.ok((await p.$eval('.pl-up-i', e => e.textContent)).includes('135 lb') || (await p.$eval('.pl-up-i', e => e.textContent)).includes('Set 2'));
+  assert.strictEqual(await p.$('.pl-up'), null); // next exercise lives in the info frame, not a second overlay
+  assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Goblet squat');
+  const restInfo = await p.$eval('.pl-info', e => e.textContent);
+  assert.ok(restInfo.includes('135 lb'), restInfo); assert.ok(!/Up next|Set \d+ of/.test(restInfo), restInfo);
+  assert.strictEqual(await p.$('.pl-screen.is-rest .pl-media'), null); // demo is gone for the green rest screen
+  const veilWidth = () => p.evaluate(() => {
+    const v = document.getElementById('rest-veil').getBoundingClientRect();
+    const f = document.querySelector('.pl-info').getBoundingClientRect();
+    return { veil: v.width, frame: f.width, right: Math.abs(v.right - f.right) };
+  });
+  let vw = await veilWidth();
+  assert.ok(vw.veil > vw.frame * 0.9, JSON.stringify(vw)); // cover is full as rest starts
+  await adv(7000);
+  vw = await veilWidth();
+  assert.ok(vw.veil < vw.frame * 0.7 && vw.veil > vw.frame * 0.15 && vw.right < 2, JSON.stringify(vw));
+  await click('[data-p=primary]'); // pause rest — veil freezes with the timer
+  const frozen = (await veilWidth()).veil;
+  await adv(2500);
+  assert.ok(Math.abs((await veilWidth()).veil - frozen) < 3);
+  assert.strictEqual((await st()).phase, 'rest');
+  await click('[data-p=primary]'); // resume
   assert.strictEqual(await p.$$eval('.pl-track-g', a => a.length), 2); // stacked tracking during shared rest
   assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 2); // both sets logged when shared rest starts
   await wait(400); await p.screenshot({ path: '/workspace/player-rest-upnext.png' });
-  await adv(15100); s = await st(); assert.strictEqual(s.idx, 2); assert.ok(s.results[0].logged); assert.ok(s.results[1].logged);
+  await adv(9000); s = await st(); assert.strictEqual(s.idx, 2); assert.ok(s.results[0].logged); assert.ok(s.results[1].logged);
   assert.strictEqual(s.name, 'Goblet squat'); // A2
   // A2 tap: non-final logs now and jumps to B2
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.idx, 3); assert.ok(s.results[2].logged);
@@ -76,9 +100,10 @@ const data = M.emptyData(); data.workouts.push(w);
   await adv(15100); s = await st(); assert.ok(s.results[2].logged); assert.ok(s.results[3].logged);
   assert.strictEqual(s.idx, 4); assert.strictEqual(s.name, 'Bike sprints');
   // intervals: ready shows mm:ss; carousel says Interval; Start -> 5s standoff -> auto-run all intervals -> stop
-  assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('Interval 1 of 2')); assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('15 reps'));
+  assert.ok(!/Interval \d+ of|Set \d+ of/.test(await p.$eval('.pl-meta', e => e.textContent)));
+  assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('15 reps'));
   assert.ok((await p.$eval('.pl-th', e => e.textContent)).includes('Interval 1/2'));
-  assert.deepStrictEqual(await p.$$eval('.pl-meta div', a => a.map(d => d.textContent)), ['Bodyweight · 15 reps · 0:20 Interval 1 of 2']);
+  assert.deepStrictEqual(await p.$$eval('.pl-meta div', a => a.map(d => d.textContent)), ['Bodyweight · 15 reps · 0:20']);
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Interval');
   await p.screenshot({ path: '/workspace/player-v2.png' });
   assert.strictEqual((await st()).ro, '0:20'); assert.strictEqual(await p.$$eval('.pl-ci', a => a[5].querySelector('span').textContent), 'Interval 2 of 2');
@@ -93,7 +118,9 @@ const data = M.emptyData(); data.workouts.push(w);
   await adv(3100); s = await st(); assert.strictEqual(s.phase, 'work'); assert.strictEqual(s.idx, 4);
   await adv(10000); assert.strictEqual((await st()).ro, '0:10');
   await adv(10000); s = await st(); assert.strictEqual(s.idx, 5); assert.strictEqual(s.phase, 'work'); // auto-advanced, no tap
-  assert.ok(s.results[4].logged); assert.strictEqual(s.results[4].reps, 14); assert.ok((await p.$eval('.pl-meta', e => e.textContent)).includes('Interval 2 of 2'));
+  assert.ok(s.results[4].logged); assert.strictEqual(s.results[4].reps, 14);
+  assert.ok((await p.$eval('.pl-th', e => e.textContent)).includes('Interval 2/2'));
+  assert.ok(!/Interval \d+ of/.test(await p.$eval('.pl-meta', e => e.textContent)));
   await adv(20100); s = await st(); assert.strictEqual(s.idx, 6); assert.ok(s.results[5].logged); assert.strictEqual(s.name, 'Jump rope');
   await adv(15000); s = await st(); assert.strictEqual(s.phase, 'ready'); assert.strictEqual(s.ro, '0:10'); // next interval exercise does NOT auto-start
   await click('[data-p=primary]'); assert.strictEqual((await st()).phase, 'standoff'); await adv(5100); await adv(10100);
@@ -103,12 +130,15 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-p=primary]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.pending.map(x => x.t + x.kind[0]).join(' ')), '0t 1t 2t 3t 4t 5g 32t 33t 34t 35g 42t 43t 44t 45d');
   await adv(5100); await wait(300); await p.screenshot({ path: '/workspace/player-media-v3.png' }); await adv(30050); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[7].logged); assert.strictEqual(s.results[7].reps, 11); assert.strictEqual(s.track, 'Kettlebell swings');
   await adv(10000); s = await st(); assert.strictEqual(s.name, 'Cone shuttle'); assert.ok(s.results[7].logged);
+  assert.strictEqual(await p.$('.pl-info'), null); // stopwatch has no exercise info frame
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '3 Laps');
   // stopwatch with laps
   await click('[data-p=primary]'); await adv(3210); await click('[data-p=primary]'); await adv(2540); await click('[data-p=primary]'); await adv(1234);
   await p.screenshot({ path: SHOT });
   s = await st(); assert.ok(/^00:0[6-8]\.\d\d$/.test(s.ro), s.ro); assert.strictEqual(s.results[8].laps.length, 2);
   await adv(3000); await click('[data-p=primary]'); s = await st();
   assert.strictEqual(s.phase, 'complete'); assert.strictEqual(s.results[8].laps.length, 3); assert.ok(s.results[8].logged);
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Attempt complete');
   const laps = s.results[8].laps; assert.ok(Math.abs(laps[0].lapMs - 3210) < 800 && Math.abs(laps[1].lapMs - 2540) < 800, JSON.stringify(laps));
   assert.strictEqual(await p.$$eval('.pl-laps span', a => a.length), 3);
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.name, 'Dumbbell row');

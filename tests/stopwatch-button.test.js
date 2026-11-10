@@ -47,10 +47,13 @@ const data = M.emptyData(); data.workouts.push(w);
   await p.evaluate(() => [...document.querySelectorAll('.pl-ci')].find(e => e.textContent.includes('Sprint')).click());
   await wait(80);
   assert.strictEqual(await p.$eval('.pl-go', e => e.textContent), 'Start');
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Stopwatch');
   await click('.pl-go');
   assert.strictEqual(await p.$eval('.pl-go', e => e.textContent), 'Finish');
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Stopwatch');
   await adv(800); await click('.pl-go');
   let s = await st(); assert.strictEqual(s.phase, 'complete'); assert.ok(s.logged); assert.strictEqual(s.running, false);
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Attempt complete');
   // reps media control unchanged
   await click('.pl-go'); // Next exercise -> Curl
   assert.strictEqual(await p.$('.pl-go'), null);
@@ -70,14 +73,16 @@ const data = M.emptyData(); data.workouts.push(w);
   await p.evaluate((k, v) => localStorage.setItem(k, v), M.STORAGE_KEY, JSON.stringify(d2));
   await p.goto(URL + '#/w/' + sw.id); await p.reload(); await p.waitForSelector('[data-a=play]');
   await click('[data-a=play]');
-  assert.strictEqual(await p.$eval('.pl-ss-extra .pl-name', e => e.textContent), 'Plank');
+  assert.strictEqual(await p.$('.pl-ss-extra'), null);
+  assert.strictEqual(await p.$('.pl-info'), null); // stopwatch drops the info frame, including in a superset
+  assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '2 Laps');
   assert.strictEqual(await p.$eval('.pl-screen', e => e.getAttribute('data-p')), null);
   lay = await box();
   assert.strictEqual(lay.gw, lay.tw); assert.strictEqual(lay.gl, lay.tl);
   assert.ok(lay.gapAbove > 0 && lay.gapBelow > 0, JSON.stringify(lay));
   const overlap = await p.evaluate(() => {
     const g = document.querySelector('.pl-go').getBoundingClientRect();
-    const parts = ['.pl-stage', '.pl-track', '.pl-ss-extra'].map(sel => document.querySelector(sel).getBoundingClientRect());
+    const parts = ['.pl-stage', '.pl-track'].map(sel => document.querySelector(sel).getBoundingClientRect());
     return parts.some(r => !(g.bottom <= r.top + 0.5 || g.top >= r.bottom - 0.5 || g.right <= r.left + 0.5 || g.left >= r.right - 0.5));
   });
   assert.strictEqual(overlap, false);

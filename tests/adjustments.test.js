@@ -225,7 +225,7 @@ function workout(name, items) {
   assert.strictEqual(hopped.logged, true);
   assert.strictEqual(hopped.flash, '✓');
 
-  // ---------- 2. Only the active superset frame is highlighted ----------
+  // ---------- 2. A superset shows one info frame, for the current exercise ----------
   function pair(a, b) { const g = [mk(a), mk(b)]; M.linkSuperset({ items: g }, [g[0].id, g[1].id]); return g; }
   const frames = workout('Frames', [].concat(
     pair({ name: 'Curl', sets: 1, weight: { unit: 'lb', value: 20 }, mode: 'reps', modeConfig: { repsType: 'number', count: 10, restSec: 30 } },
@@ -248,37 +248,37 @@ function workout(name, items) {
     await p.evaluate(i => document.querySelector('[data-sel="' + i + '"]').click(), i);
     await wait(40);
     const frame = await p.evaluate(() => {
-      const active = document.querySelector('.pl-info');
-      const partner = document.querySelector('.pl-ss-extra .pl-ss-pane');
+      const infos = [...document.querySelectorAll('.pl-info')];
+      const active = infos[0] || null;
       return {
-        activeName: active.querySelector('.pl-name').textContent,
-        partnerName: partner.querySelector('.pl-name').textContent,
-        activeDim: active.classList.contains('dim'),
-        partnerDim: partner.classList.contains('dim'),
-        activeOpacity: getComputedStyle(active).opacity,
-        partnerOpacity: getComputedStyle(partner).opacity
+        count: infos.length,
+        partner: !!document.querySelector('.pl-ss-extra'),
+        activeName: active ? active.querySelector('.pl-name').textContent : '',
+        inMedia: !!(active && active.closest('.pl-screen')),
+        setText: active ? /Set \d+ of|Attempt \d+ of|Interval \d+ of/.test(active.textContent) : false
       };
     });
-    const partner = names[i % 2 === 0 ? i + 1 : i - 1];
-    assert.strictEqual(frame.activeName, names[i], 'active ' + i);
-    assert.strictEqual(frame.partnerName, partner, 'partner ' + i);
-    assert.strictEqual(frame.activeDim, false);
-    assert.strictEqual(frame.partnerDim, true);
-    assert.strictEqual(frame.activeOpacity, '1');
-    assert.ok(Number(frame.partnerOpacity) < 1, frame.partnerOpacity);
+    assert.strictEqual(frame.partner, false, 'partner ' + i);
+    assert.strictEqual(frame.setText, false, 'set text ' + i);
+    if (names[i] === 'Shuttle') assert.strictEqual(frame.count, 0, 'stopwatch frame ' + i);
+    else {
+      assert.strictEqual(frame.count, 1, 'one frame ' + i);
+      assert.strictEqual(frame.activeName, names[i], 'active ' + i);
+      assert.strictEqual(frame.inMedia, false, 'below media ' + i);
+    }
     if (i === 4) await (await p.$('.pl-stage')).screenshot({ path: SHOT + '/superset-active-frame.png' });
   }
-  // Finished partner stays grey too.
+  // Advancing the round keeps a single frame for the exercise now playing.
   await p.evaluate(() => document.querySelector('[data-sel="0"]').click());
   await wait(40);
   await click('[data-p=primary]');
   const doneFrame = await p.evaluate(() => ({
     active: document.querySelector('.pl-info .pl-name').textContent,
-    partner: document.querySelector('.pl-ss-extra .pl-name').textContent,
-    dim: document.querySelector('.pl-ss-extra .pl-ss-pane').classList.contains('dim'),
+    frames: document.querySelectorAll('.pl-info').length,
+    partner: !!document.querySelector('.pl-ss-extra'),
     logged: window.__wbPlayer.results[0].logged
   }));
-  assert.deepStrictEqual(doneFrame, { active: 'Press', partner: 'Curl', dim: true, logged: true });
+  assert.deepStrictEqual(doneFrame, { active: 'Press', frames: 1, partner: false, logged: true });
 
   // ---------- 3. Builder events + tracking pass/fail ----------
   const builder = workout('Events', [
