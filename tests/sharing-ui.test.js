@@ -31,7 +31,7 @@ const E = '33333333-3333-4333-8333-333333333333';
           ? { id: T, email: 'coach@example.com' }
           : cfg.who === 'free'
             ? { id: C, email: 'ada@example.com' }
-            : { id: E, email: 'fan@example.com' };
+            : { id: E, email: cfg.builder ? 'kinisiathletics@gmail.com' : 'fan@example.com' };
         return Promise.resolve({ user: person });
       },
       profile: function () {
@@ -40,7 +40,7 @@ const E = '33333333-3333-4333-8333-333333333333';
           ? { id: T, email: 'coach@example.com', membership: 'trainer', intended_plan: 'trainer' }
           : cfg.who === 'free'
             ? { id: C, email: 'ada@example.com', membership: 'free_client', intended_plan: null }
-            : { id: E, email: 'fan@example.com', membership: 'enthusiast', intended_plan: 'enthusiast' };
+            : { id: E, email: cfg.builder ? 'kinisiathletics@gmail.com' : 'fan@example.com', membership: 'enthusiast', intended_plan: 'enthusiast' };
         return Promise.resolve(person);
       },
       myConnection: function () {
@@ -111,6 +111,13 @@ const E = '33333333-3333-4333-8333-333333333333';
         window.__pushes.push({ workouts: workouts, sessions: sessions });
         var cfg = read();
         if (cfg.mode === 'push-fail') return Promise.reject(new Error('Failed to fetch'));
+        if (cfg.mode === 'push-slow-fail') {
+          cfg.mode = 'ok';
+          write(cfg);
+          return new Promise(function (resolve, reject) {
+            window.__pushRelease = function () { reject(new Error('Failed to fetch')); };
+          });
+        }
         return Promise.resolve({ ok: true, workouts: workouts.length, sessions: sessions.length });
       },
       clientStatus: function (id) {
@@ -302,6 +309,45 @@ const E = '33333333-3333-4333-8333-333333333333';
   await wait(250);
   assert.strictEqual(await page.evaluate(function () { return localStorage.getItem('wb.ownSessions.v1'); }), '{');
   assert.deepStrictEqual(await page.evaluate(function () { return window.__pushes; }), []);
+
+  await boot({ who: 'enthusiast', linked: true, mode: 'ok', on: true, builder: true }, '#/', ownData());
+  await page.waitForSelector('[data-a="new"]');
+  await page.waitForFunction(function () { return window.__pushes.length === 1; });
+  var fromHome = await page.evaluate(function () { return window.__pushes[0]; });
+  assert.deepStrictEqual(fromHome.workouts.map(function (w) { return w.name; }), ['Saturday easy']);
+  assert.ok(JSON.stringify(fromHome).indexOf('Secret') === -1);
+  await page.evaluate(function () {
+    window.__wbPlayer = { done: { id: 'leak', workoutId: 'from', workoutName: 'Trainer day', endedAt: 9, results: [{ name: 'Secret', reps: 4, logged: true }] } };
+  });
+  await page.evaluate(function () { location.hash = '#/w/wo_sat'; });
+  await page.waitForFunction(function () { return !window.__wbPlayer || window.__wbPlayer.done == null; });
+  assert.strictEqual(await page.evaluate(function () { return localStorage.getItem('wb.ownSessions.v1'); }), null);
+  await page.evaluate(function () { location.hash = '#/'; });
+  await page.waitForSelector('[data-a="del"][data-id="from"]');
+  page.once('dialog', function (dialog) { return dialog.accept(); });
+  await page.click('[data-a="del"][data-id="from"]');
+  await page.waitForFunction(function () { return !document.querySelector('[data-a="del"][data-id="from"]'); });
+  await page.evaluate(function () {
+    window.__wbPlayer = { done: { id: 'leak2', workoutId: 'from', workoutName: 'Trainer day', endedAt: 11, results: [{ name: 'Secret', reps: 4, logged: true }] } };
+  });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForSelector('#share-account');
+  assert.strictEqual(await page.evaluate(function () { return localStorage.getItem('wb.ownSessions.v1'); }), null);
+  assert.ok((await page.evaluate(function () { return JSON.stringify(window.__pushes); })).indexOf('leak2') === -1);
+  assert.ok((await page.evaluate(function () { return JSON.stringify(window.__pushes); })).indexOf('Secret') === -1);
+
+  await boot({ who: 'enthusiast', linked: true, mode: 'push-slow-fail', on: true, builder: true }, '#/', ownData());
+  await page.waitForSelector('[data-a="rename"][data-id="wo_sat"]');
+  await page.waitForFunction(function () { return window.__pushes.length === 1; });
+  page.once('dialog', function (dialog) { return dialog.accept('Saturday hard'); });
+  await page.click('[data-a="rename"][data-id="wo_sat"]');
+  await page.waitForFunction(function () { return document.body.innerText.indexOf('Saturday hard') !== -1; });
+  await page.evaluate(function () { window.__pushRelease(); });
+  await page.waitForFunction(function () { return window.__pushes.length === 2; });
+  var retried = await page.evaluate(function () { return window.__pushes[1]; });
+  assert.deepStrictEqual(retried.workouts.map(function (w) { return w.name; }), ['Saturday hard']);
+  var still = JSON.parse(await page.evaluate(function (k) { return localStorage.getItem(k); }, 'wb.data.v1'));
+  assert.strictEqual(still.workouts[0].name, 'Saturday hard');
 
   await boot({ who: 'trainer', linked: false, mode: 'ok', on: true }, '#/client/' + E);
   await page.waitForSelector('#client-view');

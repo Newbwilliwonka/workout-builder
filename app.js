@@ -76,7 +76,7 @@
   var routeToken = 0;
   var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0, profileLookup = 0;
   var shareState = window.WBSharing ? WBSharing.initialState() : null;
-  var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, linkShareChoice = true, pushFlight = null, pushDirty = false;
+  var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, shareLoadStarted = false, linkShareChoice = true, pushFlight = null, pushDirty = false;
   var COPY_RETURN = 'wb.copyReturn';
   function setCopyReturn(hash) {
     try {
@@ -306,9 +306,27 @@
   }
   function noteProfile(profile) {
     var id = profile && profile.id;
-    if (shareUser && id && shareUser !== id && window.WBSharing) shareState = WBSharing.initialState();
+    if (shareUser && id && shareUser !== id && window.WBSharing) {
+      shareState = WBSharing.initialState();
+      shareLoadStarted = false;
+    }
     if (id) shareUser = id;
     if (profile) cachedProfile = profile;
+  }
+  function ensureShare() {
+    if (!window.WBSharing || !shareState || !WBAuth.shareSetting || !WBAuth.session) return;
+    if (shareState.busy || shareState.phase === 'unavailable') return;
+    if (typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready') return;
+    if (shareLoadStarted) return;
+    shareLoadStarted = true;
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { shareLoadStarted = false; return; }
+    Promise.resolve(pending).then(function (session) {
+      if (!session) { shareLoadStarted = false; return; }
+      if (!shareState || shareState.busy || shareState.phase === 'unavailable') return;
+      if (typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready') return;
+      loadShare();
+    }, function () { shareLoadStarted = false; });
   }
   function paintShare() {
     var slot = document.getElementById('share-slot');
@@ -331,7 +349,11 @@
     Promise.resolve(pending).then(function (row) {
       if (gen !== shareLoadGen || seenSave !== shareSaveGen) return;
       var parsed = WBSharing.parseSetting(row);
-      shareState = WBSharing.reduce(shareState, { type: 'load-ok', on: parsed.ok ? parsed.on : null });
+      shareState = WBSharing.reduce(shareState, {
+        type: 'load-ok',
+        on: parsed.ok ? parsed.on : null,
+        enthusiast: parsed.ok && typeof parsed.enthusiast === 'boolean' ? parsed.enthusiast : undefined
+      });
       paintShare();
       if (WBSharing.shouldPush(shareState)) scheduleSharePush();
     }, function (err) {
@@ -362,7 +384,11 @@
     Promise.resolve(pending).then(function (row) {
       finishSave(function () {
         var parsed = WBSharing.parseSetting(row);
-        shareState = WBSharing.reduce(shareState, { type: 'save-ok', on: parsed.ok ? parsed.on : null });
+        shareState = WBSharing.reduce(shareState, {
+          type: 'save-ok',
+          on: parsed.ok ? parsed.on : null,
+          enthusiast: parsed.ok && typeof parsed.enthusiast === 'boolean' ? parsed.enthusiast : undefined
+        });
         if (!parsed.ok) toast('Could not confirm that choice.');
         else if (WBSharing.shouldPush(shareState)) scheduleSharePush();
       });
@@ -379,10 +405,9 @@
   }
   function scheduleSharePush(force) {
     if (!window.WBSharing || !WBAuth.pushOwn) return;
-    if (force === true && shareState && shareState.confirmed === true && shareState.phase === 'ready') {
+    if (force === true && shareState && shareState.confirmed === true && shareState.phase === 'ready' && shareState.enthusiast !== false) {
       /* caller already confirmed this push */
     } else if (!WBSharing.shouldPush(shareState)) return;
-    if (!(cachedProfile && window.WBInvites && WBInvites.isEnthusiast(cachedProfile))) return;
     if (pushFlight) { pushDirty = true; return; }
     var log = WBSharing.readLog(localStorage);
     var body = WBSharing.payload(data, log);
@@ -390,18 +415,32 @@
     var run = Promise.resolve().then(function () { return WBAuth.pushOwn(body.workouts, body.sessions); });
     pushFlight = run.then(function () {
       pushFlight = null;
-      if (pushDirty && WBSharing.shouldPush(shareState)) { pushDirty = false; scheduleSharePush(); }
-      else pushDirty = false;
+      var again = pushDirty && WBSharing.shouldPush(shareState);
+      pushDirty = false;
+      if (again) scheduleSharePush();
     }, function () {
       pushFlight = null;
+      var again = pushDirty && WBSharing.shouldPush(shareState);
       pushDirty = false;
+      if (again) scheduleSharePush();
     });
   }
   function capturePlayedSession() {
     try {
-      var S = window.__wbPlayer;
-      if (!S || !S.done || !window.WBSharing) return;
-      if (WBSharing.rememberSession(localStorage, S.done, data.workouts) && WBSharing.shouldPush(shareState)) scheduleSharePush();
+      var player = window.__wbPlayer;
+      if (!player || !player.done || !window.WBSharing) return;
+      var done = player.done;
+      if (!WBSharing.sessionIsOwn(done, data.workouts)) {
+        player.done = null;
+        return;
+      }
+      var stored = WBSharing.rememberSession(localStorage, done, data.workouts);
+      if (!stored && WBSharing.readLog(localStorage) == null) return;
+      player.done = null;
+      if (stored) {
+        ensureShare();
+        if (WBSharing.shouldPush(shareState)) scheduleSharePush();
+      }
     } catch (e) {}
   }
   function trainerSection(roster) {
@@ -473,7 +512,7 @@
       Promise.resolve(redeem).then(function (res) {
         rememberCode('');
         if (res && res.shareStored === true && typeof share === 'boolean' && window.WBSharing) {
-          shareState = WBSharing.reduce(shareState, { type: 'redeemed', on: share });
+          shareState = WBSharing.reduce(shareState, { type: 'redeemed', on: share, enthusiast: true });
           if (WBSharing.shouldPush(shareState)) scheduleSharePush(true);
         }
         pendingInviteNotice = { text: (res && res.message) || 'Invite applied.', isError: false };
@@ -624,6 +663,7 @@
         copyStamp = {};
         removedCopies = [];
         shareUser = '';
+        shareLoadStarted = false;
         if (window.WBSharing) shareState = WBSharing.initialState();
         if (hashPage() !== 'account') return;
         go('#/signin');
@@ -634,6 +674,7 @@
     };
   }
   function showBuilder() {
+    ensureShare();
     var p = location.hash.replace(/^#\/?/, '').split('/');
     var current = (p[0] === 'play' || p[0] === 'w') ? getW(p[1]) : null;
     if (current && current.sourceTrainerId && !cachedProfile && WBAuth.profile && profileLookup !== routeToken) {

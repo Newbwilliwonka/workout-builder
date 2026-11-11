@@ -41,61 +41,66 @@
       plan: row.plan || ''
     };
   }
+  function stamp(state, patch, event) {
+    if (event && typeof event.enthusiast === 'boolean') patch.enthusiast = event.enthusiast;
+    else if (typeof state.enthusiast === 'boolean') patch.enthusiast = state.enthusiast;
+    return patch;
+  }
   function reduce(state, event) {
     state = state || initialState();
     event = event || {};
     if (event.type === 'load-start') {
       if (state.busy) return state;
       if (typeof state.confirmed === 'boolean' && state.phase === 'ready') return state;
-      return { confirmed: state.confirmed, phase: 'loading', message: '', busy: false };
+      return stamp(state, { confirmed: state.confirmed, phase: 'loading', message: '', busy: false }, event);
     }
     if (event.type === 'load-ok') {
       if (typeof event.on !== 'boolean') {
         if (typeof state.confirmed === 'boolean') return state;
-        return { confirmed: null, phase: 'error', message: 'Could not load sharing.', busy: false };
+        return stamp(state, { confirmed: null, phase: 'error', message: 'Could not load sharing.', busy: false }, event);
       }
       if (state.busy) return state;
-      return { confirmed: event.on, phase: 'ready', message: '', busy: false };
+      return stamp(state, { confirmed: event.on, phase: 'ready', message: '', busy: false }, event);
     }
     if (event.type === 'load-unavailable') {
-      return { confirmed: state.confirmed, phase: 'unavailable', message: event.message || UNAVAILABLE, busy: false };
+      return stamp(state, { confirmed: state.confirmed, phase: 'unavailable', message: event.message || UNAVAILABLE, busy: false }, event);
     }
     if (event.type === 'load-error') {
-      if (typeof state.confirmed === 'boolean') return { confirmed: state.confirmed, phase: 'ready', message: '', busy: false };
-      return { confirmed: null, phase: 'error', message: event.message || 'Could not load sharing.', busy: false };
+      if (typeof state.confirmed === 'boolean') return { confirmed: state.confirmed, phase: 'ready', message: '', busy: false, enthusiast: state.enthusiast };
+      return stamp(state, { confirmed: null, phase: 'error', message: event.message || 'Could not load sharing.', busy: false }, event);
     }
     if (event.type === 'save-start') {
       if (state.busy || typeof state.confirmed !== 'boolean' || state.phase === 'unavailable') return state;
-      return { confirmed: state.confirmed, phase: 'ready', message: '', busy: true };
+      return stamp(state, { confirmed: state.confirmed, phase: 'ready', message: '', busy: true }, event);
     }
     if (event.type === 'save-ok') {
       if (typeof event.on !== 'boolean') {
-        return {
+        return stamp(state, {
           confirmed: state.confirmed,
           phase: typeof state.confirmed === 'boolean' ? 'ready' : 'error',
           message: typeof state.confirmed === 'boolean' ? '' : 'Could not confirm that choice.',
           busy: false
-        };
+        }, event);
       }
-      return { confirmed: event.on, phase: 'ready', message: '', busy: false };
+      return stamp(state, { confirmed: event.on, phase: 'ready', message: '', busy: false }, event);
     }
     if (event.type === 'save-fail') {
-      return {
+      return stamp(state, {
         confirmed: state.confirmed,
         phase: typeof state.confirmed === 'boolean' ? 'ready' : 'error',
         message: event.message || '',
         busy: false
-      };
+      }, event);
     }
     if (event.type === 'redeemed') {
       if (typeof event.on !== 'boolean') return state;
-      return { confirmed: event.on, phase: 'ready', message: '', busy: false };
+      return stamp(state, { confirmed: event.on, phase: 'ready', message: '', busy: false }, event);
     }
     if (event.type === 'reset') return initialState();
     return state;
   }
   function shouldPush(state) {
-    return !!(state && state.confirmed === true && state.phase === 'ready' && !state.busy);
+    return !!(state && state.confirmed === true && state.phase === 'ready' && !state.busy && state.enthusiast !== false);
   }
   function showSwitch(state) {
     return !!(state && typeof state.confirmed === 'boolean' && state.phase === 'ready');
@@ -211,10 +216,11 @@
     return !!(w && w.id && !w.sourceTrainerId);
   }
   function sessionIsOwn(sess, workouts) {
-    if (!sess || !sess.id) return false;
+    if (!sess || !sess.id || !sess.workoutId) return false;
     var match = null;
     (workouts || []).forEach(function (w) { if (w && w.id === sess.workoutId) match = w; });
-    if (match && match.sourceTrainerId) return false;
+    // A missing workout is not own work. A deleted trainer copy must not be uploaded.
+    if (!match || match.sourceTrainerId) return false;
     return true;
   }
   function readLog(storage) {

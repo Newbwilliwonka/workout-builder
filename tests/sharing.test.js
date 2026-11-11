@@ -44,6 +44,8 @@ assert.strictEqual(state.phase, 'error');
 state = S.reduce(S.initialState(), { type: 'load-ok', on: true });
 assert.strictEqual(state.confirmed, true);
 assert.strictEqual(S.shouldPush(state), true);
+assert.strictEqual(S.shouldPush(S.reduce(S.initialState(), { type: 'load-ok', on: true, enthusiast: false })), false);
+assert.strictEqual(S.shouldPush(S.reduce(S.initialState(), { type: 'load-ok', on: true, enthusiast: true })), true);
 var onCard = S.accountCard(state);
 assert.ok(onCard.includes('class="switch on"'));
 assert.ok(onCard.includes('aria-checked="true"'));
@@ -152,6 +154,15 @@ var data = {
 var body = S.payload(data, []);
 assert.deepStrictEqual(body.workouts.map(function (w) { return w.localId; }), ['own']);
 assert.deepStrictEqual(body.sessions.map(function (s) { return s.localId; }), ['s-own']);
+assert.strictEqual(S.sessionIsOwn({ id: 's-own', workoutId: 'own' }, data.workouts), true);
+assert.strictEqual(S.sessionIsOwn({ id: 's-copy', workoutId: 'copy' }, data.workouts), false);
+assert.strictEqual(S.sessionIsOwn({ id: 's-gone', workoutId: 'missing' }, data.workouts), false);
+assert.strictEqual(S.sessionIsOwn({ id: 's-blank' }, data.workouts), false);
+var dropped = S.payload({
+  workouts: [{ id: 'own', name: 'Saturday easy', items: [] }],
+  sessions: [{ id: 'gone', workoutId: 'missing', workoutName: 'Ghost', results: [{ name: 'Secret' }] }]
+}, []);
+assert.deepStrictEqual(dropped.sessions, []);
 assert.strictEqual(S.payload(data, null), null);
 assert.strictEqual(S.payload(null, []), null);
 assert.strictEqual(S.payload({ workouts: [], sessions: 'nope' }, []), null);
