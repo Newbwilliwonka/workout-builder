@@ -126,7 +126,19 @@ async function stub(page, extra) {
   await enthusiast.waitForSelector('#pv-root');
 
   await enthusiast.click('[data-cal=month]');
+  await enthusiast.waitForSelector('.pv-cell.is-out');
+  await enthusiast.click('[data-shift="1"][data-unit="month"]');
+  await enthusiast.waitForFunction(function () {
+    return document.getElementById('pv-range') && document.getElementById('pv-range').textContent.indexOf('December') !== -1;
+  });
+  await enthusiast.click('[data-cal=week]');
+  await enthusiast.waitForFunction(function () {
+    const label = document.getElementById('pv-range');
+    return label && label.textContent.indexOf('Dec') !== -1;
+  });
+  await enthusiast.click('[data-cal=month]');
   await enthusiast.waitForSelector('.pv-month');
+  await enthusiast.click('[data-shift="-1"][data-unit="month"]');
   await enthusiast.click('.pv-cell.today');
   await enthusiast.waitForSelector('.pv-week');
   await enthusiast.click('[data-open-wo]');

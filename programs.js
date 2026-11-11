@@ -102,14 +102,22 @@
     return { programs: list, created: row, duplicate: false, error: '' };
   }
   function move(programs, id, date) {
-    if (!isDay(date)) return { programs: programs || [], moved: null, error: 'Pick a day.' };
+    var list = programs || [];
+    if (!isDay(date)) return { programs: list, moved: null, duplicate: false, error: 'Pick a day.' };
+    var current = null;
+    list.forEach(function (row) { if (row && row.id === id) current = row; });
+    if (!current || current.date === date) return { programs: list, moved: null, duplicate: false, error: '' };
+    var duplicate = list.some(function (row) {
+      return row && row.id !== id && row.ownerId === current.ownerId && row.workoutId === current.workoutId && row.date === date;
+    });
+    if (duplicate) return { programs: list, moved: null, duplicate: true, error: '' };
     var moved = null;
-    var list = (programs || []).map(function (row) {
-      if (!row || row.id !== id || row.date === date) return row;
+    var next = list.map(function (row) {
+      if (!row || row.id !== id) return row;
       moved = Object.assign({}, row, { date: date, updatedAt: Date.now() });
       return moved;
     });
-    return { programs: list, moved: moved, error: '' };
+    return { programs: next, moved: moved, duplicate: false, error: '' };
   }
   function setPresence(programs, id, value) {
     var next = presence(value);

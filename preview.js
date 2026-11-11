@@ -117,6 +117,7 @@
     }, function () {
       if (!state || token !== loadToken) return;
       state.remote = 'Saved on this device. The shared calendar waits until the programs SQL is applied.';
+      render();
     });
   }
   function presenceLabel(kind) { return kind === 'trainer' ? 'Trainer present' : 'Solo'; }
@@ -210,7 +211,7 @@
       var icons = '';
       if (kinds.trainer) icons += ico('trainer');
       if (kinds.solo) icons += ico('solo');
-      h += '<button type="button" class="pv-cell' + (outside ? ' outside' : '') + (date === todayIso() ? ' today' : '') + '" data-jump="' + date + '" aria-label="' + esc(DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate()) + '">' +
+      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + '" data-jump="' + date + '" aria-label="' + esc(DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate()) + '">' +
         '<span class="pv-num">' + d.getDate() + '</span><span class="pv-marks">' + icons + (done ? check() : '') + '</span></button>';
     }
     return h + '</div>';
@@ -352,6 +353,11 @@
     var owner = ownerId();
     if (kind === 'session') {
       var result = P.move(data().programs, id, date);
+      if (result.duplicate) {
+        state.hint = 'That workout is already on this day.';
+        render();
+        return;
+      }
       if (!result.moved) return;
       savePrograms(result.programs, 'Saved on this device.');
       pushRemote(result.moved);
@@ -442,7 +448,13 @@
   function onClick(e) {
     if (!state) return;
     var cal = e.target.closest('[data-cal]');
-    if (cal) { state.view = cal.getAttribute('data-cal'); render(); return; }
+    if (cal) {
+      var nextView = cal.getAttribute('data-cal');
+      if (nextView === 'week' && state.cursor.slice(0, 7) !== state.month) state.cursor = state.month + '-01';
+      state.view = nextView;
+      render();
+      return;
+    }
     var shift = e.target.closest('[data-shift]');
     if (shift) {
       var dir = Number(shift.getAttribute('data-shift')) || 0;
@@ -530,6 +542,7 @@
       state.clientShare = null;
       state.ready = true;
       render();
+      pullRemote();
     });
   }
   function refresh() {
@@ -565,6 +578,7 @@
           if (!state || token !== loadToken) return;
           state.ready = true;
           render();
+          pullRemote();
         });
       }
       state.ready = true;

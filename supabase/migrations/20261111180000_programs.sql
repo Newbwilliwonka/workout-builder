@@ -226,3 +226,17 @@ create policy program_entries_delete
   for delete
   to authenticated
   using ((select public.program_can_write(owner_id)));
+
+-- Helpers that reveal trainer identity or client links are not callable with
+-- the publishable key. Policies call program_can_read and program_can_write,
+-- which are security definer and run as the owner. The trigger function must
+-- stay executable by signed-in users so inserts and updates can fire it.
+revoke all on function public.program_is_trainer(uuid) from public, anon, authenticated;
+revoke all on function public.program_linked(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.program_can_read(uuid) from public, anon;
+revoke all on function public.program_can_write(uuid) from public, anon;
+revoke all on function public.program_entries_guard() from public, anon;
+
+grant execute on function public.program_can_read(uuid) to authenticated;
+grant execute on function public.program_can_write(uuid) to authenticated;
+grant execute on function public.program_entries_guard() to authenticated;

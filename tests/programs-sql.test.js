@@ -212,6 +212,38 @@ begin
   select day into kept from public.program_entries where local_id = 'pg1';
   if kept is distinct from date '2026-11-14' then raise exception 'ended link changed the day %', kept; end if;
 end $$;
+
+set role anon;
+do $$
+begin
+  begin
+    perform public.program_is_trainer('${T}');
+    raise exception 'anon called program_is_trainer';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
+    perform public.program_linked('${T}', '${C}');
+    raise exception 'anon called program_linked';
+  exception when insufficient_privilege then
+    null;
+  end;
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${T}', false);
+do $$
+begin
+  begin
+    perform public.program_is_trainer('${T}');
+    raise exception 'signed-in user called program_is_trainer';
+  exception when insufficient_privilege then
+    null;
+  end;
+  if public.program_can_read('${C}') is distinct from true then
+    raise exception 'trainer lost read helper';
+  end if;
+end $$;
 `;
 
 psql('wb_programs_test', assertSql);

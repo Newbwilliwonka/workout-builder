@@ -40,8 +40,14 @@ assert.strictEqual(placed.programs.length, 1);
 const again = P.place(placed.programs, { id: 'pg2', ownerId: self, workoutId: 'push', date: '2026-11-11' });
 assert.strictEqual(again.duplicate, true);
 assert.strictEqual(again.programs.length, 1);
+const parked = P.place(placed.programs, { id: 'pg9', ownerId: self, workoutId: 'push', date: '2026-11-12' });
+const blocked = P.move(parked.programs, 'pg1', '2026-11-12');
+assert.strictEqual(blocked.duplicate, true);
+assert.strictEqual(blocked.moved, null);
+assert.strictEqual(blocked.programs.filter(function (row) { return row.id === 'pg1' && row.date === '2026-11-11'; }).length, 1);
 const moved = P.move(placed.programs, 'pg1', '2026-11-12');
 assert.strictEqual(moved.moved.date, '2026-11-12');
+assert.strictEqual(moved.duplicate, false);
 const marked = P.setPresence(moved.programs, 'pg1', 'trainer');
 assert.strictEqual(marked.changed.presence, 'trainer');
 
