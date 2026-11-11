@@ -98,8 +98,53 @@
     roster: function () { return rpc('invite_roster'); },
     createInvite: function () { return rpc('invite_create'); },
     cancelInvite: function (code) { return rpc('invite_cancel', { p_code: code }); },
-    redeemInvite: function (code) { return rpc('invite_redeem', { p_code: code }); },
+    redeemInvite: function (code, share) {
+      return db().then(function (c) {
+        var args = { p_code: code };
+        if (typeof share === 'boolean') args.p_share = share;
+        return c.rpc('invite_redeem', args).then(function (res) {
+          if (!res.error) return res.data;
+          var raw = (res.error.message || '') + (res.error.details || '') + (res.error.hint || '');
+          if (typeof share === 'boolean' && /schema cache|could not find the function|PGRST202/i.test(raw)) {
+            return c.rpc('invite_redeem', { p_code: code }).then(function (again) {
+              if (again.error) throw inviteError(again.error);
+              return again.data;
+            });
+          }
+          throw inviteError(res.error);
+        });
+      });
+    },
     endConnection: function (clientId) { return rpc('invite_end', { p_client: clientId && clientId !== 'self' ? clientId : null }); },
+    shareSetting: function () { return coaching('coaching_share'); },
+    setShare: function (on) { return coaching('coaching_set_share', { p_on: !!on }); },
+    threads: function () { return coaching('coaching_threads'); },
+    messages: function (personId) { return coaching('coaching_messages', { p_person: personId || null }); },
+    sendMessage: function (personId, body) { return coaching('coaching_send_message', { p_person: personId || null, p_body: body }); },
+    markRead: function (personId) { return coaching('coaching_mark_read', { p_person: personId || null }); },
+    sendWorkout: function (clientIds, name, items, sourceId) {
+      return coaching('coaching_send_workout', { p_clients: clientIds, p_name: name, p_items: items, p_source: sourceId || '' });
+    },
+    myWorkouts: function () { return coaching('coaching_my_workouts'); },
+    saveCopy: function (workout) {
+      return coaching('coaching_save_copy', { p_id: workout.id, p_name: workout.name, p_items: workout.items || [] });
+    },
+    deleteCopy: function (id) { return coaching('coaching_delete_copy', { p_id: id }); },
+    pushOwn: function (payload) {
+      payload = payload || {};
+      return coaching('coaching_push_own', { p_workouts: payload.workouts || [], p_logs: payload.logs || [] });
+    },
+    clientView: function (clientId) { return coaching('coaching_client_view', { p_client: clientId }); },
+    watchMessages: function (handler) {
+      return db().then(function (c) {
+        var channel = c.channel('coaching-messages');
+        channel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, function () {
+          try { handler(); } catch (e) {}
+        });
+        channel.subscribe();
+        return function () { try { c.removeChannel(channel); } catch (e) {} };
+      });
+    },
     myConnection: function () {
       return rpc('invite_mine').then(function (row) { return row && row.trainerId ? row : null; });
     },
@@ -143,6 +188,19 @@
       if (res.error) throw inviteError(res.error);
       return res.data;
     });
+  }
+  function coaching(name, args) {
+    return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
+      if (res.error) throw readyError(res.error);
+      return res.data;
+    });
+  }
+  function readyError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205|share_with_trainer/i.test(msg)) {
+      return new Error('Coaching is not available yet. Apply the coaching SQL in the Supabase SQL editor.');
+    }
+    return new Error(msg || 'Could not use coaching');
   }
   function inviteError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
