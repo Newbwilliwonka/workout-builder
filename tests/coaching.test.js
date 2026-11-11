@@ -48,6 +48,8 @@ assert.strictEqual(merged[1].name, 'My duplicate');
 assert.strictEqual(merged[2].name, 'Local newer');
 assert.strictEqual(merged[3].sourceTrainerEmail, 'alex@example.com');
 assert.ok(!merged.some(function (w) { return w.id === gone || w.id === deleted; }));
+assert.strictEqual(C.serverId(gone), true);
+assert.strictEqual(C.serverId('wo_dup'), false);
 assert.strictEqual(C.cleanBody('  Friday   still  '), 'Friday still');
 assert.strictEqual(C.unread([{ mine: false, readAt: null }, { mine: true, readAt: null }, { mine: false, readAt: 'x' }]), 1);
 

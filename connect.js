@@ -289,7 +289,7 @@
     renderReal();
   }
 
-  var live = { gen: 0, timer: 0, unwatch: null, threads: [], thread: null, roster: null, pickedWorkout: '', picked: {}, sent: '', view: null, quiet: false };
+  var live = { gen: 0, timer: 0, unwatch: null, threads: [], thread: null, roster: null, pickedWorkout: '', picked: {}, sent: '', view: null, quiet: false, sending: false };
   function isPreview() {
     return /(?:^|&)preview=1(?:&|$)/.test((location.hash.split('?')[1]) || '');
   }
@@ -423,6 +423,8 @@
       var thread = document.getElementById('thread');
       var html = bubblesHtml(data.messages);
       if (thread.innerHTML !== html) thread.innerHTML = html;
+      var sendBtn = document.getElementById('msg-send');
+      if (sendBtn && !live.sending) sendBtn.disabled = false;
       return;
     }
     ctx.titleEl.textContent = person.name || 'Messages';
@@ -445,16 +447,24 @@
   }
   function sendLive() {
     var box = document.getElementById('msg-text');
+    var btn = document.getElementById('msg-send');
+    if (live.sending || (btn && btn.disabled)) return;
     var text = root.WBCoaching ? root.WBCoaching.cleanBody(box && box.value) : String(box && box.value || '').trim();
     if (!text) return;
     var id = parts()[1];
-    var btn = document.getElementById('msg-send');
+    live.sending = true;
     if (btn) btn.disabled = true;
     root.WBAuth.sendMessage(id, text).then(function () {
-      if (box) box.value = '';
+      live.sending = false;
+      var input = document.getElementById('msg-text');
+      var current = document.getElementById('msg-send');
+      if (input && root.WBCoaching && root.WBCoaching.cleanBody(input.value) === text) input.value = '';
+      if (current) current.disabled = false;
       loadThread(id, true);
     }).catch(function (err) {
-      if (btn) btn.disabled = false;
+      live.sending = false;
+      var current = document.getElementById('msg-send');
+      if (current) current.disabled = false;
       ctx.toast((err && err.message) || 'Could not send');
     });
   }
@@ -579,7 +589,10 @@
     ctx.app.onclick = function (e) {
       var t = e.target.closest('[data-open-copy], [data-run-copy]');
       if (!t) return;
-      if (t.dataset.runCopy) return ctx.go('#/play/' + t.dataset.runCopy);
+      if (t.dataset.runCopy) {
+        try { sessionStorage.setItem('wb.copyReturn', '#/received'); } catch (e) {}
+        return ctx.go('#/play/' + t.dataset.runCopy);
+      }
       ctx.go('#/received/' + t.dataset.openCopy);
     };
   }

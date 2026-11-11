@@ -137,9 +137,37 @@ async function installBook(page, who) {
   await trainer.waitForSelector('#thread');
   assert.ok((await trainer.$eval('#thread', e => e.innerText)).includes('Can we move Thursday?'));
   assert.ok((await trainer.$eval('#thread', e => e.innerText)).includes('Friday at 8 works.'));
-  await trainer.type('#msg-text', 'Friday still works');
+  async function sendChat(text) {
+    await trainer.evaluate((value) => {
+      var input = document.getElementById('msg-text');
+      input.focus();
+      input.value = value;
+    }, text);
+    await trainer.click('#msg-send');
+    await trainer.waitForFunction((value) => document.body.innerText.includes(value), {}, text);
+    assert.strictEqual(await trainer.$eval('#msg-send', e => e.disabled), false);
+    assert.strictEqual(await trainer.$eval('#msg-text', e => e.value), '');
+  }
+  await sendChat('Friday still works');
+  await sendChat('And Saturday too');
+  await new Promise(function (r) { setTimeout(r, 4500); });
+  await sendChat('After the refresh');
+  await trainer.evaluate(() => {
+    window.__sendMessage = window.WBAuth.sendMessage;
+    window.WBAuth.sendMessage = function () { return Promise.reject(new Error('Could not send')); };
+    document.getElementById('toast').textContent = '';
+  });
+  await trainer.evaluate(() => { document.getElementById('msg-text').value = 'Keep this draft'; });
   await trainer.click('#msg-send');
-  await trainer.waitForFunction(() => document.body.innerText.includes('Friday still works'));
+  await trainer.waitForFunction(() => {
+    var btn = document.getElementById('msg-send');
+    var toast = document.getElementById('toast');
+    return btn && !btn.disabled && toast && toast.textContent.indexOf('Could not send') !== -1;
+  });
+  assert.strictEqual(await trainer.$eval('#msg-text', e => e.value), 'Keep this draft');
+  assert.strictEqual(await trainer.$('#coaching-wait'), null);
+  await trainer.evaluate(() => { window.WBAuth.sendMessage = window.__sendMessage; });
+  await sendChat('After the failure');
   await trainer.evaluate(() => {
     var input = document.getElementById('msg-text');
     input.focus();
