@@ -33,7 +33,7 @@ function dataWith(list) {
   return JSON.stringify(data);
 }
 
-const box = { copies: [], calls: [], saves: [], mode: 'ok', wait: null };
+const box = { copies: [], calls: [], saves: [], mode: 'ok', saveMode: 'ok', profileDown: false, wait: null };
 
 function shape(row) {
   return {
@@ -87,6 +87,8 @@ function copiesFor(ownerId) {
   return box.copies.filter(function (c) { return c.ownerId === ownerId; }).map(shape);
 }
 async function handleSave(who, id, name, items) {
+  box.saves.push({ id: id, name: name });
+  if (box.saveMode === 'fail') throw new Error('Could not save that copy');
   if (who.membership !== 'enthusiast' && who.intended !== 'enthusiast') {
     throw new Error('Only an Enthusiast can edit a workout from a trainer.');
   }
@@ -95,7 +97,6 @@ async function handleSave(who, id, name, items) {
   row.name = name;
   row.items = JSON.parse(JSON.stringify(items));
   row.updatedAt = new Date().toISOString();
-  box.saves.push({ id: id, name: name });
   return { id: row.id, name: row.name, updatedAt: row.updatedAt };
 }
 
@@ -105,10 +106,15 @@ function install(page, who, opts) {
     page.exposeFunction('__wbSend', handleSend),
     page.exposeFunction('__wbCopies', function (ownerId) { return copiesFor(ownerId); }),
     page.exposeFunction('__wbSave', function (id, name, items) { return handleSave(who, id, name, items); }),
+    page.exposeFunction('__wbProfile', function () {
+      if (box.profileDown) throw new Error('offline');
+      return { id: E, email: 'hempled@gmail.com', membership: 'enthusiast', intended_plan: 'enthusiast' };
+    }),
     page.evaluateOnNewDocument(function (who, opts) {
       var stub = {
         session: function () { return Promise.resolve({ user: { id: who.id, email: who.email } }); },
         profile: function () {
+          if (opts.uncertainProfile) return window.__wbProfile();
           return Promise.resolve({ id: who.id, email: who.email, membership: who.membership, intended_plan: who.intended || null });
         },
         signOut: function () { return Promise.resolve(); },
@@ -154,6 +160,23 @@ function install(page, who, opts) {
       });
     }, who, opts)
   ]);
+}
+
+function localCopy(id, name) {
+  const data = M.emptyData();
+  const at = Date.parse('2026-06-01T00:00:00.000Z');
+  data.workouts = [{
+    id: id, name: name, items: [],
+    sourceTrainerId: T, sourceTrainerEmail: 'kinisiathletics@gmail.com', sourceWorkoutId: 'wo_friday',
+    createdAt: at, updatedAt: at
+  }];
+  return JSON.stringify(data);
+}
+function serverRow(id, ownerId, name) {
+  return {
+    id: id, ownerId: ownerId, trainerId: T, name: name, items: [], sourceWorkoutId: 'wo_friday',
+    createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z'
+  };
 }
 
 function seed(page, raw) {
@@ -356,6 +379,65 @@ function armSlow() {
   await closed.goto(URL + '#/');
   await closed.waitForSelector('[data-a=new]');
   assert.ok((await closed.evaluate(function () { return document.body.innerText; })).indexOf('New workout') !== -1);
+
+  const LOCAL = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+  box.copies = [serverRow(LOCAL, E, 'Server copy')];
+  box.profileDown = true;
+  const unknownCtx = await browser.createBrowserContext();
+  const unknown = await unknownCtx.newPage();
+  unknown.on('pageerror', function (e) { errs.push('unknown ' + e); });
+  await unknown.setViewport({ width: 412, height: 915, isMobile: true, deviceScaleFactor: 2 });
+  await install(unknown, { id: E, email: 'hempled@gmail.com', membership: 'enthusiast', intended: 'enthusiast' }, { uncertainProfile: true });
+  await seed(unknown, localCopy(LOCAL, 'Local edit'));
+  await unknown.goto(URL + '#/');
+  await unknown.waitForFunction(function () {
+    var text = document.body.innerText;
+    return text.indexOf('Local edit') !== -1 && text.indexOf('Server copy') === -1;
+  });
+  await unknown.click('[data-a=open]');
+  await unknown.waitForFunction(function () {
+    var note = document.getElementById('copy-note');
+    return location.hash.indexOf('#/w/') === 0 && note && note.textContent.indexOf('Only an Enthusiast') !== -1;
+  });
+  box.profileDown = false;
+  await unknown.evaluate(function () { location.hash = '#/'; });
+  await unknown.waitForFunction(function () {
+    var text = document.body.innerText;
+    return text.indexOf('Local edit') !== -1 && text.indexOf('You can edit it') !== -1 && text.indexOf('Server copy') === -1;
+  });
+
+  const PENDING = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd1';
+  box.copies = [serverRow(PENDING, E, 'Server name')];
+  box.saveMode = 'fail';
+  box.saves = [];
+  const pendingCtx = await browser.createBrowserContext();
+  const pending = await pendingCtx.newPage();
+  pending.on('pageerror', function (e) { errs.push('pending ' + e); });
+  await pending.setViewport({ width: 412, height: 915, isMobile: true, deviceScaleFactor: 2 });
+  await install(pending, { id: E, email: 'hempled@gmail.com', membership: 'enthusiast', intended: 'enthusiast' });
+  await seed(pending, localCopy(PENDING, 'Pending edit'));
+  await pending.goto(URL + '#/');
+  await pending.waitForFunction(function () {
+    var text = document.body.innerText;
+    return text.indexOf('Pending edit') !== -1 && text.indexOf('You can edit it') !== -1 && text.indexOf('Server name') === -1;
+  });
+  const pendingDeadline = Date.now() + 4000;
+  while (!box.saves.length && Date.now() < pendingDeadline) await new Promise(function (r) { setTimeout(r, 30); });
+  assert.ok(box.saves.length >= 1);
+  assert.ok(box.saves.every(function (s) { return s.id === PENDING && s.name === 'Pending edit'; }));
+  const beforeRetry = box.saves.length;
+  await pending.click('[data-a=open]');
+  await pending.waitForSelector('#copy-note');
+  await pending.click('#back');
+  await pending.waitForFunction(function () {
+    var text = document.body.innerText;
+    return text.indexOf('Pending edit') !== -1 && text.indexOf('Server name') === -1;
+  });
+  const retryDeadline = Date.now() + 4000;
+  while (box.saves.length <= beforeRetry && Date.now() < retryDeadline) await new Promise(function (r) { setTimeout(r, 30); });
+  assert.ok(box.saves.length > beforeRetry);
+  assert.ok(box.saves.every(function (s) { return s.id === PENDING && s.name === 'Pending edit'; }));
+  box.saveMode = 'ok';
 
   assert.deepStrictEqual(errs, []);
   console.log('SENDS UI OK');

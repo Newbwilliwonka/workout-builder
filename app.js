@@ -73,7 +73,7 @@
     return BUILDER_EMAILS.indexOf(String(email || '').trim().toLowerCase()) !== -1;
   }
   var routeToken = 0;
-  var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0;
+  var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0, profileLookup = 0;
   var COPY_RETURN = 'wb.copyReturn';
   function setCopyReturn(hash) {
     try {
@@ -99,9 +99,12 @@
     if (cachedProfile) return Promise.resolve(cachedProfile);
     if (!WBAuth.profile) return Promise.resolve(null);
     return WBAuth.profile().then(function (p) {
-      cachedProfile = p || cachedProfile;
+      if (p) cachedProfile = p;
       return cachedProfile;
-    }, function () { return cachedProfile; });
+    }, function () { return null; });
+  }
+  function copyBody(name, items) {
+    try { return name + '\n' + JSON.stringify(items || []); } catch (e) { return null; }
   }
   function listSig(list) {
     return (list || []).map(function (w) {
@@ -111,14 +114,28 @@
   }
   function applyCopies(list) {
     if (!window.WBSends || !Array.isArray(list)) return;
-    var canEdit = WBSends.canEditCopy(cachedProfile, { sourceTrainerId: '1' });
+    // No profile yet means we do not know. A newer local copy stays; a Free Client result is never invented.
+    var canEdit = !cachedProfile || WBSends.canEditCopy(cachedProfile, { sourceTrainerId: '1' });
     applyingCopies = true;
     data.workouts = WBSends.mergeCopies(data.workouts, list, { canEdit: canEdit, removed: removedCopies });
+    var serverBody = {};
+    list.forEach(function (row) {
+      if (!row || row.id == null) return;
+      var body = copyBody(row.name, row.items);
+      if (body != null) serverBody[String(row.id)] = body;
+    });
     data.workouts.forEach(function (w) {
-      if (w && w.sourceTrainerId) copyStamp[w.id] = w.name + '\n' + JSON.stringify(w.items || []);
+      if (!w || !w.sourceTrainerId) return;
+      var body = copyBody(w.name, w.items);
+      if (body == null) return;
+      var server = serverBody[String(w.id)];
+      // A local edit the server does not have yet stays pending so the next refresh can send it.
+      if (server != null && server !== body) return;
+      copyStamp[w.id] = body;
     });
     persistLocal();
     applyingCopies = false;
+    scheduleCopySave();
   }
   function pullCopies() {
     if (!WBAuth.workoutCopies || !window.WBSends) return;
@@ -148,8 +165,8 @@
       if (applyingCopies || !WBSends.canEditCopy(cachedProfile, { sourceTrainerId: '1' })) return;
       data.workouts.forEach(function (w) {
         if (!w || !w.sourceTrainerId || !WBSends.serverId(w.id)) return;
-        var stamp;
-        try { stamp = w.name + '\n' + JSON.stringify(w.items || []); } catch (e) { return; }
+        var stamp = copyBody(w.name, w.items);
+        if (stamp == null) return;
         if (copyStamp[w.id] === stamp) return;
         copyStamp[w.id] = stamp;
         var gen = (copySaveGen[w.id] = (copySaveGen[w.id] || 0) + 1);
@@ -494,15 +511,15 @@
   function showBuilder() {
     var p = location.hash.replace(/^#\/?/, '').split('/');
     var current = (p[0] === 'play' || p[0] === 'w') ? getW(p[1]) : null;
-    if (current && current.sourceTrainerId && !cachedProfile && WBAuth.profile) {
+    if (current && current.sourceTrainerId && !cachedProfile && WBAuth.profile && profileLookup !== routeToken) {
+      profileLookup = routeToken;
       var token = routeToken;
       WBAuth.profile().then(function (prof) {
         if (token !== routeToken) return;
-        cachedProfile = prof || { membership: 'free_client' };
+        if (prof) cachedProfile = prof;
         showBuilder();
       }, function () {
         if (token !== routeToken) return;
-        cachedProfile = { membership: 'free_client' };
         showBuilder();
       });
       return;
