@@ -370,6 +370,7 @@
     S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged, ownWork: !S.w.sourceTrainerId };
+    if (S.programId) sess.programId = S.programId;
     S.saved = M.SAVE_SESSIONS && logged.length > 0;
     if (S.saved) { S.data.sessions.push(sess); S.persist(); }
     S.done = sess; if (wake) wake.release().catch(function () {});
@@ -619,7 +620,7 @@
 
   var api = {
     mount: function (root, w, data, persist, onExit, opts) {
-      S = { root: root, w: w, data: data, persist: persist, onExit: onExit, queue: M.buildPlayQueue(w), results: {}, startedAt: Date.now(), acc: 0, running: false, nodes: [], track: !(opts && opts.track === false) };
+      S = { root: root, w: w, data: data, persist: persist, onExit: onExit, queue: M.buildPlayQueue(w), results: {}, startedAt: Date.now(), acc: 0, running: false, nodes: [], track: !(opts && opts.track === false), programId: opts && opts.programId || null };
       document.body.classList.add('playing');
       root.onclick = onClick; root.oninput = onInput; root.onchange = onInput;
       document.addEventListener('visibilitychange', onVis);
@@ -633,7 +634,7 @@
     requestEnd: function () {
       if (!S) return; if (S.done) return S.onExit();
       if (S.track === false) {
-        if (confirm('Leave this preview? Nothing is tracked.')) S.onExit();
+        if (confirm('Leave this workout? Nothing is tracked.')) S.onExit();
         return;
       }
       if (confirm('End workout? Logged sets will be saved.')) finish();

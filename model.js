@@ -52,7 +52,7 @@
   }
   function emptyData() {
     // `sessions` reserved for the Start Workout player (history, stopwatch laps, etc.)
-    return { version: SCHEMA_VERSION, workouts: [], sessions: [] };
+    return { version: SCHEMA_VERSION, workouts: [], sessions: [], programs: [] };
   }
 
   // ---- validation: returns array of error strings (empty = valid) ----
@@ -300,7 +300,8 @@
       if (!raw) return emptyData();
       var d = JSON.parse(raw);
       if (!d || !Array.isArray(d.workouts)) return emptyData();
-      d.sessions = d.sessions || [];
+      d.sessions = Array.isArray(d.sessions) ? d.sessions : [];
+      d.programs = Array.isArray(d.programs) ? d.programs : [];
       return migrate(d);
     } catch (e) { return emptyData(); }
   }

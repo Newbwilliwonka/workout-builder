@@ -221,8 +221,48 @@
         if (res.error) throw libraryError(res.error);
         return res.data || { bodyParts: [], equipment: [], targets: [] };
       });
+    },
+    programEntries: function (ownerId) {
+      return db().then(function (c) {
+        return c.from('program_entries').select('local_id,owner_id,workout_local_id,workout_name,items,day,presence,updated_at').eq('owner_id', ownerId);
+      }).then(function (res) {
+        if (res.error) throw programError(res.error);
+        return Array.isArray(res.data) ? res.data : [];
+      });
+    },
+    saveProgramEntry: function (entry) {
+      var row = {
+        owner_id: entry.ownerId,
+        local_id: entry.id,
+        workout_local_id: entry.workoutId,
+        workout_name: entry.workoutName || 'Workout',
+        items: Array.isArray(entry.items) ? entry.items : [],
+        day: entry.date,
+        presence: entry.presence === 'trainer' ? 'trainer' : 'solo'
+      };
+      return db().then(function (c) {
+        return c.from('program_entries').upsert(row, { onConflict: 'owner_id,local_id' });
+      }).then(function (res) {
+        if (res.error) throw programError(res.error);
+        return true;
+      });
+    },
+    deleteProgramEntry: function (ownerId, localId) {
+      return db().then(function (c) {
+        return c.from('program_entries').delete().eq('owner_id', ownerId).eq('local_id', localId);
+      }).then(function (res) {
+        if (res.error) throw programError(res.error);
+        return true;
+      });
     }
   };
+  function programError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (/schema cache|could not find|does not exist|PGRST202|PGRST205|42P01|program_entries/i.test(msg)) {
+      return new Error('Programs are not on the server yet. Apply the programs SQL in the Supabase SQL editor.');
+    }
+    return new Error(msg || 'Could not save the calendar.');
+  }
   function libraryError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
     try { console.error(err); } catch (e) {}
