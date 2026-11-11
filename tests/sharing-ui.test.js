@@ -73,6 +73,7 @@ const E = '33333333-3333-4333-8333-333333333333';
         window.__settingCalls++;
         var cfg = read();
         if (cfg.mode === 'unavailable') return Promise.reject(new Error('Sharing workouts is not available yet. Apply the sharing SQL in the Supabase SQL editor.'));
+        if (cfg.setting === 'down') return Promise.reject(new Error('Failed to fetch'));
         if (cfg.mode === 'retry') {
           cfg.mode = 'ok';
           write(cfg);
@@ -418,6 +419,53 @@ const E = '33333333-3333-4333-8333-333333333333';
   await page.waitForFunction(function () { return window.__pushes.length === 1; });
   assert.deepStrictEqual((await page.evaluate(function () { return window.__pushes[0]; })).workouts.map(function (w) { return w.name; }), ['Saturday easy']);
   assert.ok((await page.evaluate(function () { return JSON.stringify(window.__pushes); })).indexOf('Secret') === -1);
+
+  await boot({ who: 'enthusiast', linked: true, mode: 'ok', on: true, builder: true }, '#/account', ownData());
+  await page.waitForSelector('#share-account');
+  await page.waitForFunction(function () { return window.__pushes.length === 1; });
+  await page.evaluate(function () {
+    var cfg = JSON.parse(localStorage.getItem('wb.sharetest'));
+    cfg.setting = 'down';
+    localStorage.setItem('wb.sharetest', JSON.stringify(cfg));
+  });
+  await page.evaluate(function () { location.hash = '#/subscriptions'; });
+  await page.waitForSelector('#redeem');
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForSelector('#share-account');
+  await wait(400);
+  assert.strictEqual(await page.evaluate(function () { return window.__pushes.length; }), 1);
+  assert.strictEqual(await page.$eval('#share-account', function (el) { return el.getAttribute('aria-checked'); }), 'true');
+  await page.evaluate(function () {
+    var cfg = JSON.parse(localStorage.getItem('wb.sharetest'));
+    cfg.mode = 'slow';
+    cfg.setting = 'down';
+    localStorage.setItem('wb.sharetest', JSON.stringify(cfg));
+  });
+  await page.click('#share-account');
+  await page.waitForFunction(function () { return document.getElementById('share-account').disabled; });
+  var during = await page.evaluate(function () { return window.__settingCalls; });
+  await page.evaluate(function () { location.hash = '#/'; });
+  await page.waitForSelector('[data-a="rename"][data-id="wo_sat"]');
+  page.once('dialog', function (dialog) { return dialog.accept('Saturday later'); });
+  await page.click('[data-a="rename"][data-id="wo_sat"]');
+  await page.waitForFunction(function () { return document.body.innerText.indexOf('Saturday later') !== -1; });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForFunction(function () {
+    var el = document.getElementById('share-account');
+    return el && el.disabled && el.getAttribute('aria-checked') === 'true';
+  });
+  await wait(300);
+  assert.strictEqual(await page.evaluate(function () { return window.__pushes.length; }), 1);
+  assert.ok(await page.evaluate(function (n) { return window.__settingCalls === n; }, during));
+  await page.evaluate(function () { window.__shareRelease(); });
+  await page.waitForFunction(function () {
+    var el = document.getElementById('share-account');
+    return el && !el.disabled && el.getAttribute('aria-checked') === 'false';
+  });
+  await wait(400);
+  assert.strictEqual(await page.evaluate(function () { return window.__pushes.length; }), 1);
+  var renamed = JSON.parse(await page.evaluate(function (k) { return localStorage.getItem(k); }, 'wb.data.v1'));
+  assert.strictEqual(renamed.workouts[0].name, 'Saturday later');
 
   await boot({ who: 'trainer', linked: false, mode: 'ok', on: true }, '#/client/' + E);
   await page.waitForSelector('#client-view');

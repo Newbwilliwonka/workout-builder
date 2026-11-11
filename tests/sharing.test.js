@@ -68,6 +68,10 @@ assert.strictEqual(S.shouldPush(busy), false);
 var ignored = S.reduce(busy, { type: 'load-ok', on: false });
 assert.strictEqual(ignored.confirmed, true);
 assert.strictEqual(ignored.busy, true);
+var failedRefresh = S.reduce(busy, { type: 'load-error', message: 'Failed to fetch' });
+assert.strictEqual(failedRefresh.confirmed, true);
+assert.strictEqual(failedRefresh.busy, true);
+assert.strictEqual(S.shouldPush(failedRefresh), false);
 
 var failed = S.reduce(busy, { type: 'save-fail', message: 'Could not save that choice.' });
 assert.strictEqual(failed.busy, false);

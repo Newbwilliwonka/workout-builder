@@ -339,17 +339,18 @@
       ensureShare();
     }, wait);
   }
-  function afterShareLookup() {
+  function afterShareLookup(ok) {
     if (!shareState || !window.WBSharing) return;
+    if (shareState.busy) return;
     if (shareState.phase === 'unavailable') { stopShareRetry(); return; }
-    if (typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready') {
+    if (ok === true && typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready') {
       shareRetryWait = 1000;
       stopShareRetry();
       if (WBSharing.shouldPush(shareState)) scheduleSharePush();
       else { pushPending = false; stopPushRetry(); }
       return;
     }
-    armShareRetry();
+    if (typeof shareState.confirmed !== 'boolean' || shareState.phase !== 'ready') armShareRetry();
   }
   function ensureShare() {
     if (!window.WBSharing || !shareState || !WBAuth.shareSetting || !WBAuth.session) return;
@@ -374,6 +375,7 @@
   }
   function loadShare() {
     if (!window.WBSharing) return Promise.resolve();
+    if (shareState && shareState.busy) { paintShare(); return shareLookup || Promise.resolve(); }
     if (shareLookup) return shareLookup;
     if (!WBAuth.shareSetting) {
       shareState = WBSharing.reduce(shareState, { type: 'load-unavailable' });
@@ -390,7 +392,7 @@
     try { pending = WBAuth.shareSetting(); } catch (e) { pending = Promise.reject(e); }
     var run = Promise.resolve(pending).then(function (row) {
       if (shareLookup === run) shareLookup = null;
-      if (gen !== shareLoadGen || seenSave !== shareSaveGen) return;
+      if (gen !== shareLoadGen || seenSave !== shareSaveGen || (shareState && shareState.busy)) return;
       var parsed = WBSharing.parseSetting(row);
       shareState = WBSharing.reduce(shareState, {
         type: 'load-ok',
@@ -398,15 +400,15 @@
         enthusiast: parsed.ok && typeof parsed.enthusiast === 'boolean' ? parsed.enthusiast : undefined
       });
       paintShare();
-      afterShareLookup();
+      afterShareLookup(parsed.ok === true);
     }, function (err) {
       if (shareLookup === run) shareLookup = null;
-      if (gen !== shareLoadGen || seenSave !== shareSaveGen) return;
+      if (gen !== shareLoadGen || seenSave !== shareSaveGen || (shareState && shareState.busy)) return;
       shareState = WBSharing.reduce(shareState, WBSharing.isUnavailable(err)
         ? { type: 'load-unavailable', message: err && err.message }
         : { type: 'load-error', message: (err && err.message) || 'Could not load sharing.' });
       paintShare();
-      afterShareLookup();
+      afterShareLookup(false);
     });
     shareLookup = run;
     return run;
@@ -437,7 +439,8 @@
           enthusiast: parsed.ok && typeof parsed.enthusiast === 'boolean' ? parsed.enthusiast : undefined
         });
         if (!parsed.ok) toast('Could not confirm that choice.');
-        else if (WBSharing.shouldPush(shareState)) scheduleSharePush();
+        if (WBSharing.shouldPush(shareState)) scheduleSharePush();
+        else { pushPending = false; stopPushRetry(); }
       });
     }, function (err) {
       finishSave(function () {
@@ -447,6 +450,8 @@
           shareState = WBSharing.reduce(shareState, { type: 'save-fail', message: (err && err.message) || 'Could not save that choice.' });
           toast((err && err.message) || 'Could not save that choice.');
         }
+        if (WBSharing.shouldPush(shareState)) scheduleSharePush();
+        else { pushPending = false; stopPushRetry(); }
       });
     });
   }
@@ -465,6 +470,7 @@
   }
   function scheduleSharePush(force) {
     if (!window.WBSharing || !WBAuth.pushOwn) return;
+    if (shareState && shareState.busy) { pushPending = true; return; }
     var open = shareState && shareState.confirmed === true && shareState.phase === 'ready' && shareState.enthusiast !== false;
     if (force === true && open) {
       /* caller already confirmed this push */
@@ -484,9 +490,11 @@
     pushFlight = run.then(function () {
       pushFlight = null;
       pushWait = 1000;
+      if (shareState && shareState.busy) return;
       if (pushPending && WBSharing.shouldPush(shareState)) scheduleSharePush();
     }, function () {
       pushFlight = null;
+      if (shareState && shareState.busy) { pushPending = true; return; }
       if (!window.WBSharing || !WBSharing.shouldPush(shareState)) { pushPending = false; return; }
       pushPending = true;
       retrySharePush();

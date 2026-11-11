@@ -63,9 +63,11 @@
       return stamp(state, { confirmed: event.on, phase: 'ready', message: '', busy: false }, event);
     }
     if (event.type === 'load-unavailable') {
+      if (state.busy) return state;
       return stamp(state, { confirmed: state.confirmed, phase: 'unavailable', message: event.message || UNAVAILABLE, busy: false }, event);
     }
     if (event.type === 'load-error') {
+      if (state.busy) return state;
       if (typeof state.confirmed === 'boolean') return { confirmed: state.confirmed, phase: 'ready', message: '', busy: false, enthusiast: state.enthusiast };
       return stamp(state, { confirmed: null, phase: 'error', message: event.message || 'Could not load sharing.', busy: false }, event);
     }
