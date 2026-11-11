@@ -15,6 +15,10 @@
   backBtn.onclick = function () {
     var page = hashPage();
     if (page === 'signin' || page === 'join') return;
+    if (page === 'programs' || page === 'preview') {
+      if (window.WBPreview && WBPreview.back()) return;
+      return go('#/');
+    }
     var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd();
     if (page === 'messages' && hashBody().split('/')[1]) return go('#/messages');
@@ -509,8 +513,11 @@
   function capturePlayedSession() {
     try {
       var player = window.__wbPlayer;
-      if (!player || !player.done || !window.WBSharing) return;
+      if (!player || !window.WBSharing) return;
+      if (player.track === false) { player.done = null; return; }
+      if (!player.done) return;
       var done = player.done;
+      rememberProgramSession(done);
       var own = WBSharing.classifySession(done, player.w);
       if (own !== true) {
         player.done = null;
@@ -524,6 +531,22 @@
         if (WBSharing.shouldPush(shareState)) scheduleSharePush();
       }
     } catch (e) {}
+  }
+  function rememberProgramSession(done) {
+    if (!done || !done.programId || !Array.isArray(done.results) || !done.results.length) return;
+    if (!data.sessions) data.sessions = [];
+    if (data.sessions.some(function (row) { return row && row.id === done.id; })) return;
+    data.sessions.push({
+      id: done.id,
+      workoutId: done.workoutId,
+      workoutName: done.workoutName,
+      startedAt: done.startedAt,
+      endedAt: done.endedAt,
+      results: done.results,
+      ownWork: done.ownWork,
+      programId: done.programId
+    });
+    persistLocal();
   }
   function trainerSection(roster) {
     if (!roster) return '';
@@ -887,13 +910,69 @@
       go('#/signin');
     });
   }
+  function programsRequested() {
+    if (hashPage() === 'programs' || hashPage() === 'preview') return true;
+    try {
+      if (new URLSearchParams(location.search).get('preview') === 'programs') return true;
+      var q = location.hash.split('?')[1] || '';
+      if (q && new URLSearchParams(q).get('preview') === 'programs') return true;
+    } catch (e) {}
+    return false;
+  }
+  function trackedSessions() {
+    var rows = Array.isArray(data.sessions) ? data.sessions.slice() : [];
+    if (window.WBSharing) {
+      var log = WBSharing.readLog(localStorage);
+      if (Array.isArray(log)) rows = rows.concat(log);
+    }
+    return rows;
+  }
+  function openPrograms() {
+    try {
+      var u = new URL(location.href);
+      var changed = false;
+      if (u.searchParams.get('preview') === 'programs') {
+        u.searchParams.delete('preview');
+        changed = true;
+      }
+      var hashQuery = (u.hash || '').split('?')[1] || '';
+      if (hashQuery && new URLSearchParams(hashQuery).get('preview') === 'programs') changed = true;
+      if (hashPage() !== 'programs') changed = true;
+      if (changed) {
+        var search = u.searchParams.toString();
+        var next = u.pathname + (search ? '?' + search : '') + '#/programs';
+        history.replaceState(null, '', next);
+      }
+    } catch (e) {}
+    app.onclick = null; app.oninput = null; app.onchange = null;
+    if (!window.WBPreview) return;
+    WBPreview.mount({
+      app: app,
+      titleEl: titleEl,
+      backBtn: backBtn,
+      data: data,
+      persist: persistLocal,
+      go: go,
+      sessions: trackedSessions,
+      loadProfile: function () { return ensureProfile(); },
+      loadSession: function () { return WBAuth.session ? WBAuth.session() : Promise.resolve(null); },
+      loadRoster: function () { return WBAuth.roster ? WBAuth.roster() : Promise.resolve(null); },
+      loadShare: function () { return WBAuth.shareSetting ? WBAuth.shareSetting() : Promise.resolve(null); },
+      loadClient: function (id) { return WBAuth.clientStatus ? WBAuth.clientStatus(id) : Promise.resolve(null); },
+      loadEntries: function (ownerId) { return WBAuth.programEntries ? WBAuth.programEntries(ownerId) : Promise.reject(new Error('programs')); },
+      saveEntry: function (entry) { return WBAuth.saveProgramEntry ? WBAuth.saveProgramEntry(entry) : Promise.reject(new Error('programs')); },
+      onTracked: function () { capturePlayedSession(); }
+    });
+  }
   function route() {
     capturePlayedSession();
     var token = ++routeToken;
     window.WBPlayer && WBPlayer.unmount();
     window.WBMessages && WBMessages.stop();
     window.WBSends && WBSends.stop();
+    window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
+    if (programsRequested()) return openPrograms();
     var page = hashPage();
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
@@ -940,6 +1019,7 @@
     var note = takeInviteNotice();
     var h = (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
       '<button style="width:100%;margin-bottom:8px" data-a="account">Account</button>' +
+      '<button id="programs-open" class="ghost" style="width:100%;margin-bottom:8px" data-a="programs">Programs</button>' +
       '<div class="row" style="margin-bottom:8px">' +
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
@@ -978,6 +1058,7 @@
     app.onclick = function (e) {
       var b = e.target.closest('[data-a]'); if (!b) return;
       var a = b.dataset.a, w = getW(b.dataset.id);
+      if (a === 'programs' || a === 'preview') return go('#/programs');
       if (a === 'account') return openAccount();
       if (a === 'messages') return go('#/messages');
       if (a === 'send') return go('#/send');
