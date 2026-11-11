@@ -17,6 +17,40 @@
     (extras || []).forEach(add);
     return order.map(function (key) { return map[key]; });
   }
+  function timeValue(m) {
+    var t = new Date(m && m.at).getTime();
+    return isNaN(t) ? null : t;
+  }
+  function byTime(a, b) {
+    var ta = timeValue(a), tb = timeValue(b);
+    if (ta == null && tb == null) return 0;
+    if (ta == null) return 1;
+    if (tb == null) return -1;
+    if (ta !== tb) return ta - tb;
+    var ia = String(a.id), ib = String(b.id);
+    return ia < ib ? -1 : ia > ib ? 1 : 0;
+  }
+  // The server list is the newest window. A cached row that is missing from
+  // it is kept only when it is newer than that window (a send the fetch
+  // missed). Older rows are not new, and the result is always time order.
+  function applyServerList(serverList, cached) {
+    var server = serverList || [];
+    var seen = {};
+    var newest = null;
+    server.forEach(function (m) {
+      if (!m || m.id == null) return;
+      seen[String(m.id)] = 1;
+      var t = timeValue(m);
+      if (t != null && (newest == null || t > newest)) newest = t;
+    });
+    var extra = (cached || []).filter(function (m) {
+      if (!m || m.id == null || seen[String(m.id)]) return false;
+      var t = timeValue(m);
+      if (newest == null) return t != null;
+      return t != null && t > newest;
+    });
+    return mergeById(server, extra).sort(byTime);
+  }
   // Same text keeps the same id, so a retry cannot mint a second message.
   function prepareAttempt(prev, text, makeId) {
     text = cleanBody(text);
@@ -123,11 +157,7 @@
     if (btn) btn.disabled = !!inflight[id];
   }
   function applyServer(id, serverList) {
-    var server = serverList || [];
-    var seen = {};
-    server.forEach(function (m) { if (m && m.id != null) seen[String(m.id)] = 1; });
-    var extra = (cache[id] || []).filter(function (m) { return m && m.id != null && !seen[String(m.id)]; });
-    cache[id] = mergeById(server, extra);
+    cache[id] = applyServerList(serverList, cache[id]);
   }
   function absorb(id, row) {
     if (!row || row.id == null) return;
@@ -137,7 +167,7 @@
       body: row.body,
       at: row.at,
       readAt: row.readAt || null
-    }]);
+    }]).sort(byTime);
   }
   function paintBubbles(id) {
     var thread = document.getElementById('thread');
@@ -332,7 +362,9 @@
         if (input && cleanBody(input.value) === text) input.value = '';
       }
     }
-    threadSeq[id] = (threadSeq[id] || 0) + 1;
+    // Do not bump the load sequence. A send that finishes after this
+    // conversation was closed and opened again must not throw away the
+    // load that replaces "Loading…".
     absorb(id, row);
     if (currentThread() === id) paintBubbles(id);
   }
@@ -382,6 +414,7 @@
   var api = {
     cleanBody: cleanBody,
     mergeById: mergeById,
+    applyServerList: applyServerList,
     prepareAttempt: prepareAttempt,
     initials: initials,
     mount: mount,

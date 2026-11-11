@@ -134,16 +134,24 @@ function install(page, who) {
       endConnection: function () { return Promise.resolve({ message: 'Connection ended.' }); },
       threads: function () { return Promise.resolve(threads()); },
       messages: function (personId) {
-        var box = read();
-        var link = linkOf(box, personId);
-        if (!link) return Promise.reject(new Error('There is no connection.'));
-        var person = box.people[personId] || { email: 'Linked', plan: '' };
-        var msgs = (box.messages || []).filter(function (m) {
-          return m.trainerId === link.trainerId && m.clientId === link.clientId;
-        }).sort(function (a, b) { return a.at < b.at ? -1 : 1; });
-        return Promise.resolve({
-          person: { id: personId, name: person.email, plan: person.plan },
-          messages: msgs.map(shape)
+        var wait = window.__msgOpenDelay || 0;
+        window.__msgOpenDelay = 0;
+        return new Promise(function (resolve, reject) {
+          setTimeout(function () {
+            try {
+              var box = read();
+              var link = linkOf(box, personId);
+              if (!link) throw new Error('There is no connection.');
+              var person = box.people[personId] || { email: 'Linked', plan: '' };
+              var msgs = (box.messages || []).filter(function (m) {
+                return m.trainerId === link.trainerId && m.clientId === link.clientId;
+              }).sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+              resolve({
+                person: { id: personId, name: person.email, plan: person.plan },
+                messages: msgs.map(shape)
+              });
+            } catch (err) { reject(err); }
+          }, wait);
         });
       },
       sendMessage: sendMessage,
@@ -309,6 +317,26 @@ function install(page, who) {
     return els.filter(function (el) { return el.textContent.indexOf('See you Friday') !== -1; }).length;
   }), 1);
   assert.strictEqual(await trainer.$eval('#msg-send', function (el) { return el.disabled; }), false);
+
+  // Reopen this same conversation while the send is still in flight, and let
+  // the send finish before that reload returns. The screen must not stay on Loading.
+  await trainer.evaluate(function () { window.__msgFail = 'slow'; window.__sentIds = []; });
+  await trainer.type('#msg-text', 'back soon');
+  await trainer.click('#msg-send');
+  await trainer.evaluate(function () { location.hash = '#/messages'; });
+  await trainer.waitForSelector('#thread-list');
+  await trainer.evaluate(function (id) {
+    window.__msgOpenDelay = 2000;
+    location.hash = '#/messages/' + id;
+  }, C);
+  await trainer.waitForFunction(function () {
+    var input = document.getElementById('msg-text');
+    var button = document.getElementById('msg-send');
+    return input && button && !button.disabled && input.value === '' && document.body.innerText.indexOf('back soon') !== -1;
+  }, { timeout: 8000 });
+  assert.strictEqual(await trainer.$$eval('.bubble', function (els) {
+    return els.filter(function (el) { return el.textContent.indexOf('back soon') !== -1; }).length;
+  }), 1);
 
   await trainer.evaluate(function () { window.__msgFail = 'offline'; window.__sentIds = []; });
   await trainer.type('#msg-text', 'retry me');

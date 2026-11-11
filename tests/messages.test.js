@@ -19,6 +19,24 @@ const merged = M.mergeById(
   [{ id: '1', body: 'a2' }, { id: '3', body: 'c' }]
 );
 assert.deepStrictEqual(merged.map(function (m) { return m.id + ':' + m.body; }), ['1:a2', '2:b', '3:c']);
+var windowed = M.applyServerList(
+  [
+    { id: 'b', body: 'b', at: '2024-02-01T00:00:00.000Z' },
+    { id: 'a', body: 'a', at: '2024-01-01T00:00:00.000Z' }
+  ],
+  [
+    { id: 'old', body: 'old', at: '2020-01-01T00:00:00.000Z' },
+    { id: 'c', body: 'c', at: '2024-03-01T00:00:00.000Z' },
+    { id: 'a', body: 'stale', at: '2024-01-01T00:00:00.000Z' }
+  ]
+);
+assert.deepStrictEqual(windowed.map(function (m) { return m.id + ':' + m.body; }), ['a:a', 'b:b', 'c:c']);
+var freshOnly = M.applyServerList([], [
+  { id: '2', body: '2', at: '2024-02-01T00:00:00.000Z' },
+  { id: '1', body: '1', at: '2024-01-01T00:00:00.000Z' }
+]);
+assert.deepStrictEqual(freshOnly.map(function (m) { return m.id; }), ['1', '2']);
+
 assert.strictEqual(M.initials('fan@example.com'), 'FA');
 assert.strictEqual(M.initials('kinisiathletics@gmail.com'), 'KI');
 
