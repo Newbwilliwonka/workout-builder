@@ -1,4 +1,4 @@
-/* Visual pass only. Sample people and workouts, held in memory. No network and no saved workouts. */
+/* Messages and sent workouts. preview=1 keeps the sample screens. Otherwise this talks to WBAuth. */
 (function (root) {
   'use strict';
   var ROLE_KEY = 'wb.sampleRole';
@@ -52,6 +52,8 @@
     return (location.hash || '').replace(/^#\/?/, '').split('?')[0].split('/');
   }
   function initials(name) {
+    var local = String(name || '').split('@')[0].replace(/[^a-z0-9]/gi, '');
+    if (local.length >= 2) return local.slice(0, 2).toUpperCase();
     var bits = String(name || '').split(' ').filter(Boolean);
     return ((bits[0] || '?').charAt(0) + (bits[1] ? bits[1].charAt(0) : '')).toUpperCase();
   }
@@ -278,8 +280,354 @@
   }
   function mount(next) {
     ctx = next;
-    role = resolveRole(next.profile);
-    render();
+    stopLive();
+    if (isPreview()) {
+      role = resolveRole(next.profile);
+      render();
+      return;
+    }
+    renderReal();
   }
+
+  var live = { gen: 0, timer: 0, unwatch: null, threads: [], thread: null, roster: null, pickedWorkout: '', picked: {}, sent: '', view: null, quiet: false };
+  function isPreview() {
+    return /(?:^|&)preview=1(?:&|$)/.test((location.hash.split('?')[1]) || '');
+  }
+  function stopLive() {
+    live.gen += 1;
+    if (live.timer) clearInterval(live.timer);
+    live.timer = 0;
+    if (live.unwatch) { var off = live.unwatch; live.unwatch = null; try { off(); } catch (e) {} }
+  }
+  function startLive(refresh) {
+    var gen = live.gen;
+    live.timer = setInterval(function () {
+      if (gen !== live.gen || document.hidden) return;
+      refresh();
+    }, 4000);
+    var auth = root.WBAuth;
+    if (!auth || !auth.watchMessages) return;
+    auth.watchMessages(function () { if (gen === live.gen) refresh(); }).then(function (off) {
+      if (gen !== live.gen) { if (off) off(); return; }
+      live.unwatch = off;
+    }).catch(function () {});
+  }
+  function unavailable(err) {
+    var msg = err && err.message || '';
+    return /not available yet|not ready|coaching SQL/i.test(msg);
+  }
+  function waitCard(err) {
+    var msg = unavailable(err) || !err
+      ? 'Coaching is not available yet. Apply the coaching SQL in the Supabase SQL editor.'
+      : (err.message || 'Could not load this.');
+    return '<div class="card" id="coaching-wait"><div class="name">Not available yet</div><p class="mute">' + esc(msg) + '</p></div>';
+  }
+  function whenLabel(value) {
+    if (!value) return '';
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    var now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    var y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (d.toDateString() === y.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+  function personRow(p) {
+    return '<button type="button" class="person" data-thread="' + esc(p.id) + '">' +
+      '<span class="ava" aria-hidden="true">' + esc(initials(p.name)) + '</span>' +
+      '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + esc(p.name) + '</span>' +
+      '<span class="mute" style="margin-left:auto">' + esc(whenLabel(p.at) || '') + '</span></span>' +
+      '<span class="preview">' + esc(p.preview || 'No messages yet') + '</span>' +
+      '<span class="mute">' + esc(p.plan || '') + '</span></span>' +
+      (p.unread ? '<span class="count">' + esc(p.unread) + '</span>' : '') + '</button>';
+  }
+  function showWait(err) {
+    ctx.titleEl.textContent = parts()[0] === 'send' ? 'Send workout' : (parts()[0] === 'client' ? 'Client' : 'Messages');
+    ctx.backBtn.hidden = false;
+    ctx.app.innerHTML = waitCard(err);
+    ctx.app.onclick = null;
+  }
+  function renderReal() {
+    if (!ctx) return;
+    ctx.backBtn.hidden = false;
+    var p = parts();
+    if (p[0] === 'send') return loadSend();
+    if (p[0] === 'received') return loadReceived(p[1] || '');
+    if (p[0] === 'client') return loadClient(p[1] || '');
+    if (p[0] === 'messages' && p[1]) return loadThread(p[1], false);
+    loadThreads(false);
+  }
+  function loadThreads(quiet) {
+    var auth = root.WBAuth;
+    if (!auth || !auth.threads) return showWait(new Error('Coaching is not available yet. Apply the coaching SQL in the Supabase SQL editor.'));
+    if (!quiet) ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    var gen = live.gen;
+    auth.threads().then(function (data) {
+      if (gen !== live.gen || isPreview() || parts()[0] !== 'messages' || parts()[1]) return;
+      live.threads = data && data.threads || [];
+      drawThreads();
+      if (!live.timer) startLive(function () { loadThreads(true); });
+    }).catch(function (err) {
+      if (gen !== live.gen || parts()[0] !== 'messages' || parts()[1]) return;
+      showWait(err);
+    });
+  }
+  function drawThreads() {
+    ctx.titleEl.textContent = 'Messages';
+    var h = '';
+    if (!live.threads.length) h += '<div class="empty" id="thread-list">No linked people yet.</div>';
+    else {
+      h += '<div id="thread-list">';
+      live.threads.forEach(function (p) { h += personRow(p); });
+      h += '</div>';
+    }
+    ctx.app.innerHTML = h;
+    ctx.app.onclick = function (e) {
+      var t = e.target.closest('[data-thread]');
+      if (!t) return;
+      ctx.go('#/messages/' + t.dataset.thread);
+    };
+  }
+  function loadThread(id, quiet) {
+    var auth = root.WBAuth;
+    if (!auth || !auth.messages) return showWait();
+    var draft = '';
+    var input = document.getElementById('msg-text');
+    var focused = !!(input && document.activeElement === input);
+    if (input) draft = input.value;
+    if (!quiet) ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    var gen = live.gen;
+    auth.messages(id).then(function (data) {
+      if (gen !== live.gen || parts()[1] !== id) return;
+      live.thread = data;
+      if (!quiet && auth.markRead) auth.markRead(id).catch(function () {});
+      drawThread(draft, focused);
+      if (!live.timer) startLive(function () { loadThread(id, true); });
+    }).catch(function (err) {
+      if (gen !== live.gen || parts()[1] !== id) return;
+      showWait(err);
+    });
+  }
+  function drawThread(draft, focused) {
+    var data = live.thread || { person: {}, messages: [] };
+    var person = data.person || {};
+    ctx.titleEl.textContent = person.name || 'Messages';
+    var h = '<p class="mute" id="with">' + esc(person.plan || '') + (person.plan && person.plan !== 'Trainer' ? ' · linked client' : '') + '</p>';
+    h += '<div class="thread" id="thread">';
+    (data.messages || []).forEach(function (m) {
+      h += '<div class="bubble' + (m.mine ? ' me' : '') + '"><span>' + esc(m.body) + '</span><span class="when">' + esc(whenLabel(m.at)) + '</span></div>';
+    });
+    h += '</div>';
+    h += '<div class="dock"><div class="inner composer"><input id="msg-text" placeholder="Message" autocomplete="off" maxlength="2000">' +
+      '<button type="button" class="pri" id="msg-send">Send</button></div></div>';
+    ctx.app.innerHTML = h;
+    var box = document.getElementById('msg-text');
+    if (box) {
+      box.value = draft || '';
+      if (focused) box.focus();
+      box.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); sendLive(); } };
+    }
+    ctx.app.onclick = function (e) {
+      if (e.target.closest('#msg-send')) sendLive();
+    };
+  }
+  function sendLive() {
+    var box = document.getElementById('msg-text');
+    var text = root.WBCoaching ? root.WBCoaching.cleanBody(box && box.value) : String(box && box.value || '').trim();
+    if (!text) return;
+    var id = parts()[1];
+    var btn = document.getElementById('msg-send');
+    if (btn) btn.disabled = true;
+    root.WBAuth.sendMessage(id, text).then(function () {
+      if (box) box.value = '';
+      loadThread(id, true);
+    }).catch(function (err) {
+      if (btn) btn.disabled = false;
+      ctx.toast((err && err.message) || 'Could not send');
+    });
+  }
+  function loadSend() {
+    ctx.titleEl.textContent = 'Send workout';
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    var auth = root.WBAuth;
+    if (!auth || !auth.roster || !auth.sendWorkout) return showWait();
+    var gen = live.gen;
+    auth.roster().then(function (roster) {
+      if (gen !== live.gen || parts()[0] !== 'send') return;
+      if (!roster || !roster.role) return showWait(new Error('Only a trainer can send a workout.'));
+      live.roster = roster;
+      drawSend();
+    }).catch(function (err) {
+      if (gen !== live.gen || parts()[0] !== 'send') return;
+      showWait(err);
+    });
+  }
+  function ownWorkouts() {
+    var list = ctx.workouts ? ctx.workouts() : [];
+    return (list || []).filter(function (w) { return w && !w.sourceTrainerId; });
+  }
+  function chosenClients() {
+    var clients = live.roster && live.roster.clients || [];
+    return clients.filter(function (c) { return live.picked[c.id]; });
+  }
+  function drawSend() {
+    var workouts = ownWorkouts();
+    var clients = live.roster.clients || [];
+    if (!live.pickedWorkout && workouts[0]) live.pickedWorkout = workouts[0].id;
+    var h = '<p class="mute">Pick one of your workouts and the clients who should get a copy. A linked Enthusiast counts as a client.</p>';
+    h += '<div class="name" style="margin:12px 0 8px">Workout</div>';
+    if (!workouts.length) h += '<div class="empty">No workouts yet. Build one, then send it.</div>';
+    workouts.forEach(function (w) {
+      var on = w.id === live.pickedWorkout;
+      h += '<button type="button" class="pick' + (on ? ' on' : '') + '" data-pick-workout="' + esc(w.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        '<span class="grow"><span class="name">' + esc(w.name) + '</span><span class="preview">' + w.items.length + ' exercise' + (w.items.length === 1 ? '' : 's') + '</span></span>' +
+        '<span class="mark">' + (on ? '✓' : '') + '</span></button>';
+    });
+    h += '<div class="name" style="margin:14px 0 8px">Clients</div>';
+    h += '<p class="mute">Each person gets their own copy. An Enthusiast can edit it. A Free Client can run it. Your workout stays as it is.</p>';
+    if (!clients.length) h += '<p class="mute">No linked clients yet.</p>';
+    clients.forEach(function (c) {
+      var on = !!live.picked[c.id];
+      h += '<button type="button" class="pick' + (on ? ' on' : '') + '" data-pick-client="' + esc(c.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        '<span class="ava" aria-hidden="true">' + esc(initials(c.email || 'Client')) + '</span>' +
+        '<span class="grow"><span class="name">' + esc(c.email || 'Client') + '</span><span class="preview">' + esc(c.plan || 'Client') + ' · client</span></span>' +
+        '<span class="mark">' + (on ? '✓' : '') + '</span></button>';
+    });
+    if (live.sent) h += '<div class="card" id="sent-note"><div class="name">Copies for their workouts</div><p>' + esc(live.sent) + '</p></div>';
+    var n = chosenClients().length;
+    h += '<button type="button" class="pri" id="send-go" data-send-workout style="width:100%;margin-top:8px"' + (n && live.pickedWorkout ? '' : ' disabled') + '>' +
+      (n ? 'Send to ' + n + (n === 1 ? ' client' : ' clients') : 'Send workout') + '</button>';
+    ctx.app.innerHTML = h;
+    ctx.app.onclick = function (e) {
+      var t = e.target.closest('[data-pick-workout], [data-pick-client], [data-send-workout]');
+      if (!t || t.disabled) return;
+      if (t.dataset.pickWorkout) { live.pickedWorkout = t.dataset.pickWorkout; live.sent = ''; return drawSend(); }
+      if (t.dataset.pickClient) { live.picked[t.dataset.pickClient] = !live.picked[t.dataset.pickClient]; live.sent = ''; return drawSend(); }
+      if (t.dataset.sendWorkout != null) return sendCopies();
+    };
+  }
+  function nameList(list) {
+    var names = list.map(function (c) { return c.email || 'Client'; });
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return names[0] + ' and ' + names[1];
+    return names.slice(0, -1).join(', ') + ', and ' + names[names.length - 1];
+  }
+  function sendCopies() {
+    var workout = null;
+    ownWorkouts().forEach(function (w) { if (w.id === live.pickedWorkout) workout = w; });
+    var clients = chosenClients();
+    if (!workout || !clients.length) return ctx.toast('Choose a workout and at least one client.');
+    var snap = root.WBCoaching.snapshot(workout);
+    var btn = document.getElementById('send-go');
+    if (btn) btn.disabled = true;
+    root.WBAuth.sendWorkout(clients.map(function (c) { return c.id; }), snap.name, snap.items, snap.sourceWorkoutId).then(function () {
+      var editors = clients.filter(function (c) { return /enthusiast/i.test(c.plan || ''); });
+      var runners = clients.filter(function (c) { return !/enthusiast/i.test(c.plan || ''); });
+      var bits = [];
+      if (editors.length) bits.push(nameList(editors) + (editors.length > 1 ? ' each get' : ' gets') + ' an editable copy of ' + snap.name);
+      if (runners.length) bits.push(nameList(runners) + (runners.length > 1 ? ' each get' : ' gets') + ' a copy of ' + snap.name + ' they can run');
+      live.sent = bits.join('. ') + '. Your workout was not changed.';
+      ctx.toast('Sent');
+      drawSend();
+    }).catch(function (err) {
+      ctx.toast((err && err.message) || 'Could not send');
+      drawSend();
+    });
+  }
+  function loadReceived(id) {
+    ctx.titleEl.textContent = 'Workouts';
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    var auth = root.WBAuth;
+    if (!auth || !auth.myWorkouts) return showWait();
+    var gen = live.gen;
+    auth.myWorkouts().then(function (list) {
+      if (gen !== live.gen || parts()[0] !== 'received') return;
+      if (ctx.applyCopies) ctx.applyCopies(list || []);
+      var copies = (ctx.workouts ? ctx.workouts() : []).filter(function (w) { return w && w.sourceTrainerId; });
+      if (id) return drawCopy(copies.filter(function (w) { return w.id === id; })[0] || null);
+      drawReceived(copies);
+    }).catch(function (err) {
+      if (gen !== live.gen || parts()[0] !== 'received') return;
+      showWait(err);
+    });
+  }
+  function drawReceived(copies) {
+    ctx.titleEl.textContent = 'Workouts';
+    var h = '<p class="mute" id="received-lead">Workouts from your trainer land here as your own copy.</p>';
+    if (!copies.length) h += '<div class="empty">No workouts from your trainer yet.</div>';
+    copies.forEach(function (w) {
+      var edit = root.WBCoaching.canEditCopy(ctx.profile, w);
+      h += '<div class="card"><div class="row"><div class="name grow">' + esc(w.name) + '</div><span class="tag">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span></div>';
+      h += '<div class="mute">' + w.items.length + ' exercise' + (w.items.length === 1 ? '' : 's') + ' · ' + (edit ? 'You can edit it' : 'You can run it') + '</div>';
+      h += '<div class="actions"><button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Open</button>';
+      if (w.items.length) h += '<button type="button" class="sm" data-run-copy="' + esc(w.id) + '">Run</button>';
+      h += '</div></div>';
+    });
+    ctx.app.innerHTML = h;
+    ctx.app.onclick = function (e) {
+      var t = e.target.closest('[data-open-copy], [data-run-copy]');
+      if (!t) return;
+      if (t.dataset.runCopy) return ctx.go('#/play/' + t.dataset.runCopy);
+      ctx.go('#/received/' + t.dataset.openCopy);
+    };
+  }
+  function drawCopy(w) {
+    if (!w) {
+      ctx.app.innerHTML = '<div class="empty">That workout is not on this account.</div>';
+      return;
+    }
+    var edit = root.WBCoaching.canEditCopy(ctx.profile, w);
+    ctx.titleEl.textContent = w.name;
+    if (edit) return ctx.go('#/w/' + w.id);
+    var h = '<span class="tag">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span>';
+    h += '<p class="mute" id="copy-note">You can run this copy. Only an Enthusiast can edit it. Your trainer\'s workout stays as it is.</p>';
+    (w.items || []).forEach(function (it) {
+      var line = root.WB && root.WB.summarize ? root.WB.summarize(it) : '';
+      h += '<div class="card"><div class="name">' + esc(it.name || 'Exercise') + '</div><div class="mute">' + esc(line) + '</div></div>';
+    });
+    if (w.items && w.items.length) h += '<button type="button" class="pri" id="copy-run" style="width:100%">Start</button>';
+    ctx.app.innerHTML = h;
+    ctx.app.onclick = function (e) {
+      if (e.target.closest('#copy-run')) ctx.go('#/play/' + w.id);
+    };
+  }
+  function loadClient(id) {
+    ctx.titleEl.textContent = 'Client';
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    var auth = root.WBAuth;
+    if (!auth || !auth.clientView) return showWait();
+    var gen = live.gen;
+    auth.clientView(id).then(function (view) {
+      if (gen !== live.gen || parts()[0] !== 'client') return;
+      live.view = view;
+      drawClient();
+    }).catch(function (err) {
+      if (gen !== live.gen) return;
+      showWait(err);
+    });
+  }
+  function drawClient() {
+    var view = live.view || {};
+    ctx.titleEl.textContent = view.email || 'Client';
+    var h = '<p class="mute">' + esc(view.plan || '') + '</p>';
+    if (!view.shared) {
+      h += '<div class="card" id="client-view"><div class="name">Not shared</div><p class="mute">This client has not shared their own workouts and tracking. You still see it here only when an Enthusiast turns that on.</p></div>';
+    } else {
+      h += '<div id="client-view"><div class="name" style="margin-bottom:8px">Their workouts</div>';
+      if (!view.workouts || !view.workouts.length) h += '<p class="mute">No workouts of their own yet.</p>';
+      (view.workouts || []).forEach(function (w) {
+        h += '<div class="card"><div class="name">' + esc(w.name) + '</div><div class="mute">' + (w.exerciseCount || 0) + ' exercises</div></div>';
+      });
+      h += '<div class="name" style="margin:12px 0 8px">Tracking</div>';
+      if (!view.logs || !view.logs.length) h += '<p class="mute">No completed sessions yet.</p>';
+      (view.logs || []).forEach(function (log) {
+        h += '<div class="card"><div class="name">' + esc(log.workoutName || 'Session') + '</div><div class="mute">' + esc(whenLabel(log.endedAt)) + '</div></div>';
+      });
+      h += '</div>';
+    }
+    ctx.app.innerHTML = h;
+    ctx.app.onclick = null;
+  }
+
   root.WBConnect = { prefer: prefer, mount: mount };
 })(typeof window !== 'undefined' ? window : this);
