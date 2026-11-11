@@ -16,6 +16,7 @@
     if (page === 'signin' || page === 'join') return;
     var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd();
+    if (page === 'messages' && hashBody().split('/')[1]) return go('#/messages');
     go(p.length > 3 ? '#/w/' + p[2] : '#/');
   };
 
@@ -266,6 +267,7 @@
     var h = '<div class="sales">';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
+    h += '<button id="messages-nav" type="button" data-go="messages" style="width:100%;margin-bottom:12px">Messages</button>';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="note">Beta pricing for the first 100 members.</p>';
@@ -286,6 +288,8 @@
     h += '<p class="foot">Choosing a plan saves your selection.</p></div>';
     app.innerHTML = h;
     app.onclick = function (e) {
+      var nav = e.target.closest('[data-go]');
+      if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (handleInvite(e, function () { renderSubscriptions(); })) return;
       var b = e.target.closest('[data-plan]'); if (!b) return;
       if (planBusy || !WBMembership.canSelectIntended(b.dataset.plan)) return;
@@ -336,11 +340,14 @@
     h += '<div class="card"><div class="name">' + esc(session.user.email || 'Signed in') + '</div>' +
       '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p>' +
       '<button data-auth="out" style="width:100%">Sign out</button></div>';
+    h += '<button id="messages-nav" type="button" data-go="messages" style="width:100%;margin-bottom:12px">Messages</button>';
     if (conn && conn.trainerId) h += redeemCard(conn);
     h += trainerSection(roster);
     h += '</div>';
     app.innerHTML = h;
     app.onclick = function (e) {
+      var nav = e.target.closest('[data-go]');
+      if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
       var b = e.target.closest('[data-auth]'); if (!b) return;
       WBAuth.signOut().then(function () {
@@ -364,15 +371,35 @@
     }
     renderList();
   }
+  function openMessages(token) {
+    var requested = location.hash;
+    backBtn.hidden = false;
+    app.onclick = null; app.oninput = null; app.onchange = null;
+    app.innerHTML = '<p class="mute">Loading…</p>';
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return go('#/signin'); }
+    if (!pending || !pending.then) return go('#/signin');
+    pending.then(function (session) {
+      if (token !== routeToken || location.hash !== requested) return;
+      if (!session) return go('#/signin');
+      if (!window.WBMessages) return;
+      WBMessages.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast });
+    }).catch(function () {
+      if (token !== routeToken || location.hash !== requested) return;
+      go('#/signin');
+    });
+  }
   function route() {
     var token = ++routeToken;
     window.WBPlayer && WBPlayer.unmount();
+    window.WBMessages && WBMessages.stop();
     document.body.classList.remove('playing');
     var page = hashPage();
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
     if (page === 'subscriptions') return renderSubscriptions();
     if (page === 'account') return renderSimpleAccount();
+    if (page === 'messages') return openMessages(token);
     var requested = location.hash;
     app.innerHTML = '';
     app.onclick = null; app.oninput = null; app.onchange = null;
@@ -408,6 +435,7 @@
     var note = takeInviteNotice();
     var h = (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
       '<button style="width:100%;margin-bottom:8px" data-a="account">Account</button>' +
+      '<button id="messages-nav" type="button" style="width:100%;margin-bottom:8px" data-a="messages">Messages</button>' +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     if (!data.workouts.length) h += '<div class="empty">No workouts yet.<br>Tap “New workout” to build one.</div>';
     data.workouts.forEach(function (w, wi) {
@@ -427,6 +455,7 @@
       var b = e.target.closest('[data-a]'); if (!b) return;
       var a = b.dataset.a, w = getW(b.dataset.id);
       if (a === 'account') return openAccount();
+      if (a === 'messages') return go('#/messages');
       if (a === 'new') {
         var name = prompt('Workout name', 'New workout'); if (name === null) return;
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);

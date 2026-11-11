@@ -100,6 +100,22 @@
     cancelInvite: function (code) { return rpc('invite_cancel', { p_code: code }); },
     redeemInvite: function (code) { return rpc('invite_redeem', { p_code: code }); },
     endConnection: function (clientId) { return rpc('invite_end', { p_client: clientId && clientId !== 'self' ? clientId : null }); },
+    threads: function () { return messageRpc('message_threads'); },
+    messages: function (personId) { return messageRpc('message_open', { p_person: personId }); },
+    sendMessage: function (personId, messageId, body) {
+      return messageRpc('message_send', { p_person: personId, p_id: messageId, p_body: body });
+    },
+    markRead: function (personId) { return messageRpc('message_read', { p_person: personId }); },
+    watchMessages: function (handler) {
+      return db().then(function (c) {
+        var channel = c.channel('wb-messages-' + Math.random().toString(36).slice(2));
+        channel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, function () {
+          try { handler(); } catch (e) {}
+        });
+        channel.subscribe();
+        return function () { try { c.removeChannel(channel); } catch (e2) {} };
+      });
+    },
     myConnection: function () {
       return rpc('invite_mine').then(function (row) { return row && row.trainerId ? row : null; });
     },
@@ -143,6 +159,20 @@
       if (res.error) throw inviteError(res.error);
       return res.data;
     });
+  }
+  function messageRpc(name, args) {
+    return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
+      if (res.error) throw messageError(res.error);
+      return res.data;
+    });
+  }
+  function messageError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205|42P01/i.test(msg)) {
+      return new Error('Messages are not available yet. Apply the messages SQL in the Supabase SQL editor.');
+    }
+    if (/invalid input syntax for type uuid/i.test(msg)) return new Error('There is no connection.');
+    return new Error(msg || 'Could not use messages');
   }
   function inviteError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
