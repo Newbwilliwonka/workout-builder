@@ -4,7 +4,8 @@
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
   var data = M.load(localStorage), selected = {}, draft = null;
 
-  function persist() { M.save(localStorage, data); }
+  function persist() { M.save(localStorage, data); scheduleCopySave(); }
+  function persistLocal() { M.save(localStorage, data); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function getW(id) { return data.workouts.filter(function (w) { return w.id === id; })[0]; }
   function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2200); }
@@ -17,6 +18,14 @@
     var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd();
     if (page === 'messages' && hashBody().split('/')[1]) return go('#/messages');
+    if (page === 'send') return go('#/');
+    if (page === 'received') return go(hashBody().split('/')[1] ? '#/received' : '#/account');
+    if (page === 'w') {
+      var segs = hashBody().split('/');
+      if (segs.length > 2) return go('#/w/' + segs[1]);
+      var back = receivedBack(getW(segs[1]));
+      if (back) return go(back);
+    }
     go(p.length > 3 ? '#/w/' + p[2] : '#/');
   };
 
@@ -64,6 +73,129 @@
     return BUILDER_EMAILS.indexOf(String(email || '').trim().toLowerCase()) !== -1;
   }
   var routeToken = 0;
+  var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0, profileLookup = 0;
+  var COPY_RETURN = 'wb.copyReturn';
+  function setCopyReturn(hash) {
+    try {
+      if (hash) sessionStorage.setItem(COPY_RETURN, hash);
+      else sessionStorage.removeItem(COPY_RETURN);
+    } catch (e) {}
+  }
+  function receivedBack(w) {
+    if (!w || !w.sourceTrainerId) return '';
+    try { return sessionStorage.getItem(COPY_RETURN) || ''; } catch (e) { return ''; }
+  }
+  function copyLocked(w) {
+    if (!w || !w.sourceTrainerId || !window.WBSends) return false;
+    if (!cachedProfile) return true;
+    return !WBSends.canEditCopy(cachedProfile, w);
+  }
+  function copyNote(w) {
+    if (!w || !w.sourceTrainerId) return '';
+    return '<span class="tag">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span>' +
+      '<p class="mute" id="copy-note">Copy from your trainer. Edits stay on this copy and do not change their workout.</p>';
+  }
+  function ensureProfile() {
+    if (cachedProfile) return Promise.resolve(cachedProfile);
+    if (!WBAuth.profile) return Promise.resolve(null);
+    return WBAuth.profile().then(function (p) {
+      if (p) cachedProfile = p;
+      return cachedProfile;
+    }, function () { return null; });
+  }
+  function copyBody(name, items) {
+    try { return name + '\n' + JSON.stringify(items || []); } catch (e) { return null; }
+  }
+  function listSig(list) {
+    return (list || []).map(function (w) {
+      if (!w) return '';
+      return [w.id, w.name, w.updatedAt || 0, w.sourceTrainerId || '', w.items ? w.items.length : 0].join('~');
+    }).join('|');
+  }
+  function applyCopies(list) {
+    if (!window.WBSends || !Array.isArray(list)) return;
+    // No profile yet means we do not know. A newer local copy stays; a Free Client result is never invented.
+    var canEdit = !cachedProfile || WBSends.canEditCopy(cachedProfile, { sourceTrainerId: '1' });
+    applyingCopies = true;
+    data.workouts = WBSends.mergeCopies(data.workouts, list, { canEdit: canEdit, removed: removedCopies });
+    var serverBody = {};
+    list.forEach(function (row) {
+      if (!row || row.id == null) return;
+      var body = copyBody(row.name, row.items);
+      if (body != null) serverBody[String(row.id)] = body;
+    });
+    data.workouts.forEach(function (w) {
+      if (!w || !w.sourceTrainerId) return;
+      var body = copyBody(w.name, w.items);
+      if (body == null) return;
+      var server = serverBody[String(w.id)];
+      // A local edit the server does not have yet stays pending so the next refresh can send it.
+      if (server != null && server !== body) return;
+      copyStamp[w.id] = body;
+    });
+    persistLocal();
+    applyingCopies = false;
+    scheduleCopySave();
+  }
+  function pullCopies() {
+    if (!WBAuth.workoutCopies || !window.WBSends) return;
+    var token = ++pullToken;
+    var route = routeToken;
+    var pending;
+    try { pending = WBAuth.workoutCopies(); } catch (e) { return; }
+    if (!pending || !pending.then) return;
+    pending.then(function (list) {
+      if (token !== pullToken || route !== routeToken) return;
+      var incoming = Array.isArray(list) ? list : [];
+      var need = incoming.length || data.workouts.some(function (w) { return w && w.sourceTrainerId; });
+      var step = need ? ensureProfile() : Promise.resolve();
+      step.then(function () {
+        if (token !== pullToken || route !== routeToken) return;
+        var before = listSig(data.workouts);
+        applyCopies(incoming);
+        if (listSig(data.workouts) !== before && hashPage() === '') renderList();
+      });
+    }, function () {});
+  }
+  function scheduleCopySave() {
+    if (applyingCopies || !window.WBSends || !WBAuth.saveWorkoutCopy) return;
+    var pending = data.workouts.some(function (w) { return w && w.sourceTrainerId && WBSends.serverId(w.id); });
+    if (!pending) return;
+    ensureProfile().then(function () {
+      if (applyingCopies || !WBSends.canEditCopy(cachedProfile, { sourceTrainerId: '1' })) return;
+      data.workouts.forEach(function (w) {
+        if (!w || !w.sourceTrainerId || !WBSends.serverId(w.id)) return;
+        var stamp = copyBody(w.name, w.items);
+        if (stamp == null) return;
+        if (copyStamp[w.id] === stamp) return;
+        copyStamp[w.id] = stamp;
+        var gen = (copySaveGen[w.id] = (copySaveGen[w.id] || 0) + 1);
+        var id = w.id, name = w.name, items;
+        try { items = JSON.parse(JSON.stringify(w.items || [])); } catch (e2) { return; }
+        WBAuth.saveWorkoutCopy(id, name, items).then(function (row) {
+          if (copySaveGen[id] !== gen) return;
+          var current = getW(id);
+          if (!current || !row || row.updatedAt == null) return;
+          if (copyStamp[id] !== stamp) return;
+          current.updatedAt = WBSends.stamp(row.updatedAt);
+          applyingCopies = true;
+          persistLocal();
+          applyingCopies = false;
+        }, function () {
+          if (copySaveGen[id] === gen && copyStamp[id] === stamp) delete copyStamp[id];
+          toast('Could not save that copy');
+        });
+      });
+    });
+  }
+  function renderLocked(w) {
+    titleEl.textContent = w.name;
+    backBtn.hidden = false;
+    app.innerHTML = window.WBSends ? WBSends.lockedHtml(w) : '<p class="mute" id="copy-note">You can run this copy.</p>';
+    app.onclick = function (e) { if (e.target.closest('#copy-run')) go('#/play/' + w.id); };
+    app.oninput = null;
+    app.onchange = null;
+  }
   var pendingSignNotice = null, authBusy = false, planBusy = false;
   function openAccount() {
     var from = hashPage();
@@ -250,6 +382,7 @@
         connP.then(function (conn) {
           if (hashPage() !== 'subscriptions') return;
           syncTrainerWorkouts(conn, session.user && session.user.id);
+          if (profile) cachedProfile = profile;
           drawSubscriptions(session, profile, message, isError, conn);
         }).catch(function () {
           if (hashPage() === 'subscriptions') drawSubscriptions(session, profile, message, isError, null);
@@ -268,6 +401,9 @@
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     h += '<button id="messages-nav" type="button" data-go="messages" style="width:100%;margin-bottom:12px">Messages</button>';
+    if (!(window.WBInvites && profile && WBInvites.trainerRole(profile))) {
+      h += '<button id="workouts-nav" type="button" data-go="received" style="width:100%;margin-bottom:12px">Workouts</button>';
+    }
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="note">Beta pricing for the first 100 members.</p>';
@@ -290,6 +426,7 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
+      if (nav && nav.dataset.go === 'received') return go('#/received');
       if (handleInvite(e, function () { renderSubscriptions(); })) return;
       var b = e.target.closest('[data-plan]'); if (!b) return;
       if (planBusy || !WBMembership.canSelectIntended(b.dataset.plan)) return;
@@ -326,6 +463,7 @@
             roster = WBInvites.trainerRole(profile) ? { error: roster.__err.message || 'Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.' } : { role: null };
           }
           syncTrainerWorkouts(conn, session.user && session.user.id);
+          if (profile) cachedProfile = profile;
           drawAccount(session, profile, roster, conn);
         });
       }).catch(function () { if (hashPage() === 'account') go('#/subscriptions'); });
@@ -340,7 +478,13 @@
     h += '<div class="card"><div class="name">' + esc(session.user.email || 'Signed in') + '</div>' +
       '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p>' +
       '<button data-auth="out" style="width:100%">Sign out</button></div>';
-    h += '<button id="messages-nav" type="button" data-go="messages" style="width:100%;margin-bottom:12px">Messages</button>';
+    var trainerNav = window.WBInvites && WBInvites.trainerRole(profile);
+    h += '<div class="row" id="account-nav" style="margin-bottom:12px">' +
+      '<button id="messages-nav" class="grow" type="button" data-go="messages">Messages</button>' +
+      (trainerNav
+        ? '<button id="send-nav" class="grow" type="button" data-go="send">Send workout</button>'
+        : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>') +
+      '</div>';
     if (conn && conn.trainerId) h += redeemCard(conn);
     h += trainerSection(roster);
     h += '</div>';
@@ -348,9 +492,14 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
+      if (nav && nav.dataset.go === 'send') return go('#/send');
+      if (nav && nav.dataset.go === 'received') return go('#/received');
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
       var b = e.target.closest('[data-auth]'); if (!b) return;
       WBAuth.signOut().then(function () {
+        cachedProfile = null;
+        copyStamp = {};
+        removedCopies = [];
         if (hashPage() !== 'account') return;
         go('#/signin');
       }).catch(function (err) {
@@ -361,15 +510,61 @@
   }
   function showBuilder() {
     var p = location.hash.replace(/^#\/?/, '').split('/');
-    if (p[0] === 'play' && getW(p[1]) && getW(p[1]).items.length) {
-      titleEl.textContent = getW(p[1]).name; backBtn.hidden = false;
-      return WBPlayer.mount(app, getW(p[1]), data, persist, function () { go('#/w/' + p[1]); });
+    var current = (p[0] === 'play' || p[0] === 'w') ? getW(p[1]) : null;
+    if (current && current.sourceTrainerId && !cachedProfile && WBAuth.profile && profileLookup !== routeToken) {
+      profileLookup = routeToken;
+      var token = routeToken;
+      WBAuth.profile().then(function (prof) {
+        if (token !== routeToken) return;
+        if (prof) cachedProfile = prof;
+        showBuilder();
+      }, function () {
+        if (token !== routeToken) return;
+        showBuilder();
+      });
+      return;
     }
-    if (p[0] === 'w' && getW(p[1])) {
-      if (p[2] === 'ex') return renderEditor(getW(p[1]), p[3]);
-      return renderWorkout(getW(p[1]));
+    if (p[0] === 'play' && current && current.items.length) {
+      titleEl.textContent = current.name; backBtn.hidden = false;
+      return WBPlayer.mount(app, current, data, persist, function () { go('#/w/' + current.id); });
+    }
+    if (p[0] === 'w' && current) {
+      if (copyLocked(current)) {
+        if (p[2] === 'ex') return go('#/w/' + current.id);
+        return renderLocked(current);
+      }
+      if (p[2] === 'ex') return renderEditor(current, p[3]);
+      return renderWorkout(current);
     }
     renderList();
+  }
+  function openSends(token) {
+    var requested = location.hash;
+    backBtn.hidden = false;
+    app.onclick = null; app.oninput = null; app.onchange = null;
+    app.innerHTML = '<p class="mute">Loading…</p>';
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return go('#/signin'); }
+    if (!pending || !pending.then) return go('#/signin');
+    pending.then(function (session) {
+      if (token !== routeToken || location.hash !== requested) return;
+      if (!session) return go('#/signin');
+      var profileP = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
+      profileP.then(function (profile) { return profile; }, function () { return null; }).then(function (profile) {
+        if (token !== routeToken || location.hash !== requested) return;
+        cachedProfile = profile || cachedProfile;
+        if (!window.WBSends) return;
+        WBSends.mount({
+          app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast,
+          profile: function () { return cachedProfile; },
+          workouts: function () { return data.workouts; },
+          applyCopies: function (list) { applyCopies(list || []); }
+        });
+      });
+    }).catch(function () {
+      if (token !== routeToken || location.hash !== requested) return;
+      go('#/signin');
+    });
   }
   function openMessages(token) {
     var requested = location.hash;
@@ -393,6 +588,7 @@
     var token = ++routeToken;
     window.WBPlayer && WBPlayer.unmount();
     window.WBMessages && WBMessages.stop();
+    window.WBSends && WBSends.stop();
     document.body.classList.remove('playing');
     var page = hashPage();
     if (page === 'signin') return renderSign('in');
@@ -400,6 +596,7 @@
     if (page === 'subscriptions') return renderSubscriptions();
     if (page === 'account') return renderSimpleAccount();
     if (page === 'messages') return openMessages(token);
+    if (page === 'send' || page === 'received') return openSends(token);
     var requested = location.hash;
     app.innerHTML = '';
     app.onclick = null; app.oninput = null; app.onchange = null;
@@ -409,8 +606,11 @@
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
       if (!session) return go('#/signin');
-      if (!builderAllowed(session)) return go('#/subscriptions');
-      showBuilder();
+      if (builderAllowed(session)) return showBuilder();
+      var receivedId = hashBody().split('/')[1];
+      var received = (page === 'play' || page === 'w') ? getW(receivedId) : null;
+      if (received && received.sourceTrainerId) return showBuilder();
+      go('#/subscriptions');
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
       go('#/signin');
@@ -435,32 +635,52 @@
     var note = takeInviteNotice();
     var h = (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
       '<button style="width:100%;margin-bottom:8px" data-a="account">Account</button>' +
-      '<button id="messages-nav" type="button" style="width:100%;margin-bottom:8px" data-a="messages">Messages</button>' +
+      '<div class="row" style="margin-bottom:8px">' +
+      '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
+      '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     if (!data.workouts.length) h += '<div class="empty">No workouts yet.<br>Tap “New workout” to build one.</div>';
     data.workouts.forEach(function (w, wi) {
       var n = w.items.length, nW = data.workouts.length;
-      h += '<div class="card"><div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
-        '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div><div class="actions">' +
-        '<button class="sm" data-a="wup" data-id="' + w.id + '" aria-label="Move up"' + (wi === 0 ? ' disabled' : '') + '>▲</button>' +
-        '<button class="sm" data-a="wdown" data-id="' + w.id + '" aria-label="Move down"' + (wi === nW - 1 ? ' disabled' : '') + '>▼</button>' +
-        '<button class="pri sm" data-a="open" data-id="' + w.id + '">Open</button>' +
-        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>' +
-        '<button class="sm" data-a="rename" data-id="' + w.id + '">Rename</button>' +
-        '<button class="sm" data-a="dup" data-id="' + w.id + '">Duplicate</button>' +
-        '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button></div></div>';
+      var locked = copyLocked(w);
+      h += '<div class="card">';
+      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span>';
+      h += '<div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
+        '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') +
+        (w.sourceTrainerId ? (locked ? ' · You can run it' : ' · You can edit it') : '') + '</div><div class="actions">';
+      if (!locked) {
+        h += '<button class="sm" data-a="wup" data-id="' + w.id + '" aria-label="Move up"' + (wi === 0 ? ' disabled' : '') + '>▲</button>' +
+          '<button class="sm" data-a="wdown" data-id="' + w.id + '" aria-label="Move down"' + (wi === nW - 1 ? ' disabled' : '') + '>▼</button>';
+      }
+      h += '<button class="pri sm" data-a="open" data-id="' + w.id + '">Open</button>' +
+        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>';
+      if (!locked) {
+        h += '<button class="sm" data-a="rename" data-id="' + w.id + '">Rename</button>' +
+          '<button class="sm" data-a="dup" data-id="' + w.id + '">Duplicate</button>' +
+          '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button>';
+      }
+      h += '</div></div>';
     });
     app.innerHTML = h;
+    if (data.workouts.some(function (w) { return w && w.sourceTrainerId; }) && !cachedProfile) {
+      var paint = routeToken;
+      ensureProfile().then(function () {
+        if (paint !== routeToken || hashPage() !== '' || !cachedProfile) return;
+        renderList();
+      });
+    }
+    pullCopies();
     app.onclick = function (e) {
       var b = e.target.closest('[data-a]'); if (!b) return;
       var a = b.dataset.a, w = getW(b.dataset.id);
       if (a === 'account') return openAccount();
       if (a === 'messages') return go('#/messages');
+      if (a === 'send') return go('#/send');
       if (a === 'new') {
         var name = prompt('Workout name', 'New workout'); if (name === null) return;
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);
-      } else if (a === 'open') go('#/w/' + w.id);
-      else if (a === 'run') { if (w.items.length) go('#/play/' + w.id); }
+      } else if (a === 'open') { setCopyReturn(''); go('#/w/' + w.id); }
+      else if (a === 'run') { if (w.items.length) { setCopyReturn(''); go('#/play/' + w.id); } }
       else if (a === 'rename') { var r = prompt('Rename workout', w.name); if (r && r.trim()) { w.name = r.trim(); w.updatedAt = Date.now(); persist(); renderList(); } }
       else if (a === 'dup') {
         var c = M.duplicateWorkout(w);
@@ -495,6 +715,13 @@
             var gone = M.cleanMedia(it.media);
             if (gone && gone.kind === 'custom' && dropKeys.indexOf(gone.imageKey) < 0) dropKeys.push(gone.imageKey);
           });
+          if (w.sourceTrainerId) {
+            removedCopies.push(w.id);
+            delete copyStamp[w.id];
+            if (WBAuth.deleteWorkoutCopy && !copyLocked(w)) {
+              WBAuth.deleteWorkoutCopy(w.id).catch(function () { toast('Could not remove that copy'); });
+            }
+          }
           data.workouts.splice(data.workouts.indexOf(w), 1);
           dropKeys.forEach(function (key) {
             if (!customKeyInUse(key) && window.WBMedia) WBMedia.remove(key);
@@ -527,7 +754,7 @@
   function renderWorkout(w) {
     titleEl.textContent = w.name; backBtn.hidden = false;
     Object.keys(selected).forEach(function (k) { if (!w.items.some(function (x) { return x.id === k; })) delete selected[k]; });
-    var bl = M.blocks(w), h = '', chain = '<svg class="chain-ico" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg>';
+    var bl = M.blocks(w), h = copyNote(w), chain = '<svg class="chain-ico" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg>';
     if (!w.items.length) h += '<div class="empty">No exercises yet.<br>Tap “+ Exercise” below.</div>';
     else h += '<p class="mute">Tick 2 or more exercises, then tap “Link superset”.</p>';
     bl.forEach(function (b, bi) {
@@ -856,7 +1083,7 @@
     h += '<label>Notes</label><textarea data-b="notes" placeholder="Cues, tempo, equipment…">' + esc(d.notes) + '</textarea>' +
       editorMediaHtml(d) + '<div id="errs"></div>' +
       '<div class="actions" style="margin-top:16px"><button class="pri grow" data-a="save">Save exercise</button><button data-a="cancel">Cancel</button></div></div>';
-    app.innerHTML = h;
+    app.innerHTML = copyNote(w) + h;
     if (window.WBMedia) WBMedia.bind(app);
     if (d.source === 'library') ensureLibFilters();
     app.onchange = null;

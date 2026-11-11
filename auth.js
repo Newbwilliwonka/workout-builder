@@ -106,6 +106,19 @@
       return messageRpc('message_send', { p_person: personId, p_id: messageId, p_body: body });
     },
     markRead: function (personId) { return messageRpc('message_read', { p_person: personId }); },
+    workoutCopies: function () { return workoutRpc('workout_mine'); },
+    sendWorkout: function (deliveries, name, items, sourceId) {
+      return workoutRpc('workout_send', {
+        p_deliveries: deliveries || [],
+        p_name: name || '',
+        p_items: items || [],
+        p_source: sourceId || ''
+      });
+    },
+    saveWorkoutCopy: function (id, name, items) {
+      return workoutRpc('workout_save', { p_id: id, p_name: name || '', p_items: items || [] });
+    },
+    deleteWorkoutCopy: function (id) { return workoutRpc('workout_delete', { p_id: id }); },
     watchMessages: function (handler) {
       return db().then(function (c) {
         var channel = c.channel('wb-messages-' + Math.random().toString(36).slice(2));
@@ -165,6 +178,19 @@
       if (res.error) throw messageError(res.error);
       return res.data;
     });
+  }
+  function workoutRpc(name, args) {
+    return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
+      if (res.error) throw workoutError(res.error);
+      return res.data;
+    });
+  }
+  function workoutError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205|42P01/i.test(msg)) {
+      return new Error('Sending workouts is not available yet. Apply the workout SQL in the Supabase SQL editor.');
+    }
+    return new Error(msg || 'Could not send that workout.');
   }
   function messageError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
