@@ -79,6 +79,8 @@ async function installBook(page, who) {
         state.sent.push({ ids: ids, name: name, items: items, sourceId: sourceId });
         return Promise.resolve({ name: name, sent: ids.map(function (id) { return { clientId: id, workoutId: 'copy-' + id }; }) });
       };
+      base.pushOwn = function (payload) { window.__pushed = payload; return Promise.resolve({ ok: true }); };
+      base.deleteCopy = function (id) { window.__deleted = id; return Promise.resolve({ id: id }); };
       base.myWorkouts = function () {
         try {
           var data = JSON.parse(localStorage.getItem('wb.data.v1') || '{}');
@@ -138,6 +140,25 @@ async function installBook(page, who) {
   await trainer.type('#msg-text', 'Friday still works');
   await trainer.click('#msg-send');
   await trainer.waitForFunction(() => document.body.innerText.includes('Friday still works'));
+  await trainer.evaluate(() => {
+    var input = document.getElementById('msg-text');
+    input.focus();
+    input.value = 'Hello there';
+    input.setSelectionRange(1, 4);
+  });
+  await new Promise(function (r) { setTimeout(r, 4500); });
+  assert.deepStrictEqual(await trainer.evaluate(() => {
+    var input = document.getElementById('msg-text');
+    return [input.value, input.selectionStart, input.selectionEnd];
+  }), ['Hello there', 1, 4]);
+  await trainer.evaluate(() => {
+    window.WBAuth.messages = function () { return Promise.reject(new Error('network down')); };
+    window.WBAuth.threads = function () { return Promise.reject(new Error('network down')); };
+  });
+  await new Promise(function (r) { setTimeout(r, 4500); });
+  assert.ok(await trainer.$('#thread'));
+  assert.strictEqual(await trainer.$('#coaching-wait'), null);
+  assert.strictEqual(await trainer.$eval('#msg-text', e => e.value), 'Hello there');
   await trainer.click('#back');
   await trainer.waitForFunction(() => !document.querySelector('.count'));
 
@@ -184,6 +205,14 @@ async function installBook(page, who) {
   await free.click('#copy-run');
   await free.waitForSelector('.pl-screen');
   assert.strictEqual(await free.$('[data-a=add]'), null);
+  free.on('dialog', d => d.accept());
+  await free.click('.pl-screen');
+  await free.waitForSelector('.pl-endw');
+  await free.click('.pl-endw');
+  await free.waitForFunction(() => {
+    try { return JSON.parse(localStorage.getItem('wb.sharedLogs') || '[]').length > 0; } catch (e) { return false; }
+  });
+  assert.strictEqual(await free.evaluate(k => JSON.parse(localStorage.getItem(k)).sessions.length, M.STORAGE_KEY), 0);
 
   const fan = await b.newPage();
   fan.on('pageerror', e => errs.push('fan ' + e));
@@ -205,6 +234,15 @@ async function installBook(page, who) {
   await fan.waitForSelector('#copy-note');
   assert.ok((await fan.$eval('#copy-note', e => e.textContent)).includes('do not change their workout'));
   assert.ok(await fan.$('[data-a=add]'));
+  await fan.click('#back');
+  await fan.waitForFunction(() => location.hash === '#/received');
+  await fan.click('#back');
+  await fan.waitForFunction(() => location.hash === '#/account');
+  await fan.evaluate(() => {
+    window.WBOnSession({ id: 'ses_fan', workoutId: 'w', workoutName: 'Easy bike day', startedAt: 1, endedAt: 2, results: [{ logged: true }] });
+  });
+  await fan.waitForFunction(() => window.__pushed && window.__pushed.logs.some(function (row) { return row.workoutName === 'Easy bike day'; }));
+  assert.strictEqual(await fan.evaluate(k => JSON.parse(localStorage.getItem(k)).sessions.length, M.STORAGE_KEY), 0);
   await fan.goto(URL + '#/account');
   await fan.waitForSelector('#share-account');
   assert.strictEqual(await fan.$eval('#share-account', e => e.getAttribute('aria-checked')), 'true');

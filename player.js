@@ -363,6 +363,7 @@
     S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged };
+    if (logged.length && typeof window.WBOnSession === 'function') { try { window.WBOnSession(sess); } catch (e) {} }
     S.saved = M.SAVE_SESSIONS && logged.length > 0;
     if (S.saved) { S.data.sessions.push(sess); S.persist(); }
     S.done = sess; if (wake) wake.release().catch(function () {});

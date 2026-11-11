@@ -22,6 +22,9 @@
     var n = Date.parse(value || '');
     return isNaN(n) ? 0 : n;
   }
+  function serverId(id) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ''));
+  }
   function asCopy(remote) {
     return {
       id: remote.id,
@@ -34,23 +37,32 @@
       updatedAt: stamp(remote.updatedAt)
     };
   }
-  // Keep workouts the person built. Refresh copies from the server.
-  // A received copy the server no longer returns (the link ended) is dropped.
-  function mergeCopies(local, remote) {
+  // Keep workouts the person built, including a duplicate of a received copy.
+  // Refresh server copies. A copy they deleted stays deleted. A server copy whose
+  // link ended (its id is gone, and it is not a local duplicate) is dropped.
+  function mergeCopies(local, remote, removed) {
+    var gone = {};
+    (removed || []).forEach(function (id) { if (id) gone[id] = 1; });
     var incoming = {};
-    (remote || []).forEach(function (row) { if (row && row.id) incoming[row.id] = row; });
+    (remote || []).forEach(function (row) {
+      if (row && row.id && !gone[row.id]) incoming[row.id] = row;
+    });
     var seen = {};
     var next = [];
     (local || []).forEach(function (w) {
-      if (!w || !w.sourceTrainerId) { next.push(w); return; }
+      if (!w) return;
+      if (!w.sourceTrainerId) { next.push(w); return; }
       var row = incoming[w.id];
-      if (!row) return;
+      if (!row) {
+        if (!serverId(w.id)) next.push(w);
+        return;
+      }
       seen[w.id] = 1;
       var copy = asCopy(row);
       next.push((w.updatedAt || 0) > copy.updatedAt ? w : copy);
     });
     (remote || []).forEach(function (row) {
-      if (row && row.id && !seen[row.id]) next.push(asCopy(row));
+      if (row && row.id && !seen[row.id] && !gone[row.id]) next.push(asCopy(row));
     });
     return next;
   }
@@ -74,6 +86,7 @@
 
   var api = {
     canEditCopy: canEditCopy,
+    serverId: serverId,
     mergeCopies: mergeCopies,
     snapshot: snapshot,
     cleanBody: cleanBody,

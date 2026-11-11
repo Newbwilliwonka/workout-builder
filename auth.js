@@ -129,6 +129,7 @@
     saveCopy: function (workout) {
       return coaching('coaching_save_copy', { p_id: workout.id, p_name: workout.name, p_items: workout.items || [] });
     },
+    deleteCopy: function (id) { return coaching('coaching_delete_copy', { p_id: id }); },
     pushOwn: function (payload) {
       payload = payload || {};
       return coaching('coaching_push_own', { p_workouts: payload.workouts || [], p_logs: payload.logs || [] });

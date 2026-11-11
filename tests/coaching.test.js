@@ -27,21 +27,27 @@ assert.strictEqual(snap.sourceTrainerId, undefined);
 snap.items[0].name = 'Changed';
 assert.strictEqual(src.items[0].name, 'Squat');
 
+const gone = '11111111-1111-1111-1111-111111111111';
+const deleted = '22222222-2222-2222-2222-222222222222';
 const local = [
   { id: 'own', name: 'Mine', items: [] },
-  { id: 'old', name: 'Gone', sourceTrainerId: 't1', items: [], updatedAt: 1 },
+  { id: gone, name: 'Ended', sourceTrainerId: 't1', items: [], updatedAt: 1 },
+  { id: 'wo_dup', name: 'My duplicate', sourceTrainerId: 't1', items: [{ name: 'Squat' }], updatedAt: 5 },
   { id: 'copy', name: 'Local newer', sourceTrainerId: 't1', items: [{ name: 'Mine' }], updatedAt: 50 }
 ];
 const remote = [
   { id: 'copy', name: 'Server older', sourceTrainerId: 't1', sourceTrainerEmail: 'alex@example.com', items: [{ name: 'Server' }], updatedAt: '1970-01-01T00:00:00.000Z' },
-  { id: 'new', name: 'Friday', sourceTrainerId: 't1', sourceTrainerEmail: 'alex@example.com', items: [{ name: 'Squat' }], updatedAt: '2026-11-10T00:00:00.000Z' }
+  { id: 'new', name: 'Friday', sourceTrainerId: 't1', sourceTrainerEmail: 'alex@example.com', items: [{ name: 'Squat' }], updatedAt: '2026-11-10T00:00:00.000Z' },
+  { id: deleted, name: 'Deleted', sourceTrainerId: 't1', items: [], updatedAt: '2026-11-10T00:00:00.000Z' }
 ];
-const merged = C.mergeCopies(local, remote);
-assert.deepStrictEqual(merged.map(function (w) { return w.id; }), ['own', 'copy', 'new']);
+const merged = C.mergeCopies(local, remote, [deleted]);
+assert.deepStrictEqual(merged.map(function (w) { return w.id; }), ['own', 'wo_dup', 'copy', 'new']);
 assert.strictEqual(merged[0].name, 'Mine');
 assert.strictEqual(merged[0].sourceTrainerId, undefined);
-assert.strictEqual(merged[1].name, 'Local newer');
-assert.strictEqual(merged[2].sourceTrainerEmail, 'alex@example.com');
+assert.strictEqual(merged[1].name, 'My duplicate');
+assert.strictEqual(merged[2].name, 'Local newer');
+assert.strictEqual(merged[3].sourceTrainerEmail, 'alex@example.com');
+assert.ok(!merged.some(function (w) { return w.id === gone || w.id === deleted; }));
 assert.strictEqual(C.cleanBody('  Friday   still  '), 'Friday still');
 assert.strictEqual(C.unread([{ mine: false, readAt: null }, { mine: true, readAt: null }, { mine: false, readAt: 'x' }]), 1);
 

@@ -5,15 +5,60 @@
   var data = M.load(localStorage), selected = {}, draft = null;
 
   var cachedProfile = null, profileLoaded = false;
-  function noteProfile(p) { cachedProfile = p || null; profileLoaded = true; }
+  function noteProfile(p) {
+    cachedProfile = p || null;
+    profileLoaded = true;
+    if (p && window.WBInvites && WBInvites.isEnthusiast(p) && readSharedLogs().length) schedulePush();
+  }
+  var REMOVED_KEY = 'wb.removedCopies', SHARED_LOGS = 'wb.sharedLogs', COPY_RETURN = 'wb.copyReturn';
+  function readJson(key) {
+    try { var raw = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(raw) ? raw : []; }
+    catch (e) { return []; }
+  }
+  function removedCopies() { return readJson(REMOVED_KEY); }
+  function rememberRemoved(id) {
+    var ids = removedCopies();
+    if (ids.indexOf(id) < 0) ids.push(id);
+    try { localStorage.setItem(REMOVED_KEY, JSON.stringify(ids)); } catch (e) {}
+  }
+  function readSharedLogs() { return readJson(SHARED_LOGS); }
+  function noteSession(sess) {
+    if (!sess || !sess.id || !sess.results || !sess.results.length) return;
+    var logs = readSharedLogs().filter(function (row) { return row.localId !== sess.id; });
+    logs.push({
+      localId: sess.id, workoutId: sess.workoutId, workoutName: sess.workoutName,
+      startedAt: sess.startedAt, endedAt: sess.endedAt, results: sess.results
+    });
+    try { localStorage.setItem(SHARED_LOGS, JSON.stringify(logs.slice(-30))); } catch (e) {}
+    if (!profileLoaded && window.WBAuth && WBAuth.profile) {
+      WBAuth.profile().then(function (prof) { noteProfile(prof); }).catch(function () {});
+      return;
+    }
+    if (cachedProfile && window.WBInvites && WBInvites.isEnthusiast(cachedProfile)) schedulePush();
+  }
+  window.WBOnSession = noteSession;
+  function rememberCopyReturn(hash) {
+    try { sessionStorage.setItem(COPY_RETURN, hash); } catch (e) {}
+  }
+  function copyReturnHash() {
+    try { return sessionStorage.getItem(COPY_RETURN) || '#/received'; } catch (e) { return '#/received'; }
+  }
   function ownPayload() {
     return {
       workouts: data.workouts.filter(function (w) { return w && !w.sourceTrainerId; }).map(function (w) {
         return { localId: w.id, name: w.name, items: w.items || [] };
       }),
-      logs: (data.sessions || []).slice(-30).map(function (s) {
-        return { localId: s.id, workoutId: s.workoutId, workoutName: s.workoutName, startedAt: s.startedAt, endedAt: s.endedAt, results: s.results || [] };
-      })
+      logs: (function () {
+        var seen = {}, logs = [];
+        (data.sessions || []).map(function (s) {
+          return { localId: s.id, workoutId: s.workoutId, workoutName: s.workoutName, startedAt: s.startedAt, endedAt: s.endedAt, results: s.results || [] };
+        }).concat(readSharedLogs()).forEach(function (row) {
+          if (!row || !row.localId || seen[row.localId]) return;
+          seen[row.localId] = 1;
+          logs.push(row);
+        });
+        return logs.slice(-30);
+      })()
     };
   }
   function schedulePush() {
@@ -32,7 +77,13 @@
     var token = routeToken;
     WBAuth.myWorkouts().then(function (list) {
       if (token !== routeToken || !Array.isArray(list)) return;
-      var next = WBCoaching.mergeCopies(data.workouts, list);
+      var removed = removedCopies();
+      var next = WBCoaching.mergeCopies(data.workouts, list, removed);
+      var remoteIds = {};
+      list.forEach(function (row) { if (row && row.id) remoteIds[row.id] = 1; });
+      var still = removed.filter(function (id) { return remoteIds[id]; });
+      try { localStorage.setItem(REMOVED_KEY, JSON.stringify(still)); } catch (e) {}
+      still.forEach(function (id) { if (WBAuth.deleteCopy) WBAuth.deleteCopy(id).catch(function () {}); });
       if (JSON.stringify(next) === JSON.stringify(data.workouts)) return;
       data.workouts = next;
       M.save(localStorage, data);
@@ -65,7 +116,13 @@
     var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd();
     if (p[1] === 'client' && p[2] && p[2].charAt(0) !== '?') return go('#/account');
-    if ((p[1] === 'messages' || p[1] === 'received') && p[2] && p[2].charAt(0) !== '?') return go('#/' + p[1]);
+    if (p[1] === 'received' && p[2] && p[2].charAt(0) !== '?') return go('#/received');
+    if (p[1] === 'received') return go('#/account');
+    if (p[1] === 'messages' && p[2] && p[2].charAt(0) !== '?') return go('#/messages');
+    if (p[1] === 'w' && (!p[3] || String(p[3]).charAt(0) === '?')) {
+      var opened = getW((p[2] || '').split('?')[0]);
+      if (opened && opened.sourceTrainerId) return go(copyReturnHash());
+    }
     go(p.length > 3 ? '#/w/' + p[2] : '#/');
   };
   var SHARE_KEY = 'wb.shareWorkouts';
@@ -706,11 +763,19 @@
       if (a === 'new') {
         var name = prompt('Workout name', 'New workout'); if (name === null) return;
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);
-      } else if (a === 'open') go('#/w/' + w.id);
+      } else if (a === 'open') {
+        if (w && w.sourceTrainerId) rememberCopyReturn('#/');
+        go('#/w/' + w.id);
+      }
       else if (a === 'run') { if (w.items.length) go('#/play/' + w.id); }
       else if (a === 'rename') { var r = prompt('Rename workout', w.name); if (r && r.trim()) { w.name = r.trim(); w.updatedAt = Date.now(); persist(); renderList(); } }
       else if (a === 'dup') {
         var c = M.duplicateWorkout(w);
+        if (w.sourceTrainerId) {
+          delete c.sourceTrainerId;
+          delete c.sourceTrainerEmail;
+          delete c.sourceWorkoutId;
+        }
         var copies = c.imageCopies ? c.imageCopies.slice() : [];
         if (c.imageCopies) delete c.imageCopies;
         var finishDup = function () {
@@ -743,6 +808,10 @@
             if (gone && gone.kind === 'custom' && dropKeys.indexOf(gone.imageKey) < 0) dropKeys.push(gone.imageKey);
           });
           data.workouts.splice(data.workouts.indexOf(w), 1);
+          if (w.sourceTrainerId && window.WBCoaching && WBCoaching.serverId(w.id)) {
+            rememberRemoved(w.id);
+            if (window.WBAuth && WBAuth.deleteCopy) WBAuth.deleteCopy(w.id).catch(function () {});
+          }
           dropKeys.forEach(function (key) {
             if (!customKeyInUse(key) && window.WBMedia) WBMedia.remove(key);
           });

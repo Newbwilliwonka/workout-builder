@@ -701,6 +701,28 @@ begin
 end;
 $$;
 
+create or replace function public.coaching_delete_copy(p_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  removed uuid;
+begin
+  if uid is null then raise exception 'Sign in first.'; end if;
+  if not public.coaching_is_enthusiast(uid) then
+    raise exception 'Only an Enthusiast can edit a workout from a trainer.';
+  end if;
+  delete from public.member_workouts
+    where id = p_id and owner_id = uid and source_trainer_id is not null
+    returning id into removed;
+  if removed is null then raise exception 'That copy was not found.'; end if;
+  return jsonb_build_object('id', removed);
+end;
+$$;
+
 -- Redeem keeps its old behavior and, for an Enthusiast, stores the sharing choice.
 drop function if exists public.invite_redeem(text);
 
@@ -790,6 +812,7 @@ revoke all on function public.coaching_mark_read(uuid) from public, anon, authen
 revoke all on function public.coaching_send_workout(uuid[], text, jsonb, text) from public, anon, authenticated;
 revoke all on function public.coaching_my_workouts() from public, anon, authenticated;
 revoke all on function public.coaching_save_copy(uuid, text, jsonb) from public, anon, authenticated;
+revoke all on function public.coaching_delete_copy(uuid) from public, anon, authenticated;
 revoke all on function public.coaching_push_own(jsonb, jsonb) from public, anon, authenticated;
 revoke all on function public.coaching_client_view(uuid) from public, anon, authenticated;
 revoke all on function public.invite_redeem(text, boolean) from public, anon;
@@ -805,6 +828,7 @@ grant execute on function public.coaching_mark_read(uuid) to authenticated;
 grant execute on function public.coaching_send_workout(uuid[], text, jsonb, text) to authenticated;
 grant execute on function public.coaching_my_workouts() to authenticated;
 grant execute on function public.coaching_save_copy(uuid, text, jsonb) to authenticated;
+grant execute on function public.coaching_delete_copy(uuid) to authenticated;
 grant execute on function public.coaching_push_own(jsonb, jsonb) to authenticated;
 grant execute on function public.coaching_client_view(uuid) to authenticated;
 grant execute on function public.invite_redeem(text, boolean) to authenticated;

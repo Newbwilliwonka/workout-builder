@@ -369,6 +369,7 @@
       if (!live.timer) startLive(function () { loadThreads(true); });
     }).catch(function (err) {
       if (gen !== live.gen || parts()[0] !== 'messages' || parts()[1]) return;
+      if (quiet && document.getElementById('thread-list')) return;
       showWait(err);
     });
   }
@@ -405,19 +406,28 @@
       if (!live.timer) startLive(function () { loadThread(id, true); });
     }).catch(function (err) {
       if (gen !== live.gen || parts()[1] !== id) return;
+      if (quiet && document.getElementById('msg-text')) return;
       showWait(err);
     });
+  }
+  function bubblesHtml(messages) {
+    return (messages || []).map(function (m) {
+      return '<div class="bubble' + (m.mine ? ' me' : '') + '"><span>' + esc(m.body) + '</span><span class="when">' + esc(whenLabel(m.at)) + '</span></div>';
+    }).join('');
   }
   function drawThread(draft, focused) {
     var data = live.thread || { person: {}, messages: [] };
     var person = data.person || {};
+    var existing = document.getElementById('msg-text');
+    if (existing && document.getElementById('thread')) {
+      var thread = document.getElementById('thread');
+      var html = bubblesHtml(data.messages);
+      if (thread.innerHTML !== html) thread.innerHTML = html;
+      return;
+    }
     ctx.titleEl.textContent = person.name || 'Messages';
     var h = '<p class="mute" id="with">' + esc(person.plan || '') + (person.plan && person.plan !== 'Trainer' ? ' · linked client' : '') + '</p>';
-    h += '<div class="thread" id="thread">';
-    (data.messages || []).forEach(function (m) {
-      h += '<div class="bubble' + (m.mine ? ' me' : '') + '"><span>' + esc(m.body) + '</span><span class="when">' + esc(whenLabel(m.at)) + '</span></div>';
-    });
-    h += '</div>';
+    h += '<div class="thread" id="thread">' + bubblesHtml(data.messages) + '</div>';
     h += '<div class="dock"><div class="inner composer"><input id="msg-text" placeholder="Message" autocomplete="off" maxlength="2000">' +
       '<button type="button" class="pri" id="msg-send">Send</button></div></div>';
     ctx.app.innerHTML = h;
@@ -425,6 +435,8 @@
     if (box) {
       box.value = draft || '';
       if (focused) box.focus();
+      var pos = box.value.length;
+      try { box.setSelectionRange(pos, pos); } catch (e) {}
       box.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); sendLive(); } };
     }
     ctx.app.onclick = function (e) {
@@ -578,7 +590,10 @@
     }
     var edit = root.WBCoaching.canEditCopy(ctx.profile, w);
     ctx.titleEl.textContent = w.name;
-    if (edit) return ctx.go('#/w/' + w.id);
+    if (edit) {
+      try { sessionStorage.setItem('wb.copyReturn', '#/received'); } catch (e) {}
+      return ctx.go('#/w/' + w.id);
+    }
     var h = '<span class="tag">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span>';
     h += '<p class="mute" id="copy-note">You can run this copy. Only an Enthusiast can edit it. Your trainer\'s workout stays as it is.</p>';
     (w.items || []).forEach(function (it) {
