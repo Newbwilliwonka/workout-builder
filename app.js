@@ -4,7 +4,7 @@
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
   var data = M.load(localStorage), selected = {}, draft = null;
 
-  function persist() { M.save(localStorage, data); scheduleCopySave(); }
+  function persist() { M.save(localStorage, data); scheduleCopySave(); scheduleSharePush(); }
   function persistLocal() { M.save(localStorage, data); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function getW(id) { return data.workouts.filter(function (w) { return w.id === id; })[0]; }
@@ -20,6 +20,7 @@
     if (page === 'messages' && hashBody().split('/')[1]) return go('#/messages');
     if (page === 'send') return go('#/');
     if (page === 'received') return go(hashBody().split('/')[1] ? '#/received' : '#/account');
+    if (page === 'client') return go('#/account');
     if (page === 'w') {
       var segs = hashBody().split('/');
       if (segs.length > 2) return go('#/w/' + segs[1]);
@@ -74,6 +75,10 @@
   }
   var routeToken = 0;
   var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0, profileLookup = 0;
+  var shareState = window.WBSharing ? WBSharing.initialState() : null;
+  var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, linkShareChoice = true;
+  var shareLookup = null, shareSessionFlight = false, shareRetryTimer = null, shareRetryWait = 1000;
+  var pushFlight = null, pushPending = false, pushTimer = null, pushWait = 1000;
   var COPY_RETURN = 'wb.copyReturn';
   function setCopyReturn(hash) {
     try {
@@ -289,15 +294,236 @@
       navigator.clipboard.writeText(text).then(function () { toast('Copied'); }, function () { toast('Could not copy'); });
     } else toast('Could not copy');
   }
-  function redeemCard(conn) {
+  function redeemCard(conn, profile) {
     var h = '<div class="card" id="redeem">';
-    if (conn && conn.trainerId) {
+    var linked = !!(conn && conn.trainerId);
+    if (linked) {
       h += '<div class="name">Your trainer</div><p class="mute">' + esc(conn.trainerEmail || 'Connected') + '</p>';
       h += '<button class="danger" data-invite="end-self" style="width:100%">End connection</button>';
     }
     h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
+    if (!linked && window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile)) h += WBSharing.linkOption(linkShareChoice);
     h += '<button class="pri" data-invite="redeem" style="width:100%;margin-top:10px">Redeem invite</button></div>';
     return h;
+  }
+  function noteProfile(profile) {
+    var id = profile && profile.id;
+    if (shareUser && id && shareUser !== id && window.WBSharing) {
+      shareState = WBSharing.initialState();
+      resetShareLookup();
+    }
+    if (id) shareUser = id;
+    if (profile) cachedProfile = profile;
+  }
+  function stopShareRetry() {
+    if (shareRetryTimer) { clearTimeout(shareRetryTimer); shareRetryTimer = null; }
+  }
+  function resetShareLookup() {
+    shareLoadGen++;
+    shareLookup = null;
+    shareSessionFlight = false;
+    shareRetryWait = 1000;
+    stopShareRetry();
+  }
+  function shareAnswered() {
+    if (!shareState) return false;
+    if (shareState.busy || shareState.phase === 'unavailable') return true;
+    return typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready';
+  }
+  function armShareRetry() {
+    if (shareRetryTimer || shareLookup || shareSessionFlight || shareAnswered()) return;
+    var wait = shareRetryWait;
+    shareRetryWait = Math.min(shareRetryWait * 2, 15000);
+    shareRetryTimer = setTimeout(function () {
+      shareRetryTimer = null;
+      ensureShare();
+    }, wait);
+  }
+  function afterShareLookup(ok) {
+    if (!shareState || !window.WBSharing) return;
+    if (shareState.busy) return;
+    if (shareState.phase === 'unavailable') { stopShareRetry(); return; }
+    if (ok === true && typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready') {
+      shareRetryWait = 1000;
+      stopShareRetry();
+      if (WBSharing.shouldPush(shareState)) scheduleSharePush();
+      else { pushPending = false; stopPushRetry(); }
+      return;
+    }
+    if (typeof shareState.confirmed !== 'boolean' || shareState.phase !== 'ready') armShareRetry();
+  }
+  function ensureShare() {
+    if (!window.WBSharing || !shareState || !WBAuth.shareSetting || !WBAuth.session) return;
+    if (shareAnswered() || shareLookup || shareSessionFlight) return;
+    stopShareRetry();
+    shareSessionFlight = true;
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { shareSessionFlight = false; armShareRetry(); return; }
+    Promise.resolve(pending).then(function (session) {
+      shareSessionFlight = false;
+      if (!session || shareAnswered() || shareLookup) return;
+      loadShare();
+    }, function () {
+      shareSessionFlight = false;
+      if (!shareAnswered()) armShareRetry();
+    });
+  }
+  function paintShare() {
+    var slot = document.getElementById('share-slot');
+    if (!slot || !window.WBSharing) return;
+    slot.innerHTML = WBSharing.accountCard(shareState);
+  }
+  function loadShare() {
+    if (!window.WBSharing) return Promise.resolve();
+    if (shareState && shareState.busy) { paintShare(); return shareLookup || Promise.resolve(); }
+    if (shareLookup) return shareLookup;
+    if (!WBAuth.shareSetting) {
+      shareState = WBSharing.reduce(shareState, { type: 'load-unavailable' });
+      paintShare();
+      stopShareRetry();
+      return Promise.resolve();
+    }
+    stopShareRetry();
+    var gen = ++shareLoadGen;
+    var seenSave = shareSaveGen;
+    shareState = WBSharing.reduce(shareState, { type: 'load-start' });
+    paintShare();
+    var pending;
+    try { pending = WBAuth.shareSetting(); } catch (e) { pending = Promise.reject(e); }
+    var run = Promise.resolve(pending).then(function (row) {
+      if (shareLookup === run) shareLookup = null;
+      if (gen !== shareLoadGen || seenSave !== shareSaveGen || (shareState && shareState.busy)) return;
+      var parsed = WBSharing.parseSetting(row);
+      shareState = WBSharing.reduce(shareState, {
+        type: 'load-ok',
+        on: parsed.ok ? parsed.on : null,
+        enthusiast: parsed.ok && typeof parsed.enthusiast === 'boolean' ? parsed.enthusiast : undefined
+      });
+      paintShare();
+      afterShareLookup(parsed.ok === true);
+    }, function (err) {
+      if (shareLookup === run) shareLookup = null;
+      if (gen !== shareLoadGen || seenSave !== shareSaveGen || (shareState && shareState.busy)) return;
+      shareState = WBSharing.reduce(shareState, WBSharing.isUnavailable(err)
+        ? { type: 'load-unavailable', message: err && err.message }
+        : { type: 'load-error', message: (err && err.message) || 'Could not load sharing.' });
+      paintShare();
+      afterShareLookup(false);
+    });
+    shareLookup = run;
+    return run;
+  }
+  function toggleShare() {
+    if (!window.WBSharing || !shareState || shareState.busy || typeof shareState.confirmed !== 'boolean') return;
+    var next = !shareState.confirmed;
+    var started = WBSharing.reduce(shareState, { type: 'save-start' });
+    if (!started.busy) return;
+    var saveGen = ++shareSaveGen;
+    shareLoadGen++;
+    shareState = started;
+    paintShare();
+    function finishSave(apply) {
+      if (saveGen !== shareSaveGen) return;
+      shareSaveGen++;
+      try {
+        apply();
+      } catch (e) {
+        shareState = WBSharing.reduce(shareState, { type: 'save-fail', message: (e && e.message) || 'Could not save that choice.' });
+        toast('Could not save that choice.');
+      }
+      if (shareState && shareState.busy) {
+        shareState = WBSharing.reduce(shareState, { type: 'save-fail', message: 'Could not save that choice.' });
+      }
+      paintShare();
+      if (shareState && window.WBSharing && WBSharing.shouldPush(shareState)) scheduleSharePush();
+      else { pushPending = false; stopPushRetry(); }
+    }
+    var pending;
+    try { pending = WBAuth.setShare(next); } catch (e) { pending = Promise.reject(e); }
+    Promise.resolve(pending).then(function (row) {
+      finishSave(function () {
+        var parsed = WBSharing.parseSetting(row);
+        shareState = WBSharing.reduce(shareState, {
+          type: 'save-ok',
+          on: parsed.ok ? parsed.on : null,
+          enthusiast: parsed.ok && typeof parsed.enthusiast === 'boolean' ? parsed.enthusiast : undefined
+        });
+        if (!parsed.ok) toast('Could not confirm that choice.');
+      });
+    }, function (err) {
+      finishSave(function () {
+        if (WBSharing.isUnavailable(err)) {
+          shareState = WBSharing.reduce(shareState, { type: 'save-unavailable', message: err && err.message });
+        } else {
+          shareState = WBSharing.reduce(shareState, { type: 'save-fail', message: (err && err.message) || 'Could not save that choice.' });
+          toast((err && err.message) || 'Could not save that choice.');
+        }
+      });
+    });
+  }
+  function stopPushRetry() {
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  }
+  function retrySharePush() {
+    if (pushTimer || pushFlight || !pushPending) return;
+    var wait = pushWait;
+    pushWait = Math.min(pushWait * 2, 15000);
+    pushTimer = setTimeout(function () {
+      pushTimer = null;
+      if (!pushPending || !window.WBSharing || !WBSharing.shouldPush(shareState)) return;
+      scheduleSharePush();
+    }, wait);
+  }
+  function scheduleSharePush(force) {
+    if (!window.WBSharing || !WBAuth.pushOwn) return;
+    if (shareState && shareState.busy) { pushPending = true; return; }
+    var open = shareState && shareState.confirmed === true && shareState.phase === 'ready' && shareState.enthusiast !== false;
+    if (force === true && open) {
+      /* caller already confirmed this push */
+    } else if (!WBSharing.shouldPush(shareState)) {
+      if (shareState && !shareAnswered()) { pushPending = true; ensureShare(); return; }
+      pushPending = false;
+      stopPushRetry();
+      return;
+    }
+    if (pushFlight) { pushPending = true; return; }
+    stopPushRetry();
+    var log = WBSharing.readLog(localStorage);
+    var body = WBSharing.payload(data, log);
+    if (!body) { pushPending = true; return; }
+    pushPending = false;
+    var run = Promise.resolve().then(function () { return WBAuth.pushOwn(body.workouts, body.sessions); });
+    pushFlight = run.then(function () {
+      pushFlight = null;
+      pushWait = 1000;
+      if (shareState && shareState.busy) return;
+      if (pushPending && WBSharing.shouldPush(shareState)) scheduleSharePush();
+    }, function () {
+      pushFlight = null;
+      if (shareState && shareState.busy) { pushPending = true; return; }
+      if (!window.WBSharing || !WBSharing.shouldPush(shareState)) { pushPending = false; return; }
+      pushPending = true;
+      retrySharePush();
+    });
+  }
+  function capturePlayedSession() {
+    try {
+      var player = window.__wbPlayer;
+      if (!player || !player.done || !window.WBSharing) return;
+      var done = player.done;
+      var own = WBSharing.classifySession(done, player.w);
+      if (own !== true) {
+        player.done = null;
+        return;
+      }
+      var stored = WBSharing.rememberSession(localStorage, done, player.w);
+      if (!stored && WBSharing.readLog(localStorage) == null) return;
+      player.done = null;
+      if (stored) {
+        ensureShare();
+        if (WBSharing.shouldPush(shareState)) scheduleSharePush();
+      }
+    } catch (e) {}
   }
   function trainerSection(roster) {
     if (!roster) return '';
@@ -320,6 +546,7 @@
     if (!roster.clients.length) h += '<p class="mute">No clients yet.</p>';
     roster.clients.forEach(function (c) {
       h += '<div class="row"><div class="grow"><b>' + esc(c.email || 'Client') + '</b><div class="mute">' + esc(c.plan) + '</div></div>';
+      h += '<button class="sm" type="button" data-client-view="' + esc(c.id) + '">View</button>';
       h += '<button class="sm danger" data-invite="end" data-client="' + esc(c.id) + '">End connection</button></div>';
     });
     return h + '</div>';
@@ -361,8 +588,15 @@
       var code = WBInvites.normalizeCode(input ? input.value : '');
       rememberCode(code);
       if (!code) { pendingInviteNotice = { text: 'Enter an invite code.', isError: true }; redraw(); return true; }
-      WBAuth.redeemInvite(code).then(function (res) {
+      var shareBox = document.getElementById('share-link');
+      var share = shareBox ? !!shareBox.checked : undefined;
+      var redeem = shareBox ? WBAuth.redeemInvite(code, share) : WBAuth.redeemInvite(code);
+      Promise.resolve(redeem).then(function (res) {
         rememberCode('');
+        if (res && res.shareStored === true && typeof share === 'boolean' && window.WBSharing) {
+          shareState = WBSharing.reduce(shareState, { type: 'redeemed', on: share, enthusiast: true });
+          if (WBSharing.shouldPush(shareState)) scheduleSharePush(true);
+        }
         pendingInviteNotice = { text: (res && res.message) || 'Invite applied.', isError: false };
         redraw();
       }).catch(fail);
@@ -382,7 +616,7 @@
         connP.then(function (conn) {
           if (hashPage() !== 'subscriptions') return;
           syncTrainerWorkouts(conn, session.user && session.user.id);
-          if (profile) cachedProfile = profile;
+          noteProfile(profile);
           drawSubscriptions(session, profile, message, isError, conn);
         }).catch(function () {
           if (hashPage() === 'subscriptions') drawSubscriptions(session, profile, message, isError, null);
@@ -407,7 +641,7 @@
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="note">Beta pricing for the first 100 members.</p>';
-    h += redeemCard(conn);
+    h += redeemCard(conn, profile);
     WBMembership.TIERS.forEach(function (t) {
       h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
       h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
@@ -423,11 +657,15 @@
     });
     h += '<p class="foot">Choosing a plan saves your selection.</p></div>';
     app.innerHTML = h;
+    app.onchange = function (e) {
+      if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
+    };
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (nav && nav.dataset.go === 'received') return go('#/received');
       if (handleInvite(e, function () { renderSubscriptions(); })) return;
+      if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
       var b = e.target.closest('[data-plan]'); if (!b) return;
       if (planBusy || !WBMembership.canSelectIntended(b.dataset.plan)) return;
       planBusy = true; b.disabled = true;
@@ -463,7 +701,7 @@
             roster = WBInvites.trainerRole(profile) ? { error: roster.__err.message || 'Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.' } : { role: null };
           }
           syncTrainerWorkouts(conn, session.user && session.user.id);
-          if (profile) cachedProfile = profile;
+          noteProfile(profile);
           drawAccount(session, profile, roster, conn);
         });
       }).catch(function () { if (hashPage() === 'account') go('#/subscriptions'); });
@@ -485,21 +723,32 @@
         ? '<button id="send-nav" class="grow" type="button" data-go="send">Send workout</button>'
         : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>') +
       '</div>';
-    if (conn && conn.trainerId) h += redeemCard(conn);
+    if (conn && conn.trainerId) h += redeemCard(conn, profile);
+    var shareHere = !!(window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile) && conn && conn.trainerId);
+    if (shareHere) h += '<div id="share-slot"></div>';
     h += trainerSection(roster);
     h += '</div>';
     app.innerHTML = h;
+    if (shareHere) loadShare();
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (nav && nav.dataset.go === 'send') return go('#/send');
       if (nav && nav.dataset.go === 'received') return go('#/received');
+      var viewBtn = e.target.closest('[data-client-view]');
+      if (viewBtn) return go('#/client/' + viewBtn.getAttribute('data-client-view'));
+      if (e.target.closest('#share-account')) { toggleShare(); return; }
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
       var b = e.target.closest('[data-auth]'); if (!b) return;
       WBAuth.signOut().then(function () {
         cachedProfile = null;
         copyStamp = {};
         removedCopies = [];
+        shareUser = '';
+        resetShareLookup();
+        pushPending = false;
+        stopPushRetry();
+        if (window.WBSharing) shareState = WBSharing.initialState();
         if (hashPage() !== 'account') return;
         go('#/signin');
       }).catch(function (err) {
@@ -509,6 +758,7 @@
     };
   }
   function showBuilder() {
+    ensureShare();
     var p = location.hash.replace(/^#\/?/, '').split('/');
     var current = (p[0] === 'play' || p[0] === 'w') ? getW(p[1]) : null;
     if (current && current.sourceTrainerId && !cachedProfile && WBAuth.profile && profileLookup !== routeToken) {
@@ -584,7 +834,61 @@
       go('#/signin');
     });
   }
+  function openClient(token) {
+    var id = hashBody().split('/')[1] || '';
+    var requested = location.hash;
+    titleEl.textContent = 'Client';
+    backBtn.hidden = false;
+    app.onclick = null; app.oninput = null; app.onchange = null;
+    app.innerHTML = '<p class="mute" id="client-loading">Loading…</p>';
+    function showWait(err) {
+      if (!window.WBSharing) return;
+      app.innerHTML = WBSharing.unavailableHtml(err && err.message);
+    }
+    function showError(message) {
+      if (!window.WBSharing) return;
+      app.innerHTML = WBSharing.errorHtml(message);
+    }
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return go('#/signin'); }
+    if (!pending || !pending.then) return go('#/signin');
+    pending.then(function (session) {
+      if (token !== routeToken || location.hash !== requested) return;
+      if (!session) return go('#/signin');
+      if (!id || !WBAuth.clientStatus || !window.WBSharing) return showWait();
+      return WBAuth.clientStatus(id).then(function (row) {
+        if (token !== routeToken || location.hash !== requested) return;
+        var status = WBSharing.parseStatus(row);
+        if (!status.ok) return showError('Could not load this client.');
+        titleEl.textContent = status.email || 'Client';
+        if (!status.shared) {
+          app.innerHTML = WBSharing.clientHtml(status, null, null);
+          return;
+        }
+        return Promise.all([
+          WBAuth.clientWorkouts(id),
+          WBAuth.clientSessions(id)
+        ]).then(function (pair) {
+          if (token !== routeToken || location.hash !== requested) return;
+          if (!Array.isArray(pair[0]) || !Array.isArray(pair[1])) return showError('Could not load workouts.');
+          app.innerHTML = WBSharing.clientHtml(status, pair[0], pair[1]);
+        }, function (err) {
+          if (token !== routeToken || location.hash !== requested) return;
+          if (WBSharing.isUnavailable(err)) return showWait(err);
+          showError((err && err.message) || 'Could not load workouts.');
+        });
+      }, function (err) {
+        if (token !== routeToken || location.hash !== requested) return;
+        if (WBSharing.isUnavailable(err)) return showWait(err);
+        showError((err && err.message) || 'Could not load this client.');
+      });
+    }).catch(function () {
+      if (token !== routeToken || location.hash !== requested) return;
+      go('#/signin');
+    });
+  }
   function route() {
+    capturePlayedSession();
     var token = ++routeToken;
     window.WBPlayer && WBPlayer.unmount();
     window.WBMessages && WBMessages.stop();
@@ -596,6 +900,7 @@
     if (page === 'subscriptions') return renderSubscriptions();
     if (page === 'account') return renderSimpleAccount();
     if (page === 'messages') return openMessages(token);
+    if (page === 'client') return openClient(token);
     if (page === 'send' || page === 'received') return openSends(token);
     var requested = location.hash;
     app.innerHTML = '';
@@ -1214,5 +1519,9 @@
   }
   window.WB_buildFromDraft = buildFromDraft; window.WB_makeDraft = makeDraft; // exposed for testing
   captureInvite();
+  window.addEventListener('online', function () { ensureShare(); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') ensureShare();
+  });
   route();
 })();

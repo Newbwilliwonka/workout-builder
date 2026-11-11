@@ -234,7 +234,7 @@
       var trainer = state.users[link.trainer_id] || {};
       return Promise.resolve({ trainerId: link.trainer_id, trainerEmail: trainer.email || '' });
     }
-    function redeemInvite(code) {
+    function redeemInvite(code, share) {
       var norm = normalizeCode(code);
       var u = me();
       if (!u) return reject('Sign in first.');
@@ -246,6 +246,7 @@
       var decision = redeemDecision(u, inv && codeIsWellFormed(norm) ? inv : null, trainer, trainerLinks, existing, clock());
       if (!decision.ok) return reject(decision.message);
       u.membership = decision.membership;
+      if (decision.enthusiast) u.share_with_trainer = typeof share === 'boolean' ? share : true;
       inv.used_at = clock();
       inv.used_by = u.id;
       state.links.push({
