@@ -74,7 +74,7 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
     await adv(5200);
     const work = await p.evaluate(geom);
     assert.strictEqual(work.pct, 52, vp.name + ' work');
-    assert.strictEqual(work.color, 'rgb(56, 189, 248)', vp.name + ' work color');
+    assert.strictEqual(work.color, 'rgb(37, 99, 235)', vp.name + ' work color');
     assert.strictEqual(work.font, ready.font);
     assert.strictEqual(work.logged, false); // countdown start does not log the interval
     assert.ok(/is-work/.test(work.cls) && /is-interval/.test(work.cls));
@@ -108,11 +108,11 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
     await adv(5200);
     const timerWork = await p.evaluate(geom);
     assert.strictEqual(timerWork.pct, 52);
-    assert.strictEqual(timerWork.color, 'rgb(56, 189, 248)');
+    assert.strictEqual(timerWork.color, 'rgb(37, 99, 235)');
     await adv(20100);
     const rest = await p.evaluate(geom);
     assert.strictEqual(rest.pct, 52);
-    assert.strictEqual(rest.color, 'rgb(110, 231, 183)');
+    assert.strictEqual(rest.color, 'rgb(37, 99, 235)');
     assert.strictEqual(rest.overlap, false, vp.name + ' rest overlap');
     await p.evaluate(() => WBPlayer.selectStep(4)); await wait(80);
     await click('.pl-go'); await wait(80);
@@ -150,7 +150,7 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
     const holdRest = await p.evaluate(geom);
     assert.strictEqual(holdRest.pct, 52, vp.name + ' hold rest');
     assert.strictEqual(holdRest.text, '0:10');
-    assert.strictEqual(holdRest.color, 'rgb(110, 231, 183)');
+    assert.strictEqual(holdRest.color, 'rgb(37, 99, 235)');
     assert.strictEqual(holdRest.overlap, false, vp.name + ' hold rest overlap');
     const logged = await p.evaluate(() => {
       const r = window.__wbPlayer.results[5];
@@ -180,7 +180,8 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
       const ro = document.getElementById('ro');
       const S = window.__wbPlayer;
       const ex = S.w.items.filter(x => x.id === S.queue[S.idx].exerciseId)[0];
-      return { text: ro && ro.textContent, phase: S.phase, mode: ex.mode, prompt: !!document.querySelector('.pl-modal') };
+      const rs = ro ? getComputedStyle(ro) : null;
+      return { text: ro && ro.textContent, phase: S.phase, mode: ex.mode, prompt: !!document.querySelector('.pl-modal'), color: rs && rs.color };
     });
   }
   await loadFormat([
@@ -202,6 +203,7 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
   assert.strictEqual(fin.phase, 'complete');
   assert.strictEqual(fin.prompt, true);
   assert.strictEqual(fin.text, '0:00');
+  assert.strictEqual(fin.color, 'rgb(37, 99, 235)');
   await loadFormat([
     { name: 'Bike sprints', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'intervals', modeConfig: { workSec: 8, repsType: null } },
   ]);
@@ -214,6 +216,7 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
   assert.strictEqual(fin.phase, 'complete');
   assert.strictEqual(fin.mode, 'intervals');
   assert.strictEqual(fin.text, '0:00');
+  assert.strictEqual(fin.color, 'rgb(37, 99, 235)');
   await loadFormat([
     { name: 'Shuttle', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'stopwatch', modeConfig: { lapsEnabled: false } },
   ]);
@@ -231,6 +234,7 @@ const mk = o => M.normalizeExercise(M.newExercise(o));
   fin = await clockNow();
   assert.strictEqual(fin.phase, 'complete');
   assert.strictEqual(fin.mode, 'stopwatch');
+  assert.strictEqual(fin.color, 'rgb(37, 99, 235)');
   assert.ok(/^00:03\.\d\d$/.test(fin.text) || /^\d\d:\d\d\.\d\d$/.test(fin.text), 'stopwatch complete ' + fin.text);
   assert.ok(/\.\d\d$/.test(fin.text), fin.text);
   assert.deepStrictEqual(errs, []);
