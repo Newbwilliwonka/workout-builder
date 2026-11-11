@@ -169,6 +169,46 @@ async function installBook(page, who) {
   await trainer.evaluate(() => { window.WBAuth.sendMessage = window.__sendMessage; });
   await sendChat('After the failure');
   await trainer.evaluate(() => {
+    window.__origSend = window.WBAuth.sendMessage;
+    window.__releaseHeld = null;
+    window.WBAuth.sendMessage = function (id, body) {
+      return new Promise(function (resolve) { window.__releaseHeld = function () { resolve({ id: id, body: body }); }; });
+    };
+    document.getElementById('msg-text').value = 'Same words';
+  });
+  await trainer.click('#msg-send');
+  await trainer.waitForFunction(() => document.getElementById('msg-send').disabled === true);
+  await trainer.click('#back');
+  await trainer.waitForSelector('[data-thread=jordan]');
+  await trainer.click('[data-thread=jordan]');
+  await trainer.waitForSelector('#msg-text');
+  await trainer.evaluate(() => { document.getElementById('msg-text').value = 'Same words'; });
+  await trainer.evaluate(() => { window.__releaseHeld(); });
+  await new Promise(function (r) { setTimeout(r, 300); });
+  assert.strictEqual(await trainer.$eval('#msg-text', e => e.value), 'Same words');
+  assert.strictEqual(await trainer.$eval('#msg-send', e => e.disabled), false);
+  await trainer.evaluate(() => { window.WBAuth.sendMessage = window.__origSend; });
+  await sendChat('From Jordan');
+  await trainer.evaluate(() => {
+    window.WBAuth.sendMessage = function () { return new Promise(function () {}); };
+    document.getElementById('toast').textContent = '';
+    document.getElementById('msg-text').value = 'Hung message';
+  });
+  await trainer.click('#msg-send');
+  await trainer.waitForFunction(() => document.getElementById('msg-send').disabled === true);
+  await trainer.waitForFunction(() => {
+    var btn = document.getElementById('msg-send');
+    var toast = document.getElementById('toast');
+    return btn && !btn.disabled && toast && toast.textContent.indexOf('Could not send') !== -1;
+  }, { timeout: 15000 });
+  await trainer.evaluate(() => {
+    window.WBAuth.sendMessage = window.__origSend;
+    document.getElementById('msg-text').value = 'After hang';
+  });
+  await trainer.click('#msg-send');
+  await trainer.waitForFunction(() => document.body.innerText.includes('After hang'));
+  assert.strictEqual(await trainer.$eval('#msg-send', e => e.disabled), false);
+  await trainer.evaluate(() => {
     var input = document.getElementById('msg-text');
     input.focus();
     input.value = 'Hello there';

@@ -289,12 +289,18 @@
     renderReal();
   }
 
-  var live = { gen: 0, timer: 0, unwatch: null, threads: [], thread: null, roster: null, pickedWorkout: '', picked: {}, sent: '', view: null, quiet: false, sending: false };
+  var SEND_WAIT = 10000;
+  var live = { gen: 0, timer: 0, unwatch: null, threads: [], thread: null, roster: null, pickedWorkout: '', picked: {}, sent: '', view: null, quiet: false, sending: false, sendFor: '', sendToken: 0, sendTimer: 0 };
   function isPreview() {
     return /(?:^|&)preview=1(?:&|$)/.test((location.hash.split('?')[1]) || '');
   }
   function stopLive() {
     live.gen += 1;
+    live.sendToken += 1;
+    live.sending = false;
+    live.sendFor = '';
+    if (live.sendTimer) clearTimeout(live.sendTimer);
+    live.sendTimer = 0;
     if (live.timer) clearInterval(live.timer);
     live.timer = 0;
     if (live.unwatch) { var off = live.unwatch; live.unwatch = null; try { off(); } catch (e) {} }
@@ -424,7 +430,7 @@
       var html = bubblesHtml(data.messages);
       if (thread.innerHTML !== html) thread.innerHTML = html;
       var sendBtn = document.getElementById('msg-send');
-      if (sendBtn && !live.sending) sendBtn.disabled = false;
+      if (sendBtn && !(live.sending && live.sendFor === parts()[1])) sendBtn.disabled = false;
       return;
     }
     ctx.titleEl.textContent = person.name || 'Messages';
@@ -445,27 +451,47 @@
       if (e.target.closest('#msg-send')) sendLive();
     };
   }
+  function claimSend(token) {
+    if (token !== live.sendToken) return false;
+    live.sendToken += 1;
+    live.sending = false;
+    live.sendFor = '';
+    if (live.sendTimer) clearTimeout(live.sendTimer);
+    live.sendTimer = 0;
+    return true;
+  }
+  function unlockSend(id) {
+    if (parts()[0] !== 'messages' || parts()[1] !== id) return;
+    var current = document.getElementById('msg-send');
+    if (current) current.disabled = false;
+  }
   function sendLive() {
+    if (live.sending && live.sendFor === parts()[1]) return;
     var box = document.getElementById('msg-text');
-    var btn = document.getElementById('msg-send');
-    if (live.sending || (btn && btn.disabled)) return;
     var text = root.WBCoaching ? root.WBCoaching.cleanBody(box && box.value) : String(box && box.value || '').trim();
     if (!text) return;
     var id = parts()[1];
+    var btn = document.getElementById('msg-send');
+    var token = ++live.sendToken;
     live.sending = true;
+    live.sendFor = id;
     if (btn) btn.disabled = true;
+    live.sendTimer = setTimeout(function () {
+      if (!claimSend(token)) return;
+      unlockSend(id);
+      if (parts()[1] === id) ctx.toast('Could not send');
+    }, SEND_WAIT);
     root.WBAuth.sendMessage(id, text).then(function () {
-      live.sending = false;
+      if (!claimSend(token)) return;
+      if (parts()[0] !== 'messages' || parts()[1] !== id) return;
       var input = document.getElementById('msg-text');
-      var current = document.getElementById('msg-send');
       if (input && root.WBCoaching && root.WBCoaching.cleanBody(input.value) === text) input.value = '';
-      if (current) current.disabled = false;
+      unlockSend(id);
       loadThread(id, true);
     }).catch(function (err) {
-      live.sending = false;
-      var current = document.getElementById('msg-send');
-      if (current) current.disabled = false;
-      ctx.toast((err && err.message) || 'Could not send');
+      if (!claimSend(token)) return;
+      unlockSend(id);
+      if (parts()[0] === 'messages' && parts()[1] === id) ctx.toast((err && err.message) || 'Could not send');
     });
   }
   function loadSend() {
