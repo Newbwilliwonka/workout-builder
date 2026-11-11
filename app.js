@@ -76,7 +76,8 @@
   var routeToken = 0;
   var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0, profileLookup = 0;
   var shareState = window.WBSharing ? WBSharing.initialState() : null;
-  var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, shareLoadStarted = false, linkShareChoice = true;
+  var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, linkShareChoice = true;
+  var shareLookup = null, shareSessionFlight = false, shareRetryTimer = null, shareRetryWait = 1000;
   var pushFlight = null, pushPending = false, pushTimer = null, pushWait = 1000;
   var COPY_RETURN = 'wb.copyReturn';
   function setCopyReturn(hash) {
@@ -309,25 +310,62 @@
     var id = profile && profile.id;
     if (shareUser && id && shareUser !== id && window.WBSharing) {
       shareState = WBSharing.initialState();
-      shareLoadStarted = false;
+      resetShareLookup();
     }
     if (id) shareUser = id;
     if (profile) cachedProfile = profile;
   }
+  function stopShareRetry() {
+    if (shareRetryTimer) { clearTimeout(shareRetryTimer); shareRetryTimer = null; }
+  }
+  function resetShareLookup() {
+    shareLoadGen++;
+    shareLookup = null;
+    shareSessionFlight = false;
+    shareRetryWait = 1000;
+    stopShareRetry();
+  }
+  function shareAnswered() {
+    if (!shareState) return false;
+    if (shareState.busy || shareState.phase === 'unavailable') return true;
+    return typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready';
+  }
+  function armShareRetry() {
+    if (shareRetryTimer || shareLookup || shareSessionFlight || shareAnswered()) return;
+    var wait = shareRetryWait;
+    shareRetryWait = Math.min(shareRetryWait * 2, 15000);
+    shareRetryTimer = setTimeout(function () {
+      shareRetryTimer = null;
+      ensureShare();
+    }, wait);
+  }
+  function afterShareLookup() {
+    if (!shareState || !window.WBSharing) return;
+    if (shareState.phase === 'unavailable') { stopShareRetry(); return; }
+    if (typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready') {
+      shareRetryWait = 1000;
+      stopShareRetry();
+      if (WBSharing.shouldPush(shareState)) scheduleSharePush();
+      else { pushPending = false; stopPushRetry(); }
+      return;
+    }
+    armShareRetry();
+  }
   function ensureShare() {
     if (!window.WBSharing || !shareState || !WBAuth.shareSetting || !WBAuth.session) return;
-    if (shareState.busy || shareState.phase === 'unavailable') return;
-    if (typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready') return;
-    if (shareLoadStarted) return;
-    shareLoadStarted = true;
+    if (shareAnswered() || shareLookup || shareSessionFlight) return;
+    stopShareRetry();
+    shareSessionFlight = true;
     var pending;
-    try { pending = WBAuth.session(); } catch (e) { shareLoadStarted = false; return; }
+    try { pending = WBAuth.session(); } catch (e) { shareSessionFlight = false; armShareRetry(); return; }
     Promise.resolve(pending).then(function (session) {
-      if (!session) { shareLoadStarted = false; return; }
-      if (!shareState || shareState.busy || shareState.phase === 'unavailable') return;
-      if (typeof shareState.confirmed === 'boolean' && shareState.phase === 'ready') return;
+      shareSessionFlight = false;
+      if (!session || shareAnswered() || shareLookup) return;
       loadShare();
-    }, function () { shareLoadStarted = false; });
+    }, function () {
+      shareSessionFlight = false;
+      if (!shareAnswered()) armShareRetry();
+    });
   }
   function paintShare() {
     var slot = document.getElementById('share-slot');
@@ -335,19 +373,23 @@
     slot.innerHTML = WBSharing.accountCard(shareState);
   }
   function loadShare() {
-    if (!window.WBSharing) return;
+    if (!window.WBSharing) return Promise.resolve();
+    if (shareLookup) return shareLookup;
     if (!WBAuth.shareSetting) {
       shareState = WBSharing.reduce(shareState, { type: 'load-unavailable' });
       paintShare();
-      return;
+      stopShareRetry();
+      return Promise.resolve();
     }
+    stopShareRetry();
     var gen = ++shareLoadGen;
     var seenSave = shareSaveGen;
     shareState = WBSharing.reduce(shareState, { type: 'load-start' });
     paintShare();
     var pending;
     try { pending = WBAuth.shareSetting(); } catch (e) { pending = Promise.reject(e); }
-    Promise.resolve(pending).then(function (row) {
+    var run = Promise.resolve(pending).then(function (row) {
+      if (shareLookup === run) shareLookup = null;
       if (gen !== shareLoadGen || seenSave !== shareSaveGen) return;
       var parsed = WBSharing.parseSetting(row);
       shareState = WBSharing.reduce(shareState, {
@@ -356,14 +398,18 @@
         enthusiast: parsed.ok && typeof parsed.enthusiast === 'boolean' ? parsed.enthusiast : undefined
       });
       paintShare();
-      if (WBSharing.shouldPush(shareState)) scheduleSharePush();
+      afterShareLookup();
     }, function (err) {
+      if (shareLookup === run) shareLookup = null;
       if (gen !== shareLoadGen || seenSave !== shareSaveGen) return;
       shareState = WBSharing.reduce(shareState, WBSharing.isUnavailable(err)
         ? { type: 'load-unavailable', message: err && err.message }
         : { type: 'load-error', message: (err && err.message) || 'Could not load sharing.' });
       paintShare();
+      afterShareLookup();
     });
+    shareLookup = run;
+    return run;
   }
   function toggleShare() {
     if (!window.WBSharing || !shareState || shareState.busy || typeof shareState.confirmed !== 'boolean') return;
@@ -423,6 +469,7 @@
     if (force === true && open) {
       /* caller already confirmed this push */
     } else if (!WBSharing.shouldPush(shareState)) {
+      if (shareState && !shareAnswered()) { pushPending = true; ensureShare(); return; }
       pushPending = false;
       stopPushRetry();
       return;
@@ -684,7 +731,7 @@
         copyStamp = {};
         removedCopies = [];
         shareUser = '';
-        shareLoadStarted = false;
+        resetShareLookup();
         pushPending = false;
         stopPushRetry();
         if (window.WBSharing) shareState = WBSharing.initialState();
@@ -1458,5 +1505,9 @@
   }
   window.WB_buildFromDraft = buildFromDraft; window.WB_makeDraft = makeDraft; // exposed for testing
   captureInvite();
+  window.addEventListener('online', function () { ensureShare(); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') ensureShare();
+  });
   route();
 })();

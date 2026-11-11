@@ -70,8 +70,27 @@ const E = '33333333-3333-4333-8333-333333333333';
         });
       },
       shareSetting: function () {
+        window.__settingCalls++;
         var cfg = read();
         if (cfg.mode === 'unavailable') return Promise.reject(new Error('Sharing workouts is not available yet. Apply the sharing SQL in the Supabase SQL editor.'));
+        if (cfg.mode === 'retry') {
+          cfg.mode = 'ok';
+          write(cfg);
+          return Promise.reject(new Error('Failed to fetch'));
+        }
+        if (cfg.mode === 'retry-hold') {
+          cfg.mode = 'hold';
+          write(cfg);
+          return Promise.reject(new Error('Failed to fetch'));
+        }
+        if (cfg.mode === 'hold') {
+          return new Promise(function (resolve) {
+            window.__settingRelease = function () {
+              var next = read();
+              resolve({ on: next.on === true, enthusiast: true, linked: !!next.linked });
+            };
+          });
+        }
         if (cfg.mode === 'down') return Promise.reject(new Error('Failed to fetch'));
         if (cfg.mode === 'bad') return Promise.resolve({ on: 'yes' });
         if (typeof cfg.on !== 'boolean') return Promise.resolve({});
@@ -164,6 +183,7 @@ const E = '33333333-3333-4333-8333-333333333333';
     };
     window.__shareCalls = [];
     window.__pushes = [];
+    window.__settingCalls = 0;
     window.__statusCalls = [];
     window.__workoutCalls = 0;
     Object.defineProperty(window, 'WBAuth', {
@@ -367,6 +387,37 @@ const E = '33333333-3333-4333-8333-333333333333';
   assert.deepStrictEqual((await page.evaluate(function () { return window.__pushes[1]; })).workouts.map(function (w) { return w.name; }), ['Saturday hard']);
   var still = JSON.parse(await page.evaluate(function (k) { return localStorage.getItem(k); }, 'wb.data.v1'));
   assert.strictEqual(still.workouts[0].name, 'Saturday hard');
+
+  await boot({ who: 'enthusiast', linked: true, mode: 'retry', on: true, builder: true }, '#/', ownData());
+  await page.waitForSelector('[data-a="new"]');
+  await page.waitForFunction(function () { return window.__settingCalls === 1; });
+  assert.deepStrictEqual(await page.evaluate(function () { return window.__pushes; }), []);
+  assert.strictEqual(await page.$('#share-account'), null);
+  assert.strictEqual(await page.evaluate(function () { return localStorage.getItem('wb.shareWorkouts'); }), null);
+  var beforeRetry = JSON.parse(await page.evaluate(function (k) { return localStorage.getItem(k); }, 'wb.data.v1'));
+  assert.strictEqual(beforeRetry.workouts[0].name, 'Saturday easy');
+  assert.strictEqual(beforeRetry.workouts[0].updatedAt, 5);
+  await page.waitForFunction(function () { return window.__pushes.length === 1; }, { timeout: 5000 });
+  assert.strictEqual(await page.evaluate(function () { return window.__settingCalls; }), 2);
+  assert.deepStrictEqual((await page.evaluate(function () { return window.__pushes[0]; })).workouts.map(function (w) { return w.name; }), ['Saturday easy']);
+  var afterRetry = JSON.parse(await page.evaluate(function (k) { return localStorage.getItem(k); }, 'wb.data.v1'));
+  assert.strictEqual(afterRetry.workouts[0].updatedAt, 5);
+
+  await boot({ who: 'enthusiast', linked: true, mode: 'retry-hold', on: true, builder: true }, '#/', ownData());
+  await page.waitForFunction(function () { return window.__settingCalls === 1; });
+  await wait(50);
+  await page.evaluate(function () {
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('online'));
+  });
+  await page.waitForFunction(function () { return window.__settingCalls === 2; });
+  await wait(400);
+  assert.strictEqual(await page.evaluate(function () { return window.__settingCalls; }), 2);
+  assert.deepStrictEqual(await page.evaluate(function () { return window.__pushes; }), []);
+  await page.evaluate(function () { window.__settingRelease(); });
+  await page.waitForFunction(function () { return window.__pushes.length === 1; });
+  assert.deepStrictEqual((await page.evaluate(function () { return window.__pushes[0]; })).workouts.map(function (w) { return w.name; }), ['Saturday easy']);
+  assert.ok((await page.evaluate(function () { return JSON.stringify(window.__pushes); })).indexOf('Secret') === -1);
 
   await boot({ who: 'trainer', linked: false, mode: 'ok', on: true }, '#/client/' + E);
   await page.waitForSelector('#client-view');
