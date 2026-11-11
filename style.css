@@ -38,6 +38,7 @@ textarea{min-height:80px}
 .lib-filters{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 #lib-q{margin-top:10px}
 #lib-results{margin-top:8px}
+#lib-results:empty{display:none}
 .lib-hit{display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;margin-top:6px;padding:10px 12px}
 .lib-hit.on{border-color:var(--pri);background:#eff6ff}
 .lib-hit .name{font-size:16px}
