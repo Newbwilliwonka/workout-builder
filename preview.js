@@ -1,4 +1,5 @@
-/* Programs preview. Sample pictures only: no storage, no network, no real workouts. */
+/* Programs preview. Sample pictures only: no storage, no network.
+   View mounts the real player in memory with tracking off. */
 (function () {
   'use strict';
   var SAMPLE_TODAY = '2026-11-11';
@@ -365,15 +366,29 @@
       legendHtml() + (state.view === 'month' ? monthHtml() : weekHtml()) + '</section></div></div>';
     return h;
   }
+  function playableWorkout(id) {
+    var meta = workout(id) || WORKOUTS[0];
+    var names = meta.exercises.length ? meta.exercises.slice() : [meta.name];
+    var w = WB.newWorkout(meta.name);
+    function ex(name, over) {
+      return WB.normalizeExercise(WB.newExercise(Object.assign({
+        name: name, sets: 1, weight: { unit: 'lb', value: 95 },
+        mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 30 }
+      }, over || {})));
+    }
+    w.items = names.map(function (name, i) {
+      if (i === 0) return ex(name, { mode: 'timer', modeConfig: { workSec: 30, restSec: 20, repsType: 'number', count: 8 } });
+      if (i === names.length - 1) return ex(name, { weight: { unit: 'bodyweight', value: null }, modeConfig: { repsType: 'number', count: 10, restSec: 30 } });
+      return ex(name, { weight: { unit: 'lb', value: 65 }, modeConfig: { repsType: 'number', count: 8, restSec: 0 } });
+    });
+    if (w.items.length >= 3) WB.linkSuperset(w, [w.items[1].id, w.items[2].id]);
+    return w;
+  }
   function playerHtml() {
     var w = workout(state.focusId) || WORKOUTS[0];
-    var view = state.playerMode === 'view';
-    return '<div id="pv-player"><div class="pv-stage"><div class="pv-ptop"><span class="pl-chip">' + (view ? 'View' : 'Run') + '</span>' +
-      (view ? '<span class="tag" id="pv-not-tracked">Preview - not tracked</span>' : '') + '</div>' +
+    return '<div id="pv-player"><div class="pv-stage"><div class="pv-ptop"><span class="pl-chip">Run</span></div>' +
       '<div class="pv-ex">' + esc(w.exercises[0] || w.name) + '</div>' +
-      '<p class="pv-stage-note">' + (view
-        ? 'View runs this workout in the player without tracking. This is only the header.'
-        : 'Run runs this workout in the player with tracking. This preview does not save a session.') + '</p></div>' +
+      '<p class="pv-stage-note">Run runs this workout in the player with tracking. This preview does not save a session.</p></div>' +
       '<p class="mute">Sample player for ' + esc(w.name) + '.</p></div>';
   }
   function exerciseList(w) {
@@ -455,9 +470,44 @@
     if (backBtn) backBtn.hidden = false;
     paintBar();
   }
+  function closeRealPlayer() {
+    if (state && state.playerLive && window.WBPlayer) {
+      state.playerLive = false;
+      WBPlayer.unmount();
+    }
+    document.body.classList.remove('playing');
+  }
+  function leavePlayer() {
+    if (!state) return;
+    state.playerLive = false;
+    state.screen = 'home';
+    state.menuNote = '';
+    if (window.WBPlayer) WBPlayer.unmount();
+    render();
+  }
+  function openRealPlayer() {
+    if (state.playerLive) return;
+    state.playerLive = true;
+    app.innerHTML = '';
+    app.onclick = null;
+    app.onchange = null;
+    app.onpointerdown = null;
+    window.__wbClockOffset = 0;
+    var scratch = { version: 4, workouts: [], sessions: [] };
+    WBPlayer.mount(app, playableWorkout(state.focusId), scratch, function () {
+      window.__wbNoTrackWrite = (window.__wbNoTrackWrite || 0) + 1;
+    }, leavePlayer, { track: false });
+    window.scrollTo(0, 0);
+  }
   function render() {
     if (!app || !state) return;
     document.body.classList.add('pv-on');
+    if (state.screen === 'player' && state.playerMode === 'view') {
+      openRealPlayer();
+      applyChrome();
+      return;
+    }
+    closeRealPlayer();
     if (state.screen === 'player') app.innerHTML = playerHtml();
     else if (state.screen === 'open') app.innerHTML = openHtml();
     else if (state.screen === 'day') app.innerHTML = dayHtml();
@@ -559,6 +609,10 @@
   }
   function back() {
     if (!state || state.screen === 'home') return false;
+    if (state.playerLive) {
+      if (window.WBPlayer) WBPlayer.requestEnd();
+      return true;
+    }
     state.screen = 'home';
     state.menuNote = '';
     render();
@@ -574,6 +628,8 @@
   }
   function unmount() {
     clearDrag();
+    if (state && state.playerLive && window.WBPlayer) WBPlayer.unmount();
+    document.body.classList.remove('playing');
     document.body.classList.remove('pv-on');
     var more = document.getElementById('pv-more');
     if (more) more.remove();

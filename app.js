@@ -513,7 +513,9 @@
   function capturePlayedSession() {
     try {
       var player = window.__wbPlayer;
-      if (!player || !player.done || !window.WBSharing) return;
+      if (!player || !window.WBSharing) return;
+      if (player.track === false) { player.done = null; return; }
+      if (!player.done) return;
       var done = player.done;
       var own = WBSharing.classifySession(done, player.w);
       if (own !== true) {

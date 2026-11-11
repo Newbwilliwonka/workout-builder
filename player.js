@@ -202,7 +202,7 @@
     if (phase === 'rest') S.restCue = null;
     lockScreen();
   }
-  function log(i) { var r = res(i); if (r.logged) return; r.logged = true; r.at = Date.now(); }
+  function log(i) { if (S.track === false) return; var r = res(i); if (r.logged) return; r.logged = true; r.at = Date.now(); }
   function startRest() {
     if (effectiveRest(S.idx) > 0) { log(S.idx); startTimer('rest'); render(); } // logged when rest starts
     else {
@@ -359,6 +359,13 @@
   }
 
   function finish() {
+    if (S.track === false) { // preview: leave without a session, a history row, or a share push
+      S.running = false; cancelAnimationFrame(S.raf); stopTones();
+      if (wake) wake.release().catch(function () {});
+      S.saved = false; S.done = null;
+      S.onExit();
+      return;
+    }
     if (S.phase === 'rest') logResting(); else logStartedInRound();
     S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
@@ -451,7 +458,7 @@
     if (resting && i + 1 < S.queue.length) infoEx = exOf(i + 1); // rest frame is the upcoming exercise, with no "Up next" label
     h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (resting ? 'is-rest' : '') + (timedWork ? ' is-work' : '') + (sw ? ' is-static' : '') + (interval ? ' is-interval' : '') + '"' + (sw ? '' : ' data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '"') + '>' + (sw ? '' : '<div class="pl-hint">' + esc(hint(ex)) + '</div>') +
       (resting ? '' : '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>') +
-      '<div class="pl-top"><span class="pl-chip">' + esc(chip) + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + '</div>' +
+      '<div class="pl-top"><span class="pl-chip">' + esc(chip) + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + (S.track === false ? '<span class="tag" id="pv-not-tracked">Preview - not tracked</span>' : '') + '</div>' +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '');
     h += '<div class="pl-bar"><i id="pg"></i></div></div>'; // end screen
     if (!sw) {
@@ -474,7 +481,7 @@
     // tracking bar — during a shared superset rest, stack every round member's fields
     function trackBlock(mi) {
       var exT = exOf(mi), stT = S.queue[mi], rT = res(mi), out = '';
-      out += '<div class="pl-th"><span><b>' + esc(exT.name) + '</b> · ' + (exT.mode === 'stopwatch' ? 'Attempt ' : exT.mode === 'intervals' ? 'Interval ' : 'Set ') + stT.set + '/' + stT.of + '</span>' + (rT.logged ? '<span class="pl-ok">✓ Logged</span>' : '<span class="mute">Tracking</span>') + '</div><div class="pl-fields">';
+      out += '<div class="pl-th"><span><b>' + esc(exT.name) + '</b> · ' + (exT.mode === 'stopwatch' ? 'Attempt ' : exT.mode === 'intervals' ? 'Interval ' : 'Set ') + stT.set + '/' + stT.of + '</span>' + (rT.logged ? '<span class="pl-ok">✓ Logged</span>' : (S.track === false ? '<span class="mute">Not tracked</span>' : '<span class="mute">Tracking</span>')) + '</div><div class="pl-fields">';
       if (rT.reps !== undefined) out += stepper('reps', 'Reps', rT.reps, 1, mi);
       if (rT.holdSec !== undefined) out += stepper('holdSec', 'Hold (s)', rT.holdSec, 5, mi);
       if (rT.rounds !== undefined) out += stepper('rounds', 'Rounds', rT.rounds, 1, mi);
@@ -500,7 +507,7 @@
         (noteOpen ? '<div class="pl-notes">' + esc(note) + '</div>' : '') + '</div>';
     });
     h += '</div><button class="pl-endw" data-p="end">End workout</button></div>';
-    if (S.prompt) h += '<div class="pl-modal"><div class="card"><h3>Workout complete</h3><p class="mute">End the workout now, or keep editing your logged sets.</p><button class="pri" data-p="endnow">End workout</button><button data-p="keep">Keep editing</button></div></div>';
+    if (S.prompt) h += '<div class="pl-modal"><div class="card"><h3>Workout complete</h3><p class="mute">' + (S.track === false ? 'This preview is not tracked. Nothing will be saved.' : 'End the workout now, or keep editing your logged sets.') + '</p><button class="pri" data-p="endnow">End workout</button><button data-p="keep">Keep editing</button></div></div>';
     S.root.innerHTML = h;
     if (window.WBMedia) WBMedia.bind(S.root);
     var car = S.root.querySelector('.pl-car'), cu = car.querySelector('.cur');
@@ -611,8 +618,8 @@
   function onInput(e) { var f = e.target.dataset.f; if (!f) return; var si = e.target.dataset.si != null ? +e.target.dataset.si : S.idx, v = M.num(e.target.value); res(si)[f] = v === null || isNaN(v) ? null : Math.max(0, v); }
 
   var api = {
-    mount: function (root, w, data, persist, onExit) {
-      S = { root: root, w: w, data: data, persist: persist, onExit: onExit, queue: M.buildPlayQueue(w), results: {}, startedAt: Date.now(), acc: 0, running: false, nodes: [] };
+    mount: function (root, w, data, persist, onExit, opts) {
+      S = { root: root, w: w, data: data, persist: persist, onExit: onExit, queue: M.buildPlayQueue(w), results: {}, startedAt: Date.now(), acc: 0, running: false, nodes: [], track: !(opts && opts.track === false) };
       document.body.classList.add('playing');
       root.onclick = onClick; root.oninput = onInput; root.onchange = onInput;
       document.addEventListener('visibilitychange', onVis);
@@ -625,6 +632,10 @@
     unmount: function () { if (!S) return; stopTones(); cancelAnimationFrame(S.raf); S.running = false; document.removeEventListener('visibilitychange', onVis); if (wake) wake.release().catch(function () {}); S = null; },
     requestEnd: function () {
       if (!S) return; if (S.done) return S.onExit();
+      if (S.track === false) {
+        if (confirm('Leave this preview? Nothing is tracked.')) S.onExit();
+        return;
+      }
       if (confirm('End workout? Logged sets will be saved.')) finish();
     }
   };

@@ -19,7 +19,11 @@ function workout(name) {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', function (err) { errors.push(String(err)); });
-  page.on('dialog', function (dialog) { errors.push('dialog ' + dialog.message()); dialog.dismiss(); });
+  page.on('dialog', function (dialog) {
+    if (dialog.message().indexOf('Nothing is tracked') !== -1) { dialog.accept(); return; }
+    errors.push('dialog ' + dialog.message());
+    dialog.dismiss();
+  });
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await require('./allow.js')(page);
 
@@ -89,11 +93,50 @@ function workout(name) {
   });
   assert.ok((await page.$eval('#pv-hint', function (el) { return el.textContent; })).indexOf('Nothing was saved') !== -1);
 
+  await page.evaluate(function () {
+    window.__wbNoTrackWrite = 0;
+    window.__wbFetches = 0;
+    window.__wbSets = [];
+    window.__wbSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = function (key, value) {
+      window.__wbSets.push(String(key));
+      return window.__wbSetItem(key, value);
+    };
+    const orig = window.fetch;
+    window.fetch = function () { window.__wbFetches += 1; return orig.apply(this, arguments); };
+  });
   await page.click('[data-view-wo="core"]');
+  await page.waitForSelector('.pl-screen');
   await page.waitForSelector('#pv-not-tracked');
   assert.strictEqual(await page.$eval('#pv-not-tracked', function (el) { return el.textContent; }), 'Preview - not tracked');
-  assert.ok((await page.$eval('#pv-player', function (el) { return el.innerText; })).indexOf('without tracking') !== -1);
-  await page.click('#back');
+  assert.strictEqual(await page.$eval('.pl-info .pl-name', function (el) { return el.textContent; }), 'Sample: Dead bug');
+  assert.strictEqual(await page.evaluate(function () { return window.__wbPlayer.track; }), false);
+  assert.strictEqual(await page.evaluate(function () { return window.__wbPlayer.queue.length; }), 2);
+  await page.click('.pl-screen');
+  await page.waitForFunction(function () { return window.__wbPlayer && window.__wbPlayer.phase === 'standoff'; });
+  await page.evaluate(function () { window.__wbClockOffset = 36000; });
+  await page.waitForFunction(function () { return window.__wbPlayer && window.__wbPlayer.phase === 'rest'; });
+  assert.strictEqual(await page.evaluate(function () {
+    const results = window.__wbPlayer.results;
+    return Object.keys(results).some(function (key) { return results[key] && results[key].logged; });
+  }), false);
+  await page.evaluate(function () { window.__wbClockOffset = 56000; });
+  await page.waitForFunction(function () { return window.__wbPlayer && window.__wbPlayer.idx === 1 && window.__wbPlayer.phase === 'work'; });
+  await page.click('.pl-screen');
+  await page.waitForFunction(function () { return window.__wbPlayer && window.__wbPlayer.phase === 'rest'; });
+  await page.evaluate(function () { window.__wbClockOffset += 31000; });
+  await page.waitForFunction(function () { return window.__wbPlayer && window.__wbPlayer.prompt; });
+  assert.ok((await page.$eval('.pl-modal', function (el) { return el.innerText; })).indexOf('Nothing will be saved') !== -1);
+  await page.click('[data-p=endnow]');
+  await page.waitForSelector('#pv-root');
+  assert.strictEqual(await page.evaluate(function () { return window.__wbNoTrackWrite || 0; }), 0);
+  assert.strictEqual(await page.evaluate(function () { return window.__wbFetches || 0; }), 0);
+  assert.deepStrictEqual(await page.evaluate(function () { return window.__wbSets; }), []);
+  assert.ok(!(await page.evaluate(function () { return window.__wbPlayer && window.__wbPlayer.done; })));
+  await page.evaluate(function () { localStorage.setItem = window.__wbSetItem; });
+  await page.click('[data-view-wo="push"]');
+  await page.waitForSelector('.pl-chain');
+  await page.evaluate(function () { document.querySelector('[data-p=end]').click(); });
   await page.waitForSelector('#pv-root');
   await page.click('[data-run="core"]');
   await page.waitForSelector('#pv-player');
