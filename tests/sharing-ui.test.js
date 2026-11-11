@@ -105,6 +105,11 @@ const E = '33333333-3333-4333-8333-333333333333';
           write(cfg);
           return Promise.reject(new Error('Could not save that choice.'));
         }
+        if (cfg.mode === 'save-unavail') {
+          cfg.mode = 'ok';
+          write(cfg);
+          return Promise.reject(new Error('Sharing workouts is not available yet. Apply the sharing SQL in the Supabase SQL editor.'));
+        }
         if (cfg.mode === 'garbage') {
           cfg.mode = 'ok';
           write(cfg);
@@ -466,6 +471,28 @@ const E = '33333333-3333-4333-8333-333333333333';
   assert.strictEqual(await page.evaluate(function () { return window.__pushes.length; }), 1);
   var renamed = JSON.parse(await page.evaluate(function (k) { return localStorage.getItem(k); }, 'wb.data.v1'));
   assert.strictEqual(renamed.workouts[0].name, 'Saturday later');
+
+  await boot({ who: 'enthusiast', linked: true, mode: 'ok', on: true }, '#/account', ownData());
+  await page.waitForSelector('#share-account');
+  await page.waitForFunction(function () { return window.__pushes.length === 1; });
+  await page.evaluate(function () {
+    var cfg = JSON.parse(localStorage.getItem('wb.sharetest'));
+    cfg.mode = 'save-unavail';
+    localStorage.setItem('wb.sharetest', JSON.stringify(cfg));
+  });
+  await page.click('#share-account');
+  await page.waitForSelector('#share-wait');
+  assert.strictEqual(await page.$('#share-account'), null);
+  assert.ok((await page.$eval('#share-wait', function (el) { return el.textContent; })).includes('Not available yet'));
+  assert.strictEqual(await page.evaluate(function () { return window.__pushes.length; }), 1);
+  await page.evaluate(function () { location.hash = '#/subscriptions'; });
+  await page.waitForSelector('#redeem');
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForFunction(function () {
+    var el = document.getElementById('share-account');
+    return el && !el.disabled && el.getAttribute('aria-checked') === 'true';
+  });
+  await page.waitForFunction(function () { return window.__pushes.length === 2; });
 
   await boot({ who: 'trainer', linked: false, mode: 'ok', on: true }, '#/client/' + E);
   await page.waitForSelector('#client-view');

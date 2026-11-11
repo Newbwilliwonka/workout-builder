@@ -425,8 +425,18 @@
     function finishSave(apply) {
       if (saveGen !== shareSaveGen) return;
       shareSaveGen++;
-      apply();
+      try {
+        apply();
+      } catch (e) {
+        shareState = WBSharing.reduce(shareState, { type: 'save-fail', message: (e && e.message) || 'Could not save that choice.' });
+        toast('Could not save that choice.');
+      }
+      if (shareState && shareState.busy) {
+        shareState = WBSharing.reduce(shareState, { type: 'save-fail', message: 'Could not save that choice.' });
+      }
       paintShare();
+      if (shareState && window.WBSharing && WBSharing.shouldPush(shareState)) scheduleSharePush();
+      else { pushPending = false; stopPushRetry(); }
     }
     var pending;
     try { pending = WBAuth.setShare(next); } catch (e) { pending = Promise.reject(e); }
@@ -439,19 +449,15 @@
           enthusiast: parsed.ok && typeof parsed.enthusiast === 'boolean' ? parsed.enthusiast : undefined
         });
         if (!parsed.ok) toast('Could not confirm that choice.');
-        if (WBSharing.shouldPush(shareState)) scheduleSharePush();
-        else { pushPending = false; stopPushRetry(); }
       });
     }, function (err) {
       finishSave(function () {
         if (WBSharing.isUnavailable(err)) {
-          shareState = WBSharing.reduce(shareState, { type: 'load-unavailable', message: err && err.message });
+          shareState = WBSharing.reduce(shareState, { type: 'save-unavailable', message: err && err.message });
         } else {
           shareState = WBSharing.reduce(shareState, { type: 'save-fail', message: (err && err.message) || 'Could not save that choice.' });
           toast((err && err.message) || 'Could not save that choice.');
         }
-        if (WBSharing.shouldPush(shareState)) scheduleSharePush();
-        else { pushPending = false; stopPushRetry(); }
       });
     });
   }

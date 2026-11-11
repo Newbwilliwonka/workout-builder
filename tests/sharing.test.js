@@ -77,6 +77,16 @@ var failed = S.reduce(busy, { type: 'save-fail', message: 'Could not save that c
 assert.strictEqual(failed.busy, false);
 assert.strictEqual(failed.confirmed, true);
 assert.ok(!S.accountCard(failed).includes('disabled'));
+var lookupUnavailable = S.reduce(busy, { type: 'load-unavailable', message: S.UNAVAILABLE });
+assert.strictEqual(lookupUnavailable.busy, true);
+assert.strictEqual(lookupUnavailable.confirmed, true);
+var saveUnavailable = S.reduce(busy, { type: 'save-unavailable', message: S.UNAVAILABLE });
+assert.strictEqual(saveUnavailable.busy, false);
+assert.strictEqual(saveUnavailable.phase, 'unavailable');
+assert.strictEqual(saveUnavailable.confirmed, true);
+assert.strictEqual(S.shouldPush(saveUnavailable), false);
+assert.ok(S.accountCard(saveUnavailable).includes('Not available yet'));
+assert.ok(!S.accountCard(saveUnavailable).includes('id="share-account"'));
 
 var unknownSave = S.reduce(busy, { type: 'save-ok', on: null });
 assert.strictEqual(unknownSave.confirmed, true);

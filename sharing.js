@@ -94,6 +94,14 @@
         busy: false
       }, event);
     }
+    if (event.type === 'save-unavailable') {
+      return stamp(state, {
+        confirmed: state.confirmed,
+        phase: 'unavailable',
+        message: event.message || UNAVAILABLE,
+        busy: false
+      }, event);
+    }
     if (event.type === 'redeemed') {
       if (typeof event.on !== 'boolean') return state;
       return stamp(state, { confirmed: event.on, phase: 'ready', message: '', busy: false }, event);
