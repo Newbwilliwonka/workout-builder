@@ -15,6 +15,10 @@
   backBtn.onclick = function () {
     var page = hashPage();
     if (page === 'signin' || page === 'join') return;
+    if (page === 'preview') {
+      if (window.WBPreview && WBPreview.back()) return;
+      return go('#/');
+    }
     var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd();
     if (page === 'messages' && hashBody().split('/')[1]) return go('#/messages');
@@ -887,13 +891,44 @@
       go('#/signin');
     });
   }
+  function previewRequested() {
+    if (hashPage() === 'preview') return true;
+    try {
+      if (new URLSearchParams(location.search).get('preview') === 'programs') return true;
+      var q = location.hash.split('?')[1] || '';
+      if (q && new URLSearchParams(q).get('preview') === 'programs') return true;
+    } catch (e) {}
+    return false;
+  }
+  function openPreview() {
+    try {
+      var u = new URL(location.href);
+      var changed = false;
+      if (u.searchParams.get('preview') === 'programs') {
+        u.searchParams.delete('preview');
+        changed = true;
+      }
+      var hashQuery = (u.hash || '').split('?')[1] || '';
+      if (hashQuery && new URLSearchParams(hashQuery).get('preview') === 'programs') changed = true;
+      if (hashPage() !== 'preview') changed = true;
+      if (changed) {
+        var search = u.searchParams.toString();
+        var next = u.pathname + (search ? '?' + search : '') + '#/preview';
+        history.replaceState(null, '', next);
+      }
+    } catch (e) {}
+    app.onclick = null; app.oninput = null; app.onchange = null;
+    if (window.WBPreview) WBPreview.mount({ app: app, titleEl: titleEl, backBtn: backBtn });
+  }
   function route() {
     capturePlayedSession();
     var token = ++routeToken;
     window.WBPlayer && WBPlayer.unmount();
     window.WBMessages && WBMessages.stop();
     window.WBSends && WBSends.stop();
+    window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
+    if (previewRequested()) return openPreview();
     var page = hashPage();
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
@@ -940,6 +975,7 @@
     var note = takeInviteNotice();
     var h = (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
       '<button style="width:100%;margin-bottom:8px" data-a="account">Account</button>' +
+      '<button id="programs-preview" class="ghost" style="width:100%;margin-bottom:8px" data-a="preview">Programs (preview)</button>' +
       '<div class="row" style="margin-bottom:8px">' +
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
@@ -978,6 +1014,7 @@
     app.onclick = function (e) {
       var b = e.target.closest('[data-a]'); if (!b) return;
       var a = b.dataset.a, w = getW(b.dataset.id);
+      if (a === 'preview') return go('#/preview');
       if (a === 'account') return openAccount();
       if (a === 'messages') return go('#/messages');
       if (a === 'send') return go('#/send');
