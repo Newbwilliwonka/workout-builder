@@ -1117,7 +1117,9 @@
       view: media && media.kind === 'library' ? media.view : '180',
       imageKey: media && media.kind === 'custom' ? media.imageKey : '',
       pendingBlob: null, pendingUrl: '', clearImage: false, savedMedia: media,
-      libQuery: '', libBody: '', libEquip: '', libTarget: '', libRows: [], libMore: false, libStatus: '', libError: false, libCollapsed: false };
+      libQuery: '', libBody: '', libEquip: '', libTarget: '', libRows: [], libMore: false, libStatus: '', libError: false, libCollapsed: false,
+      notesFor: media && media.kind === 'library' ? 'library:' + String(media.libraryId || '') : 'manual',
+      libraryName: media && media.kind === 'library' ? String(ex.name || '') : '' };
     M.MODES.forEach(function (m) { d.cfg[m] = M.defaultModeConfig(m); });
     Object.assign(d.cfg[ex.mode], ex.modeConfig);
     ['reps', 'intervals', 'timer'].forEach(function (m) { var x = d.cfg[m]; ['count', 'min', 'max'].forEach(function (k) { x[k] = x[k] == null ? '' : String(x[k]); }); });
@@ -1308,14 +1310,28 @@
       (hasPhoto ? '<button type="button" data-a="clearphoto">Remove image</button>' : '') +
       '<span class="mute">Stays on this device only. Clearing site data removes it.</span></div>';
   }
-  // Library text fills Notes only when they are blank, or still the previous
-  // unedited auto-fill. Anything the trainer typed stays. Manual entry never calls this.
+  // Notes follow the exercise being edited. A library pick always replaces them
+  // with that exercise's description, including notes that were saved or typed.
+  // No description clears Notes so the previous exercise's text does not linger.
+  // Choosing Enter manually, or typing a name over that library exercise, clears
+  // Notes. Notes typed after that stay while it remains that manual exercise.
+  function notesBelongToLibrary(d) {
+    return !!(d.notesFor && String(d.notesFor).indexOf('library:') === 0);
+  }
+  function clearManualNotes(d) {
+    d.notes = '';
+    d.notesFor = 'manual';
+  }
   function applyLibraryDescription(d, row) {
-    if (!row || typeof row.description !== 'string') return;
-    var notes = d.notes == null ? '' : String(d.notes);
-    if (notes.trim() !== '' && notes !== d.autoDescription) return;
-    d.notes = row.description;
-    d.autoDescription = row.description;
+    d.notes = row && typeof row.description === 'string' ? row.description : '';
+    d.notesFor = 'library:' + String((row && row.id) || d.libraryId || '');
+    d.libraryName = d.name;
+  }
+  function clearNotesIfReplacingLibraryExercise(d, name) {
+    if (!notesBelongToLibrary(d) || name === d.libraryName) return;
+    clearManualNotes(d);
+    var notesEl = app.querySelector('[data-b=notes]');
+    if (notesEl) notesEl.value = '';
   }
   function libRowById(d, id) {
     var rows = d.libRows || [], i;
@@ -1431,6 +1447,7 @@
       var b = t.dataset.b; if (!b) return;
       var v = t.type === 'checkbox' ? t.checked : t.value;
       if (b.indexOf('cfg.') === 0) d.cfg[d.mode][b.slice(4)] = v; else d[b] = v;
+      if (b === 'name') clearNotesIfReplacingLibraryExercise(d, v);
       if (b === 'cfg.lapCount') {
         var box = document.getElementById('lap-events');
         // Skip a no-op refresh (the field's change event on blur) so it doesn't
@@ -1446,7 +1463,11 @@
       if (s) {
         var k = s.dataset.seg;
         if (k === 'source') {
-          if (d.source !== s.dataset.v) { d.source = s.dataset.v; onLibrarySourceChange(); }
+          if (d.source !== s.dataset.v) {
+            if (s.dataset.v !== 'library' && notesBelongToLibrary(d)) clearManualNotes(d);
+            d.source = s.dataset.v;
+            onLibrarySourceChange();
+          }
           return renderEditor(w, exId);
         }
         if (k === 'repsType') { var cc = d.cfg[d.mode]; cc.repsType = d.mode !== 'reps' && cc.repsType === s.dataset.v ? null : s.dataset.v; }
