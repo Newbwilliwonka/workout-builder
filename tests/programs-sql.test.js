@@ -59,7 +59,9 @@ grant execute on function auth.uid() to authenticated, anon;
   'supabase/migrations/20261111140000_workout_copies.sql',
   'supabase/migrations/20261111160000_share_own.sql',
   'supabase/migrations/20261111180000_programs.sql',
-  'supabase/migrations/20261111180000_programs.sql'
+  'supabase/migrations/20261111180000_programs.sql',
+  'supabase/migrations/20261111223000_program_times.sql',
+  'supabase/migrations/20261111223000_program_times.sql'
 ].forEach(function (file) { psql('wb_programs_test', null, path.join(root, file)); });
 
 const assertSql = `
@@ -86,10 +88,18 @@ select set_config('request.jwt.claim.sub', '${E}', false);
 do $$
 declare n int;
 begin
-  insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, items, day, presence)
-  values ('${E}', 'pg1', 'wo1', 'Push day', '[{"name":"Press"}]'::jsonb, '2026-11-11', 'solo');
-  select count(*) into n from public.program_entries where owner_id = '${E}';
+  insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, items, day, presence, starts_at, ends_at)
+  values ('${E}', 'pg1', 'wo1', 'Push day', '[{"name":"Press"}]'::jsonb, '2026-11-11', 'solo', '09:00', '10:30');
+  select count(*) into n from public.program_entries where owner_id = '${E}' and starts_at = time '09:00' and ends_at = time '10:30';
   if n <> 1 then raise exception 'enthusiast insert %', n; end if;
+  begin
+    update public.program_entries set ends_at = '08:00' where local_id = 'pg1';
+    raise exception 'end before start was stored';
+  exception when check_violation then
+    null;
+  end;
+  select count(*) into n from public.program_entries where local_id = 'pg1' and ends_at = time '10:30';
+  if n <> 1 then raise exception 'invalid end time stuck'; end if;
   begin
     insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, day)
     values ('${C}', 'nope', 'wo', 'Nope', '2026-11-11');

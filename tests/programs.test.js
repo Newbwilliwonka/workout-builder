@@ -60,6 +60,73 @@ assert.strictEqual(P.entryDone(entry, [{ workoutId: 'other', programId: 'pg1', e
 assert.strictEqual(P.entryDone(entry, [{ workoutId: 'push', endedAt: new Date(2026, 10, 13).getTime(), results: [{ logged: true }] }]), false);
 assert.strictEqual(P.dayDone(marked.programs, [{ workoutId: 'push', endedAt: day, results: [{ logged: true }] }]), true);
 
+assert.strictEqual(P.validTimes('10:00', '09:00').ok, false);
+assert.strictEqual(P.validTimes('10:00', '10:00').ok, false);
+assert.strictEqual(P.validTimes('9:60', '10:00').ok, false);
+assert.strictEqual(P.validTimes('', '10:00').ok, false);
+assert.ok(P.validTimes('10:00', '09:00').error.indexOf('after') !== -1);
+const okTimes = P.validTimes('9:00', '10:30');
+assert.strictEqual(okTimes.ok, true);
+assert.strictEqual(okTimes.start, '09:00');
+assert.strictEqual(okTimes.end, '10:30');
+assert.strictEqual(P.formatRange('09:00', '10:30'), '9:00–10:30 AM');
+assert.strictEqual(P.formatRange('09:00', '13:00'), '9:00 AM–1:00 PM');
+assert.strictEqual(P.formatRange('13:15', '14:45'), '1:15–2:45 PM');
+
+const badTime = P.place([], { id: 'bad', ownerId: self, workoutId: 'push', date: '2026-11-11', start: '18:00', end: '17:00' });
+assert.strictEqual(badTime.created, null);
+assert.strictEqual(badTime.programs.length, 0);
+assert.ok(badTime.error);
+const timed = P.place(placed.programs, {
+  id: 'pg3', ownerId: self, workoutId: 'legs', workoutName: 'Legs', date: '2026-11-11', start: '14:00', end: '15:00'
+});
+assert.strictEqual(timed.created.start, '14:00');
+assert.strictEqual(timed.created.end, '15:00');
+const early = P.place(timed.programs, {
+  id: 'pg4', ownerId: self, workoutId: 'core', workoutName: 'Core', date: '2026-11-11', start: '07:30', end: '08:00'
+});
+const ordered = P.byStart(early.programs.filter(function (row) { return row.date === '2026-11-11'; }));
+assert.deepStrictEqual(ordered.map(function (row) { return row.id; }), ['pg4', 'pg3', 'pg1']);
+const shifted = P.setTimes(early.programs, 'pg3', '6:00', '7:00');
+assert.strictEqual(shifted.changed.start, '06:00');
+assert.strictEqual(shifted.changed.end, '07:00');
+assert.deepStrictEqual(P.byStart(shifted.programs.filter(function (row) { return row.date === '2026-11-11'; })).map(function (row) { return row.id; }), ['pg3', 'pg4', 'pg1']);
+const rejected = P.setTimes(shifted.programs, 'pg3', '12:00', '11:00');
+assert.strictEqual(rejected.changed, null);
+assert.strictEqual(rejected.programs.filter(function (row) { return row.id === 'pg3'; })[0].start, '06:00');
+const sameTimes = P.setTimes(shifted.programs, 'pg3', '06:00', '07:00');
+assert.strictEqual(sameTimes.changed, null);
+assert.strictEqual(sameTimes.error, '');
+const removed = P.remove(shifted.programs, 'pg4');
+assert.strictEqual(removed.removed.id, 'pg4');
+assert.strictEqual(removed.programs.some(function (row) { return row.id === 'pg4'; }), false);
+
+assert.deepStrictEqual(P.entryMenu({ role: 'free_client', self: self, ownerId: self }), ['run', 'view']);
+assert.ok(P.entryMenu({ role: 'free_client', self: self, ownerId: self }).indexOf('remove') < 0);
+assert.ok(P.entryMenu({ role: 'free_client', self: self, ownerId: self }).indexOf('add') < 0);
+assert.deepStrictEqual(P.entryMenu({ role: 'enthusiast', self: self, ownerId: self }), ['run', 'view', 'remove', 'add']);
+assert.deepStrictEqual(P.entryMenu({ role: 'trainer', self: 't', ownerId: 'ada', ownerPlan: 'free_client', linked: true }), ['run', 'view', 'remove', 'add']);
+assert.deepStrictEqual(P.entryMenu({ role: 'master_trainer', self: 'm', ownerId: 'ada', ownerPlan: 'free_client', linked: true }), ['run', 'view', 'remove', 'add']);
+assert.deepStrictEqual(P.entryMenu({ role: 'trainer', self: 't', ownerId: 'jo', ownerPlan: 'enthusiast', linked: true, shareOn: true }), ['run', 'view', 'remove', 'add']);
+assert.deepStrictEqual(P.entryMenu({ role: 'master_trainer', self: 'm', ownerId: 'jo', ownerPlan: 'enthusiast', linked: true, shareOn: true }), ['run', 'view', 'remove', 'add']);
+assert.deepStrictEqual(P.entryMenu({ role: 'trainer', self: 't', ownerId: 'jo', ownerPlan: 'enthusiast', linked: true, shareOn: false }), []);
+assert.deepStrictEqual(P.entryMenu({ role: 'enthusiast', self: self, ownerId: 'ada', linked: true }), []);
+assert.deepStrictEqual(P.entryMenu({ role: 'trainer', self: 't', ownerId: 't' }), []);
+
+const keptTimes = P.merge(shifted.programs, [{
+  local_id: 'pg3', owner_id: self, workout_local_id: 'legs', workout_name: 'Legs', items: [], day: '2026-11-20', presence: 'solo', updated_at: new Date(Date.now() + 120000).toISOString()
+}], self, { keepLocalTimes: true });
+const keptRow = keptTimes.filter(function (row) { return row.id === 'pg3'; })[0];
+assert.strictEqual(keptRow.date, '2026-11-20');
+assert.strictEqual(keptRow.start, '06:00');
+assert.strictEqual(keptRow.end, '07:00');
+const remoteTimes = P.merge(shifted.programs, [{
+  local_id: 'pg3', owner_id: self, workout_local_id: 'legs', workout_name: 'Legs', items: [], day: '2026-11-21', presence: 'solo', starts_at: '11:00:00', ends_at: '12:15:00', updated_at: new Date(Date.now() + 180000).toISOString()
+}], self);
+const remoteRow = remoteTimes.filter(function (row) { return row.id === 'pg3'; })[0];
+assert.strictEqual(remoteRow.start, '11:00');
+assert.strictEqual(remoteRow.end, '12:15');
+
 const remote = P.merge(marked.programs, [{
   local_id: 'pg1', owner_id: self, workout_local_id: 'push', workout_name: 'Push', items: [], day: '2026-11-13', presence: 'solo', updated_at: new Date(Date.now() + 60000).toISOString()
 }], self);

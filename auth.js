@@ -223,26 +223,57 @@
       });
     },
     programEntries: function (ownerId) {
-      return db().then(function (c) {
-        return c.from('program_entries').select('local_id,owner_id,workout_local_id,workout_name,items,day,presence,updated_at').eq('owner_id', ownerId);
-      }).then(function (res) {
+      var base = 'local_id,owner_id,workout_local_id,workout_name,items,day,presence,updated_at';
+      function query(cols) {
+        return db().then(function (c) {
+          return c.from('program_entries').select(cols).eq('owner_id', ownerId);
+        });
+      }
+      return query(base + ',starts_at,ends_at').then(function (res) {
+        if (res.error && timeColumnMissing(res.error)) {
+          return query(base).then(function (res2) {
+            if (res2.error) throw programError(res2.error);
+            var rows = Array.isArray(res2.data) ? res2.data : [];
+            rows.timesPending = true;
+            return rows;
+          });
+        }
         if (res.error) throw programError(res.error);
         return Array.isArray(res.data) ? res.data : [];
       });
     },
     saveProgramEntry: function (entry) {
-      var row = {
-        owner_id: entry.ownerId,
-        local_id: entry.id,
-        workout_local_id: entry.workoutId,
-        workout_name: entry.workoutName || 'Workout',
-        items: Array.isArray(entry.items) ? entry.items : [],
-        day: entry.date,
-        presence: entry.presence === 'trainer' ? 'trainer' : 'solo'
-      };
-      return db().then(function (c) {
-        return c.from('program_entries').upsert(row, { onConflict: 'owner_id,local_id' });
-      }).then(function (res) {
+      function row(withTimes) {
+        var out = {
+          owner_id: entry.ownerId,
+          local_id: entry.id,
+          workout_local_id: entry.workoutId,
+          workout_name: entry.workoutName || 'Workout',
+          items: Array.isArray(entry.items) ? entry.items : [],
+          day: entry.date,
+          presence: entry.presence === 'trainer' ? 'trainer' : 'solo'
+        };
+        if (withTimes && entry.start && entry.end) {
+          out.starts_at = String(entry.start).slice(0, 5);
+          out.ends_at = String(entry.end).slice(0, 5);
+        }
+        return out;
+      }
+      function upsert(withTimes) {
+        return db().then(function (c) {
+          return c.from('program_entries').upsert(row(withTimes), { onConflict: 'owner_id,local_id' });
+        });
+      }
+      var timed = !!(entry.start && entry.end);
+      return upsert(timed).then(function (res) {
+        if (res.error && timed && timeColumnMissing(res.error)) {
+          return upsert(false).then(function (res2) {
+            if (res2.error) throw programError(res2.error);
+            var err = new Error('Start and end times are saved on this device until the program times SQL is applied.');
+            err.timesLocal = true;
+            throw err;
+          });
+        }
         if (res.error) throw programError(res.error);
         return true;
       });
@@ -256,8 +287,15 @@
       });
     }
   };
+  function timeColumnMissing(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    return /starts_at|ends_at/i.test(msg);
+  }
   function programError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (timeColumnMissing(err)) {
+      return new Error('Start and end times are saved on this device until the program times SQL is applied.');
+    }
     if (/schema cache|could not find|does not exist|PGRST202|PGRST205|42P01|program_entries/i.test(msg)) {
       return new Error('Programs are not on the server yet. Apply the programs SQL in the Supabase SQL editor.');
     }

@@ -213,6 +213,23 @@ const E = '33333333-3333-4333-8333-333333333333';
     await page.goto(URL + hash, { waitUntil: 'domcontentloaded' });
     await page.reload({ waitUntil: 'domcontentloaded' });
   }
+  async function renameWorkout(id, name) {
+    await page.click('button[data-a="open"][data-id="' + id + '"]');
+    await page.waitForSelector('#wo-name');
+    await page.click('#wo-name');
+    await page.waitForSelector('#wo-name-input');
+    await page.evaluate(function (next) {
+      var input = document.getElementById('wo-name-input');
+      input.value = next;
+      input.blur();
+    }, name);
+    await page.waitForFunction(function (next) {
+      var title = document.getElementById('title');
+      return title && title.textContent.indexOf(next) !== -1;
+    }, {}, name);
+    await page.evaluate(function () { location.hash = '#/'; });
+    await page.waitForSelector('[data-a="open"][data-id="' + id + '"]');
+  }
   async function shot(name, sel) {
     if (sel) await page.$eval(sel, function (el) { el.scrollIntoView({ block: 'center' }); });
     await wait(150);
@@ -222,7 +239,7 @@ const E = '33333333-3333-4333-8333-333333333333';
     return JSON.stringify({
       version: 4,
       workouts: [
-        { id: 'wo_sat', name: 'Saturday easy', items: [{ id: 'ex1', name: 'Squat', sets: 3 }], createdAt: 1, updatedAt: 5 },
+        { id: 'wo_sat', name: 'Saturday easy', items: [{ id: 'ex1', name: 'Squat', sets: 3, weight: { unit: 'lb', value: null } }], createdAt: 1, updatedAt: 5 },
         { id: 'from', name: 'Trainer day', items: [], sourceTrainerId: T, sourceTrainerEmail: 'coach@example.com', createdAt: 1, updatedAt: 1 }
       ],
       sessions: [
@@ -348,8 +365,7 @@ const E = '33333333-3333-4333-8333-333333333333';
   assert.deepStrictEqual(fromHome.workouts.map(function (w) { return w.name; }), ['Saturday easy']);
   assert.deepStrictEqual(fromHome.sessions.map(function (s) { return s.workoutName; }), ['Saturday easy']);
   assert.ok(JSON.stringify(fromHome).indexOf('Secret') === -1);
-  page.once('dialog', function (dialog) { return dialog.accept('Saturday hard'); });
-  await page.click('[data-a="rename"][data-id="wo_sat"]');
+  await renameWorkout('wo_sat', 'Saturday hard');
   await page.waitForFunction(function () { return window.__pushes.length === 2; });
   assert.deepStrictEqual((await page.evaluate(function () { return window.__pushes[1]; })).workouts.map(function (w) { return w.name; }), ['Saturday hard']);
   await page.evaluate(function (trainerId) {
@@ -379,11 +395,9 @@ const E = '33333333-3333-4333-8333-333333333333';
   assert.ok((await page.evaluate(function () { return JSON.stringify(window.__pushes); })).indexOf('Secret') === -1);
 
   await boot({ who: 'enthusiast', linked: true, mode: 'push-slow-fail', on: true, builder: true }, '#/', ownData());
-  await page.waitForSelector('[data-a="rename"][data-id="wo_sat"]');
+  await page.waitForSelector('[data-a="open"][data-id="wo_sat"]');
   await page.waitForFunction(function () { return window.__pushes.length === 1; });
-  page.once('dialog', function (dialog) { return dialog.accept('Saturday hard'); });
-  await page.click('[data-a="rename"][data-id="wo_sat"]');
-  await page.waitForFunction(function () { return document.body.innerText.indexOf('Saturday hard') !== -1; });
+  await renameWorkout('wo_sat', 'Saturday hard');
   await page.evaluate(function () { window.__pushRelease(); });
   await page.waitForFunction(function () { return window.__pushes.length === 2; });
   await page.evaluate(function () { window.__pushRelease(); });
@@ -450,10 +464,8 @@ const E = '33333333-3333-4333-8333-333333333333';
   await page.waitForFunction(function () { return document.getElementById('share-account').disabled; });
   var during = await page.evaluate(function () { return window.__settingCalls; });
   await page.evaluate(function () { location.hash = '#/'; });
-  await page.waitForSelector('[data-a="rename"][data-id="wo_sat"]');
-  page.once('dialog', function (dialog) { return dialog.accept('Saturday later'); });
-  await page.click('[data-a="rename"][data-id="wo_sat"]');
-  await page.waitForFunction(function () { return document.body.innerText.indexOf('Saturday later') !== -1; });
+  await page.waitForSelector('[data-a="open"][data-id="wo_sat"]');
+  await renameWorkout('wo_sat', 'Saturday later');
   await page.evaluate(function () { location.hash = '#/account'; });
   await page.waitForFunction(function () {
     var el = document.getElementById('share-account');

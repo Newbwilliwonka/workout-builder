@@ -81,6 +81,14 @@
     var list = Array.isArray(programs) ? programs.slice() : [];
     if (!entry || !entry.workoutId) return { programs: list, created: null, duplicate: false, error: 'Pick a workout.' };
     if (!isDay(entry.date)) return { programs: list, created: null, duplicate: false, error: 'Pick a day.' };
+    var start = '';
+    var end = '';
+    if (entry.start || entry.end) {
+      var times = validTimes(entry.start, entry.end);
+      if (!times.ok) return { programs: list, created: null, duplicate: false, error: times.error };
+      start = times.start;
+      end = times.end;
+    }
     var date = String(entry.date);
     var ownerId = entry.ownerId || 'self';
     var workoutId = String(entry.workoutId);
@@ -95,6 +103,8 @@
       workoutName: entry.workoutName || 'Workout',
       items: copyItems(entry.items),
       date: date,
+      start: start,
+      end: end,
       presence: presence(entry.presence),
       updatedAt: entry.updatedAt || Date.now()
     };
@@ -129,6 +139,86 @@
     });
     return { programs: list, changed: changed };
   }
+  function remove(programs, id) {
+    var removed = null;
+    var list = (programs || []).filter(function (row) {
+      if (row && row.id === id) { removed = row; return false; }
+      return true;
+    });
+    return { programs: list, removed: removed };
+  }
+  // Scheduled-workout menu. Editors get remove and add. Everyone who can see the day gets Run and View.
+  function entryMenu(ctx) {
+    if (!canSee(ctx)) return [];
+    if (canEdit(ctx)) return ['run', 'view', 'remove', 'add'];
+    return ['run', 'view'];
+  }
+  function parseClock(value) {
+    var m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(value == null ? '' : value).trim());
+    if (!m) return null;
+    var h = Number(m[1]);
+    var min = Number(m[2]);
+    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+    return h * 60 + min;
+  }
+  function clockFromMinutes(mins) {
+    return pad(Math.floor(mins / 60)) + ':' + pad(mins % 60);
+  }
+  function validTimes(start, end) {
+    var a = parseClock(start);
+    var b = parseClock(end);
+    if (a == null || b == null) return { ok: false, start: '', end: '', error: 'Pick a start and an end time.' };
+    if (b <= a) return { ok: false, start: '', end: '', error: 'End time has to be after the start time.' };
+    return { ok: true, start: clockFromMinutes(a), end: clockFromMinutes(b), error: '' };
+  }
+  function formatClock(mins) {
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    var ap = h >= 12 ? 'PM' : 'AM';
+    var h12 = h % 12;
+    if (h12 === 0) h12 = 12;
+    return { text: h12 + ':' + pad(m), ap: ap };
+  }
+  function formatRange(start, end) {
+    var a = parseClock(start);
+    var b = parseClock(end);
+    if (a == null || b == null) return '';
+    var left = formatClock(a);
+    var right = formatClock(b);
+    if (left.ap === right.ap) return left.text + '–' + right.text + ' ' + left.ap;
+    return left.text + ' ' + left.ap + '–' + right.text + ' ' + right.ap;
+  }
+  function byStart(rows) {
+    return (rows || []).slice().sort(function (a, b) {
+      var as = parseClock(a && a.start);
+      var bs = parseClock(b && b.start);
+      if (as == null && bs == null) return String(a && a.id || '').localeCompare(String(b && b.id || ''));
+      if (as == null) return 1;
+      if (bs == null) return -1;
+      if (as !== bs) return as - bs;
+      return String(a && a.id || '').localeCompare(String(b && b.id || ''));
+    });
+  }
+  function clockOrBlank(value) {
+    var mins = parseClock(value);
+    return mins == null ? '' : clockFromMinutes(mins);
+  }
+  function setTimes(programs, id, start, end) {
+    var list = programs || [];
+    var times = validTimes(start, end);
+    if (!times.ok) return { programs: list, changed: null, error: times.error };
+    var found = false;
+    var changed = null;
+    var next = list.map(function (row) {
+      if (!row || row.id !== id) return row;
+      found = true;
+      if (row.start === times.start && row.end === times.end) return row;
+      changed = Object.assign({}, row, { start: times.start, end: times.end, updatedAt: Date.now() });
+      return changed;
+    });
+    if (!found) return { programs: list, changed: null, error: 'That workout is no longer on this day.' };
+    return { programs: changed ? next : list, changed: changed, error: '' };
+  }
   function loggedSession(session) {
     if (!session) return false;
     var results = session.results;
@@ -158,12 +248,15 @@
       workoutName: row.workout_name || row.workoutName || 'Workout',
       items: copyItems(row.items),
       date: date,
+      start: clockOrBlank(row.starts_at != null ? row.starts_at : row.start),
+      end: clockOrBlank(row.ends_at != null ? row.ends_at : row.end),
       presence: presence(row.presence),
       updatedAt: Date.parse(row.updated_at || row.updatedAt) || 0
     };
   }
   // Remote rows replace the same id when they are newer. Other owners stay put.
-  function merge(local, remote, ownerId) {
+  function merge(local, remote, ownerId, opts) {
+    var keepTimes = !!(opts && opts.keepLocalTimes);
     var map = {};
     (local || []).forEach(function (row) {
       if (row && row.ownerId === ownerId && row.id) map[row.id] = row;
@@ -172,7 +265,13 @@
       var cur = fromRemote(row);
       if (!cur || cur.ownerId !== ownerId) return;
       var prev = map[cur.id];
-      if (!prev || (cur.updatedAt || 0) >= (prev.updatedAt || 0)) map[cur.id] = cur;
+      if (!prev || (cur.updatedAt || 0) >= (prev.updatedAt || 0)) {
+        if (keepTimes && prev) {
+          cur.start = prev.start || cur.start || '';
+          cur.end = prev.end || cur.end || '';
+        }
+        map[cur.id] = cur;
+      }
     });
     var rest = (local || []).filter(function (row) { return row && row.ownerId !== ownerId; });
     return rest.concat(Object.keys(map).map(function (key) { return map[key]; }));
@@ -196,6 +295,12 @@
     place: place,
     move: move,
     setPresence: setPresence,
+    remove: remove,
+    entryMenu: entryMenu,
+    validTimes: validTimes,
+    formatRange: formatRange,
+    byStart: byStart,
+    setTimes: setTimes,
     entryDone: entryDone,
     dayDone: dayDone,
     fromRemote: fromRemote,

@@ -961,6 +961,7 @@
       loadClient: function (id) { return WBAuth.clientStatus ? WBAuth.clientStatus(id) : Promise.resolve(null); },
       loadEntries: function (ownerId) { return WBAuth.programEntries ? WBAuth.programEntries(ownerId) : Promise.reject(new Error('programs')); },
       saveEntry: function (entry) { return WBAuth.saveProgramEntry ? WBAuth.saveProgramEntry(entry) : Promise.reject(new Error('programs')); },
+      deleteEntry: function (entry) { return WBAuth.deleteProgramEntry ? WBAuth.deleteProgramEntry(entry.ownerId, entry.id) : Promise.reject(new Error('programs')); },
       onTracked: function () { capturePlayedSession(); }
     });
   }
@@ -1040,8 +1041,7 @@
       h += '<button class="pri sm" data-a="open" data-id="' + w.id + '">Open</button>' +
         '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>';
       if (!locked) {
-        h += '<button class="sm" data-a="rename" data-id="' + w.id + '">Rename</button>' +
-          '<button class="sm" data-a="dup" data-id="' + w.id + '">Duplicate</button>' +
+        h += '<button class="sm" data-a="dup" data-id="' + w.id + '">Duplicate</button>' +
           '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button>';
       }
       h += '</div></div>';
@@ -1067,7 +1067,6 @@
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);
       } else if (a === 'open') { setCopyReturn(''); go('#/w/' + w.id); }
       else if (a === 'run') { if (w.items.length) { setCopyReturn(''); go('#/play/' + w.id); } }
-      else if (a === 'rename') { var r = prompt('Rename workout', w.name); if (r && r.trim()) { w.name = r.trim(); w.updatedAt = Date.now(); persist(); renderList(); } }
       else if (a === 'dup') {
         var c = M.duplicateWorkout(w);
         var copies = c.imageCopies ? c.imageCopies.slice() : [];
@@ -1137,8 +1136,59 @@
       (inGroup ? '<button class="sm" data-a="unlink1" data-id="' + it.id + '">Unlink</button>' : '') +
       '<button class="sm danger" data-a="delex" data-id="' + it.id + '">Delete</button></div></div>';
   }
+  function canRenameWorkout(w) {
+    if (!w || copyLocked(w) || !window.WBPrograms || !cachedProfile) return false;
+    var role = WBPrograms.roleOf(cachedProfile);
+    return role === 'enthusiast' || role === 'trainer' || role === 'master_trainer';
+  }
+  function paintWorkoutTitle(w) {
+    if (!w) return;
+    if (!canRenameWorkout(w)) { titleEl.textContent = w.name; return; }
+    titleEl.innerHTML = '<button type="button" id="wo-name" class="bar-name">' + esc(w.name) + '</button>';
+    var btn = document.getElementById('wo-name');
+    if (btn) btn.onclick = function () { editWorkoutTitle(w); };
+  }
+  function editWorkoutTitle(w) {
+    titleEl.innerHTML = '<input id="wo-name-input" class="bar-name-input" aria-label="Workout name" value="' + esc(w.name) + '" autocomplete="off">';
+    var input = document.getElementById('wo-name-input');
+    if (!input) return;
+    var done = false;
+    function finish(save) {
+      if (done) return;
+      done = true;
+      var current = getW(w.id);
+      if (save && current) {
+        var next = String(input.value || '').trim();
+        if (next && next !== current.name) {
+          current.name = next;
+          current.updatedAt = Date.now();
+          persist();
+        }
+      }
+      var live = getW(w.id) || w;
+      if (hashPage() === 'w' && live && !copyLocked(live)) paintWorkoutTitle(live);
+    }
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', function () { finish(true); });
+    input.focus();
+    input.select();
+  }
   function renderWorkout(w) {
-    titleEl.textContent = w.name; backBtn.hidden = false;
+    backBtn.hidden = false;
+    paintWorkoutTitle(w);
+    if (!cachedProfile && WBAuth.profile) {
+      var token = routeToken;
+      var id = w.id;
+      ensureProfile().then(function () {
+        if (token !== routeToken || hashPage() !== 'w') return;
+        var live = getW(id);
+        if (!live || document.getElementById('wo-name-input')) return;
+        paintWorkoutTitle(live);
+      });
+    }
     Object.keys(selected).forEach(function (k) { if (!w.items.some(function (x) { return x.id === k; })) delete selected[k]; });
     var bl = M.blocks(w), h = copyNote(w), chain = '<svg class="chain-ico" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg>';
     if (!w.items.length) h += '<div class="empty">No exercises yet.<br>Tap “+ Exercise” below.</div>';
