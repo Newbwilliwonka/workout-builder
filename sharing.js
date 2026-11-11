@@ -215,13 +215,18 @@
   function isOwnWorkout(w) {
     return !!(w && w.id && !w.sourceTrainerId);
   }
-  function sessionIsOwn(sess, workouts) {
-    if (!sess || !sess.id || !sess.workoutId) return false;
-    var match = null;
-    (workouts || []).forEach(function (w) { if (w && w.id === sess.workoutId) match = w; });
-    // A missing workout is not own work. A deleted trainer copy must not be uploaded.
-    if (!match || match.sourceTrainerId) return false;
-    return true;
+  // Origin is fixed when the session is created. A later lookup of the workout
+  // list must not change it: a deleted copy, or a copy whose link has ended,
+  // stays a trainer session.
+  function classifySession(sess, played) {
+    if (!sess || !sess.id) return null;
+    if (typeof sess.ownWork === 'boolean') return sess.ownWork;
+    if (!played || !played.id || played.id !== sess.workoutId) return null;
+    sess.ownWork = !played.sourceTrainerId;
+    return sess.ownWork;
+  }
+  function sessionIsOwn(sess) {
+    return !!(sess && sess.id && sess.ownWork === true);
   }
   function readLog(storage) {
     try {
@@ -232,8 +237,8 @@
       return rows;
     } catch (e) { return null; }
   }
-  function rememberSession(storage, sess, workouts) {
-    if (!sessionIsOwn(sess, workouts)) return false;
+  function rememberSession(storage, sess, played) {
+    if (classifySession(sess, played) !== true) return false;
     var rows = readLog(storage);
     if (rows == null) return false;
     if (rows.some(function (r) { return r && r.id === sess.id; })) return false;
@@ -251,7 +256,7 @@
     var seen = {};
     function add(list) {
       (list || []).forEach(function (s) {
-        if (!sessionIsOwn(s, data.workouts) || seen[s.id]) return;
+        if (!sessionIsOwn(s) || seen[s.id]) return;
         seen[s.id] = true;
         sessions.push(s);
       });
@@ -283,7 +288,7 @@
     shouldPush: shouldPush, showSwitch: showSwitch,
     linkOption: linkOption, accountCard: accountCard, unavailableHtml: unavailableHtml, errorHtml: errorHtml,
     setLine: setLine, whenLabel: whenLabel, clientHtml: clientHtml,
-    isOwnWorkout: isOwnWorkout, sessionIsOwn: sessionIsOwn,
+    isOwnWorkout: isOwnWorkout, classifySession: classifySession, sessionIsOwn: sessionIsOwn,
     readLog: readLog, rememberSession: rememberSession, payload: payload
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

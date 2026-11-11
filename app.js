@@ -76,7 +76,8 @@
   var routeToken = 0;
   var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0, profileLookup = 0;
   var shareState = window.WBSharing ? WBSharing.initialState() : null;
-  var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, shareLoadStarted = false, linkShareChoice = true, pushFlight = null, pushDirty = false;
+  var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, shareLoadStarted = false, linkShareChoice = true;
+  var pushFlight = null, pushPending = false, pushTimer = null, pushWait = 1000;
   var COPY_RETURN = 'wb.copyReturn';
   function setCopyReturn(hash) {
     try {
@@ -403,26 +404,45 @@
       });
     });
   }
+  function stopPushRetry() {
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  }
+  function retrySharePush() {
+    if (pushTimer || pushFlight || !pushPending) return;
+    var wait = pushWait;
+    pushWait = Math.min(pushWait * 2, 15000);
+    pushTimer = setTimeout(function () {
+      pushTimer = null;
+      if (!pushPending || !window.WBSharing || !WBSharing.shouldPush(shareState)) return;
+      scheduleSharePush();
+    }, wait);
+  }
   function scheduleSharePush(force) {
     if (!window.WBSharing || !WBAuth.pushOwn) return;
-    if (force === true && shareState && shareState.confirmed === true && shareState.phase === 'ready' && shareState.enthusiast !== false) {
+    var open = shareState && shareState.confirmed === true && shareState.phase === 'ready' && shareState.enthusiast !== false;
+    if (force === true && open) {
       /* caller already confirmed this push */
-    } else if (!WBSharing.shouldPush(shareState)) return;
-    if (pushFlight) { pushDirty = true; return; }
+    } else if (!WBSharing.shouldPush(shareState)) {
+      pushPending = false;
+      stopPushRetry();
+      return;
+    }
+    if (pushFlight) { pushPending = true; return; }
+    stopPushRetry();
     var log = WBSharing.readLog(localStorage);
     var body = WBSharing.payload(data, log);
-    if (!body) return;
+    if (!body) { pushPending = true; return; }
+    pushPending = false;
     var run = Promise.resolve().then(function () { return WBAuth.pushOwn(body.workouts, body.sessions); });
     pushFlight = run.then(function () {
       pushFlight = null;
-      var again = pushDirty && WBSharing.shouldPush(shareState);
-      pushDirty = false;
-      if (again) scheduleSharePush();
+      pushWait = 1000;
+      if (pushPending && WBSharing.shouldPush(shareState)) scheduleSharePush();
     }, function () {
       pushFlight = null;
-      var again = pushDirty && WBSharing.shouldPush(shareState);
-      pushDirty = false;
-      if (again) scheduleSharePush();
+      if (!window.WBSharing || !WBSharing.shouldPush(shareState)) { pushPending = false; return; }
+      pushPending = true;
+      retrySharePush();
     });
   }
   function capturePlayedSession() {
@@ -430,11 +450,12 @@
       var player = window.__wbPlayer;
       if (!player || !player.done || !window.WBSharing) return;
       var done = player.done;
-      if (!WBSharing.sessionIsOwn(done, data.workouts)) {
+      var own = WBSharing.classifySession(done, player.w);
+      if (own !== true) {
         player.done = null;
         return;
       }
-      var stored = WBSharing.rememberSession(localStorage, done, data.workouts);
+      var stored = WBSharing.rememberSession(localStorage, done, player.w);
       if (!stored && WBSharing.readLog(localStorage) == null) return;
       player.done = null;
       if (stored) {
@@ -664,6 +685,8 @@
         removedCopies = [];
         shareUser = '';
         shareLoadStarted = false;
+        pushPending = false;
+        stopPushRetry();
         if (window.WBSharing) shareState = WBSharing.initialState();
         if (hashPage() !== 'account') return;
         go('#/signin');

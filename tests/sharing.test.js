@@ -147,22 +147,28 @@ var data = {
     { id: 'copy', name: 'Trainer day', sourceTrainerId: 't1', items: [] }
   ],
   sessions: [
-    { id: 's-own', workoutId: 'own', workoutName: 'Saturday easy', results: [{ name: 'Squat', reps: 8 }] },
-    { id: 's-copy', workoutId: 'copy', workoutName: 'Trainer day', results: [{ name: 'Secret', reps: 1 }] }
+    { id: 's-own', workoutId: 'own', workoutName: 'Saturday easy', ownWork: true, results: [{ name: 'Squat', reps: 8 }] },
+    { id: 's-copy', workoutId: 'copy', workoutName: 'Trainer day', ownWork: false, results: [{ name: 'Secret', reps: 1 }] }
   ]
 };
 var body = S.payload(data, []);
 assert.deepStrictEqual(body.workouts.map(function (w) { return w.localId; }), ['own']);
 assert.deepStrictEqual(body.sessions.map(function (s) { return s.localId; }), ['s-own']);
-assert.strictEqual(S.sessionIsOwn({ id: 's-own', workoutId: 'own' }, data.workouts), true);
-assert.strictEqual(S.sessionIsOwn({ id: 's-copy', workoutId: 'copy' }, data.workouts), false);
-assert.strictEqual(S.sessionIsOwn({ id: 's-gone', workoutId: 'missing' }, data.workouts), false);
-assert.strictEqual(S.sessionIsOwn({ id: 's-blank' }, data.workouts), false);
-var dropped = S.payload({
-  workouts: [{ id: 'own', name: 'Saturday easy', items: [] }],
-  sessions: [{ id: 'gone', workoutId: 'missing', workoutName: 'Ghost', results: [{ name: 'Secret' }] }]
-}, []);
-assert.deepStrictEqual(dropped.sessions, []);
+var copyPlayed = { id: 'copy', name: 'Trainer day', sourceTrainerId: 't1' };
+var copySess = { id: 's-copy-new', workoutId: 'copy', workoutName: 'Trainer day', results: [{ name: 'Secret', reps: 2 }] };
+assert.strictEqual(S.classifySession(copySess, copyPlayed), false);
+assert.strictEqual(copySess.ownWork, false);
+assert.strictEqual(S.classifySession(copySess, { id: 'copy', name: 'Now mine' }), false);
+assert.strictEqual(S.sessionIsOwn(copySess), false);
+var ownSess = { id: 's-own-new', workoutId: 'own', workoutName: 'Saturday easy', results: [{ name: 'Squat', reps: 5 }] };
+assert.strictEqual(S.classifySession(ownSess, { id: 'own', name: 'Saturday easy' }), true);
+assert.strictEqual(S.classifySession(ownSess, null), true);
+var afterDelete = S.payload({ workouts: [], sessions: [ownSess, copySess] }, []);
+assert.deepStrictEqual(afterDelete.sessions.map(function (s) { return s.localId; }), ['s-own-new']);
+var unmarked = { id: 's-blank', workoutId: 'own', workoutName: 'Saturday easy', results: [] };
+assert.strictEqual(S.classifySession(unmarked, null), null);
+assert.strictEqual(S.sessionIsOwn(unmarked), false);
+assert.deepStrictEqual(S.payload({ workouts: data.workouts, sessions: [unmarked] }, []).sessions, []);
 assert.strictEqual(S.payload(data, null), null);
 assert.strictEqual(S.payload(null, []), null);
 assert.strictEqual(S.payload({ workouts: [], sessions: 'nope' }, []), null);
@@ -172,7 +178,7 @@ var badStore = {
   getItem: function () { throw new Error('fail'); },
   setItem: function () { writes++; }
 };
-assert.strictEqual(S.rememberSession(badStore, { id: 's1', workoutId: 'own' }, data.workouts), false);
+assert.strictEqual(S.rememberSession(badStore, { id: 's1', workoutId: 'own' }, { id: 'own' }), false);
 assert.strictEqual(writes, 0);
 var mem = {};
 var store = {
@@ -181,7 +187,16 @@ var store = {
 };
 store.setItem(S.LOG_KEY, '{');
 assert.strictEqual(S.readLog(store), null);
-assert.strictEqual(S.rememberSession(store, { id: 's1', workoutId: 'own' }, data.workouts), false);
+assert.strictEqual(S.rememberSession(store, { id: 's1', workoutId: 'own' }, { id: 'own' }), false);
+assert.strictEqual(S.rememberSession(store, copySess, { id: 'copy' }), false);
+var keptLog = {};
+var keptStore = {
+  getItem: function (k) { return Object.prototype.hasOwnProperty.call(keptLog, k) ? keptLog[k] : null; },
+  setItem: function (k, v) { keptLog[k] = v; }
+};
+assert.strictEqual(S.rememberSession(keptStore, ownSess, null), true);
+var keptBody = S.payload({ workouts: [], sessions: [] }, S.readLog(keptStore));
+assert.deepStrictEqual(keptBody.sessions.map(function (s) { return s.localId; }), ['s-own-new']);
 assert.strictEqual(store.getItem(S.LOG_KEY), '{');
 assert.strictEqual(S.payload(data, S.readLog(store)), null);
 

@@ -112,11 +112,15 @@ const E = '33333333-3333-4333-8333-333333333333';
         var cfg = read();
         if (cfg.mode === 'push-fail') return Promise.reject(new Error('Failed to fetch'));
         if (cfg.mode === 'push-slow-fail') {
-          cfg.mode = 'ok';
+          cfg.pushFails = (cfg.pushFails || 0) + 1;
+          if (cfg.pushFails >= 3) cfg.mode = 'ok';
           write(cfg);
-          return new Promise(function (resolve, reject) {
-            window.__pushRelease = function () { reject(new Error('Failed to fetch')); };
-          });
+          if (cfg.pushFails < 3) {
+            return new Promise(function (resolve, reject) {
+              window.__pushRelease = function () { reject(new Error('Failed to fetch')); };
+            });
+          }
+          return Promise.resolve({ ok: true, workouts: workouts.length, sessions: sessions.length });
         }
         return Promise.resolve({ ok: true, workouts: workouts.length, sessions: sessions.length });
       },
@@ -196,8 +200,8 @@ const E = '33333333-3333-4333-8333-333333333333';
         { id: 'from', name: 'Trainer day', items: [], sourceTrainerId: T, sourceTrainerEmail: 'coach@example.com', createdAt: 1, updatedAt: 1 }
       ],
       sessions: [
-        { id: 'ses_own', workoutId: 'wo_sat', workoutName: 'Saturday easy', endedAt: 1760001000000, results: [{ name: 'Squat', set: 1, of: 3, reps: 8, weight: 135, unit: 'lb', logged: true }] },
-        { id: 'ses_copy', workoutId: 'from', workoutName: 'Trainer day', endedAt: 1760002000000, results: [{ name: 'Secret', reps: 9, logged: true }] }
+        { id: 'ses_own', workoutId: 'wo_sat', workoutName: 'Saturday easy', ownWork: true, endedAt: 1760001000000, results: [{ name: 'Squat', set: 1, of: 3, reps: 8, weight: 135, unit: 'lb', logged: true }] },
+        { id: 'ses_copy', workoutId: 'from', workoutName: 'Trainer day', ownWork: false, endedAt: 1760002000000, results: [{ name: 'Secret', reps: 9, logged: true }] }
       ]
     });
   }
@@ -312,13 +316,22 @@ const E = '33333333-3333-4333-8333-333333333333';
 
   await boot({ who: 'enthusiast', linked: true, mode: 'ok', on: true, builder: true }, '#/', ownData());
   await page.waitForSelector('[data-a="new"]');
+  assert.strictEqual(await page.$('#share-account'), null);
   await page.waitForFunction(function () { return window.__pushes.length === 1; });
   var fromHome = await page.evaluate(function () { return window.__pushes[0]; });
   assert.deepStrictEqual(fromHome.workouts.map(function (w) { return w.name; }), ['Saturday easy']);
+  assert.deepStrictEqual(fromHome.sessions.map(function (s) { return s.workoutName; }), ['Saturday easy']);
   assert.ok(JSON.stringify(fromHome).indexOf('Secret') === -1);
-  await page.evaluate(function () {
-    window.__wbPlayer = { done: { id: 'leak', workoutId: 'from', workoutName: 'Trainer day', endedAt: 9, results: [{ name: 'Secret', reps: 4, logged: true }] } };
-  });
+  page.once('dialog', function (dialog) { return dialog.accept('Saturday hard'); });
+  await page.click('[data-a="rename"][data-id="wo_sat"]');
+  await page.waitForFunction(function () { return window.__pushes.length === 2; });
+  assert.deepStrictEqual((await page.evaluate(function () { return window.__pushes[1]; })).workouts.map(function (w) { return w.name; }), ['Saturday hard']);
+  await page.evaluate(function (trainerId) {
+    window.__wbPlayer = {
+      w: { id: 'from', name: 'Trainer day', sourceTrainerId: trainerId, items: [] },
+      done: { id: 'leak', workoutId: 'from', workoutName: 'Trainer day', endedAt: 9, results: [{ name: 'Secret', reps: 4, logged: true }] }
+    };
+  }, T);
   await page.evaluate(function () { location.hash = '#/w/wo_sat'; });
   await page.waitForFunction(function () { return !window.__wbPlayer || window.__wbPlayer.done == null; });
   assert.strictEqual(await page.evaluate(function () { return localStorage.getItem('wb.ownSessions.v1'); }), null);
@@ -328,7 +341,10 @@ const E = '33333333-3333-4333-8333-333333333333';
   await page.click('[data-a="del"][data-id="from"]');
   await page.waitForFunction(function () { return !document.querySelector('[data-a="del"][data-id="from"]'); });
   await page.evaluate(function () {
-    window.__wbPlayer = { done: { id: 'leak2', workoutId: 'from', workoutName: 'Trainer day', endedAt: 11, results: [{ name: 'Secret', reps: 4, logged: true }] } };
+    window.__wbPlayer = {
+      w: { id: 'from', name: 'Trainer day', items: [] },
+      done: { id: 'leak2', workoutId: 'from', workoutName: 'Trainer day', endedAt: 11, ownWork: false, results: [{ name: 'Secret', reps: 4, logged: true }] }
+    };
   });
   await page.evaluate(function () { location.hash = '#/account'; });
   await page.waitForSelector('#share-account');
@@ -344,8 +360,11 @@ const E = '33333333-3333-4333-8333-333333333333';
   await page.waitForFunction(function () { return document.body.innerText.indexOf('Saturday hard') !== -1; });
   await page.evaluate(function () { window.__pushRelease(); });
   await page.waitForFunction(function () { return window.__pushes.length === 2; });
-  var retried = await page.evaluate(function () { return window.__pushes[1]; });
+  await page.evaluate(function () { window.__pushRelease(); });
+  await page.waitForFunction(function () { return window.__pushes.length === 3; });
+  var retried = await page.evaluate(function () { return window.__pushes[2]; });
   assert.deepStrictEqual(retried.workouts.map(function (w) { return w.name; }), ['Saturday hard']);
+  assert.deepStrictEqual((await page.evaluate(function () { return window.__pushes[1]; })).workouts.map(function (w) { return w.name; }), ['Saturday hard']);
   var still = JSON.parse(await page.evaluate(function (k) { return localStorage.getItem(k); }, 'wb.data.v1'));
   assert.strictEqual(still.workouts[0].name, 'Saturday hard');
 
