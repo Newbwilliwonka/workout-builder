@@ -169,7 +169,7 @@ body.playing .bar{display:none}
 .is-work .pl-ro{top:52%} /* work digits use .pl-ro's #2563eb; the spot stays on .pl-ro */
 .is-interval .pl-ro{top:52%} /* ready, get-ready, and the running interval; size stays on .pl-ro */
 .is-static .pl-ro{top:52%} /* stopwatch clock; color and size stay on .pl-ro */
-.is-rest .pl-ro{top:52%} /* rest digits use .pl-ro's #2563eb; the green cover stays on the veil */
+.is-rest .pl-ro{top:52%;color:#6ee7b7} /* rest digits, including 0:00, stay light green */
 .is-rest .pl-hint{color:#6ee7b7}
 .pl-main:has(.pl-info) .pl-screen{border-radius:20px 20px 0 0} /* flush with the info frame under the media */
 .pl-chain{display:flex;align-items:center;justify-content:center;height:0;margin:-3px 0;padding:0;position:relative;z-index:2;overflow:visible;pointer-events:none;flex:none;min-height:0;color:#a78bfa} /* zero row so the icon overlaps the frames instead of separating them */
