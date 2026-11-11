@@ -67,7 +67,8 @@ data.workouts.push(w);
         if (offset) return Promise.resolve([]);
         return Promise.resolve([
           { id: '0101', name: 'Test press', body_part: 'chest', equipment: 'barbell', target: 'pectorals', description: pressDesc },
-          { id: '0102', name: 'Other press', body_part: 'chest', equipment: 'dumbbell', target: 'pectorals', description: otherDesc }
+          { id: '0102', name: 'Other press', body_part: 'chest', equipment: 'dumbbell', target: 'pectorals', description: otherDesc },
+          { id: '0103', name: 'No cue press', body_part: 'chest', equipment: 'barbell', target: 'pectorals', description: '' }
         ]);
       };
       api.exerciseFilters = function () {
@@ -88,12 +89,14 @@ data.workouts.push(w);
   p.on('dialog', function (d) { d.accept(); });
   const wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
   const notes = function () { return p.$eval('[data-b=notes]', function (el) { return el.value; }); };
-  async function setNotes(value) {
-    await p.$eval('[data-b=notes]', function (el, value) {
+  async function setField(sel, value) {
+    await p.$eval(sel, function (el, value) {
       el.value = value;
       el.dispatchEvent(new Event('input', { bubbles: true }));
     }, value);
   }
+  async function setNotes(value) { await setField('[data-b=notes]', value); }
+  async function setName(value) { await setField('[data-b=name]', value); }
   async function showResults() {
     if (await p.$('.lib-hit')) return;
     await p.evaluate(function () {
@@ -134,6 +137,10 @@ data.workouts.push(w);
   await p.waitForSelector('#lib-q');
   await wait(400);
   assert.deepStrictEqual(await p.evaluate(function () { return window.__libCalls || []; }), [], 'opening the library does not download it');
+  await p.click('[data-seg=source][data-v=custom]');
+  assert.strictEqual(await notes(), 'My cue', 'Enter manually keeps notes when no library exercise is selected');
+  await p.click('[data-seg=source][data-v=library]');
+  await p.waitForSelector('#lib-q');
   await p.type('#lib-q', 'p');
   await wait(450);
   assert.deepStrictEqual(await p.evaluate(function () { return window.__libCalls || []; }), [], 'one letter does not search');
@@ -147,30 +154,56 @@ data.workouts.push(w);
   assert.strictEqual(call.offset, 0);
   assert.ok(call.limit <= 30);
   await p.waitForSelector('.lib-hit');
-  assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 2);
+  assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 3);
+  assert.strictEqual(await notes(), 'My cue', 'searching the library does not change typed notes');
   await p.click('.lib-hit');
   assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.value; }), 'Test press');
   assert.strictEqual(await p.$eval('#lib-q', function (el) { return el.value; }), 'press', 'picking leaves the search text alone');
   assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 0, 'picking collapses the library results');
-  assert.strictEqual(await notes(), 'My cue', 'typed notes are not replaced by a library description');
+  assert.strictEqual(await notes(), PRESS_DESC, 'picking a library exercise replaces typed notes');
   await p.select('#lib-body', 'waist');
   await p.waitForFunction(function () {
     return (window.__libCalls || []).some(function (c) { return c.filters && c.filters.bodyPart === 'waist'; });
   });
   await wait(50);
   assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 0, 'a filter change does not reopen collapsed results');
+  assert.strictEqual(await notes(), PRESS_DESC, 'changing a library filter does not change notes');
   await setNotes('');
   await pickNamed('Test press');
   assert.strictEqual(await notes(), PRESS_DESC);
   await setNotes('   ');
   await pickNamed('Other press');
-  assert.strictEqual(await notes(), OTHER_DESC, 'whitespace notes are filled from the library description');
+  assert.strictEqual(await notes(), OTHER_DESC, 'picking a library exercise replaces whitespace notes');
   await pickNamed('Test press');
-  assert.strictEqual(await notes(), PRESS_DESC, 'an unedited auto-fill is replaced when the library exercise changes');
+  assert.strictEqual(await notes(), PRESS_DESC, 'picking another library exercise replaces the notes');
   await setNotes(PRESS_DESC + ' Stay tight.');
   await pickNamed('Other press');
-  assert.strictEqual(await notes(), PRESS_DESC + ' Stay tight.', 'edited notes stay when the library exercise changes');
-  await setNotes('');
+  assert.strictEqual(await notes(), OTHER_DESC, 'picking a library exercise replaces notes the user edited');
+  await setNotes(OTHER_DESC + ' Stay tight.');
+  assert.strictEqual(await notes(), OTHER_DESC + ' Stay tight.', 'notes stay editable after a library description is filled');
+  await pickNamed('Other press');
+  assert.strictEqual(await notes(), OTHER_DESC, 'picking the same library exercise again replaces edited notes');
+  await pickNamed('No cue press');
+  assert.strictEqual(await notes(), '', 'a library exercise with no description clears the previous notes');
+  await pickNamed('Test press');
+  assert.strictEqual(await notes(), PRESS_DESC);
+  await p.$eval('[data-b=name]', function (el) { el.dispatchEvent(new Event('change', { bubbles: true })); });
+  assert.strictEqual(await notes(), PRESS_DESC, 'leaving the library name unchanged keeps its notes');
+  await setName('Test press custom');
+  assert.strictEqual(await notes(), '', 'typing a name over a library exercise clears its notes');
+  assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 0, 'typing a name does not reopen library results');
+  assert.ok(await p.$('#lib-q'), 'typing a name leaves the library search in place');
+  await setNotes('After rename');
+  await setName('Hip thrust');
+  assert.strictEqual(await notes(), 'After rename', 'notes typed for the manual exercise stay while its name is edited');
+  await p.click('[data-seg=source][data-v=custom]');
+  assert.strictEqual(await p.$('#lib-q'), null);
+  assert.strictEqual(await notes(), 'After rename', 'Enter manually keeps notes already written for the manual exercise');
+  await p.click('[data-seg=mode][data-v=timer]');
+  assert.strictEqual(await notes(), 'After rename', 'notes stay while the same manual exercise is edited');
+  await p.click('[data-seg=mode][data-v=reps]');
+  await p.click('[data-seg=source][data-v=library]');
+  await p.waitForSelector('#lib-q');
   await pickNamed('Test press');
   assert.strictEqual(await notes(), PRESS_DESC);
   assert.ok((await p.$eval('.media', function (el) { return el.textContent; })).includes('once'));
@@ -212,16 +245,30 @@ data.workouts.push(w);
   await p.click('[data-a=edit]');
   await p.waitForSelector('.media img');
   assert.strictEqual(await notes(), PRESS_DESC);
+  await p.click('[data-seg=source][data-v=custom]');
+  assert.strictEqual(await notes(), '', 'Enter manually clears notes saved from the previous library exercise');
+  await setNotes('Kept for this manual exercise');
+  await setName('Renamed press');
+  assert.strictEqual(await notes(), 'Kept for this manual exercise', 'manual notes stay while that exercise is renamed');
+  await p.click('[data-seg=source][data-v=library]');
+  await p.waitForSelector('#lib-q');
   await p.type('#lib-q', 'press');
   await p.waitForSelector('.lib-hit');
   await pickNamed('Other press');
-  assert.strictEqual(await notes(), PRESS_DESC, 'saved notes are kept when another library exercise is chosen');
-  await p.click('#back');
+  assert.strictEqual(await notes(), OTHER_DESC, 'picking a library exercise replaces notes saved on this exercise');
+  await p.$eval('[data-a=save]', function (el) { el.scrollIntoView({ block: 'center' }); });
+  await p.click('[data-a=save]');
   await p.waitForSelector('[data-a=add]');
+  const replaced = await p.evaluate(function (k) { return JSON.parse(localStorage.getItem(k)).workouts[0].items[0]; }, M.STORAGE_KEY);
+  assert.strictEqual(replaced.name, 'Other press');
+  assert.strictEqual(replaced.notes, OTHER_DESC);
   await p.click('[data-a=add]');
   await p.waitForSelector('[data-b=name]');
+  await setNotes('Mine');
   await p.type('[data-b=name]', 'My move');
-  assert.strictEqual(await notes(), '', 'a custom name does not auto-fill notes');
+  assert.strictEqual(await notes(), 'Mine', 'typing a manual name keeps notes when no library exercise was chosen');
+  await setNotes('');
+  assert.strictEqual(await notes(), '', 'a manual exercise does not auto-fill notes');
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   const photo = '/tmp/wb-tiny-photo.png';
   fs.writeFileSync(photo, png);
@@ -271,8 +318,8 @@ data.workouts.push(w);
     var row = note.closest('.pl-li');
     return { name: row.querySelector('b').textContent, notes: note.textContent };
   });
-  assert.strictEqual(opened.name, 'Test press');
-  assert.strictEqual(opened.notes, PRESS_DESC);
+  assert.strictEqual(opened.name, 'Other press');
+  assert.strictEqual(opened.notes, OTHER_DESC);
   assert.deepStrictEqual(await p.$$eval('.pl-list .pl-notes-btn', function (els) { return els.map(function (el) { return el.disabled; }); }), [false, true]);
   await p.evaluate(function () {
     var list = document.querySelector('.pl-list');
@@ -288,7 +335,7 @@ data.workouts.push(w);
   await wait(120);
   await p.click('.pl-ci:nth-child(2)');
   await p.waitForSelector('.pl-media img');
-  assert.strictEqual(await p.$eval('.pl-media img', function (el) { return el.getAttribute('src'); }), 'https://cdn.example.test/exercises/360/0101.gif');
+  assert.strictEqual(await p.$eval('.pl-media img', function (el) { return el.getAttribute('src'); }), 'https://cdn.example.test/exercises/360/0102.gif');
 
   await p.click('[data-p=end]');
   await p.waitForSelector('[data-p=exit]');
@@ -331,13 +378,14 @@ data.workouts.push(w);
   await p.waitForSelector('[data-b=name]');
   assert.ok((await p.$eval('#app', function (el) { return el.innerText; })).toLowerCase().includes('superset'));
   assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.value; }), 'My move');
+  await setNotes('Old superset cue');
   await p.click('[data-seg=source][data-v=library]');
   await p.waitForSelector('#lib-q');
   await p.type('#lib-q', 'press');
   await p.waitForSelector('.lib-hit');
   await pickNamed('Other press');
   assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.value; }), 'Other press');
-  assert.strictEqual(await notes(), OTHER_DESC, 'a superset exercise still fills empty notes from the library');
+  assert.strictEqual(await notes(), OTHER_DESC, 'picking a library exercise replaces notes on a superset exercise');
   assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 0, 'a superset exercise search collapses after a pick');
   await showResults();
   assert.ok((await p.$$('.lib-hit')).length >= 1, 'typing in a superset exercise search reopens results');
