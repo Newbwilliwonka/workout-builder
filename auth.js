@@ -98,7 +98,74 @@
     roster: function () { return rpc('invite_roster'); },
     createInvite: function () { return rpc('invite_create'); },
     cancelInvite: function (code) { return rpc('invite_cancel', { p_code: code }); },
-    redeemInvite: function (code) { return rpc('invite_redeem', { p_code: code }); },
+    redeemInvite: function (code, share) {
+      var withShare = typeof share === 'boolean';
+      return db().then(function (c) {
+        var args = { p_code: code };
+        if (withShare) args.p_share = share;
+        return c.rpc('invite_redeem', args).then(function (res) {
+          // The live database may still have invite_redeem(text) until the
+          // sharing migration is applied. Linking must keep working.
+          if (res.error && withShare && shareArgMissing(res.error)) {
+            return c.rpc('invite_redeem', { p_code: code }).then(function (again) {
+              return { res: again, stored: false };
+            });
+          }
+          return { res: res, stored: withShare && !res.error };
+        });
+      }).then(function (out) {
+        if (out.res.error) throw inviteError(out.res.error);
+        var data = out.res.data;
+        if (out.stored && data && typeof data === 'object') data = Object.assign({}, data, { shareStored: true });
+        return data;
+      });
+    },
+    shareSetting: function () { return shareRpc('share_setting'); },
+    setShare: function (on) {
+      if (typeof on !== 'boolean') return Promise.reject(new Error('Choose on or off.'));
+      return shareRpc('share_set', { p_on: on });
+    },
+    pushOwn: function (workouts, sessions) {
+      if (!Array.isArray(workouts) || !Array.isArray(sessions)) {
+        return Promise.reject(new Error('Could not read workouts to share.'));
+      }
+      return shareRpc('share_push', { p_workouts: workouts, p_sessions: sessions });
+    },
+    clientStatus: function (clientId) { return shareRpc('share_status', { p_client: clientId }); },
+    clientWorkouts: function (clientId) {
+      return db().then(function (c) {
+        return c.from('own_workouts').select('local_id,name,items,updated_at').eq('owner_id', clientId).order('updated_at', { ascending: false });
+      }).then(function (res) {
+        if (res.error) throw shareError(res.error);
+        if (!Array.isArray(res.data)) throw new Error('Could not load workouts.');
+        return res.data.map(function (row) {
+          return {
+            localId: row.local_id,
+            name: row.name,
+            items: Array.isArray(row.items) ? row.items : [],
+            updatedAt: row.updated_at
+          };
+        });
+      });
+    },
+    clientSessions: function (clientId) {
+      return db().then(function (c) {
+        return c.from('own_sessions').select('local_id,workout_id,workout_name,started_at,ended_at,results').eq('owner_id', clientId).order('ended_at', { ascending: false });
+      }).then(function (res) {
+        if (res.error) throw shareError(res.error);
+        if (!Array.isArray(res.data)) throw new Error('Could not load workouts.');
+        return res.data.map(function (row) {
+          return {
+            localId: row.local_id,
+            workoutId: row.workout_id || '',
+            workoutName: row.workout_name || '',
+            startedAt: row.started_at,
+            endedAt: row.ended_at,
+            results: Array.isArray(row.results) ? row.results : []
+          };
+        });
+      });
+    },
     endConnection: function (clientId) { return rpc('invite_end', { p_client: clientId && clientId !== 'self' ? clientId : null }); },
     threads: function () { return messageRpc('message_threads'); },
     messages: function (personId) { return messageRpc('message_open', { p_person: personId }); },
@@ -199,6 +266,23 @@
     }
     if (/invalid input syntax for type uuid/i.test(msg)) return new Error('There is no connection.');
     return new Error(msg || 'Could not use messages');
+  }
+  function shareArgMissing(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    return /schema cache|could not find the function|PGRST202/i.test(msg);
+  }
+  function shareRpc(name, args) {
+    return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
+      if (res.error) throw shareError(res.error);
+      return res.data;
+    });
+  }
+  function shareError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205|42P01|share_with_trainer|own_workouts|own_sessions/i.test(msg)) {
+      return new Error('Sharing workouts is not available yet. Apply the sharing SQL in the Supabase SQL editor.');
+    }
+    return new Error(msg || 'Could not update sharing.');
   }
   function inviteError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';

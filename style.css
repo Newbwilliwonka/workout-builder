@@ -203,3 +203,11 @@ button.pick .name{font-size:16px}
 button.pick .grow{display:flex;flex-direction:column;gap:2px;min-width:0}
 .mark{width:24px;height:24px;border-radius:7px;border:2px solid #cbd5e1;flex:none;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:transparent;background:#fff}
 button.pick.on .mark{background:var(--pri);border-color:var(--pri);color:#fff}
+label.checkline{display:flex;gap:12px;align-items:flex-start;font-weight:400;margin:14px 0 0}
+input.tick{width:22px;height:22px;min-height:22px;padding:0;margin-top:2px;flex:none;accent-color:var(--pri)}
+.switch{width:52px;min-width:52px;height:32px;min-height:32px;padding:0;border-radius:999px;background:#d1d5db;position:relative;flex:none}
+.switch i{position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;display:block;pointer-events:none;font-style:normal}
+.switch.on{background:var(--pri)}
+.switch.on i{left:23px}
+ul.sets{margin:8px 0 0;padding-left:18px}
+ul.sets li{margin:4px 0}
