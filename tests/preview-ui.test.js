@@ -49,7 +49,9 @@ function workout(name) {
   assert.ok(home.indexOf('Zebra Private') === -1);
   assert.ok(home.indexOf('Workouts') !== -1 && home.indexOf('Programs') !== -1);
   const card = await page.$eval('.pv-wo', function (el) { return el.innerText; });
-  assert.ok(card.indexOf('Run') !== -1 && card.indexOf('View') !== -1 && card.indexOf('Send') !== -1);
+  assert.deepStrictEqual(await page.$$eval('.pv-wo .actions', function (rows) {
+    return rows.map(function (row) { return Array.prototype.map.call(row.querySelectorAll('button'), function (b) { return b.textContent; }).join(','); });
+  }), ['Run,View,Open,Send', 'Run,View,Open,Send', 'Run,View,Open,Send', 'Run,View,Open,Send']);
   assert.ok(!/\bRename\b/.test(card) && !/\bDuplicate\b/.test(card) && !/\bDelete\b/.test(card));
   assert.ok(await page.$('.pv-handle'));
   assert.ok(await page.$('#pv-ghost'));
@@ -90,6 +92,13 @@ function workout(name) {
   await page.click('[data-view-wo="core"]');
   await page.waitForSelector('#pv-not-tracked');
   assert.strictEqual(await page.$eval('#pv-not-tracked', function (el) { return el.textContent; }), 'Preview - not tracked');
+  assert.ok((await page.$eval('#pv-player', function (el) { return el.innerText; })).indexOf('without tracking') !== -1);
+  await page.click('#back');
+  await page.waitForSelector('#pv-root');
+  await page.click('[data-run="core"]');
+  await page.waitForSelector('#pv-player');
+  assert.strictEqual(await page.$('#pv-not-tracked'), null);
+  assert.ok((await page.$eval('#pv-player', function (el) { return el.innerText; })).indexOf('with tracking') !== -1);
   await page.click('#back');
   await page.waitForSelector('#pv-root');
 
@@ -113,16 +122,21 @@ function workout(name) {
   });
   assert.strictEqual(await page.$('.pv-handle'), null);
   assert.strictEqual(await page.$('[data-send]'), null);
+  assert.strictEqual(await page.$('[data-open-wo]'), null);
+  assert.ok(await page.$('[data-run]'));
+  assert.ok(await page.$('[data-view-wo]'));
   assert.ok(await page.$('.pv-ico.trainer'));
   await page.click('[data-open-session]');
-  await page.waitForSelector('#pv-open');
+  await page.waitForSelector('#pv-day');
   assert.strictEqual(await page.$('#pv-menu'), null);
+  assert.strictEqual(await page.$('#pv-open'), null);
   await page.click('#back');
 
   await page.click('[data-role=enthusiast]');
   await page.waitForSelector('#pv-trainer-edit');
   assert.strictEqual((await page.$eval('#pv-trainer-edit', function (el) { return el.innerText; })).trim(), 'Your trainer can also edit this calendar');
   assert.ok(await page.$('.pv-handle'));
+  assert.ok(await page.$('[data-open-wo]'));
   assert.strictEqual(await page.$('[data-send]'), null);
   await page.click('#pv-share');
   await page.waitForFunction(function () {
@@ -130,6 +144,11 @@ function workout(name) {
     return note && note.innerText.indexOf('cannot see or edit this calendar') !== -1 && !document.getElementById('pv-trainer-edit');
   });
   assert.ok(await page.$('.pv-handle'), 'an enthusiast can still move their own program when sharing is off');
+  assert.ok(await page.$('[data-open-wo]'), 'an enthusiast can still open the builder when sharing is off');
+  assert.strictEqual(await page.$('[data-send]'), null, 'an enthusiast never has Send');
+  assert.deepStrictEqual(await page.$$eval('.pv-wo .actions button', function (nodes) {
+    return nodes.map(function (node) { return node.textContent; }).filter(function (label, i, all) { return all.indexOf(label) === i; });
+  }), ['Run', 'View', 'Open']);
   await page.click('#pv-share');
   await page.waitForSelector('#pv-trainer-edit');
 

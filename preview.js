@@ -105,6 +105,13 @@
     if (!state || hiddenShare()) return false;
     return state.role !== 'client';
   }
+  // Send is trainers only. An Enthusiast never gets it, sharing on or off.
+  function showSend() {
+    return !!state && (state.role === 'trainer' || state.role === 'trainer-share-on');
+  }
+  function showOpen() {
+    return !!state && state.role !== 'client' && !hiddenShare();
+  }
   function presenceLabel(kind) { return kind === 'trainer' ? 'Trainer present' : 'Solo'; }
   function countLabel(n) { return n + ' exercise' + (n === 1 ? '' : 's'); }
   function ico(kind) {
@@ -277,17 +284,28 @@
     }
     return h + '</div>';
   }
+  function buttonHint() {
+    if (state.role === 'client') return 'Run tracks in the player. View plays it without tracking.';
+    if (state.role === 'enthusiast') return 'Run tracks in the player. View plays it without tracking. Open edits it in the builder.';
+    return 'Run tracks in the player. View plays it without tracking. Open edits it in the builder. Send is for trainers.';
+  }
+  function actionsHtml(w) {
+    var id = esc(w.id);
+    var h = '<div class="actions"><button type="button" class="pri sm" data-run="' + id + '">Run</button>' +
+      '<button type="button" class="sm" data-view-wo="' + id + '">View</button>';
+    if (showOpen()) h += '<button type="button" class="sm" data-open-wo="' + id + '">Open</button>';
+    if (showSend()) h += '<button type="button" class="sm" data-send="' + id + '">Send</button>';
+    return h + '</div>';
+  }
   function workoutsHtml() {
-    var h = '<h2 class="pv-h">Workouts</h2><p class="mute">Standalone workouts. They become a Program once they are on the calendar.</p>';
+    var h = '<h2 class="pv-h">Workouts</h2><p class="mute">Standalone workouts. They become a Program once they are on the calendar.</p>' +
+      '<p class="mute" id="pv-buttons">' + esc(buttonHint()) + '</p>';
     if (canEdit()) h += '<button type="button" class="pri" id="pv-new" style="width:100%;margin:8px 0">+ New workout</button>';
     allWorkouts().forEach(function (w) {
       h += '<div class="card pv-wo">' + handleHtml('workout', w.id, w.name) +
-        '<div class="grow"><button type="button" class="pv-link" data-open-wo="' + esc(w.id) + '"><span class="name">' + esc(w.name) + '</span></button>' +
+        '<div class="grow"><div class="name">' + esc(w.name) + '</div>' +
         '<div class="mute">' + countLabel(w.exercises.length) + ' · sample</div>' +
-        '<div class="actions"><button type="button" class="pri sm" data-run="' + esc(w.id) + '">Run</button>' +
-        '<button type="button" class="sm" data-view-wo="' + esc(w.id) + '">View</button>' +
-        (state.role === 'trainer' || state.role === 'trainer-share-on' ? '<button type="button" class="sm" data-send="' + esc(w.id) + '">Send</button>' : '') +
-        '</div></div></div>';
+        actionsHtml(w) + '</div></div>';
     });
     return h;
   }
@@ -354,22 +372,28 @@
       (view ? '<span class="tag" id="pv-not-tracked">Preview - not tracked</span>' : '') + '</div>' +
       '<div class="pv-ex">' + esc(w.exercises[0] || w.name) + '</div>' +
       '<p class="pv-stage-note">' + (view
-        ? 'View opens the player without tracking. This is only the header.'
-        : 'Sample run. A real Run would track this workout. This preview records nothing.') + '</p></div>' +
+        ? 'View runs this workout in the player without tracking. This is only the header.'
+        : 'Run runs this workout in the player with tracking. This preview does not save a session.') + '</p></div>' +
       '<p class="mute">Sample player for ' + esc(w.name) + '.</p></div>';
+  }
+  function exerciseList(w) {
+    if (!w.exercises.length) return '';
+    var h = '<ul class="sets">';
+    w.exercises.forEach(function (name) { h += '<li>' + esc(name) + '</li>'; });
+    return h + '</ul>';
   }
   function openHtml() {
     var w = workout(state.focusId) || WORKOUTS[0];
-    var h = '<div id="pv-open"><p class="mute">This is the open workout. The card outside only has Run, View' + (state.role.indexOf('trainer') === 0 ? ', and Send' : '') + '.</p>' +
-      '<div class="card"><div class="name">' + esc(w.name) + '</div><div class="mute">' + countLabel(w.exercises.length) + ' · sample</div>';
-    if (w.exercises.length) {
-      h += '<ul class="sets">';
-      w.exercises.forEach(function (name) { h += '<li>' + esc(name) + '</li>'; });
-      h += '</ul>';
-    }
-    h += '</div>';
-    if (!canEdit()) h += '<div class="card" id="pv-role-note"><p style="margin:0">You can open this day’s workout. Your trainer schedules your program.</p></div>';
-    return h + '</div>';
+    return '<div id="pv-open"><p class="mute">Open is the workout builder. Rename, Duplicate, and Delete stay in this menu.</p>' +
+      '<div class="card"><div class="name">' + esc(w.name) + '</div><div class="mute">' + countLabel(w.exercises.length) + ' · sample</div>' +
+      exerciseList(w) + '</div></div>';
+  }
+  function dayHtml() {
+    var w = workout(state.focusId) || WORKOUTS[0];
+    return '<div id="pv-day"><p class="mute">This day’s workout. You can Run or View it. Editing stays with your trainer.</p>' +
+      '<div class="card"><div class="name">' + esc(w.name) + '</div><div class="mute">' + countLabel(w.exercises.length) + ' · sample</div>' +
+      exerciseList(w) + '</div>' +
+      '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer schedules your program</p></div></div>';
   }
   function sendHtml() {
     var w = workout(state.focusId) || WORKOUTS[0];
@@ -426,7 +450,7 @@
   function applyChrome() {
     var w = workout(state.focusId);
     if (state.screen === 'send') titleEl.textContent = 'Send';
-    else if (state.screen === 'player' || state.screen === 'open') titleEl.textContent = w ? w.name : 'Workout';
+    else if (state.screen === 'player' || state.screen === 'open' || state.screen === 'day') titleEl.textContent = w ? w.name : 'Workout';
     else titleEl.textContent = 'Programs';
     if (backBtn) backBtn.hidden = false;
     paintBar();
@@ -436,6 +460,7 @@
     document.body.classList.add('pv-on');
     if (state.screen === 'player') app.innerHTML = playerHtml();
     else if (state.screen === 'open') app.innerHTML = openHtml();
+    else if (state.screen === 'day') app.innerHTML = dayHtml();
     else if (state.screen === 'send') app.innerHTML = sendHtml();
     else app.innerHTML = homeHtml();
     applyChrome();
@@ -508,16 +533,16 @@
       return;
     }
     var openWo = e.target.closest('[data-open-wo]');
-    if (openWo) { state.focusId = openWo.getAttribute('data-open-wo'); state.screen = 'open'; state.menuOpen = canEdit(); state.menuNote = ''; render(); return; }
+    if (openWo && showOpen()) { state.focusId = openWo.getAttribute('data-open-wo'); state.screen = 'open'; state.menuOpen = true; state.menuNote = ''; render(); return; }
     var openS = e.target.closest('[data-open-session]');
     if (openS) {
       var list = schedule();
       var found = null;
       for (var i = 0; i < list.length; i++) if (list[i].id === openS.getAttribute('data-open-session')) found = list[i];
       state.focusId = found ? found.workoutId : 'push';
-      state.screen = 'open';
-      state.menuOpen = canEdit();
       state.menuNote = '';
+      if (showOpen()) { state.screen = 'open'; state.menuOpen = true; }
+      else state.screen = 'day';
       render();
       return;
     }
@@ -526,7 +551,7 @@
     var run = e.target.closest('[data-run]');
     if (run) { state.focusId = run.getAttribute('data-run'); state.playerMode = 'run'; state.screen = 'player'; render(); return; }
     var send = e.target.closest('[data-send]');
-    if (send && (state.role === 'trainer' || state.role === 'trainer-share-on')) {
+    if (send && showSend()) {
       state.focusId = send.getAttribute('data-send');
       state.screen = 'send';
       render();
