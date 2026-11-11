@@ -94,7 +94,17 @@ data.workouts.push(w);
       el.dispatchEvent(new Event('input', { bubbles: true }));
     }, value);
   }
+  async function showResults() {
+    if (await p.$('.lib-hit')) return;
+    await p.evaluate(function () {
+      var input = document.getElementById('lib-q');
+      input.value = /\s$/.test(input.value) ? input.value.slice(0, -1) : input.value + ' ';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await p.waitForSelector('.lib-hit');
+  }
   async function pickNamed(name) {
+    await showResults();
     await p.evaluate(function (name) {
       var hits = document.querySelectorAll('.lib-hit');
       for (var i = 0; i < hits.length; i++) {
@@ -140,7 +150,15 @@ data.workouts.push(w);
   assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 2);
   await p.click('.lib-hit');
   assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.value; }), 'Test press');
+  assert.strictEqual(await p.$eval('#lib-q', function (el) { return el.value; }), 'press', 'picking leaves the search text alone');
+  assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 0, 'picking collapses the library results');
   assert.strictEqual(await notes(), 'My cue', 'typed notes are not replaced by a library description');
+  await p.select('#lib-body', 'waist');
+  await p.waitForFunction(function () {
+    return (window.__libCalls || []).some(function (c) { return c.filters && c.filters.bodyPart === 'waist'; });
+  });
+  await wait(50);
+  assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 0, 'a filter change does not reopen collapsed results');
   await setNotes('');
   await pickNamed('Test press');
   assert.strictEqual(await notes(), PRESS_DESC);
@@ -177,6 +195,11 @@ data.workouts.push(w);
   await p.click('[data-seg=view][data-v="360"]');
   await p.waitForSelector('.media img');
   assert.strictEqual(await p.$eval('.media img', function (el) { return el.src; }), 'https://cdn.example.test/exercises/360/0101.gif');
+  await p.waitForFunction(function () {
+    var img = document.querySelector('.media img');
+    return img && img.complete && img.naturalWidth > 0;
+  });
+  await p.$eval('[data-a=save]', function (el) { el.scrollIntoView({ block: 'center' }); });
   await p.click('[data-a=save]');
   await p.waitForSelector('[data-a=add]');
   const saved = await p.evaluate(function (k) { return JSON.parse(localStorage.getItem(k)).workouts[0].items[0]; }, M.STORAGE_KEY);
@@ -295,6 +318,29 @@ data.workouts.push(w);
     });
   }, custom.media.imageKey);
   assert.strictEqual(gone, 0, 'removing the image deletes it from this device');
+
+  await p.evaluate(function (k) {
+    var data = JSON.parse(localStorage.getItem(k));
+    data.workouts[0].items.forEach(function (it) { it.groupId = 'grp_ss'; });
+    localStorage.setItem(k, JSON.stringify(data));
+  }, M.STORAGE_KEY);
+  await p.reload();
+  await p.waitForSelector('.ss [data-a=edit]');
+  const ssEdits = await p.$$('.ss [data-a=edit]');
+  await ssEdits[ssEdits.length - 1].click();
+  await p.waitForSelector('[data-b=name]');
+  assert.ok((await p.$eval('#app', function (el) { return el.innerText; })).toLowerCase().includes('superset'));
+  assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.value; }), 'My move');
+  await p.click('[data-seg=source][data-v=library]');
+  await p.waitForSelector('#lib-q');
+  await p.type('#lib-q', 'press');
+  await p.waitForSelector('.lib-hit');
+  await pickNamed('Other press');
+  assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.value; }), 'Other press');
+  assert.strictEqual(await notes(), OTHER_DESC, 'a superset exercise still fills empty notes from the library');
+  assert.strictEqual(await p.$$eval('.lib-hit', function (a) { return a.length; }), 0, 'a superset exercise search collapses after a pick');
+  await showResults();
+  assert.ok((await p.$$('.lib-hit')).length >= 1, 'typing in a superset exercise search reopens results');
 
   assert.deepStrictEqual(errs, []);
   console.log('LIBRARY UI OK');

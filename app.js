@@ -556,7 +556,7 @@
       view: media && media.kind === 'library' ? media.view : '180',
       imageKey: media && media.kind === 'custom' ? media.imageKey : '',
       pendingBlob: null, pendingUrl: '', clearImage: false, savedMedia: media,
-      libQuery: '', libBody: '', libEquip: '', libTarget: '', libRows: [], libMore: false, libStatus: '', libError: false };
+      libQuery: '', libBody: '', libEquip: '', libTarget: '', libRows: [], libMore: false, libStatus: '', libError: false, libCollapsed: false };
     M.MODES.forEach(function (m) { d.cfg[m] = M.defaultModeConfig(m); });
     Object.assign(d.cfg[ex.mode], ex.modeConfig);
     ['reps', 'intervals', 'timer'].forEach(function (m) { var x = d.cfg[m]; ['count', 'min', 'max'].forEach(function (k) { x[k] = x[k] == null ? '' : String(x[k]); }); });
@@ -631,6 +631,9 @@
   }
   function libMeta(row) { return [row.body_part, row.equipment, row.target].filter(Boolean).join(' · '); }
   function resultsHtml(d) {
+    // A pick hides the list. It stays hidden through filter changes and re-renders
+    // until the search text itself changes, then the usual search output comes back.
+    if (d.libCollapsed) return '';
     if (d.libStatus) return '<p class="' + (d.libError ? 'errs' : 'mute') + '">' + esc(d.libStatus) + '</p>';
     var q = String(d.libQuery || '').trim();
     var filtered = d.libBody || d.libEquip || d.libTarget;
@@ -843,7 +846,9 @@
         return;
       }
       if (t.id === 'lib-q' || t.id === 'lib-body' || t.id === 'lib-equip' || t.id === 'lib-target') {
-        d.libQuery = (document.getElementById('lib-q') || {}).value || '';
+        var nextQuery = (document.getElementById('lib-q') || {}).value || '';
+        if (t.id === 'lib-q' && nextQuery !== (d.libQuery || '')) d.libCollapsed = false;
+        d.libQuery = nextQuery;
         d.libBody = (document.getElementById('lib-body') || {}).value || '';
         d.libEquip = (document.getElementById('lib-equip') || {}).value || '';
         d.libTarget = (document.getElementById('lib-target') || {}).value || '';
@@ -895,6 +900,7 @@
         d.source = 'library';
         if (d.view !== '360') d.view = '180';
         applyLibraryDescription(d, libRowById(d, d.libraryId));
+        d.libCollapsed = true;
         return renderEditor(w, exId);
       }
       if (b.dataset.a === 'libmore') { scheduleLibSearch(true); return; }
