@@ -39,7 +39,7 @@
   }
   function ownerId() {
     if (!state) return 'self';
-    if (P.isTrainer(state.role)) return state.clientId || '';
+    if (P.isTrainer(state.role) && state.clientId) return state.clientId;
     return state.userId || 'self';
   }
   function context() {
@@ -212,7 +212,6 @@
     var n = (w.items || []).length;
     var name = w.name || 'Workout';
     return '<div class="card pv-pick-card"' + dragAttrs('workout', w.id, name) + ' data-wo="' + esc(w.id) + '"><div class="pv-session-top">' +
-      (canEdit() ? '<span class="pv-handle" aria-hidden="true">⋮⋮</span>' : '') +
       '<div class="name">' + esc(name) + '</div></div>' +
       '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div></div>';
   }
@@ -223,11 +222,21 @@
     var when = P.formatRange(row.start, row.end);
     var icon = canEdit() ? ico(kind, { id: row.id }) : ico(kind);
     return '<div class="card pv-session" data-open-session="' + esc(row.id) + '"' + dragAttrs('session', row.id, name) + '><div class="pv-session-top">' +
-      (canEdit() ? '<span class="pv-handle" aria-hidden="true">⋮⋮</span>' : '') +
       icon + '</div>' +
       '<div class="name">' + esc(name) + '</div>' +
       (when ? '<div class="pv-when">' + esc(when) + '</div>' : '') +
       '<div class="mute">' + esc(presenceLabel(kind)) + '</div></div>';
+  }
+  function presenceChoice(name, selected, entryId) {
+    function opt(value, label) {
+      var on = selected === value ? ' checked' : '';
+      var entry = entryId ? ' data-entry="' + esc(entryId) + '"' : '';
+      return '<label class="pv-presence-opt"><input type="radio" name="' + esc(name) + '" value="' + value + '"' + on + entry + '>' +
+        ico(value) + '<span>' + esc(label) + '</span></label>';
+    }
+    return '<div class="pv-presence" role="radiogroup" aria-label="Solo or Trainer present">' +
+      '<div class="pv-presence-label">Solo or Trainer present</div>' +
+      opt('solo', 'Solo') + opt('trainer', 'Trainer present') + '</div>';
   }
   function legendHtml() {
     return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span></div>';
@@ -290,16 +299,17 @@
     if (state.role === 'free_client') return '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer schedules your program</p></div>';
     if (state.role === 'enthusiast' && state.shareOn === true) return '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer can also edit this calendar</p></div>';
     if (state.role === 'enthusiast' && state.shareOn === false) return '<div class="card" id="pv-role-note"><p style="margin:0">Sharing is off. Your trainer cannot see or edit this calendar.</p></div>';
-    if (P.isTrainer(state.role) && state.clientShare && state.clientShare.shared === true) {
+    if (P.isTrainer(state.role) && state.clientId && state.clientShare && state.clientShare.shared === true) {
       return '<div class="card" id="pv-role-note"><p style="margin:0">Sharing is on, so you can drag and schedule workouts on this calendar.</p></div>';
     }
-    if (P.isTrainer(state.role) && canEdit()) return '<div class="card" id="pv-role-note"><p style="margin:0">You can drag and move workouts on this client’s calendar.</p></div>';
+    if (P.isTrainer(state.role) && state.clientId && canEdit()) return '<div class="card" id="pv-role-note"><p style="margin:0">You can drag and move workouts on this client’s calendar.</p></div>';
     return '';
   }
   function clientPicker() {
     if (!P.isTrainer(state.role)) return '';
     if (!state.clients.length) return '<div class="card"><div class="name">No clients yet</div><p class="mute">Invite a client from Account, then their calendar shows up here.</p></div>';
     var h = '<label class="mute" for="pv-client">Client</label><select id="pv-client">';
+    h += '<option value=""' + (state.clientId ? '' : ' selected') + '>My calendar</option>';
     state.clients.forEach(function (client) {
       h += '<option value="' + esc(client.id) + '"' + (client.id === state.clientId ? ' selected' : '') + '>' + esc(client.email || 'Client') + ' · ' + esc(client.plan || 'Free Client') + '</option>';
     });
@@ -311,7 +321,6 @@
     if (state.remote) h += '<p class="mute" id="pv-remote">' + esc(state.remote) + '</p>';
     if (state.hint) h += '<p class="mute" id="pv-hint">' + esc(state.hint) + '</p>';
     if (!state.ready) return h + '<p class="mute" id="pv-loading">Loading…</p></div>';
-    if (P.isTrainer(state.role) && !state.clients.length) return h + '</div>';
     if (hidden) {
       return h + '<div class="card" id="pv-private"><div class="name">Not shared</div><p class="mute">This Enthusiast has turned off sharing. You cannot see or edit their program.</p></div></div>';
     }
@@ -359,7 +368,8 @@
     var kind = row.presence === 'trainer' ? 'trainer' : 'solo';
     var draft = (state.sheet.drafts && state.sheet.drafts[row.id]) || { start: row.start || '', end: row.end || '', error: '' };
     var h = '<div class="pv-slot">';
-    h += '<h3 class="name">' + esc(name) + '</h3><p class="mute">' + esc(prettyDate(row.date)) + ' · ' + esc(presenceLabel(kind)) + '</p>';
+    h += '<h3 class="name pv-slot-title">' + ico(kind) + '<span>' + esc(name) + '</span></h3><p class="mute">' + esc(prettyDate(row.date)) + ' · ' + esc(presenceLabel(kind)) + '</p>';
+    if (editing) h += presenceChoice('pv-presence-' + row.id, kind, row.id);
     if (editing) {
       h += '<label for="pv-start-' + esc(row.id) + '">Start</label><input id="pv-start-' + esc(row.id) + '" data-time="start" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.start || '') + '">' +
         '<label for="pv-end-' + esc(row.id) + '">End</label><input id="pv-end-' + esc(row.id) + '" data-time="end" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.end || '') + '">';
@@ -383,7 +393,8 @@
       var n = (w.items || []).length;
       h += '<button type="button" class="pv-pick' + (w.id === sheet.workoutId ? ' on' : '') + '" data-pick="' + esc(w.id) + '"><span class="name">' + esc(w.name || 'Workout') + '</span><span class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</span></button>';
     });
-    h += '</div><label for="pv-start">Start</label><input id="pv-start" type="time" value="' + esc(sheet.start || '') + '">' +
+    h += '</div>' + presenceChoice('pv-presence', sheet.presence || '', '') +
+      '<label for="pv-start">Start</label><input id="pv-start" type="time" value="' + esc(sheet.start || '') + '">' +
       '<label for="pv-end">End</label><input id="pv-end" type="time" value="' + esc(sheet.end || '') + '">';
     if (sheet.error) h += '<p class="errs" id="pv-sheet-error">' + esc(sheet.error) + '</p>';
     return h + '<button type="button" class="pri" data-sheet="save">Add to this day</button><button type="button" data-sheet="cancel">Cancel</button></div></div>';
@@ -489,7 +500,7 @@
     render();
   }
   function openAdd(date, workoutId) {
-    state.sheet = { type: 'add', date: date, workoutId: workoutId || '', start: '09:00', end: '10:00', error: '' };
+    state.sheet = { type: 'add', date: date, workoutId: workoutId || '', start: '09:00', end: '10:00', presence: '', error: '' };
     state.hint = '';
     render();
   }
@@ -507,11 +518,12 @@
       return;
     }
     if (state.sheet.type !== 'day' || !state.sheet.drafts) return;
-    var nodes = document.querySelectorAll('#pv-day-sheet input[data-entry]');
+    var nodes = document.querySelectorAll('#pv-day-sheet input[data-time]');
     for (var i = 0; i < nodes.length; i++) {
       var draft = state.sheet.drafts[nodes[i].getAttribute('data-entry')];
-      if (!draft) continue;
-      draft[nodes[i].getAttribute('data-time')] = nodes[i].value;
+      var key = nodes[i].getAttribute('data-time');
+      if (!draft || !key) continue;
+      draft[key] = nodes[i].value;
     }
   }
   function confirmAdd() {
@@ -532,7 +544,7 @@
       date: sheet.date,
       start: times.start,
       end: times.end,
-      presence: P.isTrainer(state.role) ? 'trainer' : 'solo'
+      presence: sheet.presence
     });
     if (placed.duplicate) { sheet.error = 'That workout is already on this day.'; render(); return; }
     if (!placed.created) { sheet.error = placed.error || 'Pick a workout.'; render(); return; }
@@ -702,7 +714,29 @@
     document.addEventListener('pointercancel', finish);
   }
   function onChange(e) {
-    if (!state || e.target.id !== 'pv-client') return;
+    if (!state) return;
+    var radio = e.target;
+    if (radio && radio.type === 'radio' && radio.name && String(radio.name).indexOf('pv-presence') === 0) {
+      if (!state.sheet || !data()) return;
+      readSheetTimes();
+      if (state.sheet.type === 'add') {
+        state.sheet.presence = radio.value === 'trainer' ? 'trainer' : 'solo';
+        state.sheet.error = '';
+        render();
+        return;
+      }
+      if (state.sheet.type === 'day' && canEdit()) {
+        var id = radio.getAttribute('data-entry');
+        var flipped = P.setPresence(data().programs, id, radio.value);
+        if (flipped.changed) {
+          savePrograms(flipped.programs, 'Saved on this device.');
+          pushRemote(flipped.changed);
+        }
+        render();
+      }
+      return;
+    }
+    if (e.target.id !== 'pv-client') return;
     state.clientId = e.target.value;
     state.clientShare = null;
     state.hint = '';
@@ -839,8 +873,8 @@
           if (!state || token !== loadToken) return;
           var clients = roster && Array.isArray(roster.clients) ? roster.clients : [];
           state.clients = clients;
-          if (!state.clientId || !clients.some(function (row) { return row.id === state.clientId; })) {
-            state.clientId = clients.length ? clients[0].id : '';
+          if (state.clientId && !clients.some(function (row) { return row.id === state.clientId; })) {
+            state.clientId = '';
           }
           loadClientShare(token);
         });

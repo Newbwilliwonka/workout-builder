@@ -33,19 +33,17 @@
     return !ctx || !ctx.ownerId || ctx.ownerId === ctx.self || ctx.ownerId === 'self';
   }
   // ctx: { role, self, ownerId, ownerPlan, linked, shareOn }
+  // A trainer with no client selected is on their own calendar, same as any other account.
   function canSee(ctx) {
     ctx = ctx || {};
-    if (viewingSelf(ctx)) return !isTrainer(ctx.role);
+    if (viewingSelf(ctx)) return true;
     if (!isTrainer(ctx.role) || ctx.linked !== true) return false;
     if (ownerPlanOf(ctx) === 'enthusiast') return ctx.shareOn === true;
     return true;
   }
   function canEdit(ctx) {
     ctx = ctx || {};
-    if (viewingSelf(ctx)) {
-      if (ctx.role === 'free_client' || isTrainer(ctx.role)) return false;
-      return true;
-    }
+    if (viewingSelf(ctx)) return ctx.role !== 'free_client';
     if (!canSee(ctx)) return false;
     return isTrainer(ctx.role);
   }
@@ -69,7 +67,9 @@
     if (!isFinite(t)) return '';
     return iso(new Date(t));
   }
+  // Stored rows with no designation display as Solo. A new entry has to choose.
   function presence(value) { return value === 'trainer' ? 'trainer' : 'solo'; }
+  function chosenPresence(value) { return value === 'trainer' || value === 'solo' ? value : ''; }
   function copyItems(items) {
     if (!Array.isArray(items)) return [];
     try { return JSON.parse(JSON.stringify(items)); } catch (e) { return []; }
@@ -89,6 +89,8 @@
       start = times.start;
       end = times.end;
     }
+    var who = chosenPresence(entry.presence);
+    if (!who) return { programs: list, created: null, duplicate: false, error: 'Choose Solo or Trainer present.' };
     var date = String(entry.date);
     var ownerId = entry.ownerId || 'self';
     var workoutId = String(entry.workoutId);
@@ -105,7 +107,7 @@
       date: date,
       start: start,
       end: end,
-      presence: presence(entry.presence),
+      presence: who,
       updatedAt: entry.updatedAt || Date.now(),
       pending: true
     };
