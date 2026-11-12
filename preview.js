@@ -875,8 +875,8 @@
           if (!state || token !== loadToken) return;
           var clients = roster && Array.isArray(roster.clients) ? roster.clients : [];
           state.clients = clients;
-          if (!state.clientId || !clients.some(function (row) { return row.id === state.clientId; })) {
-            state.clientId = clients.length ? clients[0].id : '';
+          if (state.clientId && !clients.some(function (row) { return row.id === state.clientId; })) {
+            state.clientId = '';
           }
           loadClientShare(token);
         });

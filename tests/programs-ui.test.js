@@ -470,8 +470,8 @@ async function stub(page, extra) {
   await trainer.click('#programs-open');
   await trainer.waitForSelector('#pv-client');
   await trainer.waitForSelector('.pv-handle');
-  assert.strictEqual(await trainer.$eval('#pv-client', function (el) { return el.value; }), 'ada');
-  assert.strictEqual(await trainer.$eval('#pv-client option[value=""]', function (el) { return el.textContent; }), 'My calendar');
+  assert.strictEqual(await trainer.$eval('#pv-client', function (el) { return el.value; }), '');
+  assert.strictEqual(await trainer.$eval('#pv-client option:checked', function (el) { return el.textContent; }), 'My calendar');
   assert.strictEqual(await trainer.$('#pv-workouts .actions'), null);
   assert.strictEqual(await trainer.$('#pv-workouts button'), null);
   assert.strictEqual(await trainer.$('[data-send]'), null);
@@ -500,13 +500,9 @@ async function stub(page, extra) {
   }, M.STORAGE_KEY);
   await trainer.reload();
   await trainer.waitForSelector('#pv-client');
-  assert.strictEqual(await trainer.$eval('#pv-client', function (el) { return el.value; }), 'ada');
-  await trainer.waitForFunction(function () { return document.body.innerText.indexOf('Ada lift') !== -1; });
-  assert.strictEqual((await trainer.$eval('#pv-cal', function (el) { return el.innerText; })).indexOf('My lift'), -1);
-  await trainer.select('#pv-client', '');
   await trainer.waitForFunction(function () {
     var sel = document.getElementById('pv-client');
-    return sel && sel.value === '' && document.body.innerText.indexOf('My lift') !== -1;
+    return sel && sel.value === '' && sel.options[sel.selectedIndex].textContent === 'My calendar' && document.body.innerText.indexOf('My lift') !== -1;
   });
   assert.strictEqual((await trainer.$eval('#pv-cal', function (el) { return el.innerText; })).indexOf('Ada lift'), -1);
   assert.strictEqual(await trainer.$('#pv-private'), null);
@@ -519,6 +515,11 @@ async function stub(page, extra) {
     var row = JSON.parse(localStorage.getItem('wb.data.v1')).programs.filter(function (item) { return item.id === 'own1'; })[0];
     return row && row.presence === 'trainer' && row.ownerId === 'trainer-1';
   });
+  await trainer.select('#pv-client', 'ada');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('pv-client').value === 'ada' && document.body.innerText.indexOf('Ada lift') !== -1;
+  });
+  assert.strictEqual((await trainer.$eval('#pv-cal', function (el) { return el.innerText; })).indexOf('My lift'), -1);
 
   const lone = await browser.newPage();
   lone.on('pageerror', function (err) { errors.push(String(err)); });
