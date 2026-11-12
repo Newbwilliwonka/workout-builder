@@ -57,6 +57,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.click('[data-plan=enthusiast]');
   await p.evaluate(() => {
     window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'HempleD@gmail.com' } }); };
+    window.WBAuth.profile = function () { return Promise.resolve({ membership: 'none', intended_plan: 'trainer' }); };
     location.hash = '#/';
   });
   await p.waitForSelector('[data-a=new]');
@@ -168,6 +169,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.evaluate(() => {
     window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { email: 'ada@example.com' } }, needsConfirmation: false }); };
     window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'ada@example.com' } }); };
+    window.WBAuth.profile = function () { return Promise.resolve({ membership: 'none', intended_plan: null }); };
     location.hash = '#/join';
   });
   await p.waitForSelector('#acct-email');

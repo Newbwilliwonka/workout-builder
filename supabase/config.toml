@@ -1,0 +1,7 @@
+# Google Calendar fetches the program feed and cannot send a Supabase key.
+# JWT verification stays off for this function only. The private token in the
+# URL is what keeps one person's calendar from opening another person's.
+# Do not deploy until the owner approves it.
+
+[functions.calendar-feed]
+verify_jwt = false

@@ -251,9 +251,7 @@ function install(page, who) {
   await install(client, { id: C, email: 'ada@example.com', membership: 'free_client' });
   await client.goto(URL + '#/');
   await client.reload();
-  await client.waitForFunction(function () { return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1; });
-  assert.ok(await client.$('#messages-nav'));
-  assert.strictEqual(await client.$('[data-a=new], [data-a=run], .pl-screen'), null);
+  await client.waitForFunction(function () { return location.hash === '#/' && document.querySelector('#messages-nav') && document.querySelector('[data-a=new]'); });
   await client.click('#messages-nav');
   await client.waitForSelector('[data-thread="' + T + '"]');
   assert.strictEqual(await client.$('#sample-role, [data-role]'), null);

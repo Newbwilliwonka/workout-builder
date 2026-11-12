@@ -4,6 +4,15 @@ async function stubAuth(page, opts) {
   var session = hasSession ? opts.session : { user: { id: 'allow-test', email: 'kinisiathletics@gmail.com' } };
   var hasProfile = opts && Object.prototype.hasOwnProperty.call(opts, 'profile');
   var profile = hasProfile ? opts.profile : null;
+  if (!hasProfile && session) {
+    hasProfile = true;
+    profile = {
+      id: (session.user && session.user.id) || 'allow-test',
+      email: (session.user && session.user.email) || 'kinisiathletics@gmail.com',
+      membership: 'trainer',
+      intended_plan: 'trainer'
+    };
+  }
   await page.evaluateOnNewDocument(function (session, profile, hasProfile) {
     var current;
     function patch(api) {

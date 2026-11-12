@@ -64,6 +64,26 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await new Promise(r => setTimeout(r, 250));
   assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/signin');
   assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left sign-in after a player link');
+  await denied(signedOut, '#/programs', '#/signin');
+  await denied(signedOut, '#/account', '#/signin');
+  await denied(signedOut, '#/messages', '#/signin');
+  await denied(signedOut, '#/client/abc', '#/signin');
+  await denied(signedOut, '#/send', '#/signin');
+  await denied(signedOut, '#/received', '#/signin');
+  await denied(signedOut, '#/preview', '#/signin');
+  await signedOut.goto(URL + '?invite=ABCD2345#/signin');
+  await signedOut.waitForSelector('#invite-code');
+  assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  await signedOut.goto(URL + '?code=reset-code');
+  await signedOut.waitForFunction(function () {
+    return location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in';
+  });
+  await signedOut.goto(URL + '#/subscriptions');
+  await signedOut.waitForFunction(function () {
+    return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
+  });
+  await signedOut.goto(URL + '#/signin');
+  await signedOut.waitForSelector('[data-auth=switch]');
   await signedOut.click('[data-auth=switch]');
   await signedOut.waitForFunction(() => location.hash === '#/join' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Create your account');
   assert.deepStrictEqual(await signedOut.$eval('#back', e => ({ hidden: e.hidden, display: getComputedStyle(e).display })), { hidden: true, display: 'none' });
@@ -78,10 +98,11 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   const stranger = await open({ user: { id: 's', email: 'ada@example.com' } }, none);
   await seed(stranger);
   await denied(stranger, '#/', '#/subscriptions');
-  assert.ok((await stranger.evaluate(() => document.body.innerText)).includes('Choose how you want to train'));
+  await stranger.waitForFunction(() => document.body.innerText.includes('Choose how you want to train'));
   await denied(stranger, '#/w/' + w.id, '#/subscriptions');
   await denied(stranger, '#/play/' + w.id, '#/subscriptions');
-  await stranger.click('#back');
+  assert.strictEqual(await stranger.$eval('#back', function (el) { return el.hidden; }), true);
+  await stranger.evaluate(() => document.getElementById('back').click());
   await stranger.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train'));
   await new Promise(r => setTimeout(r, 250));
   assert.strictEqual(await stranger.evaluate(() => window.__leak), false, 'back button opened the builder for a stranger');
@@ -89,15 +110,13 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
 
   const chosenStranger = await open({ user: { id: 's', email: 'Ada@Example.com' } }, chosen);
   await seed(chosenStranger);
-  await denied(chosenStranger, '#/', '#/subscriptions');
-  await chosenStranger.evaluate(() => { window.__hashN = 0; window.addEventListener('hashchange', function () { window.__hashN++; }); });
-  await new Promise(r => setTimeout(r, 400));
-  assert.strictEqual(await chosenStranger.evaluate(() => location.hash), '#/subscriptions');
-  assert.strictEqual(await chosenStranger.evaluate(() => window.__hashN), 0, 'subscriptions bounced back to the builder');
-  assert.strictEqual(await chosenStranger.evaluate(() => window.__leak), false, 'a chosen plan opened the builder');
+  await chosenStranger.goto(URL + '#/'); await chosenStranger.reload();
+  await chosenStranger.waitForSelector('[data-a=new]');
+  assert.strictEqual(await chosenStranger.evaluate(() => location.hash), '#/');
   await chosenStranger.close();
 
-  const allowed = await open({ user: { id: 'a', email: '  Hempled@gmail.com ' } }, none);
+  const trainerLevel = { membership: 'trainer', intended_plan: 'trainer' };
+  const allowed = await open({ user: { id: 'a', email: '  Hempled@gmail.com ' } }, trainerLevel);
   await seed(allowed);
   await allowed.goto(URL + '#/'); await allowed.reload();
   await allowed.waitForSelector('[data-a=run]');
@@ -122,6 +141,154 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await other.waitForSelector('[data-a=run]');
   assert.strictEqual(await other.evaluate(() => location.hash), '#/');
   await other.close();
+
+  const fresh = await b.newPage();
+  fresh.on('pageerror', e => errs.push(String(e)));
+  await fresh.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 2 });
+  await stubAuth(fresh, {
+    session: { user: { id: 'new', email: 'new@example.com' } },
+    profile: { id: 'new', email: 'new@example.com', membership: 'none', intended_plan: null }
+  });
+  await fresh.goto(URL + '#/join');
+  await fresh.waitForSelector('#acct-email');
+  await fresh.evaluate(() => {
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'new', email: 'new@example.com' } }, needsConfirmation: false }); };
+  });
+  await fresh.type('#acct-email', 'new@example.com');
+  await fresh.type('#acct-pass', 'secret12');
+  await fresh.click('[data-auth=up]');
+  await fresh.waitForFunction(() => location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('back').hidden);
+  await fresh.evaluate(() => { location.hash = '#/programs'; });
+  await fresh.waitForFunction(() => location.hash === '#/subscriptions' && document.getElementById('level-lock') && !document.getElementById('pv-gcal'));
+  await fresh.screenshot({ path: '/tmp/signup-subscriptions-390.png' });
+
+  const invited = await b.newPage();
+  invited.on('pageerror', e => errs.push(String(e)));
+  await invited.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 2 });
+  await stubAuth(invited, {
+    session: { user: { id: 'new2', email: 'invited@example.com' } },
+    profile: { id: 'new2', email: 'invited@example.com', membership: 'none', intended_plan: null }
+  });
+  await invited.goto(URL + '#/join');
+  await invited.waitForSelector('#invite-code');
+  await invited.evaluate(() => {
+    window.__redeemed = 0;
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'new2', email: 'invited@example.com' } }, needsConfirmation: false }); };
+    window.WBAuth.redeemInvite = function () {
+      window.__redeemed++;
+      window.WBAuth.profile = function () { return Promise.resolve({ id: 'new2', email: 'invited@example.com', membership: 'free_client', intended_plan: null }); };
+      return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.', trainerId: 't' });
+    };
+  });
+  await invited.type('#acct-email', 'invited@example.com');
+  await invited.type('#acct-pass', 'secret12');
+  await invited.type('#invite-code', 'ABCD2345');
+  await invited.click('[data-auth=up]');
+  await invited.waitForSelector('[data-a=new]');
+  assert.strictEqual(await invited.evaluate(() => window.__redeemed), 1);
+  assert.strictEqual(await invited.evaluate(() => location.hash), '#/');
+  assert.strictEqual(await invited.$('#level-lock'), null);
+
+  const client = await b.newPage();
+  client.on('pageerror', e => errs.push(String(e)));
+  client.on('dialog', d => d.dismiss());
+  await client.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 2 });
+  await stubAuth(client, {
+    session: { user: { id: 'c', email: 'ada@example.com' } },
+    profile: { id: 'c', email: 'ada@example.com', membership: 'free_client', intended_plan: null }
+  });
+  await client.goto(URL + '#/');
+  await client.waitForSelector('[data-a=new]');
+  await client.click('[data-a=new]');
+  await client.waitForSelector('#level-note');
+  const noteText = await client.$eval('#level-note', el => el.innerText);
+  assert.ok(noteText.indexOf('Free Client') !== -1);
+  assert.ok(noteText.indexOf('Run the workouts your trainer sends you') !== -1);
+  assert.strictEqual(await client.$eval('#level-upgrade', el => el.textContent), 'Upgrade');
+  await client.screenshot({ path: '/tmp/level-upgrade-note-390.png' });
+  await client.click('#level-dismiss');
+  await client.waitForFunction(() => !document.getElementById('level-note') && document.querySelector('[data-a=new]'));
+  await client.click('[data-a=new]');
+  await client.waitForSelector('#level-note');
+  await client.click('#level-upgrade');
+  await client.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1);
+
+  const cold = await open({ user: { id: 'cold', email: 'cold@example.com' } }, { id: 'cold', email: 'cold@example.com', membership: 'none', intended_plan: null });
+  await cold.goto(URL + '#/join');
+  await cold.waitForSelector('#acct-email');
+  await cold.evaluate(() => {
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'cold', email: 'cold@example.com' } }, needsConfirmation: false }); };
+    window.WBAuth.profile = function () { return Promise.reject(new Error('membership storage is not ready')); };
+  });
+  await cold.type('#acct-email', 'cold@example.com');
+  await cold.type('#acct-pass', 'secret12');
+  await cold.click('[data-auth=up]');
+  await cold.waitForFunction(() => location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('level-signout') && document.getElementById('back').hidden && !document.getElementById('messages-nav') && !document.querySelector('[data-a=new]'));
+
+  const retry = await open({ user: { id: 'retry', email: 'retry@example.com' } }, none);
+  await retry.goto(URL + '#/signin');
+  await retry.waitForSelector('h2');
+  await retry.evaluate(() => {
+    var n = 0;
+    window.WBAuth.profile = function () {
+      n += 1;
+      window.__profileReads = n;
+      if (n < 2) return Promise.reject(new Error('offline'));
+      return Promise.resolve({ id: 'retry', email: 'retry@example.com', membership: 'enthusiast', intended_plan: 'enthusiast' });
+    };
+    location.hash = '#/';
+  });
+  await retry.waitForSelector('[data-a=new]');
+  assert.strictEqual(await retry.evaluate(() => location.hash), '#/');
+  assert.ok(await retry.evaluate(() => window.__profileReads >= 2));
+
+  const held = await open({ user: { id: 'held', email: 'held@example.com' } }, { id: 'held', email: 'held@example.com', membership: 'trainer', intended_plan: 'trainer' });
+  await held.goto(URL + '#/');
+  await held.reload();
+  await held.waitForSelector('[data-a=new]');
+  await held.evaluate(() => {
+    window.WBAuth.profile = function () { return Promise.reject(new Error('offline')); };
+    location.hash = '#/?held=1';
+  });
+  await held.waitForFunction(() => location.hash === '#/?held=1' && document.querySelector('[data-a=new]') && !document.getElementById('level-lock'));
+
+  const invitedOffline = await open({ user: { id: 'inv', email: 'inv@example.com' } }, { id: 'inv', email: 'inv@example.com', membership: 'none', intended_plan: null });
+  await invitedOffline.goto(URL + '#/join');
+  await invitedOffline.waitForSelector('#invite-code');
+  await invitedOffline.evaluate(() => {
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'inv', email: 'inv@example.com' } }, needsConfirmation: false }); };
+    window.WBAuth.profile = function () { return Promise.reject(new Error('membership storage is not ready')); };
+    window.WBAuth.redeemInvite = function () {
+      return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.', trainerId: 't' });
+    };
+  });
+  await invitedOffline.type('#acct-email', 'inv@example.com');
+  await invitedOffline.type('#acct-pass', 'secret12');
+  await invitedOffline.type('#invite-code', 'ABCD2345');
+  await invitedOffline.click('[data-auth=up]');
+  await invitedOffline.waitForSelector('[data-a=new]');
+  assert.strictEqual(await invitedOffline.evaluate(() => location.hash), '#/');
+  assert.strictEqual(await invitedOffline.$('#level-lock'), null);
+
+  const saveFail = await open({ user: { id: 'save', email: 'save@example.com' } }, { id: 'save', email: 'save@example.com', membership: 'none', intended_plan: null });
+  await saveFail.goto(URL + '#/subscriptions');
+  await saveFail.reload();
+  await saveFail.waitForSelector('#level-lock');
+  await saveFail.evaluate(() => {
+    window.WBAuth.saveIntended = function () { return Promise.reject(new Error('duplicate key')); };
+  });
+  await saveFail.click('[data-plan=enthusiast]');
+  await saveFail.waitForFunction(() => {
+    var plan = document.querySelector('[data-plan=enthusiast]');
+    return location.hash === '#/subscriptions'
+      && document.getElementById('level-lock')
+      && document.getElementById('level-signout')
+      && document.getElementById('back').hidden
+      && !document.getElementById('messages-nav')
+      && !document.getElementById('workouts-nav')
+      && document.body.innerText.indexOf('Could not save that plan. Please try again.') !== -1
+      && plan && !plan.disabled;
+  });
 
   assert.deepStrictEqual(errs, []);
   console.log('ACCESS LOCK OK');
