@@ -350,6 +350,7 @@
     if (state.sheet.type === 'gcal') return gcalSheetHtml();
     return '';
   }
+  var GCAL_HOW = 'On a computer, open Google Calendar > Other calendars + > From URL, paste, and Add. It will sync to your phone.';
   function gcalSheetHtml() {
     var sheet = state.sheet;
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-gcal-sheet" role="dialog" aria-label="Add to Google Calendar">';
@@ -358,15 +359,19 @@
       h += '<p class="mute" id="pv-gcal-signin">Sign in to add your program to Google Calendar.</p>';
       return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
     }
-    h += '<p class="mute" id="pv-gcal-how">Tap Open Google Calendar. That adds your program as a calendar.</p>';
     if (sheet.note) h += '<p class="mute" id="pv-gcal-note">' + esc(sheet.note) + '</p>';
     if (sheet.error) h += '<p class="mute" id="pv-gcal-error">' + esc(sheet.error) + '</p>';
-    if (sheet.status === 'ready' && sheet.openUrl) {
+    var ready = sheet.status === 'ready' && sheet.url && sheet.openUrl;
+    if (ready) {
+      h += '<button type="button" class="pri" id="pv-gcal-copy" data-gcal="copy">Copy link</button>';
+      h += '<input id="pv-gcal-link" class="pv-gcal-link" type="text" readonly value="' + esc(sheet.url) + '" aria-label="Calendar link" spellcheck="false">';
+      h += '<p class="mute" id="pv-gcal-how">' + esc(GCAL_HOW) + '</p>';
       h += '<a class="pv-gcal-open" id="pv-gcal-open" href="' + esc(sheet.openUrl) + '" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>';
     } else if (sheet.status === 'error') {
       h += '<button type="button" class="pri" id="pv-gcal-open" data-gcal="retry">Open Google Calendar</button>';
     } else {
-      h += '<button type="button" class="pri" id="pv-gcal-open" disabled>Open Google Calendar</button>';
+      h += '<button type="button" class="pri" id="pv-gcal-copy" disabled>Copy link</button>';
+      h += '<button type="button" id="pv-gcal-open" disabled>Open Google Calendar</button>';
     }
     h += '<button type="button" class="ghost" data-gcal="reset" id="pv-gcal-reset">Reset link</button>';
     return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
@@ -809,7 +814,7 @@
     all[userId] = { token: row.token, timezone: row.timezone || WBCalendar.deviceZone() };
     try { localStorage.setItem(FEED_KEY, JSON.stringify(all)); } catch (e) {}
   }
-  var FEED_RESET_NOTE = 'New link ready. Tap Open Google Calendar to add it again.';
+  var FEED_RESET_NOTE = 'New link ready.';
   var FEED_FAIL_NOTE = "Couldn't create your calendar link. Please try again.";
   function showFeed(row, preview, note) {
     if (!state || !state.sheet || state.sheet.type !== 'gcal' || !window.WBCalendar) return;
@@ -821,6 +826,35 @@
     state.sheet.note = note || '';
     state.sheet.error = '';
     render();
+  }
+  function copyCalendarLink() {
+    if (!state || !state.sheet || state.sheet.type !== 'gcal' || !state.sheet.url) return;
+    var url = state.sheet.url;
+    var field = document.getElementById('pv-gcal-link');
+    function selectField() {
+      if (!field) return;
+      try {
+        field.focus();
+        field.select();
+        if (field.setSelectionRange) field.setSelectionRange(0, field.value.length);
+      } catch (err) {}
+    }
+    function copied() {
+      if (options && options.toast) options.toast('Link copied');
+    }
+    var clip = navigator.clipboard;
+    if (clip && clip.writeText) {
+      try {
+        var pending = clip.writeText(url);
+        if (pending && pending.then) pending.then(copied, selectField);
+        else copied();
+        return;
+      } catch (err) {
+        selectField();
+        return;
+      }
+    }
+    selectField();
   }
   function showSignedOut() {
     if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
@@ -908,6 +942,7 @@
       var gact = gcalBtn.getAttribute('data-gcal');
       if (gact === 'reset') { resetCalendarLink(); return; }
       if (gact === 'retry') { openCalendar(); return; }
+      if (gact === 'copy') { copyCalendarLink(); return; }
       return;
     }
     var pick = e.target.closest('[data-pick]');

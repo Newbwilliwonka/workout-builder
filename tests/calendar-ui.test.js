@@ -61,6 +61,14 @@ async function stub(page, extra) {
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const context = browser.defaultBrowserContext();
   try { await context.overridePermissions(URL, ['clipboard-read', 'clipboard-write']); } catch (e) {}
+  try {
+    const origin = String(URL).match(/^(https?:\/\/[^/]+)/i);
+    const client = await page.createCDPSession();
+    await client.send('Browser.grantPermissions', {
+      origin: origin ? origin[1] : 'http://127.0.0.1:8787',
+      permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite']
+    });
+  } catch (e) {}
   const base = M.emptyData();
   base.workouts.push(workout('Morning lift'));
   await stub(page, {
@@ -110,51 +118,97 @@ async function stub(page, extra) {
   if (shots) await page.screenshot({ path: path.join(shots, 'programs_google_calendar_button.png') });
 
   await page.click('#pv-gcal');
-  await page.waitForSelector('#pv-gcal-open');
+  await page.waitForSelector('#pv-gcal-copy');
+  await page.waitForSelector('#pv-gcal-link');
+  const how = 'On a computer, open Google Calendar > Other calendars + > From URL, paste, and Add. It will sync to your phone.';
   const sheet = await page.evaluate(function () {
     var open = document.getElementById('pv-gcal-open');
-    var style = getComputedStyle(open);
+    var copy = document.getElementById('pv-gcal-copy');
+    var field = document.getElementById('pv-gcal-link');
+    var openStyle = getComputedStyle(open);
+    var copyStyle = getComputedStyle(copy);
+    var fieldStyle = getComputedStyle(field);
     var href = open.getAttribute('href') || '';
-    var feed = decodeURIComponent((href.split('cid=')[1] || '')).replace(/^webcal:\/\//, 'https://');
     return {
       text: document.getElementById('pv-gcal-sheet').innerText.replace(/\s+/g, ' ').trim(),
-      link: feed,
+      link: field.value,
+      readonly: field.readOnly,
       href: href,
+      how: document.getElementById('pv-gcal-how').textContent,
       openLabel: open.textContent,
-      bg: style.backgroundColor,
-      color: style.color,
-      weight: style.fontWeight,
-      reset: document.getElementById('pv-gcal-reset').textContent
+      copyLabel: copy.textContent,
+      copyBg: copyStyle.backgroundColor,
+      copyColor: copyStyle.color,
+      copyWeight: copyStyle.fontWeight,
+      openBg: openStyle.backgroundColor,
+      openColor: openStyle.color,
+      fieldSize: fieldStyle.fontSize,
+      fieldOverflow: fieldStyle.textOverflow,
+      reset: document.getElementById('pv-gcal-reset').textContent,
+      copyTop: copy.getBoundingClientRect().top,
+      openTop: open.getBoundingClientRect().top,
+      fieldTop: field.getBoundingClientRect().top
     };
   });
-  assert.strictEqual(sheet.text, 'Add to Google Calendar Tap Open Google Calendar. That adds your program as a calendar. Open Google Calendar Reset link Close');
+  assert.strictEqual(sheet.text, 'Add to Google Calendar Copy link ' + how + ' Open Google Calendar Reset link Close');
   assert.strictEqual(sheet.text.indexOf('New link ready'), -1);
+  assert.strictEqual(sheet.text.indexOf('Tap Open Google Calendar'), -1);
   assert.strictEqual(sheet.text.indexOf("Couldn't create"), -1);
+  assert.strictEqual(sheet.how, how);
+  assert.strictEqual(sheet.copyLabel, 'Copy link');
   assert.strictEqual(sheet.openLabel, 'Open Google Calendar');
-  assert.strictEqual(sheet.bg, 'rgb(37, 99, 235)');
-  assert.strictEqual(sheet.color, 'rgb(255, 255, 255)');
-  assert.strictEqual(sheet.weight, '600');
+  assert.strictEqual(sheet.copyBg, 'rgb(37, 99, 235)');
+  assert.strictEqual(sheet.copyColor, 'rgb(255, 255, 255)');
+  assert.strictEqual(sheet.copyWeight, '600');
+  assert.strictEqual(sheet.openBg, 'rgb(229, 231, 235)');
+  assert.strictEqual(sheet.openColor, 'rgb(17, 24, 39)');
+  assert.strictEqual(sheet.fieldSize, '12px');
+  assert.strictEqual(sheet.fieldOverflow, 'ellipsis');
+  assert.strictEqual(sheet.readonly, true);
+  assert.ok(sheet.copyTop < sheet.fieldTop && sheet.fieldTop < sheet.openTop);
   assert.strictEqual(sheet.reset, 'Reset link');
   assert.ok(/^https:\/\/thyrgloermygnezfareg\.supabase\.co\/functions\/v1\/calendar-feed\/[0-9a-f]{64}\.ics$/.test(sheet.link));
+  assert.strictEqual(sheet.link.indexOf('webcal'), -1);
   assert.strictEqual(sheet.href.indexOf('https://calendar.google.com/calendar/r?cid='), 0);
   assert.strictEqual(decodeURIComponent(sheet.href.split('cid=')[1]), sheet.link.replace('https://', 'webcal://'));
   if (shots) await page.screenshot({ path: path.join(shots, 'programs_google_calendar_link.png') });
 
+  await page.click('#pv-gcal-copy');
+  await page.waitForFunction(function () {
+    var toast = document.getElementById('toast');
+    return toast && toast.textContent === 'Link copied' && toast.classList.contains('show');
+  });
+  assert.strictEqual(await page.evaluate(function () { return navigator.clipboard.readText(); }), sheet.link);
+
+  await page.evaluate(function () {
+    var toast = document.getElementById('toast');
+    toast.textContent = '';
+    toast.classList.remove('show');
+    navigator.clipboard.writeText = function () { return Promise.reject(new Error('denied')); };
+  });
+  await page.click('#pv-gcal-copy');
+  await page.waitForFunction(function () {
+    var field = document.getElementById('pv-gcal-link');
+    return field && document.activeElement === field && field.selectionStart === 0 && field.selectionEnd === field.value.length;
+  });
+  assert.strictEqual(await page.evaluate(function () { return document.getElementById('toast').textContent; }), '');
+
   const first = sheet.link;
   await page.click('#pv-gcal-reset');
   await page.waitForFunction(function (previous) {
+    var field = document.getElementById('pv-gcal-link');
     var open = document.getElementById('pv-gcal-open');
-    if (!open) return false;
+    if (!field || !open) return false;
     var href = open.getAttribute('href') || '';
-    var feed = '';
-    try { feed = decodeURIComponent(href.split('cid=')[1] || '').replace(/^webcal:\/\//, 'https://'); } catch (e) { return false; }
+    var fromHref = '';
+    try { fromHref = decodeURIComponent(href.split('cid=')[1] || '').replace(/^webcal:\/\//, 'https://'); } catch (e) { return false; }
     var text = document.getElementById('pv-gcal-sheet').innerText;
-    return feed && feed !== previous && text.indexOf(previous) === -1 && text.indexOf('New link ready. Tap Open Google Calendar to add it again.') !== -1;
+    return field.value && field.value !== previous && field.value === fromHref && text.indexOf(previous) === -1 && text.indexOf('New link ready.') !== -1;
   }, {}, first);
   const afterReset = await page.evaluate(function () {
     return document.getElementById('pv-gcal-sheet').innerText.replace(/\s+/g, ' ').trim();
   });
-  assert.strictEqual(afterReset, 'Add to Google Calendar Tap Open Google Calendar. That adds your program as a calendar. New link ready. Tap Open Google Calendar to add it again. Open Google Calendar Reset link Close');
+  assert.strictEqual(afterReset, 'Add to Google Calendar New link ready. Copy link ' + how + ' Open Google Calendar Reset link Close');
   if (shots) await page.screenshot({ path: path.join(shots, 'programs_google_calendar_reset.png') });
 
   await page.click('[data-sheet=cancel]');
