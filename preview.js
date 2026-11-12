@@ -33,7 +33,8 @@
       hint: '',
       ready: false,
       remote: '',
-      playerLive: false
+      playerLive: false,
+      sheet: null
     };
   }
   function ownerId() {
@@ -59,7 +60,6 @@
   }
   function canEdit() { return !!state && state.ready && P.canEdit(context()); }
   function canSee() { return !!state && state.ready && P.canSee(context()); }
-  function buttonList() { return P.buttons(state && state.role); }
   function workouts() {
     var rows = data() && data().workouts;
     return Array.isArray(rows) ? rows : [];
@@ -95,70 +95,139 @@
     if (options.persist) options.persist();
     state.hint = hint || 'Saved on this device.';
   }
+  function remoteNote(err) {
+    var msg = String(err && err.message || '');
+    if ((err && err.timesLocal) || /program times SQL|starts_at|ends_at/i.test(msg)) {
+      return 'Saved on this device. Start and end times will be shared after the new program times SQL is applied.';
+    }
+    return 'Saved on this device. The shared calendar waits until the programs SQL is applied.';
+  }
+  var pushEpoch = {};
+  function noteDrop(id, ownerId) {
+    if (!data() || !id) return;
+    data().programDrops = data().programDrops || {};
+    data().programDrops[id] = { at: Date.now(), ownerId: ownerId || '' };
+  }
   function pushRemote(row) {
-    if (!row || !options.saveEntry || !P.isUuid(row.ownerId)) return;
-    Promise.resolve().then(function () { return options.saveEntry(row); }).then(function () {
+    if (!row || !options || !options.saveEntry || !P.isUuid(row.ownerId)) return;
+    var epoch = pushEpoch[row.id] || 0;
+    var saveEntry = options.saveEntry;
+    var deleteEntry = options.deleteEntry;
+    var persist = options.persist;
+    var store = options.data;
+    Promise.resolve().then(function () { return saveEntry(row); }).then(function () {
+      afterPush(null);
+    }, function (err) {
+      afterPush(err);
+    });
+    function afterPush(err) {
+      if (!store) return;
+      var superseded = (pushEpoch[row.id] || 0) !== epoch;
+      if (P.staleWrite(err, store.programDrops, row.id, store.programs)) {
+        store.programDrops[row.id] = { at: Date.now(), ownerId: row.ownerId || '' };
+        if (persist) persist();
+        if (deleteEntry && P.isUuid(row.ownerId)) {
+          Promise.resolve().then(function () { return deleteEntry(row); }).then(function () {
+            if (state) state.remote = '';
+          }, function (delErr) {
+            if (!state) return;
+            state.remote = remoteNote(delErr);
+            render();
+          });
+        }
+        return;
+      }
+      if (err) {
+        if (!state) return;
+        state.remote = remoteNote(err);
+        render();
+        return;
+      }
+      if (!state || superseded) return;
+      state.remote = '';
+      var cleared = false;
+      store.programs = (store.programs || []).map(function (item) {
+        if (!item || item.id !== row.id || !item.pending) return item;
+        if ((item.updatedAt || 0) !== (row.updatedAt || 0)) return item;
+        cleared = true;
+        var next = Object.assign({}, item, { synced: true });
+        delete next.pending;
+        return next;
+      });
+      if (cleared && persist) persist();
+    }
+  }
+  function dropRemote(row) {
+    if (!row || !options.deleteEntry || !P.isUuid(row.ownerId)) return;
+    Promise.resolve().then(function () { return options.deleteEntry(row); }).then(function () {
       if (state) state.remote = '';
-    }, function () {
+    }, function (err) {
       if (!state) return;
-      state.remote = 'Saved on this device. The shared calendar waits until the programs SQL is applied.';
+      state.remote = remoteNote(err);
       render();
     });
   }
+  var pullGen = 0;
   function pullRemote() {
     var owner = ownerId();
     if (!options.loadEntries || !P.isUuid(owner)) return;
     var token = loadToken;
+    var gen = ++pullGen;
     Promise.resolve().then(function () { return options.loadEntries(owner); }).then(function (rows) {
-      if (!state || token !== loadToken || !Array.isArray(rows)) return;
-      data().programs = P.merge(data().programs, rows, owner);
+      if (!state || token !== loadToken || gen !== pullGen || !Array.isArray(rows) || !data()) return;
+      var dropped = data().programDrops || {};
+      var merged = P.merge(data().programs, rows, owner, { keepLocalTimes: !!rows.timesPending, dropped: dropped });
+      data().programs = merged;
+      data().programDrops = P.settleDrops(dropped, rows, merged, owner);
+      merged.forEach(function (row) {
+        if (row && row.ownerId === owner && row.pending) pushRemote(row);
+      });
+      if (rows.timesPending) state.remote = remoteNote({ timesLocal: true });
       if (options.persist) options.persist();
       render();
-    }, function () {
+    }, function (err) {
       if (!state || token !== loadToken) return;
-      state.remote = 'Saved on this device. The shared calendar waits until the programs SQL is applied.';
+      state.remote = remoteNote(err);
       render();
     });
   }
   function presenceLabel(kind) { return kind === 'trainer' ? 'Trainer present' : 'Solo'; }
-  function ico(kind) {
+  function ico(kind, button) {
     var path = kind === 'trainer'
       ? 'M9 11a3 3 0 100-6 3 3 0 000 6zm7 1a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM9 13c-2.8 0-5 1.6-5 3.5V19h10v-2.5C14 14.6 11.8 13 9 13zm7 .5c-.4 0-.8 0-1.2.1 1.3.8 2.2 1.9 2.2 3.2V19h5v-2c0-1.8-2.5-3.5-6-3.5z'
       : 'M12 12a3.5 3.5 0 100-7 3.5 3.5 0 000 7zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4z';
-    return '<span class="pv-ico ' + kind + '" title="' + esc(presenceLabel(kind)) + '"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="' + path + '"/></svg></span>';
+    var mark = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="' + path + '"/></svg>';
+    if (button) {
+      return '<button type="button" class="pv-ico ' + kind + '" data-presence="' + esc(button.id) + '" aria-label="' + esc(presenceLabel(kind)) + '. Change it.">' + mark + '</button>';
+    }
+    return '<span class="pv-ico ' + kind + '" title="' + esc(presenceLabel(kind)) + '">' + mark + '</span>';
   }
   function check() { return '<span class="pv-check" aria-label="Completed">✓</span>'; }
-  function onDay(date) { return entries().filter(function (row) { return row.date === date; }); }
-  function actionsHtml(workoutId, entryId) {
-    var buttons = buttonList();
-    var h = '<div class="actions">';
-    if (buttons.indexOf('run') >= 0) h += '<button type="button" class="pri sm" data-run="' + esc(workoutId) + '"' + (entryId ? ' data-entry="' + esc(entryId) + '"' : '') + '>Run</button>';
-    if (buttons.indexOf('view') >= 0) h += '<button type="button" class="sm" data-view-wo="' + esc(workoutId) + '"' + (entryId ? ' data-entry="' + esc(entryId) + '"' : '') + '>View</button>';
-    if (buttons.indexOf('open') >= 0) h += '<button type="button" class="sm" data-open-wo="' + esc(workoutId) + '">Open</button>';
-    if (buttons.indexOf('send') >= 0) h += '<button type="button" class="sm" data-send="' + esc(workoutId) + '">Send</button>';
-    return h + '</div>';
+  function onDay(date) { return P.byStart(entries().filter(function (row) { return row.date === date; })); }
+  function dragAttrs(kind, id, label) {
+    if (!canEdit()) return '';
+    return ' data-drag="' + esc(id) + '" data-drag-kind="' + kind + '" data-label="' + esc(label) + '"';
   }
   function workoutCard(w) {
     var n = (w.items || []).length;
-    return '<div class="card" data-wo="' + esc(w.id) + '"><div class="pv-session-top">' +
-      (canEdit() ? '<button type="button" class="pv-handle" data-drag="' + esc(w.id) + '" data-drag-kind="workout" data-label="' + esc(w.name || 'Workout') + '" aria-label="Drag ' + esc(w.name || 'Workout') + '">⋮⋮</button>' : '') +
-      '<div class="name">' + esc(w.name || 'Workout') + '</div></div>' +
-      '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div>' +
-      actionsHtml(w.id, '') + '</div>';
+    var name = w.name || 'Workout';
+    return '<div class="card pv-pick-card"' + dragAttrs('workout', w.id, name) + ' data-wo="' + esc(w.id) + '"><div class="pv-session-top">' +
+      (canEdit() ? '<span class="pv-handle" aria-hidden="true">⋮⋮</span>' : '') +
+      '<div class="name">' + esc(name) + '</div></div>' +
+      '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div></div>';
   }
   function sessionCard(row) {
     var live = workoutById(row.workoutId);
     var name = live ? live.name : (row.workoutName || 'Workout');
     var kind = row.presence === 'trainer' ? 'trainer' : 'solo';
-    var icon = canEdit()
-      ? '<button type="button" class="pv-ico ' + kind + '" data-presence="' + esc(row.id) + '" aria-label="' + esc(presenceLabel(kind)) + '. Change it."><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="' + (kind === 'trainer'
-        ? 'M9 11a3 3 0 100-6 3 3 0 000 6zm7 1a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM9 13c-2.8 0-5 1.6-5 3.5V19h10v-2.5C14 14.6 11.8 13 9 13zm7 .5c-.4 0-.8 0-1.2.1 1.3.8 2.2 1.9 2.2 3.2V19h5v-2c0-1.8-2.5-3.5-6-3.5z'
-        : 'M12 12a3.5 3.5 0 100-7 3.5 3.5 0 000 7zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4z') + '"/></svg></button>'
-      : ico(kind);
-    return '<div class="card pv-session"><div class="pv-session-top">' +
-      (canEdit() ? '<button type="button" class="pv-handle" data-drag="' + esc(row.id) + '" data-drag-kind="session" data-label="' + esc(name) + '" aria-label="Drag ' + esc(name) + '">⋮⋮</button>' : '') +
+    var when = P.formatRange(row.start, row.end);
+    var icon = canEdit() ? ico(kind, { id: row.id }) : ico(kind);
+    return '<div class="card pv-session" data-open-session="' + esc(row.id) + '"' + dragAttrs('session', row.id, name) + '><div class="pv-session-top">' +
+      (canEdit() ? '<span class="pv-handle" aria-hidden="true">⋮⋮</span>' : '') +
       icon + '</div>' +
-      '<button type="button" class="pv-session-open" data-open-session="' + esc(row.id) + '"><span class="name">' + esc(name) + '</span><span class="mute">' + esc(presenceLabel(kind)) + '</span></button></div>';
+      '<div class="name">' + esc(name) + '</div>' +
+      (when ? '<div class="pv-when">' + esc(when) + '</div>' : '') +
+      '<div class="mute">' + esc(presenceLabel(kind)) + '</div></div>';
   }
   function legendHtml() {
     return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span></div>';
@@ -174,20 +243,20 @@
     var h = '<div class="row pv-nav"><button type="button" class="sm" data-shift="-1" data-unit="week" aria-label="Previous week">‹</button>' +
       '<div class="grow name" id="pv-range">' + esc(label) + '</div>' +
       '<button type="button" class="sm" data-shift="1" data-unit="week" aria-label="Next week">›</button></div>' +
-      '<p class="mute pv-swipe">Swipe sideways for all seven days.</p><div class="pv-week">';
+      '<div class="pv-week-scroll"><div class="pv-week">';
     for (var i = 0; i < 7; i++) {
       var d = new Date(start.getTime());
       d.setDate(start.getDate() + i);
       var date = P.iso(d);
       var items = onDay(date);
       var today = date === todayIso();
-      h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="mute"> Today</span>' : '') + '</div></div>' +
+      h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '" data-day="' + date + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="pv-today-label mute"> Today</span>' : '') + '</div></div>' +
         (P.dayDone(items, tracked) ? check() : '') + '</div>';
       items.forEach(function (row) { h += sessionCard(row); });
       if (!items.length && canEdit()) h += '<div class="mute pv-drop">Drop here</div>';
       h += '</div>';
     }
-    return h + '</div>';
+    return h + '</div></div>';
   }
   function monthHtml() {
     var parts = state.month.split('-');
@@ -211,7 +280,7 @@
       var icons = '';
       if (kinds.trainer) icons += ico('trainer');
       if (kinds.solo) icons += ico('solo');
-      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + '" data-jump="' + date + '" aria-label="' + esc(DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate()) + '">' +
+      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + (items.length ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate()) + '">' +
         '<span class="pv-num">' + d.getDate() + '</span><span class="pv-marks">' + icons + (done ? check() : '') + '</span></button>';
     }
     return h + '</div>';
@@ -247,24 +316,77 @@
       return h + '<div class="card" id="pv-private"><div class="name">Not shared</div><p class="mute">This Enthusiast has turned off sharing. You cannot see or edit their program.</p></div></div>';
     }
     var list = workouts();
-    h += '<div class="pv-layout" id="pv-layout"><section class="pv-workouts" id="pv-workouts" aria-label="Workouts"><h2 class="pv-h">Workouts</h2>';
+    h += '<div class="pv-layout" id="pv-layout"><section class="pv-workouts" id="pv-workouts" aria-label="Workouts"><h2 class="pv-h">Workouts</h2><div class="pv-rail" id="pv-rail">';
     if (!list.length) h += '<p class="mute">No workouts yet. Build one from the workout list, then drag it onto a day.</p>';
     list.forEach(function (row) { h += workoutCard(row); });
-    h += '</section><section class="pv-cal" id="pv-cal" aria-label="Programs"><h2 class="pv-h">Programs</h2>' +
+    h += '</div></section><section class="pv-cal" id="pv-cal" aria-label="Programs"><h2 class="pv-h">Programs</h2>' +
       '<p class="mute">Workouts scheduled on a calendar. A check is a day you actually tracked.</p>' +
+      (canEdit() ? '<p class="mute" id="pv-schedule-hint">Drag a workout onto a day, or tap a day to choose one.</p>' : '') +
       '<div class="seg" id="pv-range-switch" role="group" aria-label="Week or month"><button type="button" data-cal="week" class="' + (state.view === 'week' ? 'on' : '') + '">Week</button>' +
       '<button type="button" data-cal="month" class="' + (state.view === 'month' ? 'on' : '') + '">Month</button></div>' +
-      legendHtml() + (state.view === 'month' ? monthHtml() : weekHtml()) + '</section></div></div>';
+      legendHtml() + (state.view === 'month' ? monthHtml() : weekHtml()) + '</section></div>' + sheetHtml() + '</div>';
     return h;
   }
-  function dayHtml() {
-    var entry = entryById(state.focusEntry);
-    var workout = entry ? workoutById(entry.workoutId) : null;
-    if (!entry || !workout) return '<div id="pv-day"><p class="mute">That workout is no longer on this day.</p></div>';
-    return '<div id="pv-day"><p class="mute">' + esc(entry.date) + ' · ' + esc(presenceLabel(entry.presence)) + '</p>' +
-      '<div class="card"><div class="name">' + esc(workout.name || 'Workout') + '</div>' +
-      '<div class="mute">' + (workout.items || []).length + ' exercise' + ((workout.items || []).length === 1 ? '' : 's') + '</div>' +
-      actionsHtml(workout.id, entry.id) + '</div></div>';
+  function prettyDate(value) {
+    var d = P.parseDate(value);
+    var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    if (!d || isNaN(d.getTime())) return value || '';
+    return days[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+  }
+  function sheetHtml() {
+    if (!state.sheet) return '';
+    if (state.sheet.type === 'add') return addSheetHtml();
+    if (state.sheet.type === 'day') return daySheetHtml();
+    return '';
+  }
+  function daySheetHtml() {
+    var date = state.sheet.date;
+    var items = onDay(date);
+    var actions = P.entryMenu(context());
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">';
+    if (!items.length) {
+      h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3><p class="mute" id="pv-empty-day">Nothing scheduled</p>';
+      return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
+    }
+    items.forEach(function (row) { h += dayWorkoutHtml(row, actions); });
+    return h + '</div></div>';
+  }
+  function dayWorkoutHtml(row, actions) {
+    var workout = workoutById(row.workoutId);
+    var name = workout ? (workout.name || 'Workout') : (row.workoutName || 'Workout');
+    var editing = actions.indexOf('remove') >= 0;
+    var when = P.formatRange(row.start, row.end);
+    var kind = row.presence === 'trainer' ? 'trainer' : 'solo';
+    var draft = (state.sheet.drafts && state.sheet.drafts[row.id]) || { start: row.start || '', end: row.end || '', error: '' };
+    var h = '<div class="pv-slot">';
+    h += '<h3 class="name">' + esc(name) + '</h3><p class="mute">' + esc(prettyDate(row.date)) + ' · ' + esc(presenceLabel(kind)) + '</p>';
+    if (editing) {
+      h += '<label for="pv-start-' + esc(row.id) + '">Start</label><input id="pv-start-' + esc(row.id) + '" data-time="start" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.start || '') + '">' +
+        '<label for="pv-end-' + esc(row.id) + '">End</label><input id="pv-end-' + esc(row.id) + '" data-time="end" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.end || '') + '">';
+    } else if (when) h += '<p class="pv-when">' + esc(when) + '</p>';
+    if (draft.error) h += '<p class="errs" id="pv-sheet-error">' + esc(draft.error) + '</p>';
+    if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">Run</button>';
+    if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">View</button>';
+    if (editing) h += '<button type="button" data-sheet="times" data-entry="' + esc(row.id) + '">Save times</button>';
+    if (actions.indexOf('remove') >= 0) h += '<button type="button" class="danger" data-sheet="remove" data-entry="' + esc(row.id) + '">Remove workout</button>';
+    if (actions.indexOf('add') >= 0) h += '<button type="button" data-sheet="add" data-entry="' + esc(row.id) + '">Add workout</button>';
+    return h + '</div>';
+  }
+  function addSheetHtml() {
+    var sheet = state.sheet;
+    var list = workouts();
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" role="dialog" aria-label="Add a workout">' +
+      '<h3 class="name">Add a workout</h3><p class="mute">' + esc(prettyDate(sheet.date)) + '</p>';
+    if (!list.length) h += '<p class="mute">No workouts yet. Build one from the workout list first.</p>';
+    h += '<div class="pv-picks" role="listbox" aria-label="Your workouts">';
+    list.forEach(function (w) {
+      var n = (w.items || []).length;
+      h += '<button type="button" class="pv-pick' + (w.id === sheet.workoutId ? ' on' : '') + '" data-pick="' + esc(w.id) + '"><span class="name">' + esc(w.name || 'Workout') + '</span><span class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</span></button>';
+    });
+    h += '</div><label for="pv-start">Start</label><input id="pv-start" type="time" value="' + esc(sheet.start || '') + '">' +
+      '<label for="pv-end">End</label><input id="pv-end" type="time" value="' + esc(sheet.end || '') + '">';
+    if (sheet.error) h += '<p class="errs" id="pv-sheet-error">' + esc(sheet.error) + '</p>';
+    return h + '<button type="button" class="pri" data-sheet="save">Add to this day</button><button type="button" data-sheet="cancel">Cancel</button></div></div>';
   }
   function playable(id) {
     var workout = workoutById(id);
@@ -330,7 +452,7 @@
       return;
     }
     closeRealPlayer();
-    app.innerHTML = state.screen === 'day' ? dayHtml() : homeHtml();
+    app.innerHTML = homeHtml();
     applyChrome();
     app.onclick = onClick;
     app.onchange = onChange;
@@ -341,6 +463,7 @@
       document.removeEventListener('pointermove', drag.move);
       document.removeEventListener('pointerup', drag.up);
       document.removeEventListener('pointercancel', drag.up);
+      if (drag.raf) cancelAnimationFrame(drag.raf);
     }
     drag = null;
     var floatEl = document.getElementById('pv-float');
@@ -348,9 +471,109 @@
     var nodes = document.querySelectorAll('.pv-over');
     for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('pv-over');
   }
+  function openDay(date) {
+    var items = onDay(date);
+    if (!items.length) {
+      if (canEdit()) { openAdd(date); return; }
+      state.sheet = { type: 'day', date: date, drafts: {} };
+      state.hint = '';
+      render();
+      return;
+    }
+    var drafts = {};
+    items.forEach(function (row) {
+      drafts[row.id] = { start: row.start || '', end: row.end || '', error: '' };
+    });
+    state.sheet = { type: 'day', date: date, drafts: drafts };
+    state.hint = '';
+    render();
+  }
+  function openAdd(date, workoutId) {
+    state.sheet = { type: 'add', date: date, workoutId: workoutId || '', start: '09:00', end: '10:00', error: '' };
+    state.hint = '';
+    render();
+  }
+  function openMenu(entry) {
+    if (!entry) return;
+    openDay(entry.date);
+  }
+  function readSheetTimes() {
+    if (!state || !state.sheet) return;
+    if (state.sheet.type === 'add') {
+      var startEl = document.getElementById('pv-start');
+      var endEl = document.getElementById('pv-end');
+      if (startEl) state.sheet.start = startEl.value;
+      if (endEl) state.sheet.end = endEl.value;
+      return;
+    }
+    if (state.sheet.type !== 'day' || !state.sheet.drafts) return;
+    var nodes = document.querySelectorAll('#pv-day-sheet input[data-entry]');
+    for (var i = 0; i < nodes.length; i++) {
+      var draft = state.sheet.drafts[nodes[i].getAttribute('data-entry')];
+      if (!draft) continue;
+      draft[nodes[i].getAttribute('data-time')] = nodes[i].value;
+    }
+  }
+  function confirmAdd() {
+    readSheetTimes();
+    var sheet = state.sheet;
+    if (!sheet || sheet.type !== 'add' || !data()) return;
+    if (!sheet.workoutId) { sheet.error = 'Pick a workout.'; render(); return; }
+    var times = P.validTimes(sheet.start, sheet.end);
+    if (!times.ok) { sheet.error = times.error; render(); return; }
+    var workout = workoutById(sheet.workoutId);
+    if (!workout) { sheet.error = 'Pick a workout.'; render(); return; }
+    var placed = P.place(data().programs, {
+      id: window.WB.uid('pg'),
+      ownerId: ownerId(),
+      workoutId: workout.id,
+      workoutName: workout.name,
+      items: workout.items,
+      date: sheet.date,
+      start: times.start,
+      end: times.end,
+      presence: P.isTrainer(state.role) ? 'trainer' : 'solo'
+    });
+    if (placed.duplicate) { sheet.error = 'That workout is already on this day.'; render(); return; }
+    if (!placed.created) { sheet.error = placed.error || 'Pick a workout.'; render(); return; }
+    state.sheet = null;
+    state.cursor = sheet.date;
+    state.month = sheet.date.slice(0, 7);
+    savePrograms(placed.programs, 'Saved on this device.');
+    pushRemote(placed.created);
+    render();
+  }
+  function saveEntryTimes(id) {
+    readSheetTimes();
+    var sheet = state.sheet;
+    if (!sheet || sheet.type !== 'day' || !sheet.drafts || !sheet.drafts[id] || !data()) return false;
+    var draft = sheet.drafts[id];
+    var result = P.setTimes(data().programs, id, draft.start, draft.end);
+    if (result.error) { draft.error = result.error; render(); return false; }
+    draft.error = '';
+    if (result.changed) {
+      draft.start = result.changed.start;
+      draft.end = result.changed.end;
+      savePrograms(result.programs, 'Saved on this device.');
+      pushRemote(result.changed);
+    }
+    render();
+    return true;
+  }
+  function removeScheduled(id) {
+    var sheet = state.sheet;
+    if (!sheet || !data() || !id) return;
+    var result = P.remove(data().programs, id);
+    state.sheet = null;
+    if (!result.removed) { render(); return; }
+    pushEpoch[id] = (pushEpoch[id] || 0) + 1;
+    noteDrop(id, result.removed.ownerId);
+    savePrograms(result.programs, 'Removed from this day.');
+    dropRemote(result.removed);
+    render();
+  }
   function dropOn(kind, id, date) {
     if (!canEdit() || !date || !data()) return;
-    var owner = ownerId();
     if (kind === 'session') {
       var result = P.move(data().programs, id, date);
       if (result.duplicate) {
@@ -361,92 +584,175 @@
       if (!result.moved) return;
       savePrograms(result.programs, 'Saved on this device.');
       pushRemote(result.moved);
-      render();
+      if (!result.moved.start || !result.moved.end) openMenu(result.moved);
+      else render();
       return;
     }
     var workout = workoutById(id);
     if (!workout) return;
-    var placed = P.place(data().programs, {
-      id: window.WB.uid('pg'),
-      ownerId: owner,
-      workoutId: workout.id,
-      workoutName: workout.name,
-      items: workout.items,
-      date: date,
-      presence: P.isTrainer(state.role) ? 'trainer' : 'solo'
-    });
-    if (placed.duplicate) {
-      state.hint = 'That workout is already on this day.';
-      render();
-      return;
-    }
-    if (!placed.created) return;
-    savePrograms(placed.programs, 'Saved on this device.');
-    pushRemote(placed.created);
-    render();
+    openAdd(date, workout.id);
   }
-  function beginDrag(e, handle) {
+  function edgeScroll() {
+    if (!drag || !drag.last) return;
+    var ev = drag.last;
+    var edge = 56;
+    var speed = 16;
+    if (ev.clientY < edge) window.scrollBy(0, -speed);
+    else if (ev.clientY > window.innerHeight - edge) window.scrollBy(0, speed);
+    var rail = document.getElementById('pv-rail');
+    if (rail) {
+      var box = rail.getBoundingClientRect();
+      if (ev.clientY >= box.top - 12 && ev.clientY <= box.bottom + 12) {
+        if (ev.clientX < box.left + edge) rail.scrollLeft -= speed;
+        else if (ev.clientX > box.right - edge) rail.scrollLeft += speed;
+      }
+    }
+    var strip = document.querySelector('.pv-week-scroll');
+    if (strip && strip.scrollWidth > strip.clientWidth + 2) {
+      var sb = strip.getBoundingClientRect();
+      if (ev.clientY >= sb.top - 12 && ev.clientY <= sb.bottom + 12) {
+        if (ev.clientX < sb.left + edge) strip.scrollLeft -= speed;
+        else if (ev.clientX > sb.right - edge) strip.scrollLeft += speed;
+      }
+    }
+    var col = document.getElementById('pv-workouts');
+    if (col && window.matchMedia('(min-width: 860px)').matches) {
+      var c = col.getBoundingClientRect();
+      if (ev.clientX >= c.left && ev.clientX <= c.right) {
+        if (ev.clientY < c.top + edge) col.scrollTop -= speed;
+        else if (ev.clientY > c.bottom - edge) col.scrollTop += speed;
+      }
+    }
+    drag.raf = requestAnimationFrame(edgeScroll);
+  }
+  function dayUnder(ev, floatEl) {
+    if (floatEl) floatEl.style.display = 'none';
+    var under = document.elementFromPoint(ev.clientX, ev.clientY);
+    if (floatEl) floatEl.style.display = '';
+    if (!under || !under.closest) return null;
+    return under.closest('.pv-day') || under.closest('.pv-cell[data-date]');
+  }
+  function onPointerDown(e) {
     if (!canEdit() || (e.button != null && e.button !== 0)) return;
-    e.preventDefault();
+    if (e.target.closest('[data-presence], #pv-sheet, input, select, textarea, button')) return;
+    var handle = e.target.closest('[data-drag]');
+    if (!handle) return;
     clearDrag();
-    var floatEl = document.createElement('div');
-    floatEl.id = 'pv-float';
-    floatEl.className = 'pv-float';
-    floatEl.textContent = handle.getAttribute('data-label') || 'Workout';
-    document.body.appendChild(floatEl);
-    function place(ev) {
-      if (!drag) return;
+    var startX = e.clientX, startY = e.clientY, pointerId = e.pointerId;
+    var rail = handle.closest('#pv-rail');
+    var weekStrip = handle.closest('.pv-week-scroll');
+    var horizontalOk = !!((rail || weekStrip) && window.matchMedia('(max-width: 859px)').matches);
+    var floatEl = null;
+    drag = {
+      kind: handle.getAttribute('data-drag-kind'),
+      id: handle.getAttribute('data-drag'),
+      day: '',
+      moved: false,
+      last: e,
+      raf: 0,
+      live: false,
+      move: move,
+      up: finish
+    };
+    function move(ev) {
+      if (!drag || ev.pointerId !== pointerId) return;
+      var dx = ev.clientX - startX, dy = ev.clientY - startY;
+      if (!drag.live) {
+        if (Math.abs(dx) + Math.abs(dy) < 8) return;
+        if (horizontalOk && Math.abs(dx) > Math.abs(dy)) { finish(); return; }
+        drag.live = true;
+        drag.moved = true;
+        floatEl = document.createElement('div');
+        floatEl.id = 'pv-float';
+        floatEl.className = 'pv-float';
+        floatEl.textContent = handle.getAttribute('data-label') || 'Workout';
+        document.body.appendChild(floatEl);
+        if (!drag.raf) drag.raf = requestAnimationFrame(edgeScroll);
+        try { handle.setPointerCapture(pointerId); } catch (err) {}
+      }
+      ev.preventDefault();
+      drag.last = ev;
       floatEl.style.left = (ev.clientX + 10) + 'px';
       floatEl.style.top = (ev.clientY + 12) + 'px';
-      floatEl.style.display = 'none';
-      var under = document.elementFromPoint(ev.clientX, ev.clientY);
-      floatEl.style.display = '';
-      var day = under && under.closest ? under.closest('.pv-day') : null;
+      var day = dayUnder(ev, floatEl);
       var prev = document.querySelectorAll('.pv-over');
       for (var i = 0; i < prev.length; i++) prev[i].classList.remove('pv-over');
       if (day) day.classList.add('pv-over');
       drag.day = day ? day.getAttribute('data-date') || '' : '';
-      if (Math.abs(ev.clientX - drag.x) + Math.abs(ev.clientY - drag.y) > 6) drag.moved = true;
     }
-    function up() {
+    function finish() {
       var info = drag;
-      var moved = info && info.moved;
+      var moved = info && info.live && info.moved;
+      var kind = info && info.kind;
+      var id = info && info.id;
+      var date = info && info.day;
       clearDrag();
-      if (!info || !moved) return;
-      dropOn(info.kind, info.id, info.day);
+      if (!moved) return;
+      function eatClick(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        document.removeEventListener('click', eatClick, true);
+      }
+      document.addEventListener('click', eatClick, true);
+      setTimeout(function () { document.removeEventListener('click', eatClick, true); }, 0);
+      dropOn(kind, id, date);
     }
-    drag = {
-      kind: handle.getAttribute('data-drag-kind'),
-      id: handle.getAttribute('data-drag'),
-      x: e.clientX,
-      y: e.clientY,
-      day: '',
-      moved: false,
-      move: place,
-      up: up
-    };
-    document.addEventListener('pointermove', place);
-    document.addEventListener('pointerup', up);
-    document.addEventListener('pointercancel', up);
-    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
-    place(e);
-  }
-  function onPointerDown(e) {
-    var handle = e.target.closest('[data-drag]');
-    if (!handle) return;
-    beginDrag(e, handle);
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', finish);
+    document.addEventListener('pointercancel', finish);
   }
   function onChange(e) {
     if (!state || e.target.id !== 'pv-client') return;
     state.clientId = e.target.value;
     state.clientShare = null;
     state.hint = '';
+    state.sheet = null;
     state.screen = 'home';
     render();
     loadClientShare(++loadToken);
   }
+  function playFrom(node, mode) {
+    var workoutId = node.getAttribute(mode === 'view' ? 'data-view-wo' : 'data-run');
+    var entryId = node.getAttribute('data-entry') || '';
+    if (state.sheet && state.sheet.type === 'day' && canEdit() && entryId) {
+      readSheetTimes();
+      var draft = state.sheet.drafts && state.sheet.drafts[entryId];
+      var row = entryById(entryId);
+      var edited = draft && row && ((draft.start || '') !== (row.start || '') || (draft.end || '') !== (row.end || ''));
+      if (edited && !saveEntryTimes(entryId)) return;
+    }
+    state.focusWorkout = workoutId;
+    state.focusEntry = entryId;
+    state.playerMode = mode;
+    state.screen = 'player';
+    state.sheet = null;
+    render();
+  }
   function onClick(e) {
     if (!state) return;
+    if (e.target.id === 'pv-sheet') { state.sheet = null; render(); return; }
+    var pick = e.target.closest('[data-pick]');
+    if (pick && state.sheet && state.sheet.type === 'add') {
+      readSheetTimes();
+      state.sheet.workoutId = pick.getAttribute('data-pick');
+      state.sheet.error = '';
+      render();
+      return;
+    }
+    var sheetBtn = e.target.closest('[data-sheet]');
+    if (sheetBtn && state.sheet) {
+      var action = sheetBtn.getAttribute('data-sheet');
+      if (action === 'cancel') { state.sheet = null; render(); return; }
+      if (action === 'save') { confirmAdd(); return; }
+      if (action === 'times') { saveEntryTimes(sheetBtn.getAttribute('data-entry')); return; }
+      if (action === 'remove') { removeScheduled(sheetBtn.getAttribute('data-entry')); return; }
+      if (action === 'add') {
+        var again = entryById(sheetBtn.getAttribute('data-entry'));
+        if (!again) { state.sheet = null; render(); return; }
+        openAdd(again.date);
+        return;
+      }
+    }
     var cal = e.target.closest('[data-cal]');
     if (cal) {
       var nextView = cal.getAttribute('data-cal');
@@ -471,12 +777,9 @@
       render();
       return;
     }
-    var jump = e.target.closest('[data-jump]');
-    if (jump) {
-      state.cursor = jump.getAttribute('data-jump');
-      state.month = state.cursor.slice(0, 7);
-      state.view = 'week';
-      render();
+    var monthDay = e.target.closest('[data-month-day]');
+    if (monthDay && !e.target.closest('#pv-sheet')) {
+      openDay(monthDay.getAttribute('data-month-day'));
       return;
     }
     var presenceBtn = e.target.closest('[data-presence]');
@@ -491,40 +794,15 @@
       render();
       return;
     }
-    var openS = e.target.closest('[data-open-session]');
-    if (openS) {
-      state.focusEntry = openS.getAttribute('data-open-session');
-      state.screen = 'day';
-      render();
-      return;
-    }
-    var openWo = e.target.closest('[data-open-wo]');
-    if (openWo && buttonList().indexOf('open') >= 0 && options.go) {
-      options.go('#/w/' + openWo.getAttribute('data-open-wo'));
-      return;
-    }
-    var send = e.target.closest('[data-send]');
-    if (send && buttonList().indexOf('send') >= 0 && options.go) {
-      options.go('#/send');
+    var dayTap = e.target.closest('[data-day]');
+    if (dayTap && !e.target.closest('#pv-sheet')) {
+      openDay(dayTap.getAttribute('data-day'));
       return;
     }
     var view = e.target.closest('[data-view-wo]');
-    if (view) {
-      state.focusWorkout = view.getAttribute('data-view-wo');
-      state.focusEntry = view.getAttribute('data-entry') || '';
-      state.playerMode = 'view';
-      state.screen = 'player';
-      render();
-      return;
-    }
+    if (view) { playFrom(view, 'view'); return; }
     var run = e.target.closest('[data-run]');
-    if (run) {
-      state.focusWorkout = run.getAttribute('data-run');
-      state.focusEntry = run.getAttribute('data-entry') || '';
-      state.playerMode = 'run';
-      state.screen = 'player';
-      render();
-    }
+    if (run) playFrom(run, 'run');
   }
   function loadClientShare(token) {
     if (!state || !P.isTrainer(state.role) || !state.clientId || !options.loadClient) {
@@ -591,11 +869,13 @@
     });
   }
   function back() {
-    if (!state || state.screen === 'home') return false;
+    if (!state) return false;
     if (state.playerLive) {
       if (window.WBPlayer) WBPlayer.requestEnd();
       return true;
     }
+    if (state.sheet) { state.sheet = null; render(); return true; }
+    if (state.screen === 'home') return false;
     state.screen = 'home';
     render();
     return true;

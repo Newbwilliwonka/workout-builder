@@ -81,6 +81,14 @@
     var list = Array.isArray(programs) ? programs.slice() : [];
     if (!entry || !entry.workoutId) return { programs: list, created: null, duplicate: false, error: 'Pick a workout.' };
     if (!isDay(entry.date)) return { programs: list, created: null, duplicate: false, error: 'Pick a day.' };
+    var start = '';
+    var end = '';
+    if (entry.start || entry.end) {
+      var times = validTimes(entry.start, entry.end);
+      if (!times.ok) return { programs: list, created: null, duplicate: false, error: times.error };
+      start = times.start;
+      end = times.end;
+    }
     var date = String(entry.date);
     var ownerId = entry.ownerId || 'self';
     var workoutId = String(entry.workoutId);
@@ -95,8 +103,11 @@
       workoutName: entry.workoutName || 'Workout',
       items: copyItems(entry.items),
       date: date,
+      start: start,
+      end: end,
       presence: presence(entry.presence),
-      updatedAt: entry.updatedAt || Date.now()
+      updatedAt: entry.updatedAt || Date.now(),
+      pending: true
     };
     list.push(row);
     return { programs: list, created: row, duplicate: false, error: '' };
@@ -114,7 +125,7 @@
     var moved = null;
     var next = list.map(function (row) {
       if (!row || row.id !== id) return row;
-      moved = Object.assign({}, row, { date: date, updatedAt: Date.now() });
+      moved = Object.assign({}, row, { date: date, updatedAt: Date.now(), pending: true });
       return moved;
     });
     return { programs: next, moved: moved, duplicate: false, error: '' };
@@ -124,10 +135,90 @@
     var changed = null;
     var list = (programs || []).map(function (row) {
       if (!row || row.id !== id || row.presence === next) return row;
-      changed = Object.assign({}, row, { presence: next, updatedAt: Date.now() });
+      changed = Object.assign({}, row, { presence: next, updatedAt: Date.now(), pending: true });
       return changed;
     });
     return { programs: list, changed: changed };
+  }
+  function remove(programs, id) {
+    var removed = null;
+    var list = (programs || []).filter(function (row) {
+      if (row && row.id === id) { removed = row; return false; }
+      return true;
+    });
+    return { programs: list, removed: removed };
+  }
+  // Scheduled-workout menu. Editors get remove and add. Everyone who can see the day gets Run and View.
+  function entryMenu(ctx) {
+    if (!canSee(ctx)) return [];
+    if (canEdit(ctx)) return ['run', 'view', 'remove', 'add'];
+    return ['run', 'view'];
+  }
+  function parseClock(value) {
+    var m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(value == null ? '' : value).trim());
+    if (!m) return null;
+    var h = Number(m[1]);
+    var min = Number(m[2]);
+    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+    return h * 60 + min;
+  }
+  function clockFromMinutes(mins) {
+    return pad(Math.floor(mins / 60)) + ':' + pad(mins % 60);
+  }
+  function validTimes(start, end) {
+    var a = parseClock(start);
+    var b = parseClock(end);
+    if (a == null || b == null) return { ok: false, start: '', end: '', error: 'Pick a start and an end time.' };
+    if (b <= a) return { ok: false, start: '', end: '', error: 'End time has to be after the start time.' };
+    return { ok: true, start: clockFromMinutes(a), end: clockFromMinutes(b), error: '' };
+  }
+  function formatClock(mins) {
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    var ap = h >= 12 ? 'PM' : 'AM';
+    var h12 = h % 12;
+    if (h12 === 0) h12 = 12;
+    return { text: h12 + ':' + pad(m), ap: ap };
+  }
+  function formatRange(start, end) {
+    var a = parseClock(start);
+    var b = parseClock(end);
+    if (a == null || b == null) return '';
+    var left = formatClock(a);
+    var right = formatClock(b);
+    if (left.ap === right.ap) return left.text + '–' + right.text + ' ' + left.ap;
+    return left.text + ' ' + left.ap + '–' + right.text + ' ' + right.ap;
+  }
+  function byStart(rows) {
+    return (rows || []).slice().sort(function (a, b) {
+      var as = parseClock(a && a.start);
+      var bs = parseClock(b && b.start);
+      if (as == null && bs == null) return String(a && a.id || '').localeCompare(String(b && b.id || ''));
+      if (as == null) return 1;
+      if (bs == null) return -1;
+      if (as !== bs) return as - bs;
+      return String(a && a.id || '').localeCompare(String(b && b.id || ''));
+    });
+  }
+  function clockOrBlank(value) {
+    var mins = parseClock(value);
+    return mins == null ? '' : clockFromMinutes(mins);
+  }
+  function setTimes(programs, id, start, end) {
+    var list = programs || [];
+    var times = validTimes(start, end);
+    if (!times.ok) return { programs: list, changed: null, error: times.error };
+    var found = false;
+    var changed = null;
+    var next = list.map(function (row) {
+      if (!row || row.id !== id) return row;
+      found = true;
+      if (row.start === times.start && row.end === times.end) return row;
+      changed = Object.assign({}, row, { start: times.start, end: times.end, updatedAt: Date.now(), pending: true });
+      return changed;
+    });
+    if (!found) return { programs: list, changed: null, error: 'That workout is no longer on this day.' };
+    return { programs: changed ? next : list, changed: changed, error: '' };
   }
   function loggedSession(session) {
     if (!session) return false;
@@ -158,24 +249,76 @@
       workoutName: row.workout_name || row.workoutName || 'Workout',
       items: copyItems(row.items),
       date: date,
+      start: clockOrBlank(row.starts_at != null ? row.starts_at : row.start),
+      end: clockOrBlank(row.ends_at != null ? row.ends_at : row.end),
       presence: presence(row.presence),
       updatedAt: Date.parse(row.updated_at || row.updatedAt) || 0
     };
   }
-  // Remote rows replace the same id when they are newer. Other owners stay put.
-  function merge(local, remote, ownerId) {
+  // A timed save can upsert the row and then reject because the times columns are not
+  // on the server yet. That rejection still wrote the row, so a removal must undo it.
+  function staleWrite(err, dropped, id, programs) {
+    var wrote = !err || !!(err && err.timesLocal);
+    if (!wrote || !dropped || !dropped[id]) return false;
+    return !(programs || []).some(function (row) { return row && row.id === id; });
+  }
+  function dropTime(dropped, id) {
+    var value = dropped && dropped[id];
+    if (value == null || value === '') return 0;
+    return typeof value === 'number' ? value : (value.at || 0);
+  }
+  // A remote snapshot is the shared list for this owner. A row that was already on the
+  // server and is missing from that list was removed, so it stays removed. A row that
+  // only exists on this device (pending, or saved before sync existed) is kept.
+  function merge(local, remote, ownerId, opts) {
+    var keepTimes = !!(opts && opts.keepLocalTimes);
+    var dropped = (opts && opts.dropped) || {};
     var map = {};
-    (local || []).forEach(function (row) {
-      if (row && row.ownerId === ownerId && row.id) map[row.id] = row;
-    });
     (remote || []).forEach(function (row) {
       var cur = fromRemote(row);
       if (!cur || cur.ownerId !== ownerId) return;
-      var prev = map[cur.id];
-      if (!prev || (cur.updatedAt || 0) >= (prev.updatedAt || 0)) map[cur.id] = cur;
+      if (dropTime(dropped, cur.id) && (cur.updatedAt || 0) <= dropTime(dropped, cur.id)) return;
+      cur.synced = true;
+      map[cur.id] = cur;
+    });
+    (local || []).forEach(function (row) {
+      if (!row || row.ownerId !== ownerId || !row.id) return;
+      if (dropTime(dropped, row.id) && (row.updatedAt || 0) <= dropTime(dropped, row.id)) return;
+      var incoming = map[row.id];
+      if (!incoming) {
+        if (row.synced && !row.pending) return;
+        map[row.id] = Object.assign({}, row, { pending: true });
+        return;
+      }
+      if ((row.updatedAt || 0) > (incoming.updatedAt || 0)) {
+        map[row.id] = Object.assign({}, row, { pending: true, synced: true });
+        return;
+      }
+      var timesMissing = (!!row.start && !incoming.start) || (!!row.end && !incoming.end);
+      if (keepTimes || timesMissing) {
+        if (row.start) incoming.start = row.start;
+        if (row.end) incoming.end = row.end;
+      }
+      if (row.pending && timesMissing) incoming.pending = true;
     });
     var rest = (local || []).filter(function (row) { return row && row.ownerId !== ownerId; });
     return rest.concat(Object.keys(map).map(function (key) { return map[key]; }));
+  }
+  function settleDrops(dropped, remoteRows, merged, ownerId) {
+    var remoteIds = {};
+    (remoteRows || []).forEach(function (row) {
+      var id = row && (row.local_id || row.localId || row.id);
+      if (id) remoteIds[String(id)] = true;
+    });
+    var next = {};
+    Object.keys(dropped || {}).forEach(function (id) {
+      var value = dropped[id];
+      var owner = value && typeof value === 'object' ? value.ownerId : '';
+      if (owner && owner !== ownerId) { next[id] = value; return; }
+      var alive = (merged || []).some(function (row) { return row && row.id === id && row.ownerId === ownerId; });
+      if (!alive && remoteIds[id]) next[id] = value;
+    });
+    return next;
   }
 
   var api = {
@@ -196,10 +339,18 @@
     place: place,
     move: move,
     setPresence: setPresence,
+    remove: remove,
+    entryMenu: entryMenu,
+    validTimes: validTimes,
+    formatRange: formatRange,
+    byStart: byStart,
+    setTimes: setTimes,
     entryDone: entryDone,
     dayDone: dayDone,
     fromRemote: fromRemote,
-    merge: merge
+    merge: merge,
+    settleDrops: settleDrops,
+    staleWrite: staleWrite
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBPrograms = api;

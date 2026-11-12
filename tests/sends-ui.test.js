@@ -313,7 +313,7 @@ function armSlow() {
   const enthusiastCtx = await browser.createBrowserContext();
   const enthusiast = await enthusiastCtx.newPage();
   enthusiast.on('pageerror', function (e) { errs.push('enthusiast ' + e); });
-  enthusiast.on('dialog', function (d) { d.accept('Friday edited'); });
+  enthusiast.on('dialog', function (d) { errs.push('dialog ' + d.message()); d.dismiss(); });
   await enthusiast.setViewport({ width: 412, height: 915, isMobile: true, deviceScaleFactor: 2 });
   await install(enthusiast, { id: E, email: 'hempled@gmail.com', membership: 'enthusiast', intended: 'enthusiast' });
   await seed(enthusiast, dataWith([ownWorkout()]));
@@ -324,20 +324,27 @@ function armSlow() {
       document.body.innerText.indexOf('Saturday easy') !== -1;
   });
   const copyId = box.copies.filter(function (c) { return c.ownerId === E; })[0].id;
-  assert.ok(await enthusiast.$('[data-a=rename][data-id="' + copyId + '"]'));
+  assert.strictEqual(await enthusiast.$('[data-a=rename]'), null);
   assert.ok(await enthusiast.$('[data-a=del][data-id="' + copyId + '"]'));
   await enthusiast.screenshot({ path: ART + '/enthusiast-received-list.png', fullPage: true });
-  await enthusiast.click('[data-a=rename][data-id="' + copyId + '"]');
+  await enthusiast.click('[data-a=open][data-id="' + copyId + '"]');
+  await enthusiast.waitForSelector('#copy-note');
+  assert.ok((await enthusiast.evaluate(function () { return document.getElementById('copy-note').textContent; })).indexOf('do not change their workout') !== -1);
+  assert.ok(await enthusiast.$('[data-a=add], [data-a=edit]'));
+  await enthusiast.waitForSelector('#wo-name');
+  await enthusiast.click('#wo-name');
+  await enthusiast.waitForSelector('#wo-name-input');
+  await enthusiast.evaluate(function () {
+    var input = document.getElementById('wo-name-input');
+    input.value = 'Friday edited';
+    input.blur();
+  });
   await enthusiast.waitForFunction(function () { return document.body.innerText.indexOf('Friday edited') !== -1; });
   const saveDeadline = Date.now() + 3000;
   while (!box.saves.some(function (s) { return s.id === copyId && s.name === 'Friday edited'; }) && Date.now() < saveDeadline) {
     await new Promise(function (r) { setTimeout(r, 50); });
   }
   assert.ok(box.saves.some(function (s) { return s.id === copyId && s.name === 'Friday edited'; }));
-  await enthusiast.click('[data-a=open][data-id="' + copyId + '"]');
-  await enthusiast.waitForSelector('#copy-note');
-  assert.ok((await enthusiast.evaluate(function () { return document.getElementById('copy-note').textContent; })).indexOf('do not change their workout') !== -1);
-  assert.ok(await enthusiast.$('[data-a=add], [data-a=edit]'));
 
   const clientCtx = await browser.createBrowserContext();
   const client = await clientCtx.newPage();
