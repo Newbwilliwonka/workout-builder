@@ -101,7 +101,8 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await stranger.waitForFunction(() => document.body.innerText.includes('Choose how you want to train'));
   await denied(stranger, '#/w/' + w.id, '#/subscriptions');
   await denied(stranger, '#/play/' + w.id, '#/subscriptions');
-  await stranger.click('#back');
+  assert.strictEqual(await stranger.$eval('#back', function (el) { return el.hidden; }), true);
+  await stranger.evaluate(() => document.getElementById('back').click());
   await stranger.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train'));
   await new Promise(r => setTimeout(r, 250));
   assert.strictEqual(await stranger.evaluate(() => window.__leak), false, 'back button opened the builder for a stranger');
@@ -109,15 +110,13 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
 
   const chosenStranger = await open({ user: { id: 's', email: 'Ada@Example.com' } }, chosen);
   await seed(chosenStranger);
-  await denied(chosenStranger, '#/', '#/subscriptions');
-  await chosenStranger.evaluate(() => { window.__hashN = 0; window.addEventListener('hashchange', function () { window.__hashN++; }); });
-  await new Promise(r => setTimeout(r, 400));
-  assert.strictEqual(await chosenStranger.evaluate(() => location.hash), '#/subscriptions');
-  assert.strictEqual(await chosenStranger.evaluate(() => window.__hashN), 0, 'subscriptions bounced back to the builder');
-  assert.strictEqual(await chosenStranger.evaluate(() => window.__leak), false, 'a chosen plan opened the builder');
+  await chosenStranger.goto(URL + '#/'); await chosenStranger.reload();
+  await chosenStranger.waitForSelector('[data-a=new]');
+  assert.strictEqual(await chosenStranger.evaluate(() => location.hash), '#/');
   await chosenStranger.close();
 
-  const allowed = await open({ user: { id: 'a', email: '  Hempled@gmail.com ' } }, none);
+  const trainerLevel = { membership: 'trainer', intended_plan: 'trainer' };
+  const allowed = await open({ user: { id: 'a', email: '  Hempled@gmail.com ' } }, trainerLevel);
   await seed(allowed);
   await allowed.goto(URL + '#/'); await allowed.reload();
   await allowed.waitForSelector('[data-a=run]');
@@ -142,6 +141,77 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await other.waitForSelector('[data-a=run]');
   assert.strictEqual(await other.evaluate(() => location.hash), '#/');
   await other.close();
+
+  const fresh = await b.newPage();
+  fresh.on('pageerror', e => errs.push(String(e)));
+  await fresh.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 2 });
+  await stubAuth(fresh, {
+    session: { user: { id: 'new', email: 'new@example.com' } },
+    profile: { id: 'new', email: 'new@example.com', membership: 'none', intended_plan: null }
+  });
+  await fresh.goto(URL + '#/join');
+  await fresh.waitForSelector('#acct-email');
+  await fresh.evaluate(() => {
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'new', email: 'new@example.com' } }, needsConfirmation: false }); };
+  });
+  await fresh.type('#acct-email', 'new@example.com');
+  await fresh.type('#acct-pass', 'secret12');
+  await fresh.click('[data-auth=up]');
+  await fresh.waitForFunction(() => location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('back').hidden);
+  await fresh.evaluate(() => { location.hash = '#/programs'; });
+  await fresh.waitForFunction(() => location.hash === '#/subscriptions' && document.getElementById('level-lock') && !document.getElementById('pv-gcal'));
+  await fresh.screenshot({ path: '/tmp/signup-subscriptions-390.png' });
+
+  const invited = await b.newPage();
+  invited.on('pageerror', e => errs.push(String(e)));
+  await invited.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 2 });
+  await stubAuth(invited, {
+    session: { user: { id: 'new2', email: 'invited@example.com' } },
+    profile: { id: 'new2', email: 'invited@example.com', membership: 'none', intended_plan: null }
+  });
+  await invited.goto(URL + '#/join');
+  await invited.waitForSelector('#invite-code');
+  await invited.evaluate(() => {
+    window.__redeemed = 0;
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'new2', email: 'invited@example.com' } }, needsConfirmation: false }); };
+    window.WBAuth.redeemInvite = function () {
+      window.__redeemed++;
+      window.WBAuth.profile = function () { return Promise.resolve({ id: 'new2', email: 'invited@example.com', membership: 'free_client', intended_plan: null }); };
+      return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.', trainerId: 't' });
+    };
+  });
+  await invited.type('#acct-email', 'invited@example.com');
+  await invited.type('#acct-pass', 'secret12');
+  await invited.type('#invite-code', 'ABCD2345');
+  await invited.click('[data-auth=up]');
+  await invited.waitForSelector('[data-a=new]');
+  assert.strictEqual(await invited.evaluate(() => window.__redeemed), 1);
+  assert.strictEqual(await invited.evaluate(() => location.hash), '#/');
+  assert.strictEqual(await invited.$('#level-lock'), null);
+
+  const client = await b.newPage();
+  client.on('pageerror', e => errs.push(String(e)));
+  client.on('dialog', d => d.dismiss());
+  await client.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 2 });
+  await stubAuth(client, {
+    session: { user: { id: 'c', email: 'ada@example.com' } },
+    profile: { id: 'c', email: 'ada@example.com', membership: 'free_client', intended_plan: null }
+  });
+  await client.goto(URL + '#/');
+  await client.waitForSelector('[data-a=new]');
+  await client.click('[data-a=new]');
+  await client.waitForSelector('#level-note');
+  const noteText = await client.$eval('#level-note', el => el.innerText);
+  assert.ok(noteText.indexOf('Free Client') !== -1);
+  assert.ok(noteText.indexOf('Run the workouts your trainer sends you') !== -1);
+  assert.strictEqual(await client.$eval('#level-upgrade', el => el.textContent), 'Upgrade');
+  await client.screenshot({ path: '/tmp/level-upgrade-note-390.png' });
+  await client.click('#level-dismiss');
+  await client.waitForFunction(() => !document.getElementById('level-note') && document.querySelector('[data-a=new]'));
+  await client.click('[data-a=new]');
+  await client.waitForSelector('#level-note');
+  await client.click('#level-upgrade');
+  await client.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1);
 
   assert.deepStrictEqual(errs, []);
   console.log('ACCESS LOCK OK');
