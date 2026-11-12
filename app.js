@@ -632,7 +632,7 @@
     app.innerHTML = '<p class="mute">Loading…</p>';
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'subscriptions') return;
-      if (!session) return go('#/signin');
+      if (!session) return drawSubscriptions(null, null, message, isError, null);
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
         var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null);
@@ -685,6 +685,7 @@
     };
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
+      if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (nav && nav.dataset.go === 'received') return go('#/received');
       if (handleInvite(e, function () { renderSubscriptions(); })) return;
@@ -975,15 +976,12 @@
     window.WBSends && WBSends.stop();
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
-    if (programsRequested()) return openPrograms();
     var page = hashPage();
+    // Sign-in, create-account, and Subscriptions stay reachable with no session.
+    // Invite links and email confirmation land on this flow. Every other page waits for a session.
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
     if (page === 'subscriptions') return renderSubscriptions();
-    if (page === 'account') return renderSimpleAccount();
-    if (page === 'messages') return openMessages(token);
-    if (page === 'client') return openClient(token);
-    if (page === 'send' || page === 'received') return openSends(token);
     var requested = location.hash;
     app.innerHTML = '';
     app.onclick = null; app.oninput = null; app.onchange = null;
@@ -993,6 +991,11 @@
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
       if (!session) return go('#/signin');
+      if (programsRequested()) return openPrograms();
+      if (page === 'account') return renderSimpleAccount();
+      if (page === 'messages') return openMessages(token);
+      if (page === 'client') return openClient(token);
+      if (page === 'send' || page === 'received') return openSends(token);
       if (builderAllowed(session)) return showBuilder();
       var receivedId = hashBody().split('/')[1];
       var received = (page === 'play' || page === 'w') ? getW(receivedId) : null;

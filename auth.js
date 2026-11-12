@@ -325,7 +325,11 @@
       return c.auth.getSession().then(function (res) {
         if (res.error) throw res.error;
         var user = userOf(res.data.session);
-        if (!user) throw feedLocal(new Error('Sign in first.'));
+        if (!user) {
+          var signedOut = new Error('Sign in first.');
+          signedOut.auth = true;
+          throw signedOut;
+        }
         if (!reset) {
           return c.from('calendar_feeds').select('token,time_zone').eq('user_id', user.id).maybeSingle().then(function (row) {
             if (row.error) throw row.error;
@@ -336,7 +340,7 @@
         return insertCalendarFeed(c, user.id, feedToken(''), tz, true);
       });
     }).catch(function (err) {
-      if (err && err.local) throw err;
+      if (err && (err.local || err.auth)) throw err;
       if (feedMissing(err)) throw feedLocal();
       throw new Error((err && err.message) || 'Could not make the calendar link.');
     });

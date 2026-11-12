@@ -354,9 +354,17 @@
     var sheet = state.sheet;
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-gcal-sheet" role="dialog" aria-label="Add to Google Calendar">';
     h += '<h3 class="name">Add to Google Calendar</h3>';
+    if (sheet.status === 'signedout') {
+      h += '<p class="mute" id="pv-gcal-signin">Sign in to add your program to Google Calendar.</p>';
+      return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
+    }
     h += '<p class="mute" id="pv-gcal-how">Tap Open Google Calendar. That adds your program as a calendar.</p>';
+    if (sheet.note) h += '<p class="mute" id="pv-gcal-note">' + esc(sheet.note) + '</p>';
+    if (sheet.error) h += '<p class="mute" id="pv-gcal-error">' + esc(sheet.error) + '</p>';
     if (sheet.status === 'ready' && sheet.openUrl) {
       h += '<a class="pv-gcal-open" id="pv-gcal-open" href="' + esc(sheet.openUrl) + '" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>';
+    } else if (sheet.status === 'error') {
+      h += '<button type="button" class="pri" id="pv-gcal-open" data-gcal="retry">Open Google Calendar</button>';
     } else {
       h += '<button type="button" class="pri" id="pv-gcal-open" disabled>Open Google Calendar</button>';
     }
@@ -801,6 +809,8 @@
     all[userId] = { token: row.token, timezone: row.timezone || WBCalendar.deviceZone() };
     try { localStorage.setItem(FEED_KEY, JSON.stringify(all)); } catch (e) {}
   }
+  var FEED_RESET_NOTE = 'New link ready. Tap Open Google Calendar to add it again.';
+  var FEED_FAIL_NOTE = "Couldn't create your calendar link. Please try again.";
   function showFeed(row, preview, note) {
     if (!state || !state.sheet || state.sheet.type !== 'gcal' || !window.WBCalendar) return;
     var url = WBCalendar.feedUrl(row.token);
@@ -812,13 +822,31 @@
     state.sheet.error = '';
     render();
   }
+  function showSignedOut() {
+    if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+    state.sheet.status = 'signedout';
+    state.sheet.url = '';
+    state.sheet.openUrl = '';
+    state.sheet.preview = false;
+    state.sheet.note = '';
+    state.sheet.error = '';
+    render();
+  }
+  function showFeedError() {
+    if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+    state.sheet.note = '';
+    state.sheet.error = FEED_FAIL_NOTE;
+    state.sheet.status = state.sheet.openUrl ? 'ready' : 'error';
+    render();
+  }
   function openCalendar() {
     if (!state || !window.WBCalendar) return;
     var zone = WBCalendar.deviceZone();
-    var userId = state.userId || 'self';
-    var saved = feedSaved(userId);
+    var userId = state.userId || '';
+    var saved = userId ? feedSaved(userId) : null;
     state.sheet = { type: 'gcal', status: 'loading', url: '', openUrl: '', preview: false, note: '', error: '' };
     render();
+    if (!userId) { showSignedOut(); return; }
     var load = options && options.loadCalendar;
     var pending = load
       ? Promise.resolve().then(function () { return load(zone, saved && saved.token); })
@@ -829,21 +857,23 @@
       showFeed(row, !!row.preview, '');
     }, function (err) {
       if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+      if (err && err.auth) { showSignedOut(); return; }
       if (err && err.local) {
         var row = saved || { token: WBCalendar.newToken(), timezone: zone };
         feedRemember(userId, row);
         showFeed(row, true, '');
         return;
       }
-      state.sheet.error = (err && err.message) || 'Could not make the link.';
-      render();
+      showFeedError();
     });
   }
   function resetCalendarLink() {
-    if (!state || !state.sheet || state.sheet.type !== 'gcal' || state.sheet.status !== 'ready' || !window.WBCalendar) return;
+    if (!state || !state.sheet || state.sheet.type !== 'gcal' || !window.WBCalendar) return;
+    if (state.sheet.status !== 'ready' && state.sheet.status !== 'error') return;
+    if (!state.userId) { showSignedOut(); return; }
     if (!window.confirm('Make a new link? Google Calendar will stop following the old one.')) return;
     var zone = WBCalendar.deviceZone();
-    var userId = state.userId || 'self';
+    var userId = state.userId;
     var wasPreview = !!state.sheet.preview;
     var reset = options && options.resetCalendar;
     state.sheet.status = 'loading';
@@ -856,18 +886,17 @@
     pending.then(function (row) {
       if (!row || !WBCalendar.validToken(row.token)) throw localFeedErr();
       feedRemember(userId, row);
-      showFeed(row, !!row.preview, 'This is a new link. The old one no longer works.');
+      showFeed(row, !!row.preview, FEED_RESET_NOTE);
     }, function (err) {
       if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+      if (err && err.auth) { showSignedOut(); return; }
       if ((err && err.local) || wasPreview) {
         var row = { token: WBCalendar.newToken(), timezone: zone };
         feedRemember(userId, row);
-        showFeed(row, true, 'This is a new link. The old one no longer works.');
+        showFeed(row, true, FEED_RESET_NOTE);
         return;
       }
-      state.sheet.status = 'ready';
-      state.sheet.note = (err && err.message) || 'Could not reset the link.';
-      render();
+      showFeedError();
     });
   }
   function onClick(e) {
@@ -878,6 +907,7 @@
     if (gcalBtn && state.sheet && state.sheet.type === 'gcal') {
       var gact = gcalBtn.getAttribute('data-gcal');
       if (gact === 'reset') { resetCalendarLink(); return; }
+      if (gact === 'retry') { openCalendar(); return; }
       return;
     }
     var pick = e.target.closest('[data-pick]');
