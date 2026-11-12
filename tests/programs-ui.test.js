@@ -238,6 +238,42 @@ async function stub(page, extra) {
   await enthusiast.click('[data-sheet=cancel]');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
+  const blankDate = await enthusiast.evaluate(function (key) {
+    var data = JSON.parse(localStorage.getItem(key));
+    var now = new Date();
+    var day = now.getDate() === 1 ? 2 : 1;
+    var date = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+    data.programs.push({
+      id: 'pg-blank', ownerId: 'allow-test', workoutId: data.workouts[0].id, workoutName: 'Morning lift',
+      items: data.workouts[0].items, date: date, presence: 'solo', start: '', end: '', updatedAt: Date.now()
+    });
+    localStorage.setItem(key, JSON.stringify(data));
+    return date;
+  }, M.STORAGE_KEY);
+  await enthusiast.reload();
+  await enthusiast.waitForSelector('[data-cal=month]');
+  await enthusiast.click('[data-cal=month]');
+  await enthusiast.waitForSelector('.pv-cell[data-date="' + blankDate + '"]');
+  await enthusiast.click('.pv-cell[data-date="' + blankDate + '"]');
+  await enthusiast.waitForSelector('#pv-day-sheet [data-time="start"]');
+  const blankInputs = await enthusiast.evaluate(function () {
+    return {
+      start: document.querySelector('#pv-day-sheet [data-time="start"]').value,
+      end: document.querySelector('#pv-day-sheet [data-time="end"]').value
+    };
+  });
+  assert.strictEqual(blankInputs.start, '');
+  assert.strictEqual(blankInputs.end, '');
+  await enthusiast.click('[data-view-wo]');
+  await enthusiast.waitForSelector('#pv-not-tracked');
+  await enthusiast.evaluate(function () { document.querySelector('[data-p=end]').click(); });
+  await enthusiast.waitForSelector('#pv-root');
+  const blankSaved = await enthusiast.evaluate(function (key) {
+    return JSON.parse(localStorage.getItem(key)).programs.filter(function (row) { return row.id === 'pg-blank'; })[0];
+  }, M.STORAGE_KEY);
+  assert.strictEqual(blankSaved.start || '', '');
+  assert.strictEqual(blankSaved.end || '', '');
+
   const client = await browser.newPage();
   client.on('pageerror', function (err) { errors.push(String(err)); });
   await client.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });

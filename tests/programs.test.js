@@ -134,6 +134,27 @@ assert.strictEqual(remote[0].date, '2026-11-13');
 assert.strictEqual(P.isUuid('11111111-1111-4111-8111-111111111111'), true);
 assert.strictEqual(P.isUuid('allow-test'), false);
 
+const syncedOnly = [{ id: 'pg1', ownerId: self, workoutId: 'push', workoutName: 'Push', date: '2026-11-11', start: '09:00', end: '10:00', presence: 'solo', synced: true, updatedAt: 10 }];
+const pendingOnly = [{ id: 'pg2', ownerId: self, workoutId: 'legs', workoutName: 'Legs', date: '2026-11-12', presence: 'solo', pending: true, updatedAt: 20 }];
+const someoneElse = [{ id: 'pgX', ownerId: 'ada', workoutId: 'push', workoutName: 'Push', date: '2026-11-11', presence: 'solo', synced: true, updatedAt: 10 }];
+const afterDelete = P.merge(syncedOnly.concat(pendingOnly).concat(someoneElse), [], self, {});
+assert.strictEqual(afterDelete.some(function (row) { return row.id === 'pg1'; }), false);
+assert.strictEqual(afterDelete.some(function (row) { return row.id === 'pg2'; }), true);
+assert.strictEqual(afterDelete.some(function (row) { return row.id === 'pgX'; }), true);
+const tombstoned = P.merge(syncedOnly, [{
+  local_id: 'pg1', owner_id: self, workout_local_id: 'push', workout_name: 'Push', items: [], day: '2026-11-11', presence: 'solo', updated_at: new Date(5).toISOString()
+}], self, { dropped: { pg1: 50 } });
+assert.strictEqual(tombstoned.some(function (row) { return row.id === 'pg1'; }), false);
+const revived = P.merge([], [{
+  local_id: 'pg1', owner_id: self, workout_local_id: 'push', workout_name: 'Push', items: [], day: '2026-11-11', presence: 'solo', updated_at: new Date(80).toISOString()
+}], self, { dropped: { pg1: 50 } });
+assert.strictEqual(revived.some(function (row) { return row.id === 'pg1' && row.synced === true; }), true);
+const legacy = P.merge([{ id: 'old', ownerId: self, workoutId: 'push', workoutName: 'Push', date: '2026-11-11', presence: 'solo', updatedAt: 1 }], [], self, {});
+assert.strictEqual(legacy.length, 1);
+assert.strictEqual(legacy[0].pending, true);
+assert.deepStrictEqual(P.settleDrops({ pg1: 50 }, [{ local_id: 'pg1' }], [], self), { pg1: 50 });
+assert.deepStrictEqual(P.settleDrops({ pg1: 50 }, [], [], self), {});
+
 const stored = M.emptyData();
 assert.ok(Array.isArray(stored.programs));
 const mem = { s: {}, getItem: function (k) { return this.s[k] || null; }, setItem: function (k, v) { this.s[k] = v; } };

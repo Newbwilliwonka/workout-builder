@@ -105,7 +105,18 @@
   function pushRemote(row) {
     if (!row || !options.saveEntry || !P.isUuid(row.ownerId)) return;
     Promise.resolve().then(function () { return options.saveEntry(row); }).then(function () {
-      if (state) state.remote = '';
+      if (!state || !data()) return;
+      state.remote = '';
+      var cleared = false;
+      data().programs = (data().programs || []).map(function (item) {
+        if (!item || item.id !== row.id || !item.pending) return item;
+        if ((item.updatedAt || 0) !== (row.updatedAt || 0)) return item;
+        cleared = true;
+        var next = Object.assign({}, item, { synced: true });
+        delete next.pending;
+        return next;
+      });
+      if (cleared && options.persist) options.persist();
     }, function (err) {
       if (!state) return;
       state.remote = remoteNote(err);
@@ -122,13 +133,21 @@
       render();
     });
   }
+  var pullGen = 0;
   function pullRemote() {
     var owner = ownerId();
     if (!options.loadEntries || !P.isUuid(owner)) return;
     var token = loadToken;
+    var gen = ++pullGen;
     Promise.resolve().then(function () { return options.loadEntries(owner); }).then(function (rows) {
-      if (!state || token !== loadToken || !Array.isArray(rows)) return;
-      data().programs = P.merge(data().programs, rows, owner, { keepLocalTimes: !!rows.timesPending });
+      if (!state || token !== loadToken || gen !== pullGen || !Array.isArray(rows) || !data()) return;
+      var dropped = data().programDrops || {};
+      var merged = P.merge(data().programs, rows, owner, { keepLocalTimes: !!rows.timesPending, dropped: dropped });
+      data().programs = merged;
+      data().programDrops = P.settleDrops(dropped, rows, merged, owner);
+      merged.forEach(function (row) {
+        if (row && row.ownerId === owner && row.pending) pushRemote(row);
+      });
       if (rows.timesPending) state.remote = remoteNote({ timesLocal: true });
       if (options.persist) options.persist();
       render();
@@ -429,7 +448,7 @@
     }
     var drafts = {};
     items.forEach(function (row) {
-      drafts[row.id] = { start: row.start || '09:00', end: row.end || '10:00', error: '' };
+      drafts[row.id] = { start: row.start || '', end: row.end || '', error: '' };
     });
     state.sheet = { type: 'day', date: date, drafts: drafts };
     state.hint = '';
@@ -513,6 +532,8 @@
     var result = P.remove(data().programs, id);
     state.sheet = null;
     if (!result.removed) { render(); return; }
+    data().programDrops = data().programDrops || {};
+    data().programDrops[id] = Date.now();
     savePrograms(result.programs, 'Removed from this day.');
     dropRemote(result.removed);
     render();
@@ -657,12 +678,17 @@
     loadClientShare(++loadToken);
   }
   function playFrom(node, mode) {
-    if (state.sheet && state.sheet.type === 'day' && canEdit()) {
-      var entryId = node.getAttribute('data-entry');
-      if (entryId && !saveEntryTimes(entryId)) return;
+    var workoutId = node.getAttribute(mode === 'view' ? 'data-view-wo' : 'data-run');
+    var entryId = node.getAttribute('data-entry') || '';
+    if (state.sheet && state.sheet.type === 'day' && canEdit() && entryId) {
+      readSheetTimes();
+      var draft = state.sheet.drafts && state.sheet.drafts[entryId];
+      var row = entryById(entryId);
+      var edited = draft && row && ((draft.start || '') !== (row.start || '') || (draft.end || '') !== (row.end || ''));
+      if (edited && !saveEntryTimes(entryId)) return;
     }
-    state.focusWorkout = node.getAttribute(mode === 'view' ? 'data-view-wo' : 'data-run');
-    state.focusEntry = node.getAttribute('data-entry') || '';
+    state.focusWorkout = workoutId;
+    state.focusEntry = entryId;
     state.playerMode = mode;
     state.screen = 'player';
     state.sheet = null;

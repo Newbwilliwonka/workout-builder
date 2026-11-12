@@ -106,7 +106,8 @@
       start: start,
       end: end,
       presence: presence(entry.presence),
-      updatedAt: entry.updatedAt || Date.now()
+      updatedAt: entry.updatedAt || Date.now(),
+      pending: true
     };
     list.push(row);
     return { programs: list, created: row, duplicate: false, error: '' };
@@ -124,7 +125,7 @@
     var moved = null;
     var next = list.map(function (row) {
       if (!row || row.id !== id) return row;
-      moved = Object.assign({}, row, { date: date, updatedAt: Date.now() });
+      moved = Object.assign({}, row, { date: date, updatedAt: Date.now(), pending: true });
       return moved;
     });
     return { programs: next, moved: moved, duplicate: false, error: '' };
@@ -134,7 +135,7 @@
     var changed = null;
     var list = (programs || []).map(function (row) {
       if (!row || row.id !== id || row.presence === next) return row;
-      changed = Object.assign({}, row, { presence: next, updatedAt: Date.now() });
+      changed = Object.assign({}, row, { presence: next, updatedAt: Date.now(), pending: true });
       return changed;
     });
     return { programs: list, changed: changed };
@@ -213,7 +214,7 @@
       if (!row || row.id !== id) return row;
       found = true;
       if (row.start === times.start && row.end === times.end) return row;
-      changed = Object.assign({}, row, { start: times.start, end: times.end, updatedAt: Date.now() });
+      changed = Object.assign({}, row, { start: times.start, end: times.end, updatedAt: Date.now(), pending: true });
       return changed;
     });
     if (!found) return { programs: list, changed: null, error: 'That workout is no longer on this day.' };
@@ -254,27 +255,53 @@
       updatedAt: Date.parse(row.updated_at || row.updatedAt) || 0
     };
   }
-  // Remote rows replace the same id when they are newer. Other owners stay put.
+  // A remote snapshot is the shared list for this owner. A row that was already on the
+  // server and is missing from that list was removed, so it stays removed. A row that
+  // only exists on this device (pending, or saved before sync existed) is kept.
   function merge(local, remote, ownerId, opts) {
     var keepTimes = !!(opts && opts.keepLocalTimes);
+    var dropped = (opts && opts.dropped) || {};
     var map = {};
-    (local || []).forEach(function (row) {
-      if (row && row.ownerId === ownerId && row.id) map[row.id] = row;
-    });
     (remote || []).forEach(function (row) {
       var cur = fromRemote(row);
       if (!cur || cur.ownerId !== ownerId) return;
-      var prev = map[cur.id];
-      if (!prev || (cur.updatedAt || 0) >= (prev.updatedAt || 0)) {
-        if (keepTimes && prev) {
-          cur.start = prev.start || cur.start || '';
-          cur.end = prev.end || cur.end || '';
-        }
-        map[cur.id] = cur;
+      if (dropped[cur.id] && (cur.updatedAt || 0) <= dropped[cur.id]) return;
+      cur.synced = true;
+      map[cur.id] = cur;
+    });
+    (local || []).forEach(function (row) {
+      if (!row || row.ownerId !== ownerId || !row.id) return;
+      if (dropped[row.id] && (row.updatedAt || 0) <= dropped[row.id]) return;
+      var incoming = map[row.id];
+      if (!incoming) {
+        if (row.synced && !row.pending) return;
+        map[row.id] = Object.assign({}, row, { pending: true });
+        return;
+      }
+      if ((row.updatedAt || 0) > (incoming.updatedAt || 0)) {
+        map[row.id] = Object.assign({}, row, { pending: true, synced: true });
+        return;
+      }
+      if (keepTimes) {
+        incoming.start = row.start || incoming.start || '';
+        incoming.end = row.end || incoming.end || '';
       }
     });
     var rest = (local || []).filter(function (row) { return row && row.ownerId !== ownerId; });
     return rest.concat(Object.keys(map).map(function (key) { return map[key]; }));
+  }
+  function settleDrops(dropped, remoteRows, merged, ownerId) {
+    var remoteIds = {};
+    (remoteRows || []).forEach(function (row) {
+      var id = row && (row.local_id || row.localId || row.id);
+      if (id) remoteIds[String(id)] = true;
+    });
+    var next = {};
+    Object.keys(dropped || {}).forEach(function (id) {
+      var alive = (merged || []).some(function (row) { return row && row.id === id && row.ownerId === ownerId; });
+      if (!alive && remoteIds[id]) next[id] = dropped[id];
+    });
+    return next;
   }
 
   var api = {
@@ -304,7 +331,8 @@
     entryDone: entryDone,
     dayDone: dayDone,
     fromRemote: fromRemote,
-    merge: merge
+    merge: merge,
+    settleDrops: settleDrops
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBPrograms = api;
