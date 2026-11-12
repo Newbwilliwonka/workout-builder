@@ -1037,6 +1037,7 @@
       data: data,
       persist: persistLocal,
       go: go,
+      toast: toast,
       sessions: trackedSessions,
       loadProfile: function () { return ensureProfile(); },
       loadSession: function () { return WBAuth.session ? WBAuth.session() : Promise.resolve(null); },
