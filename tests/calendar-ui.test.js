@@ -127,7 +127,7 @@ async function stub(page, extra) {
       reset: document.getElementById('pv-gcal-reset').textContent
     };
   });
-  assert.strictEqual(sheet.text, 'Add to Google Calendar Open Google Calendar Reset link Close');
+  assert.strictEqual(sheet.text, 'Add to Google Calendar Tap Open Google Calendar. That adds your program as a calendar. Open Google Calendar Reset link Close');
   assert.strictEqual(sheet.openLabel, 'Open Google Calendar');
   assert.strictEqual(sheet.bg, 'rgb(37, 99, 235)');
   assert.strictEqual(sheet.color, 'rgb(255, 255, 255)');

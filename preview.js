@@ -354,6 +354,7 @@
     var sheet = state.sheet;
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-gcal-sheet" role="dialog" aria-label="Add to Google Calendar">';
     h += '<h3 class="name">Add to Google Calendar</h3>';
+    h += '<p class="mute" id="pv-gcal-how">Tap Open Google Calendar. That adds your program as a calendar.</p>';
     if (sheet.status === 'ready' && sheet.openUrl) {
       h += '<a class="pv-gcal-open" id="pv-gcal-open" href="' + esc(sheet.openUrl) + '" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>';
     } else {
