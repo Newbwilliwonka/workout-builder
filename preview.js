@@ -212,7 +212,6 @@
     var n = (w.items || []).length;
     var name = w.name || 'Workout';
     return '<div class="card pv-pick-card"' + dragAttrs('workout', w.id, name) + ' data-wo="' + esc(w.id) + '"><div class="pv-session-top">' +
-      (canEdit() ? '<span class="pv-handle" aria-hidden="true">⋮⋮</span>' : '') +
       '<div class="name">' + esc(name) + '</div></div>' +
       '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div></div>';
   }
@@ -223,7 +222,6 @@
     var when = P.formatRange(row.start, row.end);
     var icon = canEdit() ? ico(kind, { id: row.id }) : ico(kind);
     return '<div class="card pv-session" data-open-session="' + esc(row.id) + '"' + dragAttrs('session', row.id, name) + '><div class="pv-session-top">' +
-      (canEdit() ? '<span class="pv-handle" aria-hidden="true">⋮⋮</span>' : '') +
       icon + '</div>' +
       '<div class="name">' + esc(name) + '</div>' +
       (when ? '<div class="pv-when">' + esc(when) + '</div>' : '') +

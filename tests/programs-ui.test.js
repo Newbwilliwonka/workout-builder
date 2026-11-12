@@ -88,13 +88,18 @@ async function stub(page, extra) {
   const legendColors = await enthusiast.evaluate(function () {
     function read(kind) {
       var el = document.querySelector('.pv-legend .pv-ico.' + kind);
+      var style = getComputedStyle(el);
       var path = el.querySelector('path').getAttribute('d');
-      return { color: getComputedStyle(el).color, path: path.slice(0, 3) };
+      return { color: style.color, background: style.backgroundColor, radius: style.borderRadius, path: path.slice(0, 3) };
     }
     return { solo: read('solo'), trainer: read('trainer') };
   });
   assert.strictEqual(legendColors.solo.color, 'rgb(37, 99, 235)');
   assert.strictEqual(legendColors.trainer.color, 'rgb(110, 231, 183)');
+  assert.strictEqual(legendColors.solo.background, 'rgba(0, 0, 0, 0)');
+  assert.strictEqual(legendColors.trainer.background, 'rgba(0, 0, 0, 0)');
+  assert.strictEqual(legendColors.solo.radius, '0px');
+  assert.strictEqual(legendColors.trainer.radius, '0px');
   assert.strictEqual(legendColors.solo.path, 'M12');
   assert.strictEqual(legendColors.trainer.path, 'M9 ');
   assert.ok((await enthusiast.$eval('#pv-role-note', function (el) { return el.innerText; })).indexOf('Your trainer can also edit this calendar') !== -1);
@@ -124,8 +129,8 @@ async function stub(page, extra) {
     var path = el.querySelector('path');
     return { h: Math.round(box.height), w: Math.round(box.width), d: path ? path.getAttribute('d') : '', tag: el.tagName };
   });
-  assert.ok(icon.h >= 18 && icon.h <= 26, 'icon height ' + icon.h);
-  assert.ok(icon.w >= 18 && icon.w <= 26, 'icon width ' + icon.w);
+  assert.ok(icon.h >= 12 && icon.h <= 16, 'icon height ' + icon.h);
+  assert.ok(icon.w >= 12 && icon.w <= 16, 'icon width ' + icon.w);
   assert.ok(icon.d.indexOf('M12') === 0 || icon.d.indexOf('M9') === 0);
   assert.strictEqual(icon.tag, 'BUTTON');
   await enthusiast.click('.pv-day .pv-day-h');
@@ -134,11 +139,14 @@ async function stub(page, extra) {
   await enthusiast.click('[data-sheet=cancel]');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
-  const handle = await enthusiast.$('#pv-workouts .pv-handle');
-  const from = await handle.boundingBox();
+  assert.strictEqual(await enthusiast.$('.pv-handle'), null);
+  assert.ok(await enthusiast.$('#pv-workouts .pv-pick-card[data-drag]'));
+  assert.ok(await enthusiast.$('.pv-session[data-drag]'));
+  const card = await enthusiast.$('#pv-workouts .pv-pick-card');
+  const from = await card.boundingBox();
   const target = await enthusiast.$('.pv-day:not(.today)');
   const to = await target.boundingBox();
-  await enthusiast.mouse.move(from.x + 8, from.y + 8);
+  await enthusiast.mouse.move(from.x + from.width / 2, from.y + 24);
   await enthusiast.mouse.down();
   await enthusiast.mouse.move(to.x + to.width / 2, to.y + 40, { steps: 12 });
   await enthusiast.mouse.up();
@@ -268,11 +276,11 @@ async function stub(page, extra) {
   assert.ok(await enthusiast.$('.pv-month'));
   await enthusiast.click('[data-sheet=cancel]');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
-  const monthHandle = await enthusiast.$('#pv-workouts .pv-handle');
-  const monthFrom = await monthHandle.boundingBox();
+  const monthCard = await enthusiast.$('#pv-workouts .pv-pick-card');
+  const monthFrom = await monthCard.boundingBox();
   const monthCell = await enthusiast.$('.pv-cell:not(.today):not(.is-out)');
   const monthTo = await monthCell.boundingBox();
-  await enthusiast.mouse.move(monthFrom.x + 8, monthFrom.y + 8);
+  await enthusiast.mouse.move(monthFrom.x + monthFrom.width / 2, monthFrom.y + 24);
   await enthusiast.mouse.down();
   await enthusiast.mouse.move(monthTo.x + monthTo.width / 2, monthTo.y + monthTo.height / 2, { steps: 12 });
   await enthusiast.mouse.up();
@@ -338,6 +346,7 @@ async function stub(page, extra) {
   assert.strictEqual(await client.$('#pv-workouts .actions'), null);
   assert.strictEqual(await client.$('#pv-workouts button'), null);
   assert.strictEqual(await client.$('.pv-handle'), null);
+  assert.strictEqual(await client.$('[data-drag]'), null);
   assert.strictEqual(await client.$('.pv-swipe'), null);
   assert.strictEqual(await client.$('[data-send]'), null);
   assert.strictEqual(await client.$('[data-open-wo]'), null);
@@ -430,11 +439,16 @@ async function stub(page, extra) {
   await client.waitForSelector('.pv-day.today .pv-ico.solo');
   await client.waitForSelector('.pv-day.today .pv-ico.trainer');
   const mobileWeekIcons = await client.evaluate(function () {
-    function color(sel) { return getComputedStyle(document.querySelector(sel)).color; }
-    return { solo: color('.pv-day.today .pv-ico.solo'), trainer: color('.pv-day.today .pv-ico.trainer') };
+    function read(sel) {
+      var style = getComputedStyle(document.querySelector(sel));
+      return { color: style.color, background: style.backgroundColor };
+    }
+    return { solo: read('.pv-day.today .pv-ico.solo'), trainer: read('.pv-day.today .pv-ico.trainer') };
   });
-  assert.strictEqual(mobileWeekIcons.solo, 'rgb(37, 99, 235)');
-  assert.strictEqual(mobileWeekIcons.trainer, 'rgb(110, 231, 183)');
+  assert.strictEqual(mobileWeekIcons.solo.color, 'rgb(37, 99, 235)');
+  assert.strictEqual(mobileWeekIcons.trainer.color, 'rgb(110, 231, 183)');
+  assert.strictEqual(mobileWeekIcons.solo.background, 'rgba(0, 0, 0, 0)');
+  assert.strictEqual(mobileWeekIcons.trainer.background, 'rgba(0, 0, 0, 0)');
   await client.click('[data-cal=month]');
   await client.waitForSelector('.pv-cell.today .pv-ico.solo');
   await client.waitForSelector('.pv-cell.today .pv-ico.trainer');
@@ -469,7 +483,8 @@ async function stub(page, extra) {
   await trainer.reload();
   await trainer.click('#programs-open');
   await trainer.waitForSelector('#pv-client');
-  await trainer.waitForSelector('.pv-handle');
+  await trainer.waitForSelector('#pv-workouts [data-drag]');
+  assert.strictEqual(await trainer.$('.pv-handle'), null);
   assert.strictEqual(await trainer.$eval('#pv-client', function (el) { return el.value; }), '');
   assert.strictEqual(await trainer.$eval('#pv-client option:checked', function (el) { return el.textContent; }), 'My calendar');
   assert.strictEqual(await trainer.$('#pv-workouts .actions'), null);
@@ -482,7 +497,7 @@ async function stub(page, extra) {
   await trainer.select('#pv-client', 'sam');
   await trainer.waitForFunction(function () {
     const note = document.getElementById('pv-role-note');
-    return note && note.innerText.indexOf('Sharing is on') !== -1 && document.querySelector('.pv-handle');
+    return note && note.innerText.indexOf('Sharing is on') !== -1 && document.querySelector('[data-drag]');
   });
   assert.strictEqual(await trainer.$('[data-send]'), null);
   assert.ok(await trainer.$('#pv-schedule-hint'));
