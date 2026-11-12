@@ -225,7 +225,8 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-workouts{order:2}
 .pv-cal{order:1}
 .pv-nav{margin:8px 0}
-.pv-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;overflow:visible}
+.pv-week-scroll{overflow:visible}
+.pv-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
 .pv-day{min-width:0}
 .pv-rail{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:8px;touch-action:pan-x}
 .pv-rail .card{flex:0 0 168px;width:168px;min-height:124px;margin:0;scroll-snap-align:start}
@@ -255,6 +256,7 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-picks{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
 button.pv-pick{width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:64px;padding:10px 12px}
 button.pv-pick.on{border-color:var(--pri);background:#eff6ff;box-shadow:0 0 0 1px var(--pri)}
+button.pv-day-row{width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:56px;padding:10px 12px}
 .pv-cell.pv-over{box-shadow:0 0 0 2px var(--pri)}
 button.pv-link,button.pv-session-open{background:transparent;min-height:0;padding:0;text-align:left;color:inherit}
 button.pv-link{display:block;width:100%}
@@ -283,21 +285,25 @@ button.pv-cell.is-out{opacity:.4}
 .bar .pv-menu{position:absolute;top:calc(100% + 6px);right:8px;z-index:8;width:min(280px,calc(100vw - 16px));margin:0;display:flex;flex-direction:column;gap:6px}
 @media (max-width:859px){
   .pv-today-label{display:none}
-  .pv-day{overflow:hidden;background:#fff;border-radius:10px;padding:4px}
+  .pv-week-scroll{overflow-x:auto;overflow-y:hidden;container-type:inline-size;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;touch-action:pan-x}
+  .pv-week{display:flex;gap:4px;width:max-content}
+  .pv-day{flex:0 0 calc((100cqw - 16px) / 5);width:calc((100cqw - 16px) / 5);scroll-snap-align:start;overflow:hidden;background:#fff;border-radius:10px;padding:4px 2px}
   .pv-day-h{padding:4px 2px;margin-bottom:4px;box-shadow:none}
-  .pv-day .name{display:block;font-size:10px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .pv-day .pv-when,.pv-day .mute{font-size:10px;overflow-wrap:anywhere}
-  .pv-day .pv-handle{min-width:14px;min-height:18px;font-size:11px;letter-spacing:-1px}
-  .pv-day .pv-session{padding:4px}
-  .pv-dow{font-size:10px}
-  .pv-num{font-size:14px}
+  .pv-day .name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;overflow-wrap:break-word;word-break:normal;font-size:13px;line-height:1.25}
+  .pv-day .pv-when,.pv-day .mute{font-size:11px;overflow-wrap:break-word;word-break:normal}
+  .pv-day .pv-handle{min-width:18px;min-height:22px;font-size:12px;letter-spacing:-1px}
+  .pv-day .pv-session{padding:2px 0;touch-action:pan-x}
+  .pv-dow{font-size:11px}
+  .pv-num{font-size:16px}
   body.pv-on{overflow-x:hidden}
 }
 @media (min-width:860px){
   .pv-layout{flex-direction:row;align-items:flex-start}
   .pv-workouts{order:1;width:300px;flex:none;position:sticky;top:70px;max-height:calc(100vh - 84px);overflow:auto}
   .pv-cal{order:2;flex:1;min-width:0}
-  .pv-week{gap:8px}
+  .pv-week-scroll{overflow:visible}
+  .pv-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;width:auto}
+  .pv-day{flex:none;width:auto;scroll-snap-align:none}
   .pv-rail{display:block;overflow:visible;touch-action:auto}
   .pv-rail .card{flex:none;width:auto;min-height:0;margin-bottom:10px;scroll-snap-align:none}
   .pv-pick-card,.pv-session{touch-action:none}

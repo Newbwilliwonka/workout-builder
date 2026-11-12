@@ -190,7 +190,7 @@
     var h = '<div class="row pv-nav"><button type="button" class="sm" data-shift="-1" data-unit="week" aria-label="Previous week">‹</button>' +
       '<div class="grow name" id="pv-range">' + esc(label) + '</div>' +
       '<button type="button" class="sm" data-shift="1" data-unit="week" aria-label="Next week">›</button></div>' +
-      '<div class="pv-week">';
+      '<div class="pv-week-scroll"><div class="pv-week">';
     for (var i = 0; i < 7; i++) {
       var d = new Date(start.getTime());
       d.setDate(start.getDate() + i);
@@ -203,7 +203,7 @@
       if (!items.length && canEdit()) h += '<div class="mute pv-drop">Drop here</div>';
       h += '</div>';
     }
-    return h + '</div>';
+    return h + '</div></div>';
   }
   function monthHtml() {
     var parts = state.month.split('-');
@@ -227,7 +227,7 @@
       var icons = '';
       if (kinds.trainer) icons += ico('trainer');
       if (kinds.solo) icons += ico('solo');
-      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + '" data-jump="' + date + '" data-date="' + date + '" aria-label="' + esc(DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate()) + '">' +
+      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + (items.length ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate()) + '">' +
         '<span class="pv-num">' + d.getDate() + '</span><span class="pv-marks">' + icons + (done ? check() : '') + '</span></button>';
     }
     return h + '</div>';
@@ -284,7 +284,24 @@
     if (!state.sheet) return '';
     if (state.sheet.type === 'add') return addSheetHtml();
     if (state.sheet.type === 'menu') return menuSheetHtml();
+    if (state.sheet.type === 'day') return daySheetHtml();
     return '';
+  }
+  function daySheetHtml() {
+    var date = state.sheet.date;
+    var items = onDay(date);
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">' +
+      '<h3 class="name">' + esc(prettyDate(date)) + '</h3>';
+    if (!items.length) h += '<p class="mute" id="pv-empty-day">Nothing scheduled</p>';
+    items.forEach(function (row) {
+      var live = workoutById(row.workoutId);
+      var name = live ? (live.name || 'Workout') : (row.workoutName || 'Workout');
+      var when = P.formatRange(row.start, row.end);
+      h += '<button type="button" class="pv-day-row" data-open-session="' + esc(row.id) + '"><span class="name">' + esc(name) + '</span>' +
+        (when ? '<span class="pv-when">' + esc(when) + '</span>' : '<span class="mute">No time set</span>') + '</button>';
+    });
+    if (canEdit()) h += '<button type="button" class="pri" data-sheet="add-day">Add workout</button>';
+    return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
   }
   function addSheetHtml() {
     var sheet = state.sheet;
@@ -408,6 +425,16 @@
     var nodes = document.querySelectorAll('.pv-over');
     for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('pv-over');
   }
+  function openDay(date) {
+    var items = onDay(date);
+    if (!items.length && canEdit()) {
+      openAdd(date);
+      return;
+    }
+    state.sheet = { type: 'day', date: date };
+    state.hint = '';
+    render();
+  }
   function openAdd(date, workoutId) {
     state.sheet = { type: 'add', date: date, workoutId: workoutId || '', start: '09:00', end: '10:00', error: '' };
     state.hint = '';
@@ -521,6 +548,14 @@
         else if (ev.clientX > box.right - edge) rail.scrollLeft += speed;
       }
     }
+    var strip = document.querySelector('.pv-week-scroll');
+    if (strip && strip.scrollWidth > strip.clientWidth + 2) {
+      var sb = strip.getBoundingClientRect();
+      if (ev.clientY >= sb.top - 12 && ev.clientY <= sb.bottom + 12) {
+        if (ev.clientX < sb.left + edge) strip.scrollLeft -= speed;
+        else if (ev.clientX > sb.right - edge) strip.scrollLeft += speed;
+      }
+    }
     var col = document.getElementById('pv-workouts');
     if (col && window.matchMedia('(min-width: 860px)').matches) {
       var c = col.getBoundingClientRect();
@@ -546,7 +581,8 @@
     clearDrag();
     var startX = e.clientX, startY = e.clientY, pointerId = e.pointerId;
     var rail = handle.closest('#pv-rail');
-    var horizontalOk = !!(rail && window.matchMedia('(max-width: 859px)').matches);
+    var weekStrip = handle.closest('.pv-week-scroll');
+    var horizontalOk = !!((rail || weekStrip) && window.matchMedia('(max-width: 859px)').matches);
     var floatEl = null;
     drag = {
       kind: handle.getAttribute('data-drag-kind'),
@@ -651,6 +687,12 @@
         openAdd(again.date);
         return;
       }
+      if (action === 'add-day') {
+        var dayDate = state.sheet.date;
+        if (!dayDate || !canEdit()) { state.sheet = null; render(); return; }
+        openAdd(dayDate);
+        return;
+      }
     }
     var cal = e.target.closest('[data-cal]');
     if (cal) {
@@ -676,12 +718,9 @@
       render();
       return;
     }
-    var jump = e.target.closest('[data-jump]');
-    if (jump) {
-      state.cursor = jump.getAttribute('data-jump');
-      state.month = state.cursor.slice(0, 7);
-      state.view = 'week';
-      render();
+    var monthDay = e.target.closest('[data-month-day]');
+    if (monthDay && !e.target.closest('#pv-sheet')) {
+      openDay(monthDay.getAttribute('data-month-day'));
       return;
     }
     var presenceBtn = e.target.closest('[data-presence]');

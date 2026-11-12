@@ -67,7 +67,7 @@ async function stub(page, extra) {
     const day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
     data.programs = [{
       id: 'pg1', ownerId: 'allow-test', workoutId: data.workouts[0].id, workoutName: 'Morning lift',
-      items: data.workouts[0].items, date: day, presence: 'solo', updatedAt: Date.now()
+      items: data.workouts[0].items, date: day, presence: 'solo', start: '09:00', end: '10:30', updatedAt: Date.now()
     }];
     data.sessions = [{
       id: 'ses1', workoutId: data.workouts[0].id, workoutName: 'Morning lift', programId: 'pg1',
@@ -96,10 +96,16 @@ async function stub(page, extra) {
   const desktop = await enthusiast.evaluate(function () {
     var workouts = document.getElementById('pv-workouts').getBoundingClientRect();
     var cal = document.getElementById('pv-cal').getBoundingClientRect();
-    return { left: workouts.left < cal.left, row: Math.abs(workouts.top - cal.top) < 80 };
+    var strip = document.querySelector('.pv-week-scroll');
+    return {
+      left: workouts.left < cal.left,
+      row: Math.abs(workouts.top - cal.top) < 80,
+      weekFits: strip.scrollWidth <= strip.clientWidth + 2
+    };
   });
   assert.strictEqual(desktop.left, true);
   assert.strictEqual(desktop.row, true);
+  assert.strictEqual(desktop.weekFits, true);
   await enthusiast.click('.pv-day .pv-day-h');
   await enthusiast.waitForSelector('#pv-start');
   await enthusiast.waitForSelector('#pv-end');
@@ -172,7 +178,37 @@ async function stub(page, extra) {
   await enthusiast.waitForSelector('.pv-month');
   await enthusiast.click('[data-shift="-1"][data-unit="month"]');
   await enthusiast.click('.pv-cell.today');
-  await enthusiast.waitForSelector('.pv-week');
+  await enthusiast.waitForSelector('#pv-day-sheet');
+  assert.ok(await enthusiast.$('.pv-month'));
+  assert.strictEqual(await enthusiast.$('.pv-week'), null);
+  const dayText = await enthusiast.$eval('#pv-day-sheet', function (el) { return el.innerText; });
+  assert.ok(dayText.indexOf('Morning lift') !== -1);
+  assert.ok(dayText.indexOf('9:00') !== -1 && dayText.indexOf('10:30') !== -1);
+  await enthusiast.click('#pv-day-sheet [data-open-session]');
+  await enthusiast.waitForSelector('[data-sheet=remove]');
+  assert.deepStrictEqual(await enthusiast.$$eval('#pv-sheet button', function (nodes) {
+    return nodes.map(function (node) { return node.textContent; });
+  }), ['Run', 'View', 'Save times', 'Remove workout', 'Add workout']);
+  await enthusiast.evaluate(function () { document.getElementById('pv-sheet').click(); });
+  await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
+  await enthusiast.click('.pv-cell:not(.today):not(.is-out)');
+  await enthusiast.waitForSelector('#pv-start');
+  await enthusiast.waitForSelector('#pv-end');
+  assert.ok(await enthusiast.$('.pv-month'));
+  await enthusiast.click('[data-sheet=cancel]');
+  await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
+  const monthHandle = await enthusiast.$('#pv-workouts .pv-handle');
+  const monthFrom = await monthHandle.boundingBox();
+  const monthCell = await enthusiast.$('.pv-cell:not(.today):not(.is-out)');
+  const monthTo = await monthCell.boundingBox();
+  await enthusiast.mouse.move(monthFrom.x + 8, monthFrom.y + 8);
+  await enthusiast.mouse.down();
+  await enthusiast.mouse.move(monthTo.x + monthTo.width / 2, monthTo.y + monthTo.height / 2, { steps: 12 });
+  await enthusiast.mouse.up();
+  await enthusiast.waitForSelector('#pv-sheet');
+  assert.strictEqual(await enthusiast.$eval('.pv-pick.on .name', function (el) { return el.textContent; }), 'Morning lift');
+  await enthusiast.click('[data-sheet=cancel]');
+  await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
   const client = await browser.newPage();
   client.on('pageerror', function (err) { errors.push(String(err)); });
@@ -201,17 +237,46 @@ async function stub(page, extra) {
   const mobile = await client.evaluate(function () {
     var cal = document.getElementById('pv-cal').getBoundingClientRect();
     var workouts = document.getElementById('pv-workouts').getBoundingClientRect();
-    var week = document.querySelector('.pv-week');
+    var strip = document.querySelector('.pv-week-scroll');
+    var port = strip.getBoundingClientRect();
+    var days = Array.prototype.map.call(document.querySelectorAll('.pv-day'), function (day) {
+      return day.getBoundingClientRect();
+    });
+    var name = document.querySelector('.pv-day.today .name');
     var card = document.querySelector('#pv-rail .card');
+    var style = name ? getComputedStyle(name) : null;
     return {
       calFirst: cal.top < workouts.top,
-      fits: week.scrollWidth <= week.clientWidth + 2,
+      scrolls: strip.scrollWidth > strip.clientWidth + 8,
+      monFits: days[0].left >= port.left - 2 && days[4].right <= port.right + 4,
+      weekendHidden: days[5].left >= port.right - 8,
+      dayWide: days[0].width >= 60,
+      name: name ? name.textContent : '',
+      wraps: style ? style.webkitLineClamp === '2' && style.whiteSpace !== 'nowrap' : false,
       cardWidth: card ? card.getBoundingClientRect().width : 0
     };
   });
   assert.strictEqual(mobile.calFirst, true);
-  assert.strictEqual(mobile.fits, true);
+  assert.strictEqual(mobile.scrolls, true);
+  assert.strictEqual(mobile.monFits, true);
+  assert.strictEqual(mobile.weekendHidden, true);
+  assert.strictEqual(mobile.dayWide, true);
+  assert.strictEqual(mobile.name, 'Morning lift');
+  assert.strictEqual(mobile.wraps, true);
   assert.ok(mobile.cardWidth >= 140 && mobile.cardWidth <= 200);
+  await client.evaluate(function () {
+    var strip = document.querySelector('.pv-week-scroll');
+    strip.scrollLeft = strip.scrollWidth;
+  });
+  const weekend = await client.evaluate(function () {
+    var port = document.querySelector('.pv-week-scroll').getBoundingClientRect();
+    var days = document.querySelectorAll('.pv-day');
+    var sat = days[5].getBoundingClientRect();
+    var sun = days[6].getBoundingClientRect();
+    return sat.right <= port.right + 4 && sun.right <= port.right + 4 && sat.left >= port.left - 2;
+  });
+  assert.strictEqual(weekend, true);
+  await client.evaluate(function () { document.querySelector('.pv-week-scroll').scrollLeft = 0; });
   await client.click('.pv-day.today .pv-day-h');
   assert.strictEqual(await client.$('#pv-sheet'), null);
   await client.click('[data-open-session]');
@@ -221,6 +286,25 @@ async function stub(page, extra) {
   }), ['Run', 'View']);
   assert.strictEqual(await client.$('[data-sheet=remove]'), null);
   assert.strictEqual(await client.$('[data-sheet=add]'), null);
+  await client.evaluate(function () { document.getElementById('pv-sheet').click(); });
+  await client.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
+  await client.click('[data-cal=month]');
+  await client.waitForSelector('.pv-month');
+  await client.click('.pv-cell.today');
+  await client.waitForSelector('#pv-day-sheet');
+  assert.ok((await client.$eval('#pv-day-sheet', function (el) { return el.innerText; })).indexOf('Morning lift') !== -1);
+  assert.strictEqual(await client.$('#pv-day-sheet [data-sheet=add-day]'), null);
+  await client.click('#pv-day-sheet [data-open-session]');
+  await client.waitForSelector('[data-run]');
+  assert.deepStrictEqual(await client.$$eval('#pv-sheet button', function (nodes) {
+    return nodes.map(function (node) { return node.textContent; });
+  }), ['Run', 'View']);
+  await client.evaluate(function () { document.getElementById('pv-sheet').click(); });
+  await client.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
+  await client.click('.pv-cell:not(.today):not(.is-out)');
+  await client.waitForSelector('#pv-empty-day');
+  assert.strictEqual(await client.$eval('#pv-empty-day', function (el) { return el.textContent; }), 'Nothing scheduled');
+  assert.strictEqual(await client.$('#pv-start'), null);
 
   const trainer = await browser.newPage();
   trainer.on('pageerror', function (err) { errors.push(String(err)); });
