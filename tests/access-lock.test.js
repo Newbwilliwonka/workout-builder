@@ -213,6 +213,83 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await client.click('#level-upgrade');
   await client.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1);
 
+  const cold = await open({ user: { id: 'cold', email: 'cold@example.com' } }, { id: 'cold', email: 'cold@example.com', membership: 'none', intended_plan: null });
+  await cold.goto(URL + '#/join');
+  await cold.waitForSelector('#acct-email');
+  await cold.evaluate(() => {
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'cold', email: 'cold@example.com' } }, needsConfirmation: false }); };
+    window.WBAuth.profile = function () { return Promise.reject(new Error('membership storage is not ready')); };
+  });
+  await cold.type('#acct-email', 'cold@example.com');
+  await cold.type('#acct-pass', 'secret12');
+  await cold.click('[data-auth=up]');
+  await cold.waitForFunction(() => location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('level-signout') && document.getElementById('back').hidden && !document.getElementById('messages-nav') && !document.querySelector('[data-a=new]'));
+
+  const retry = await open({ user: { id: 'retry', email: 'retry@example.com' } }, none);
+  await retry.goto(URL + '#/signin');
+  await retry.waitForSelector('h2');
+  await retry.evaluate(() => {
+    var n = 0;
+    window.WBAuth.profile = function () {
+      n += 1;
+      window.__profileReads = n;
+      if (n < 2) return Promise.reject(new Error('offline'));
+      return Promise.resolve({ id: 'retry', email: 'retry@example.com', membership: 'enthusiast', intended_plan: 'enthusiast' });
+    };
+    location.hash = '#/';
+  });
+  await retry.waitForSelector('[data-a=new]');
+  assert.strictEqual(await retry.evaluate(() => location.hash), '#/');
+  assert.ok(await retry.evaluate(() => window.__profileReads >= 2));
+
+  const held = await open({ user: { id: 'held', email: 'held@example.com' } }, { id: 'held', email: 'held@example.com', membership: 'trainer', intended_plan: 'trainer' });
+  await held.goto(URL + '#/');
+  await held.reload();
+  await held.waitForSelector('[data-a=new]');
+  await held.evaluate(() => {
+    window.WBAuth.profile = function () { return Promise.reject(new Error('offline')); };
+    location.hash = '#/?held=1';
+  });
+  await held.waitForFunction(() => location.hash === '#/?held=1' && document.querySelector('[data-a=new]') && !document.getElementById('level-lock'));
+
+  const invitedOffline = await open({ user: { id: 'inv', email: 'inv@example.com' } }, { id: 'inv', email: 'inv@example.com', membership: 'none', intended_plan: null });
+  await invitedOffline.goto(URL + '#/join');
+  await invitedOffline.waitForSelector('#invite-code');
+  await invitedOffline.evaluate(() => {
+    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'inv', email: 'inv@example.com' } }, needsConfirmation: false }); };
+    window.WBAuth.profile = function () { return Promise.reject(new Error('membership storage is not ready')); };
+    window.WBAuth.redeemInvite = function () {
+      return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.', trainerId: 't' });
+    };
+  });
+  await invitedOffline.type('#acct-email', 'inv@example.com');
+  await invitedOffline.type('#acct-pass', 'secret12');
+  await invitedOffline.type('#invite-code', 'ABCD2345');
+  await invitedOffline.click('[data-auth=up]');
+  await invitedOffline.waitForSelector('[data-a=new]');
+  assert.strictEqual(await invitedOffline.evaluate(() => location.hash), '#/');
+  assert.strictEqual(await invitedOffline.$('#level-lock'), null);
+
+  const saveFail = await open({ user: { id: 'save', email: 'save@example.com' } }, { id: 'save', email: 'save@example.com', membership: 'none', intended_plan: null });
+  await saveFail.goto(URL + '#/subscriptions');
+  await saveFail.reload();
+  await saveFail.waitForSelector('#level-lock');
+  await saveFail.evaluate(() => {
+    window.WBAuth.saveIntended = function () { return Promise.reject(new Error('duplicate key')); };
+  });
+  await saveFail.click('[data-plan=enthusiast]');
+  await saveFail.waitForFunction(() => {
+    var plan = document.querySelector('[data-plan=enthusiast]');
+    return location.hash === '#/subscriptions'
+      && document.getElementById('level-lock')
+      && document.getElementById('level-signout')
+      && document.getElementById('back').hidden
+      && !document.getElementById('messages-nav')
+      && !document.getElementById('workouts-nav')
+      && document.body.innerText.indexOf('Could not save that plan. Please try again.') !== -1
+      && plan && !plan.disabled;
+  });
+
   assert.deepStrictEqual(errs, []);
   console.log('ACCESS LOCK OK');
   await b.close();

@@ -398,14 +398,9 @@ function armSlow() {
   await seed(unknown, localCopy(LOCAL, 'Local edit'));
   await unknown.goto(URL + '#/');
   await unknown.waitForFunction(function () {
-    var text = document.body.innerText;
-    return text.indexOf('Local edit') !== -1 && text.indexOf('Server copy') === -1;
+    return location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('back').hidden && !document.getElementById('messages-nav');
   });
-  await unknown.click('[data-a=open]');
-  await unknown.waitForFunction(function () {
-    var note = document.getElementById('copy-note');
-    return location.hash.indexOf('#/w/') === 0 && note && note.textContent.indexOf('Only an Enthusiast') !== -1;
-  });
+  assert.ok((await unknown.evaluate(function () { return localStorage.getItem('wb.data.v1'); })).indexOf('Local edit') !== -1);
   box.profileDown = false;
   await unknown.evaluate(function () { location.hash = '#/'; });
   await unknown.waitForFunction(function () {

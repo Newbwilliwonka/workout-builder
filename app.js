@@ -94,12 +94,20 @@
     return ownWorkoutCount() >= tier.workoutCap;
   }
   function loadGateProfile() {
-    var pending = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
-    return Promise.resolve().then(function () { return pending; }).then(function (profile) {
+    function read() {
+      var pending = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
+      return Promise.resolve().then(function () { return pending; });
+    }
+    function fromProfile(profile) {
       if (profile) cachedProfile = profile;
       return { profile: profile || cachedProfile, known: true };
-    }, function () {
-      return { profile: cachedProfile, known: WBMembership.hasDesignated(cachedProfile) };
+    }
+    // A failed read keeps a level already loaded. With none, the lock stays closed.
+    function fromFailure() {
+      return { profile: cachedProfile, known: true };
+    }
+    return read().then(fromProfile, function () {
+      return read().then(fromProfile, fromFailure);
     });
   }
   function levelNoteHtml(profile) {
@@ -772,10 +780,10 @@
         if (saved && typeof saved === 'object') cachedProfile = saved;
         if (hashPage() !== 'subscriptions') return;
         go('#/');
-      }).catch(function (err) {
+      }).catch(function () {
         planBusy = false;
         if (hashPage() !== 'subscriptions') return;
-        drawSubscriptions(session, profile, (err && err.message) || 'Could not save that plan', true);
+        drawSubscriptions(session, profile, 'Could not save that plan. Please try again.', true, conn, !!locked);
       });
     };
   }
