@@ -95,7 +95,7 @@ async function stub(page, extra) {
     return { solo: read('solo'), trainer: read('trainer') };
   });
   assert.strictEqual(legendColors.solo.color, 'rgb(37, 99, 235)');
-  assert.strictEqual(legendColors.trainer.color, 'rgb(110, 231, 183)');
+  assert.strictEqual(legendColors.trainer.color, 'rgb(5, 150, 105)');
   assert.strictEqual(legendColors.solo.background, 'rgba(0, 0, 0, 0)');
   assert.strictEqual(legendColors.trainer.background, 'rgba(0, 0, 0, 0)');
   assert.strictEqual(legendColors.solo.radius, '0px');
@@ -446,7 +446,7 @@ async function stub(page, extra) {
     return { solo: read('.pv-day.today .pv-ico.solo'), trainer: read('.pv-day.today .pv-ico.trainer') };
   });
   assert.strictEqual(mobileWeekIcons.solo.color, 'rgb(37, 99, 235)');
-  assert.strictEqual(mobileWeekIcons.trainer.color, 'rgb(110, 231, 183)');
+  assert.strictEqual(mobileWeekIcons.trainer.color, 'rgb(5, 150, 105)');
   assert.strictEqual(mobileWeekIcons.solo.background, 'rgba(0, 0, 0, 0)');
   assert.strictEqual(mobileWeekIcons.trainer.background, 'rgba(0, 0, 0, 0)');
   await client.click('[data-cal=month]');

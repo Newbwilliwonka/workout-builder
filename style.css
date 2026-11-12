@@ -239,7 +239,7 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-check{color:#059669;font-weight:800;font-size:16px;line-height:1}
 .pv-ico,button.pv-ico{width:14px;height:14px;min-width:14px;min-height:14px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;display:inline-flex;align-items:center;justify-content:center;flex:none;line-height:0}
 .pv-ico.solo{color:#2563eb}
-.pv-ico.trainer{color:#6ee7b7}
+.pv-ico.trainer{color:#059669}
 .pv-slot-title{display:flex;align-items:center;gap:8px}
 .pv-presence{display:flex;flex-direction:column;gap:6px}
 .pv-presence-label{font-weight:600;font-size:14px}
