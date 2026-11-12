@@ -238,8 +238,14 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-num{font-weight:700;font-size:18px}
 .pv-check{color:#059669;font-weight:800;font-size:16px;line-height:1}
 .pv-ico,button.pv-ico{width:22px;height:22px;min-width:22px;min-height:22px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:none;line-height:0}
-.pv-ico.trainer{background:#dbeafe;color:var(--pri)}
-.pv-ico.solo{background:#e5e7eb;color:#4b5563}
+.pv-ico.solo{background:#dbeafe;color:#2563eb}
+.pv-ico.trainer{background:#064e3b;color:#6ee7b7}
+.pv-slot-title{display:flex;align-items:center;gap:8px}
+.pv-presence{display:flex;flex-direction:column;gap:6px}
+.pv-presence-label{font-weight:600;font-size:14px}
+.pv-presence-opt{display:flex;align-items:center;gap:8px;margin:0;font-weight:600;min-height:48px;padding:8px 12px;border:1px solid #d1d5db;border-radius:12px;background:#fff;cursor:pointer}
+.pv-presence-opt input{width:20px;height:20px;min-height:20px;margin:0;flex:none}
+.pv-presence-opt:has(input:checked){border-color:#2563eb;background:#eff6ff;box-shadow:0 0 0 1px #2563eb}
 .pv-ico svg{display:block;width:14px;height:14px}
 .pv-legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:8px 0 10px}
 .pv-legend>span{display:inline-flex;align-items:center;gap:6px;color:var(--mute);font-size:13px}

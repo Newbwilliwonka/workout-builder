@@ -61,7 +61,9 @@ grant execute on function auth.uid() to authenticated, anon;
   'supabase/migrations/20261111180000_programs.sql',
   'supabase/migrations/20261111180000_programs.sql',
   'supabase/migrations/20261111223000_program_times.sql',
-  'supabase/migrations/20261111223000_program_times.sql'
+  'supabase/migrations/20261111223000_program_times.sql',
+  'supabase/migrations/20261112120000_trainer_own_program.sql',
+  'supabase/migrations/20261112120000_trainer_own_program.sql'
 ].forEach(function (file) { psql('wb_programs_test', null, path.join(root, file)); });
 
 const assertSql = `
@@ -221,6 +223,62 @@ declare kept date;
 begin
   select day into kept from public.program_entries where local_id = 'pg1';
   if kept is distinct from date '2026-11-14' then raise exception 'ended link changed the day %', kept; end if;
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${T}', false);
+do $$
+declare n int;
+begin
+  insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, day, presence)
+  values ('${T}', 'own-t', 'wo', 'My day', '2026-11-16', 'solo');
+  select count(*) into n from public.program_entries where local_id = 'own-t' and owner_id = '${T}' and presence = 'solo';
+  if n <> 1 then raise exception 'trainer cannot read own calendar %', n; end if;
+  update public.program_entries set presence = 'trainer', day = '2026-11-17' where local_id = 'own-t';
+  select count(*) into n from public.program_entries where local_id = 'own-t' and presence = 'trainer' and day = date '2026-11-17';
+  if n <> 1 then raise exception 'trainer cannot update own calendar'; end if;
+  delete from public.program_entries where local_id = 'own-t';
+  select count(*) into n from public.program_entries where local_id = 'own-t';
+  if n <> 0 then raise exception 'trainer cannot delete own calendar %', n; end if;
+  insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, day, presence)
+  values ('${T}', 'own-t', 'wo', 'My day', '2026-11-16', 'trainer');
+  begin
+    insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, day, presence)
+    values ('${M}', 'steal', 'wo', 'Nope', '2026-11-16', 'solo');
+    raise exception 'trainer wrote another trainer calendar';
+  exception when others then
+    if sqlerrm not like '%cannot schedule%' then raise; end if;
+  end;
+end $$;
+
+select set_config('request.jwt.claim.sub', '${M}', false);
+do $$
+declare n int;
+begin
+  insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, day, presence)
+  values ('${M}', 'own-m', 'wo', 'Master own', '2026-11-16', 'solo');
+  select count(*) into n from public.program_entries where local_id = 'own-m' and presence = 'solo';
+  if n <> 1 then raise exception 'master cannot write own calendar %', n; end if;
+  select count(*) into n from public.program_entries where local_id = 'own-t';
+  if n <> 0 then raise exception 'master saw another trainer own calendar %', n; end if;
+  update public.program_entries set presence = 'trainer' where local_id = 'own-m';
+  select count(*) into n from public.program_entries where local_id = 'own-m' and presence = 'trainer';
+  if n <> 1 then raise exception 'master cannot update own calendar'; end if;
+end $$;
+
+select set_config('request.jwt.claim.sub', '${S}', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from public.program_entries where local_id in ('own-t', 'own-m');
+  if n <> 0 then raise exception 'stranger saw a trainer calendar %', n; end if;
+  begin
+    insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, day, presence)
+    values ('${T}', 'stranger-own', 'wo', 'Nope', '2026-11-16', 'solo');
+    raise exception 'stranger wrote a trainer calendar';
+  exception when others then
+    if sqlerrm not like '%cannot schedule%' then raise; end if;
+  end;
 end $$;
 
 set role anon;
