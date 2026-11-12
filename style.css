@@ -261,8 +261,7 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-sheet-card{background:#fff;color:var(--ink);width:min(440px,100%);max-height:min(82vh,680px);overflow:auto;border-radius:18px 18px 14px 14px;padding:16px;box-shadow:0 16px 40px rgba(0,0,0,.24);display:flex;flex-direction:column;gap:8px}
 .pv-sheet-card h3{margin:0}
 .pv-sheet-card button{width:100%}
-a.pv-gcal-open{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;padding:0 16px;border-radius:12px;background:var(--line);color:var(--ink);font-weight:600;text-decoration:none}
-#pv-gcal-link{margin:0;word-break:normal;overflow-wrap:anywhere}
+a.pv-gcal-open{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;padding:0 16px;border-radius:12px;background:var(--pri);color:#fff;font-weight:600;text-decoration:none}
 .pv-slot{display:contents}
 .pv-picks{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
 button.pv-pick{width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:64px;padding:10px 12px}

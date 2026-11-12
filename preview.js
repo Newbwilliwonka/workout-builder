@@ -354,16 +354,10 @@
     var sheet = state.sheet;
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-gcal-sheet" role="dialog" aria-label="Add to Google Calendar">';
     h += '<h3 class="name">Add to Google Calendar</h3>';
-    h += '<p class="mute" id="pv-gcal-how">Tap Open Google Calendar. That adds your program as a calendar.</p>';
-    h += '<p class="mute">Google refreshes it every few hours, so a new workout can take a little while to show up.</p>';
-    if (P.isTrainer(state.role)) h += '<p class="mute" id="pv-gcal-trainer">Your link includes your workouts and client workouts marked Trainer present.</p>';
-    if (sheet.status !== 'ready') {
-      h += '<p class="mute" id="pv-gcal-status">' + esc(sheet.error || 'Getting your link…') + '</p>';
-    } else {
-      h += '<p class="invite-code" id="pv-gcal-link">' + esc(sheet.url).replace(/([./-])/g, '$1<wbr>') + '</p>';
+    if (sheet.status === 'ready' && sheet.openUrl) {
       h += '<a class="pv-gcal-open" id="pv-gcal-open" href="' + esc(sheet.openUrl) + '" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>';
-      if (sheet.preview) h += '<p class="mute" id="pv-gcal-preview">Saved on this device for now. Open this again after the calendar feed is turned on, and this same link will start updating Google Calendar.</p>';
-      if (sheet.note) h += '<p class="mute" id="pv-gcal-note">' + esc(sheet.note) + '</p>';
+    } else {
+      h += '<button type="button" class="pri" id="pv-gcal-open" disabled>Open Google Calendar</button>';
     }
     h += '<button type="button" class="ghost" data-gcal="reset" id="pv-gcal-reset">Reset link</button>';
     return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';

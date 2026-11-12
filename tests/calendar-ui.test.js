@@ -110,26 +110,28 @@ async function stub(page, extra) {
   if (shots) await page.screenshot({ path: path.join(shots, 'programs_google_calendar_button.png') });
 
   await page.click('#pv-gcal');
-  await page.waitForSelector('#pv-gcal-link');
+  await page.waitForSelector('#pv-gcal-open');
   const sheet = await page.evaluate(function () {
-    var link = document.getElementById('pv-gcal-link').textContent;
     var open = document.getElementById('pv-gcal-open');
+    var style = getComputedStyle(open);
+    var href = open.getAttribute('href') || '';
+    var feed = decodeURIComponent((href.split('cid=')[1] || '')).replace(/^webcal:\/\//, 'https://');
     return {
-      text: document.getElementById('pv-gcal-sheet').innerText,
-      link: link,
-      href: open.getAttribute('href'),
+      text: document.getElementById('pv-gcal-sheet').innerText.replace(/\s+/g, ' ').trim(),
+      link: feed,
+      href: href,
       openLabel: open.textContent,
-      reset: document.getElementById('pv-gcal-reset').textContent,
-      copyGone: !document.getElementById('pv-gcal-copy')
+      bg: style.backgroundColor,
+      color: style.color,
+      weight: style.fontWeight,
+      reset: document.getElementById('pv-gcal-reset').textContent
     };
   });
-  assert.ok(sheet.text.indexOf('Tap Open Google Calendar. That adds your program as a calendar.') !== -1);
-  assert.strictEqual(sheet.text.indexOf('Copy'), -1);
-  assert.ok(sheet.text.indexOf('Google refreshes it every few hours') !== -1);
-  assert.ok(sheet.text.indexOf('Saved on this device for now') !== -1);
-  assert.ok(sheet.text.indexOf('this same link will start updating Google Calendar') !== -1);
-  assert.strictEqual(sheet.copyGone, true);
+  assert.strictEqual(sheet.text, 'Add to Google Calendar Open Google Calendar Reset link Close');
   assert.strictEqual(sheet.openLabel, 'Open Google Calendar');
+  assert.strictEqual(sheet.bg, 'rgb(37, 99, 235)');
+  assert.strictEqual(sheet.color, 'rgb(255, 255, 255)');
+  assert.strictEqual(sheet.weight, '600');
   assert.strictEqual(sheet.reset, 'Reset link');
   assert.ok(/^https:\/\/thyrgloermygnezfareg\.supabase\.co\/functions\/v1\/calendar-feed\/[0-9a-f]{64}\.ics$/.test(sheet.link));
   assert.strictEqual(sheet.href.indexOf('https://calendar.google.com/calendar/r?cid='), 0);
@@ -139,9 +141,12 @@ async function stub(page, extra) {
   const first = sheet.link;
   await page.click('#pv-gcal-reset');
   await page.waitForFunction(function (previous) {
-    var el = document.getElementById('pv-gcal-link');
-    var note = document.getElementById('pv-gcal-note');
-    return el && el.textContent !== previous && note && note.textContent.indexOf('new link') !== -1;
+    var open = document.getElementById('pv-gcal-open');
+    if (!open) return false;
+    var href = open.getAttribute('href') || '';
+    var feed = '';
+    try { feed = decodeURIComponent(href.split('cid=')[1] || '').replace(/^webcal:\/\//, 'https://'); } catch (e) { return false; }
+    return feed && feed !== previous && document.getElementById('pv-gcal-sheet').innerText.indexOf(previous) === -1;
   }, {}, first);
 
   await page.click('[data-sheet=cancel]');
