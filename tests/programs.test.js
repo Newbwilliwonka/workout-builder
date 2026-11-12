@@ -172,6 +172,11 @@ const afterSql = P.merge([keptPending], serverWithoutTimes, self, {}).filter(fun
 assert.strictEqual(afterSql.pending, true);
 assert.strictEqual(afterSql.start, '09:00');
 assert.strictEqual(afterSql.end, '10:30');
+assert.strictEqual(P.staleWrite(null, { pg1: 1 }, 'pg1', []), true);
+assert.strictEqual(P.staleWrite({ timesLocal: true }, { pg1: 1 }, 'pg1', []), true);
+assert.strictEqual(P.staleWrite(new Error('offline'), { pg1: 1 }, 'pg1', []), false);
+assert.strictEqual(P.staleWrite({ timesLocal: true }, { pg1: 1 }, 'pg1', [{ id: 'pg1' }]), false);
+assert.strictEqual(P.staleWrite({ timesLocal: true }, {}, 'pg1', []), false);
 
 const stored = M.emptyData();
 assert.ok(Array.isArray(stored.programs));

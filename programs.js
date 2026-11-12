@@ -255,6 +255,13 @@
       updatedAt: Date.parse(row.updated_at || row.updatedAt) || 0
     };
   }
+  // A timed save can upsert the row and then reject because the times columns are not
+  // on the server yet. That rejection still wrote the row, so a removal must undo it.
+  function staleWrite(err, dropped, id, programs) {
+    var wrote = !err || !!(err && err.timesLocal);
+    if (!wrote || !dropped || !dropped[id]) return false;
+    return !(programs || []).some(function (row) { return row && row.id === id; });
+  }
   function dropTime(dropped, id) {
     var value = dropped && dropped[id];
     if (value == null || value === '') return 0;
@@ -342,7 +349,8 @@
     dayDone: dayDone,
     fromRemote: fromRemote,
     merge: merge,
-    settleDrops: settleDrops
+    settleDrops: settleDrops,
+    staleWrite: staleWrite
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBPrograms = api;

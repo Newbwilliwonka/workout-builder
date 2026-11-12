@@ -109,23 +109,44 @@
     data().programDrops[id] = { at: Date.now(), ownerId: ownerId || '' };
   }
   function pushRemote(row) {
-    if (!row || !options.saveEntry || !P.isUuid(row.ownerId)) return;
+    if (!row || !options || !options.saveEntry || !P.isUuid(row.ownerId)) return;
     var epoch = pushEpoch[row.id] || 0;
-    Promise.resolve().then(function () { return options.saveEntry(row); }).then(function () {
-      if (!state || !data()) return;
-      var still = (data().programs || []).some(function (item) { return item && item.id === row.id; });
-      var tomb = data().programDrops && data().programDrops[row.id];
-      if ((pushEpoch[row.id] || 0) !== epoch || (tomb && !still)) {
-        if (tomb && !still) {
-          noteDrop(row.id, row.ownerId);
-          if (options.persist) options.persist();
-          dropRemote(row);
+    var saveEntry = options.saveEntry;
+    var deleteEntry = options.deleteEntry;
+    var persist = options.persist;
+    var store = options.data;
+    Promise.resolve().then(function () { return saveEntry(row); }).then(function () {
+      afterPush(null);
+    }, function (err) {
+      afterPush(err);
+    });
+    function afterPush(err) {
+      if (!store) return;
+      var superseded = (pushEpoch[row.id] || 0) !== epoch;
+      if (P.staleWrite(err, store.programDrops, row.id, store.programs)) {
+        store.programDrops[row.id] = { at: Date.now(), ownerId: row.ownerId || '' };
+        if (persist) persist();
+        if (deleteEntry && P.isUuid(row.ownerId)) {
+          Promise.resolve().then(function () { return deleteEntry(row); }).then(function () {
+            if (state) state.remote = '';
+          }, function (delErr) {
+            if (!state) return;
+            state.remote = remoteNote(delErr);
+            render();
+          });
         }
         return;
       }
+      if (err) {
+        if (!state) return;
+        state.remote = remoteNote(err);
+        render();
+        return;
+      }
+      if (!state || superseded) return;
       state.remote = '';
       var cleared = false;
-      data().programs = (data().programs || []).map(function (item) {
+      store.programs = (store.programs || []).map(function (item) {
         if (!item || item.id !== row.id || !item.pending) return item;
         if ((item.updatedAt || 0) !== (row.updatedAt || 0)) return item;
         cleared = true;
@@ -133,12 +154,8 @@
         delete next.pending;
         return next;
       });
-      if (cleared && options.persist) options.persist();
-    }, function (err) {
-      if (!state) return;
-      state.remote = remoteNote(err);
-      render();
-    });
+      if (cleared && persist) persist();
+    }
   }
   function dropRemote(row) {
     if (!row || !options.deleteEntry || !P.isUuid(row.ownerId)) return;
