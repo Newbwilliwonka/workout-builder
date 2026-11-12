@@ -139,11 +139,15 @@
     });
   }
   function presenceLabel(kind) { return kind === 'trainer' ? 'Trainer present' : 'Solo'; }
-  function ico(kind) {
+  function ico(kind, button) {
     var path = kind === 'trainer'
       ? 'M9 11a3 3 0 100-6 3 3 0 000 6zm7 1a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM9 13c-2.8 0-5 1.6-5 3.5V19h10v-2.5C14 14.6 11.8 13 9 13zm7 .5c-.4 0-.8 0-1.2.1 1.3.8 2.2 1.9 2.2 3.2V19h5v-2c0-1.8-2.5-3.5-6-3.5z'
       : 'M12 12a3.5 3.5 0 100-7 3.5 3.5 0 000 7zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4z';
-    return '<span class="pv-ico ' + kind + '" title="' + esc(presenceLabel(kind)) + '"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="' + path + '"/></svg></span>';
+    var mark = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="' + path + '"/></svg>';
+    if (button) {
+      return '<button type="button" class="pv-ico ' + kind + '" data-presence="' + esc(button.id) + '" aria-label="' + esc(presenceLabel(kind)) + '. Change it.">' + mark + '</button>';
+    }
+    return '<span class="pv-ico ' + kind + '" title="' + esc(presenceLabel(kind)) + '">' + mark + '</span>';
   }
   function check() { return '<span class="pv-check" aria-label="Completed">✓</span>'; }
   function onDay(date) { return P.byStart(entries().filter(function (row) { return row.date === date; })); }
@@ -164,11 +168,7 @@
     var name = live ? live.name : (row.workoutName || 'Workout');
     var kind = row.presence === 'trainer' ? 'trainer' : 'solo';
     var when = P.formatRange(row.start, row.end);
-    var icon = canEdit()
-      ? '<button type="button" class="pv-ico ' + kind + '" data-presence="' + esc(row.id) + '" aria-label="' + esc(presenceLabel(kind)) + '. Change it."><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="' + (kind === 'trainer'
-        ? 'M9 11a3 3 0 100-6 3 3 0 000 6zm7 1a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM9 13c-2.8 0-5 1.6-5 3.5V19h10v-2.5C14 14.6 11.8 13 9 13zm7 .5c-.4 0-.8 0-1.2.1 1.3.8 2.2 1.9 2.2 3.2V19h5v-2c0-1.8-2.5-3.5-6-3.5z'
-        : 'M12 12a3.5 3.5 0 100-7 3.5 3.5 0 000 7zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4z') + '"/></svg></button>'
-      : ico(kind);
+    var icon = canEdit() ? ico(kind, { id: row.id }) : ico(kind);
     return '<div class="card pv-session" data-open-session="' + esc(row.id) + '"' + dragAttrs('session', row.id, name) + '><div class="pv-session-top">' +
       (canEdit() ? '<span class="pv-handle" aria-hidden="true">⋮⋮</span>' : '') +
       icon + '</div>' +
@@ -197,7 +197,7 @@
       var date = P.iso(d);
       var items = onDay(date);
       var today = date === todayIso();
-      h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '"' + (canEdit() ? ' data-add-day="' + date + '"' : '') + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="pv-today-label mute"> Today</span>' : '') + '</div></div>' +
+      h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '" data-day="' + date + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="pv-today-label mute"> Today</span>' : '') + '</div></div>' +
         (P.dayDone(items, tracked) ? check() : '') + '</div>';
       items.forEach(function (row) { h += sessionCard(row); });
       if (!items.length && canEdit()) h += '<div class="mute pv-drop">Drop here</div>';
@@ -283,25 +283,41 @@
   function sheetHtml() {
     if (!state.sheet) return '';
     if (state.sheet.type === 'add') return addSheetHtml();
-    if (state.sheet.type === 'menu') return menuSheetHtml();
     if (state.sheet.type === 'day') return daySheetHtml();
     return '';
   }
   function daySheetHtml() {
     var date = state.sheet.date;
     var items = onDay(date);
-    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">' +
-      '<h3 class="name">' + esc(prettyDate(date)) + '</h3>';
-    if (!items.length) h += '<p class="mute" id="pv-empty-day">Nothing scheduled</p>';
-    items.forEach(function (row) {
-      var live = workoutById(row.workoutId);
-      var name = live ? (live.name || 'Workout') : (row.workoutName || 'Workout');
-      var when = P.formatRange(row.start, row.end);
-      h += '<button type="button" class="pv-day-row" data-open-session="' + esc(row.id) + '"><span class="name">' + esc(name) + '</span>' +
-        (when ? '<span class="pv-when">' + esc(when) + '</span>' : '<span class="mute">No time set</span>') + '</button>';
-    });
-    if (canEdit()) h += '<button type="button" class="pri" data-sheet="add-day">Add workout</button>';
-    return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
+    var actions = P.entryMenu(context());
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">';
+    if (!items.length) {
+      h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3><p class="mute" id="pv-empty-day">Nothing scheduled</p>';
+      return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
+    }
+    items.forEach(function (row) { h += dayWorkoutHtml(row, actions); });
+    return h + '</div></div>';
+  }
+  function dayWorkoutHtml(row, actions) {
+    var workout = workoutById(row.workoutId);
+    var name = workout ? (workout.name || 'Workout') : (row.workoutName || 'Workout');
+    var editing = actions.indexOf('remove') >= 0;
+    var when = P.formatRange(row.start, row.end);
+    var kind = row.presence === 'trainer' ? 'trainer' : 'solo';
+    var draft = (state.sheet.drafts && state.sheet.drafts[row.id]) || { start: row.start || '', end: row.end || '', error: '' };
+    var h = '<div class="pv-slot">';
+    h += '<h3 class="name">' + esc(name) + '</h3><p class="mute">' + esc(prettyDate(row.date)) + ' · ' + esc(presenceLabel(kind)) + '</p>';
+    if (editing) {
+      h += '<label for="pv-start-' + esc(row.id) + '">Start</label><input id="pv-start-' + esc(row.id) + '" data-time="start" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.start || '') + '">' +
+        '<label for="pv-end-' + esc(row.id) + '">End</label><input id="pv-end-' + esc(row.id) + '" data-time="end" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.end || '') + '">';
+    } else if (when) h += '<p class="pv-when">' + esc(when) + '</p>';
+    if (draft.error) h += '<p class="errs" id="pv-sheet-error">' + esc(draft.error) + '</p>';
+    if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">Run</button>';
+    if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">View</button>';
+    if (editing) h += '<button type="button" data-sheet="times" data-entry="' + esc(row.id) + '">Save times</button>';
+    if (actions.indexOf('remove') >= 0) h += '<button type="button" class="danger" data-sheet="remove" data-entry="' + esc(row.id) + '">Remove workout</button>';
+    if (actions.indexOf('add') >= 0) h += '<button type="button" data-sheet="add" data-entry="' + esc(row.id) + '">Add workout</button>';
+    return h + '</div>';
   }
   function addSheetHtml() {
     var sheet = state.sheet;
@@ -318,29 +334,6 @@
       '<label for="pv-end">End</label><input id="pv-end" type="time" value="' + esc(sheet.end || '') + '">';
     if (sheet.error) h += '<p class="errs" id="pv-sheet-error">' + esc(sheet.error) + '</p>';
     return h + '<button type="button" class="pri" data-sheet="save">Add to this day</button><button type="button" data-sheet="cancel">Cancel</button></div></div>';
-  }
-  function menuSheetHtml() {
-    var sheet = state.sheet;
-    var entry = entryById(sheet.entryId);
-    if (!entry) return '';
-    var workout = workoutById(entry.workoutId);
-    var name = workout ? (workout.name || 'Workout') : (entry.workoutName || 'Workout');
-    var actions = P.entryMenu(context());
-    var editing = actions.indexOf('remove') >= 0;
-    var when = P.formatRange(entry.start, entry.end);
-    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" role="dialog" aria-label="Scheduled workout">' +
-      '<h3 class="name">' + esc(name) + '</h3><p class="mute">' + esc(prettyDate(entry.date)) + ' · ' + esc(presenceLabel(entry.presence)) + '</p>';
-    if (editing) {
-      h += '<label for="pv-start">Start</label><input id="pv-start" type="time" value="' + esc(sheet.start || '') + '">' +
-        '<label for="pv-end">End</label><input id="pv-end" type="time" value="' + esc(sheet.end || '') + '">';
-    } else if (when) h += '<p class="pv-when" id="pv-when">' + esc(when) + '</p>';
-    if (sheet.error) h += '<p class="errs" id="pv-sheet-error">' + esc(sheet.error) + '</p>';
-    if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(entry.workoutId) + '" data-entry="' + esc(entry.id) + '">Run</button>';
-    if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(entry.workoutId) + '" data-entry="' + esc(entry.id) + '">View</button>';
-    if (editing) h += '<button type="button" data-sheet="times">Save times</button>';
-    if (actions.indexOf('remove') >= 0) h += '<button type="button" class="danger" data-sheet="remove">Remove workout</button>';
-    if (actions.indexOf('add') >= 0) h += '<button type="button" data-sheet="add">Add workout</button>';
-    return h + '</div></div>';
   }
   function playable(id) {
     var workout = workoutById(id);
@@ -427,11 +420,18 @@
   }
   function openDay(date) {
     var items = onDay(date);
-    if (!items.length && canEdit()) {
-      openAdd(date);
+    if (!items.length) {
+      if (canEdit()) { openAdd(date); return; }
+      state.sheet = { type: 'day', date: date, drafts: {} };
+      state.hint = '';
+      render();
       return;
     }
-    state.sheet = { type: 'day', date: date };
+    var drafts = {};
+    items.forEach(function (row) {
+      drafts[row.id] = { start: row.start || '09:00', end: row.end || '10:00', error: '' };
+    });
+    state.sheet = { type: 'day', date: date, drafts: drafts };
     state.hint = '';
     render();
   }
@@ -442,22 +442,24 @@
   }
   function openMenu(entry) {
     if (!entry) return;
-    state.sheet = {
-      type: 'menu',
-      entryId: entry.id,
-      start: entry.start || '09:00',
-      end: entry.end || '10:00',
-      error: ''
-    };
-    state.focusEntry = entry.id;
-    render();
+    openDay(entry.date);
   }
   function readSheetTimes() {
     if (!state || !state.sheet) return;
-    var startEl = document.getElementById('pv-start');
-    var endEl = document.getElementById('pv-end');
-    if (startEl) state.sheet.start = startEl.value;
-    if (endEl) state.sheet.end = endEl.value;
+    if (state.sheet.type === 'add') {
+      var startEl = document.getElementById('pv-start');
+      var endEl = document.getElementById('pv-end');
+      if (startEl) state.sheet.start = startEl.value;
+      if (endEl) state.sheet.end = endEl.value;
+      return;
+    }
+    if (state.sheet.type !== 'day' || !state.sheet.drafts) return;
+    var nodes = document.querySelectorAll('#pv-day-sheet input[data-entry]');
+    for (var i = 0; i < nodes.length; i++) {
+      var draft = state.sheet.drafts[nodes[i].getAttribute('data-entry')];
+      if (!draft) continue;
+      draft[nodes[i].getAttribute('data-time')] = nodes[i].value;
+    }
   }
   function confirmAdd() {
     readSheetTimes();
@@ -488,25 +490,27 @@
     pushRemote(placed.created);
     render();
   }
-  function saveMenuTimes() {
+  function saveEntryTimes(id) {
     readSheetTimes();
     var sheet = state.sheet;
-    if (!sheet || sheet.type !== 'menu' || !data()) return false;
-    var result = P.setTimes(data().programs, sheet.entryId, sheet.start, sheet.end);
-    if (result.error) { sheet.error = result.error; render(); return false; }
-    sheet.error = '';
+    if (!sheet || sheet.type !== 'day' || !sheet.drafts || !sheet.drafts[id] || !data()) return false;
+    var draft = sheet.drafts[id];
+    var result = P.setTimes(data().programs, id, draft.start, draft.end);
+    if (result.error) { draft.error = result.error; render(); return false; }
+    draft.error = '';
     if (result.changed) {
-      sheet.start = result.changed.start;
-      sheet.end = result.changed.end;
+      draft.start = result.changed.start;
+      draft.end = result.changed.end;
       savePrograms(result.programs, 'Saved on this device.');
       pushRemote(result.changed);
     }
+    render();
     return true;
   }
-  function removeScheduled() {
+  function removeScheduled(id) {
     var sheet = state.sheet;
-    if (!sheet || !data()) return;
-    var result = P.remove(data().programs, sheet.entryId);
+    if (!sheet || !data() || !id) return;
+    var result = P.remove(data().programs, id);
     state.sheet = null;
     if (!result.removed) { render(); return; }
     savePrograms(result.programs, 'Removed from this day.');
@@ -653,8 +657,9 @@
     loadClientShare(++loadToken);
   }
   function playFrom(node, mode) {
-    if (state.sheet && state.sheet.type === 'menu' && canEdit()) {
-      if (!saveMenuTimes()) return;
+    if (state.sheet && state.sheet.type === 'day' && canEdit()) {
+      var entryId = node.getAttribute('data-entry');
+      if (entryId && !saveEntryTimes(entryId)) return;
     }
     state.focusWorkout = node.getAttribute(mode === 'view' ? 'data-view-wo' : 'data-run');
     state.focusEntry = node.getAttribute('data-entry') || '';
@@ -679,18 +684,12 @@
       var action = sheetBtn.getAttribute('data-sheet');
       if (action === 'cancel') { state.sheet = null; render(); return; }
       if (action === 'save') { confirmAdd(); return; }
-      if (action === 'times') { if (saveMenuTimes()) { state.hint = 'Saved on this device.'; render(); } return; }
-      if (action === 'remove') { removeScheduled(); return; }
+      if (action === 'times') { saveEntryTimes(sheetBtn.getAttribute('data-entry')); return; }
+      if (action === 'remove') { removeScheduled(sheetBtn.getAttribute('data-entry')); return; }
       if (action === 'add') {
-        var again = entryById(state.sheet.entryId);
+        var again = entryById(sheetBtn.getAttribute('data-entry'));
         if (!again) { state.sheet = null; render(); return; }
         openAdd(again.date);
-        return;
-      }
-      if (action === 'add-day') {
-        var dayDate = state.sheet.date;
-        if (!dayDate || !canEdit()) { state.sheet = null; render(); return; }
-        openAdd(dayDate);
         return;
       }
     }
@@ -735,14 +734,9 @@
       render();
       return;
     }
-    var openS = e.target.closest('[data-open-session]');
-    if (openS && !e.target.closest('[data-presence]')) {
-      openMenu(entryById(openS.getAttribute('data-open-session')));
-      return;
-    }
-    var addDay = e.target.closest('[data-add-day]');
-    if (addDay && canEdit() && !e.target.closest('[data-open-session], [data-presence], #pv-sheet')) {
-      openAdd(addDay.getAttribute('data-add-day'));
+    var dayTap = e.target.closest('[data-day]');
+    if (dayTap && !e.target.closest('#pv-sheet')) {
+      openDay(dayTap.getAttribute('data-day'));
       return;
     }
     var view = e.target.closest('[data-view-wo]');
