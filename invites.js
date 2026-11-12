@@ -4,7 +4,7 @@
   var ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   var CODE_LEN = 8;
   var TTL_MS = 24 * 60 * 60 * 1000;
-  var SITE = 'https://newbwilliwonka.github.io/workout-builder/';
+  var SITE = 'https://coachtrainerapp.com/';
   var MSG = {
     notTrainer: 'Only a Trainer or Master Trainer can create invites.',
     noSlots: 'No invite slots left.',

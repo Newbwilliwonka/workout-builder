@@ -3,7 +3,7 @@
   'use strict';
   var URL = 'https://thyrgloermygnezfareg.supabase.co';
   var PUBLISHABLE_KEY = 'sb_publishable_YT4vJriMUtcFRveDBA0GaA_eDiu5_Py';
-  var REDIRECT = 'https://newbwilliwonka.github.io/workout-builder/';
+  var REDIRECT = 'https://coachtrainerapp.com/';
   // Bunny folder that contains 180/ and 360/.
   // A library demo is this value + "/180/" + id + ".gif" (or "/360/"). Not a secret.
   var EXERCISE_GIF_BASE = 'https://kinisiexercises.b-cdn.net';

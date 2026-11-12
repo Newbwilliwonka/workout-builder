@@ -72,7 +72,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   const first = await p.$eval('[data-open-invite]', e => e.getAttribute('data-open-invite'));
   const link = await p.$eval('[data-invite=copy-link]', e => e.getAttribute('data-link'));
   assert.ok(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/.test(first), first);
-  assert.ok(link.indexOf('https://newbwilliwonka.github.io/workout-builder/?invite=' + first + '#/signin') === 0, link);
+  assert.ok(link.indexOf('https://coachtrainerapp.com/?invite=' + first + '#/signin') === 0, link);
   assert.ok((await p.$eval('#invites', e => e.textContent)).includes('left'));
   await p.screenshot({ path: '/tmp/invite-trainer-412.png' });
   await p.click('[data-invite=cancel]');

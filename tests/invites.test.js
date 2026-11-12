@@ -23,7 +23,7 @@ for (var i = 0; i < 200; i++) {
 }
 assert.strictEqual(Inv.normalizeCode(' abcd-2345 '), 'ABCD2345');
 assert.strictEqual(Inv.formatCode('ABCD2345'), 'ABCD-2345');
-assert.strictEqual(Inv.inviteLink('ABCD2345'), 'https://newbwilliwonka.github.io/workout-builder/?invite=ABCD2345#/signin');
+assert.strictEqual(Inv.inviteLink('ABCD2345'), 'https://coachtrainerapp.com/?invite=ABCD2345#/signin');
 
 function book(me, signed) {
   return Inv.createBook({
