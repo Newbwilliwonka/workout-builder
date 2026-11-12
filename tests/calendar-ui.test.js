@@ -119,15 +119,16 @@ async function stub(page, extra) {
       link: link,
       href: open.getAttribute('href'),
       openLabel: open.textContent,
-      copy: document.getElementById('pv-gcal-copy').textContent,
-      reset: document.getElementById('pv-gcal-reset').textContent
+      reset: document.getElementById('pv-gcal-reset').textContent,
+      copyGone: !document.getElementById('pv-gcal-copy')
     };
   });
-  assert.ok(sheet.text.indexOf('Copy this link, or tap Open Google Calendar') !== -1);
+  assert.ok(sheet.text.indexOf('Tap Open Google Calendar. That adds your program as a calendar.') !== -1);
+  assert.strictEqual(sheet.text.indexOf('Copy'), -1);
   assert.ok(sheet.text.indexOf('Google refreshes it every few hours') !== -1);
   assert.ok(sheet.text.indexOf('Saved on this device for now') !== -1);
   assert.ok(sheet.text.indexOf('this same link will start updating Google Calendar') !== -1);
-  assert.strictEqual(sheet.copy, 'Copy');
+  assert.strictEqual(sheet.copyGone, true);
   assert.strictEqual(sheet.openLabel, 'Open Google Calendar');
   assert.strictEqual(sheet.reset, 'Reset link');
   assert.ok(/^https:\/\/thyrgloermygnezfareg\.supabase\.co\/functions\/v1\/calendar-feed\/[0-9a-f]{64}\.ics$/.test(sheet.link));
@@ -135,10 +136,6 @@ async function stub(page, extra) {
   assert.strictEqual(decodeURIComponent(sheet.href.split('cid=')[1]), sheet.link.replace('https://', 'webcal://'));
   if (shots) await page.screenshot({ path: path.join(shots, 'programs_google_calendar_link.png') });
 
-  await page.click('#pv-gcal-copy');
-  await page.waitForFunction(function () {
-    return document.getElementById('pv-gcal-copy') && document.getElementById('pv-gcal-copy').textContent === 'Copied';
-  });
   const first = sheet.link;
   await page.click('#pv-gcal-reset');
   await page.waitForFunction(function (previous) {
