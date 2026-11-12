@@ -154,6 +154,24 @@ assert.strictEqual(legacy.length, 1);
 assert.strictEqual(legacy[0].pending, true);
 assert.deepStrictEqual(P.settleDrops({ pg1: 50 }, [{ local_id: 'pg1' }], [], self), { pg1: 50 });
 assert.deepStrictEqual(P.settleDrops({ pg1: 50 }, [], [], self), {});
+const otherOwner = { pgAda: { at: 50, ownerId: 'ada' }, pg1: { at: 50, ownerId: self } };
+assert.deepStrictEqual(P.settleDrops(otherOwner, [], [], self), { pgAda: { at: 50, ownerId: 'ada' } });
+const pendingTimes = [{
+  id: 'pg1', ownerId: self, workoutId: 'push', workoutName: 'Push', date: '2026-11-11',
+  start: '09:00', end: '10:30', presence: 'solo', pending: true, synced: true, updatedAt: 1000
+}];
+const serverWithoutTimes = [{
+  local_id: 'pg1', owner_id: self, workout_local_id: 'push', workout_name: 'Push', items: [],
+  day: '2026-11-11', presence: 'solo', starts_at: null, ends_at: null, updated_at: new Date(5000).toISOString()
+}];
+const keptPending = P.merge(pendingTimes, serverWithoutTimes, self, { keepLocalTimes: true }).filter(function (row) { return row.id === 'pg1'; })[0];
+assert.strictEqual(keptPending.pending, true);
+assert.strictEqual(keptPending.start, '09:00');
+assert.strictEqual(keptPending.end, '10:30');
+const afterSql = P.merge([keptPending], serverWithoutTimes, self, {}).filter(function (row) { return row.id === 'pg1'; })[0];
+assert.strictEqual(afterSql.pending, true);
+assert.strictEqual(afterSql.start, '09:00');
+assert.strictEqual(afterSql.end, '10:30');
 
 const stored = M.emptyData();
 assert.ok(Array.isArray(stored.programs));

@@ -255,6 +255,11 @@
       updatedAt: Date.parse(row.updated_at || row.updatedAt) || 0
     };
   }
+  function dropTime(dropped, id) {
+    var value = dropped && dropped[id];
+    if (value == null || value === '') return 0;
+    return typeof value === 'number' ? value : (value.at || 0);
+  }
   // A remote snapshot is the shared list for this owner. A row that was already on the
   // server and is missing from that list was removed, so it stays removed. A row that
   // only exists on this device (pending, or saved before sync existed) is kept.
@@ -265,13 +270,13 @@
     (remote || []).forEach(function (row) {
       var cur = fromRemote(row);
       if (!cur || cur.ownerId !== ownerId) return;
-      if (dropped[cur.id] && (cur.updatedAt || 0) <= dropped[cur.id]) return;
+      if (dropTime(dropped, cur.id) && (cur.updatedAt || 0) <= dropTime(dropped, cur.id)) return;
       cur.synced = true;
       map[cur.id] = cur;
     });
     (local || []).forEach(function (row) {
       if (!row || row.ownerId !== ownerId || !row.id) return;
-      if (dropped[row.id] && (row.updatedAt || 0) <= dropped[row.id]) return;
+      if (dropTime(dropped, row.id) && (row.updatedAt || 0) <= dropTime(dropped, row.id)) return;
       var incoming = map[row.id];
       if (!incoming) {
         if (row.synced && !row.pending) return;
@@ -282,10 +287,12 @@
         map[row.id] = Object.assign({}, row, { pending: true, synced: true });
         return;
       }
-      if (keepTimes) {
-        incoming.start = row.start || incoming.start || '';
-        incoming.end = row.end || incoming.end || '';
+      var timesMissing = (!!row.start && !incoming.start) || (!!row.end && !incoming.end);
+      if (keepTimes || timesMissing) {
+        if (row.start) incoming.start = row.start;
+        if (row.end) incoming.end = row.end;
       }
+      if (row.pending && timesMissing) incoming.pending = true;
     });
     var rest = (local || []).filter(function (row) { return row && row.ownerId !== ownerId; });
     return rest.concat(Object.keys(map).map(function (key) { return map[key]; }));
@@ -298,8 +305,11 @@
     });
     var next = {};
     Object.keys(dropped || {}).forEach(function (id) {
+      var value = dropped[id];
+      var owner = value && typeof value === 'object' ? value.ownerId : '';
+      if (owner && owner !== ownerId) { next[id] = value; return; }
       var alive = (merged || []).some(function (row) { return row && row.id === id && row.ownerId === ownerId; });
-      if (!alive && remoteIds[id]) next[id] = dropped[id];
+      if (!alive && remoteIds[id]) next[id] = value;
     });
     return next;
   }

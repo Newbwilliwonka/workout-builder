@@ -102,10 +102,27 @@
     }
     return 'Saved on this device. The shared calendar waits until the programs SQL is applied.';
   }
+  var pushEpoch = {};
+  function noteDrop(id, ownerId) {
+    if (!data() || !id) return;
+    data().programDrops = data().programDrops || {};
+    data().programDrops[id] = { at: Date.now(), ownerId: ownerId || '' };
+  }
   function pushRemote(row) {
     if (!row || !options.saveEntry || !P.isUuid(row.ownerId)) return;
+    var epoch = pushEpoch[row.id] || 0;
     Promise.resolve().then(function () { return options.saveEntry(row); }).then(function () {
       if (!state || !data()) return;
+      var still = (data().programs || []).some(function (item) { return item && item.id === row.id; });
+      var tomb = data().programDrops && data().programDrops[row.id];
+      if ((pushEpoch[row.id] || 0) !== epoch || (tomb && !still)) {
+        if (tomb && !still) {
+          noteDrop(row.id, row.ownerId);
+          if (options.persist) options.persist();
+          dropRemote(row);
+        }
+        return;
+      }
       state.remote = '';
       var cleared = false;
       data().programs = (data().programs || []).map(function (item) {
@@ -532,8 +549,8 @@
     var result = P.remove(data().programs, id);
     state.sheet = null;
     if (!result.removed) { render(); return; }
-    data().programDrops = data().programDrops || {};
-    data().programDrops[id] = Date.now();
+    pushEpoch[id] = (pushEpoch[id] || 0) + 1;
+    noteDrop(id, result.removed.ownerId);
     savePrograms(result.programs, 'Removed from this day.');
     dropRemote(result.removed);
     render();
