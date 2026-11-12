@@ -374,7 +374,12 @@
       h += '<button type="button" id="pv-gcal-open" disabled>Open Google Calendar</button>';
     }
     h += '<button type="button" class="ghost" data-gcal="reset" id="pv-gcal-reset">Reset link</button>';
-    return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
+    h += '<button type="button" data-sheet="cancel">Close</button></div></div>';
+    if (sheet.confirmReset) h += resetConfirmHtml();
+    return h;
+  }
+  function resetConfirmHtml() {
+    return '<div class="pl-modal" id="pv-gcal-reset-confirm" role="dialog" aria-label="Reset your calendar link?"><div class="card"><h3>Reset your calendar link?</h3><p class="mute">Your current link will stop working, and anyone who has it will no longer see your schedule. You\'ll need to copy the new link and add it to Google Calendar again on a computer.</p><button type="button" class="pri" id="pv-gcal-reset-yes" data-gcal="reset-yes">Yes, reset</button><button type="button" id="pv-gcal-reset-cancel" data-gcal="reset-cancel">Cancel</button></div></div>';
   }
   function daySheetHtml() {
     var date = state.sheet.date;
@@ -901,11 +906,23 @@
       showFeedError();
     });
   }
+  function askResetCalendarLink() {
+    if (!state || !state.sheet || state.sheet.type !== 'gcal' || !window.WBCalendar) return;
+    if (state.sheet.status !== 'ready' && state.sheet.status !== 'error') return;
+    if (!state.userId) { showSignedOut(); return; }
+    state.sheet.confirmReset = true;
+    render();
+  }
+  function dismissResetConfirm() {
+    if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+    state.sheet.confirmReset = false;
+    render();
+  }
   function resetCalendarLink() {
     if (!state || !state.sheet || state.sheet.type !== 'gcal' || !window.WBCalendar) return;
     if (state.sheet.status !== 'ready' && state.sheet.status !== 'error') return;
     if (!state.userId) { showSignedOut(); return; }
-    if (!window.confirm('Make a new link? Google Calendar will stop following the old one.')) return;
+    state.sheet.confirmReset = false;
     var zone = WBCalendar.deviceZone();
     var userId = state.userId;
     var wasPreview = !!state.sheet.preview;
@@ -940,11 +957,14 @@
     var gcalBtn = e.target.closest('[data-gcal]');
     if (gcalBtn && state.sheet && state.sheet.type === 'gcal') {
       var gact = gcalBtn.getAttribute('data-gcal');
-      if (gact === 'reset') { resetCalendarLink(); return; }
+      if (gact === 'reset') { askResetCalendarLink(); return; }
+      if (gact === 'reset-yes') { resetCalendarLink(); return; }
+      if (gact === 'reset-cancel') { dismissResetConfirm(); return; }
       if (gact === 'retry') { openCalendar(); return; }
       if (gact === 'copy') { copyCalendarLink(); return; }
       return;
     }
+    if (e.target.closest('#pv-gcal-reset-confirm')) return;
     var pick = e.target.closest('[data-pick]');
     if (pick && state.sheet && state.sheet.type === 'add') {
       readSheetTimes();

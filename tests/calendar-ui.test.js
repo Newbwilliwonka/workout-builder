@@ -54,7 +54,6 @@ async function stub(page, extra) {
   const page = await browser.newPage();
   page.on('pageerror', function (err) { errors.push(String(err)); });
   page.on('dialog', function (dialog) {
-    if (dialog.message().indexOf('Make a new link') !== -1) { dialog.accept(); return; }
     errors.push('dialog ' + dialog.message());
     dialog.dismiss();
   });
@@ -194,7 +193,68 @@ async function stub(page, extra) {
   assert.strictEqual(await page.evaluate(function () { return document.getElementById('toast').textContent; }), '');
 
   const first = sheet.link;
+  const confirmBody = 'Your current link will stop working, and anyone who has it will no longer see your schedule. You\'ll need to copy the new link and add it to Google Calendar again on a computer.';
   await page.click('#pv-gcal-reset');
+  await page.waitForSelector('#pv-gcal-reset-confirm');
+  const confirm = await page.evaluate(function () {
+    var box = document.getElementById('pv-gcal-reset-confirm');
+    var yes = document.getElementById('pv-gcal-reset-yes');
+    var cancel = document.getElementById('pv-gcal-reset-cancel');
+    var yesStyle = getComputedStyle(yes);
+    var cancelStyle = getComputedStyle(cancel);
+    var boxStyle = getComputedStyle(box);
+    return {
+      title: box.querySelector('h3').textContent,
+      body: box.querySelector('p').textContent,
+      yes: yes.textContent,
+      cancel: cancel.textContent,
+      yesClass: yes.className,
+      modalClass: box.className,
+      card: !!box.querySelector('.card'),
+      link: document.getElementById('pv-gcal-link').value,
+      sheetText: document.getElementById('pv-gcal-sheet').innerText.replace(/\s+/g, ' ').trim(),
+      yesBg: yesStyle.backgroundColor,
+      yesColor: yesStyle.color,
+      yesWeight: yesStyle.fontWeight,
+      cancelBg: cancelStyle.backgroundColor,
+      cancelColor: cancelStyle.color,
+      position: boxStyle.position,
+      display: boxStyle.display
+    };
+  });
+  assert.strictEqual(confirm.title, 'Reset your calendar link?');
+  assert.strictEqual(confirm.body, confirmBody);
+  assert.strictEqual(confirm.yes, 'Yes, reset');
+  assert.strictEqual(confirm.cancel, 'Cancel');
+  assert.strictEqual(confirm.yesClass, 'pri');
+  assert.ok(confirm.modalClass.indexOf('pl-modal') !== -1);
+  assert.strictEqual(confirm.card, true);
+  assert.strictEqual(confirm.link, first);
+  assert.strictEqual(confirm.sheetText, 'Add to Google Calendar Copy link ' + how + ' Open Google Calendar Reset link Close');
+  assert.strictEqual(confirm.yesBg, 'rgb(37, 99, 235)');
+  assert.strictEqual(confirm.yesColor, 'rgb(255, 255, 255)');
+  assert.strictEqual(confirm.yesWeight, '600');
+  assert.strictEqual(confirm.cancelBg, 'rgb(229, 231, 235)');
+  assert.strictEqual(confirm.cancelColor, 'rgb(17, 24, 39)');
+  assert.strictEqual(confirm.position, 'fixed');
+  assert.strictEqual(confirm.display, 'flex');
+  if (shots) await page.screenshot({ path: path.join(shots, 'programs_google_calendar_reset_confirm.png') });
+
+  await page.click('#pv-gcal-reset-cancel');
+  await page.waitForFunction(function () { return !document.getElementById('pv-gcal-reset-confirm'); });
+  const afterCancel = await page.evaluate(function () {
+    return {
+      link: document.getElementById('pv-gcal-link').value,
+      text: document.getElementById('pv-gcal-sheet').innerText.replace(/\s+/g, ' ').trim()
+    };
+  });
+  assert.strictEqual(afterCancel.link, first);
+  assert.strictEqual(afterCancel.text, 'Add to Google Calendar Copy link ' + how + ' Open Google Calendar Reset link Close');
+
+  await page.click('#pv-gcal-reset');
+  await page.waitForSelector('#pv-gcal-reset-confirm');
+  assert.strictEqual(await page.evaluate(function () { return document.getElementById('pv-gcal-link').value; }), first);
+  await page.click('#pv-gcal-reset-yes');
   await page.waitForFunction(function (previous) {
     var field = document.getElementById('pv-gcal-link');
     var open = document.getElementById('pv-gcal-open');
@@ -203,7 +263,7 @@ async function stub(page, extra) {
     var fromHref = '';
     try { fromHref = decodeURIComponent(href.split('cid=')[1] || '').replace(/^webcal:\/\//, 'https://'); } catch (e) { return false; }
     var text = document.getElementById('pv-gcal-sheet').innerText;
-    return field.value && field.value !== previous && field.value === fromHref && text.indexOf(previous) === -1 && text.indexOf('New link ready.') !== -1;
+    return field.value && field.value !== previous && field.value === fromHref && text.indexOf(previous) === -1 && text.indexOf('New link ready.') !== -1 && !document.getElementById('pv-gcal-reset-confirm');
   }, {}, first);
   const afterReset = await page.evaluate(function () {
     return document.getElementById('pv-gcal-sheet').innerText.replace(/\s+/g, ' ').trim();
