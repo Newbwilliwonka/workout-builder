@@ -962,6 +962,8 @@
       loadEntries: function (ownerId) { return WBAuth.programEntries ? WBAuth.programEntries(ownerId) : Promise.reject(new Error('programs')); },
       saveEntry: function (entry) { return WBAuth.saveProgramEntry ? WBAuth.saveProgramEntry(entry) : Promise.reject(new Error('programs')); },
       deleteEntry: function (entry) { return WBAuth.deleteProgramEntry ? WBAuth.deleteProgramEntry(entry.ownerId, entry.id) : Promise.reject(new Error('programs')); },
+      loadCalendar: function (zone, token) { return WBAuth.calendarFeed ? WBAuth.calendarFeed(zone, token) : Promise.reject(Object.assign(new Error('local'), { local: true })); },
+      resetCalendar: function (zone) { return WBAuth.resetCalendarFeed ? WBAuth.resetCalendarFeed(zone) : Promise.reject(Object.assign(new Error('local'), { local: true })); },
       onTracked: function () { capturePlayedSession(); }
     });
   }

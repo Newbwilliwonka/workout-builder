@@ -331,8 +331,9 @@
     h += '</div></section><section class="pv-cal" id="pv-cal" aria-label="Programs"><h2 class="pv-h">Programs</h2>' +
       '<p class="mute">Workouts scheduled on a calendar. A check is a day you actually tracked.</p>' +
       (canEdit() ? '<p class="mute" id="pv-schedule-hint">Drag a workout onto a day, or tap a day to choose one.</p>' : '') +
-      '<div class="seg" id="pv-range-switch" role="group" aria-label="Week or month"><button type="button" data-cal="week" class="' + (state.view === 'week' ? 'on' : '') + '">Week</button>' +
+      '<div class="pv-views"><div class="seg" id="pv-range-switch" role="group" aria-label="Week or month"><button type="button" data-cal="week" class="' + (state.view === 'week' ? 'on' : '') + '">Week</button>' +
       '<button type="button" data-cal="month" class="' + (state.view === 'month' ? 'on' : '') + '">Month</button></div>' +
+      '<button type="button" id="pv-gcal">Add to Google Calendar</button></div>' +
       legendHtml() + (state.view === 'month' ? monthHtml() : weekHtml()) + '</section></div>' + sheetHtml() + '</div>';
     return h;
   }
@@ -346,7 +347,27 @@
     if (!state.sheet) return '';
     if (state.sheet.type === 'add') return addSheetHtml();
     if (state.sheet.type === 'day') return daySheetHtml();
+    if (state.sheet.type === 'gcal') return gcalSheetHtml();
     return '';
+  }
+  function gcalSheetHtml() {
+    var sheet = state.sheet;
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-gcal-sheet" role="dialog" aria-label="Add to Google Calendar">';
+    h += '<h3 class="name">Add to Google Calendar</h3>';
+    h += '<p class="mute" id="pv-gcal-how">Copy this link, or tap Open Google Calendar. That adds your program as a calendar.</p>';
+    h += '<p class="mute">Google refreshes it every few hours, so a new workout can take a little while to show up.</p>';
+    if (P.isTrainer(state.role)) h += '<p class="mute" id="pv-gcal-trainer">Your link includes your workouts and client workouts marked Trainer present.</p>';
+    if (sheet.status !== 'ready') {
+      h += '<p class="mute" id="pv-gcal-status">' + esc(sheet.error || 'Getting your link…') + '</p>';
+    } else {
+      h += '<p class="invite-code" id="pv-gcal-link">' + esc(sheet.url).replace(/([./-])/g, '$1<wbr>') + '</p>';
+      h += '<button type="button" class="pri" data-gcal="copy" id="pv-gcal-copy">' + (sheet.copied ? 'Copied' : 'Copy') + '</button>';
+      h += '<a class="pv-gcal-open" id="pv-gcal-open" href="' + esc(sheet.openUrl) + '" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>';
+      if (sheet.preview) h += '<p class="mute" id="pv-gcal-preview">Saved on this device for now. Open this again after the calendar feed is turned on, and this same link will start updating Google Calendar.</p>';
+      if (sheet.note) h += '<p class="mute" id="pv-gcal-note">' + esc(sheet.note) + '</p>';
+    }
+    h += '<button type="button" class="ghost" data-gcal="reset" id="pv-gcal-reset">Reset link</button>';
+    return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
   }
   function daySheetHtml() {
     var date = state.sheet.date;
@@ -762,9 +783,149 @@
     state.sheet = null;
     render();
   }
+  var FEED_KEY = 'wb.calendarFeed.v1';
+  function localFeedErr() {
+    var err = new Error('local');
+    err.local = true;
+    return err;
+  }
+  function feedBag() {
+    try {
+      var raw = localStorage.getItem(FEED_KEY);
+      var parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) { return {}; }
+  }
+  function feedSaved(userId) {
+    var row = feedBag()[userId];
+    if (!row || !window.WBCalendar || !WBCalendar.validToken(row.token)) return null;
+    return row;
+  }
+  function feedRemember(userId, row) {
+    if (!row || !window.WBCalendar || !WBCalendar.validToken(row.token)) return;
+    var all = feedBag();
+    all[userId] = { token: row.token, timezone: row.timezone || WBCalendar.deviceZone() };
+    try { localStorage.setItem(FEED_KEY, JSON.stringify(all)); } catch (e) {}
+  }
+  function showFeed(row, preview, note) {
+    if (!state || !state.sheet || state.sheet.type !== 'gcal' || !window.WBCalendar) return;
+    var url = WBCalendar.feedUrl(row.token);
+    state.sheet.status = 'ready';
+    state.sheet.url = url;
+    state.sheet.openUrl = WBCalendar.googleAddUrl(url);
+    state.sheet.preview = !!preview;
+    state.sheet.copied = false;
+    state.sheet.note = note || '';
+    state.sheet.error = '';
+    render();
+  }
+  function openCalendar() {
+    if (!state || !window.WBCalendar) return;
+    var zone = WBCalendar.deviceZone();
+    var userId = state.userId || 'self';
+    var saved = feedSaved(userId);
+    state.sheet = { type: 'gcal', status: 'loading', url: '', openUrl: '', preview: false, copied: false, note: '', error: '' };
+    render();
+    var load = options && options.loadCalendar;
+    var pending = load
+      ? Promise.resolve().then(function () { return load(zone, saved && saved.token); })
+      : Promise.reject(localFeedErr());
+    pending.then(function (row) {
+      if (!row || !WBCalendar.validToken(row.token)) throw localFeedErr();
+      feedRemember(userId, row);
+      showFeed(row, !!row.preview, '');
+    }, function (err) {
+      if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+      if (err && err.local) {
+        var row = saved || { token: WBCalendar.newToken(), timezone: zone };
+        feedRemember(userId, row);
+        showFeed(row, true, '');
+        return;
+      }
+      state.sheet.error = (err && err.message) || 'Could not make the link.';
+      render();
+    });
+  }
+  function copyCalendarLink() {
+    var sheet = state && state.sheet;
+    if (!sheet || sheet.type !== 'gcal' || !sheet.url) return;
+    var done = function () {
+      if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+      state.sheet.copied = true;
+      render();
+      var t = document.getElementById('toast');
+      if (!t) return;
+      t.textContent = 'Copied';
+      t.classList.add('show');
+      clearTimeout(copyCalendarLink.t);
+      copyCalendarLink.t = setTimeout(function () { t.classList.remove('show'); }, 2200);
+    };
+    var fail = function () {
+      if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+      state.sheet.note = 'Select the link and copy it.';
+      render();
+    };
+    var fallback = function () {
+      var area = document.createElement('textarea');
+      area.value = sheet.url;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      area.remove();
+      return ok;
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(sheet.url).then(done, function () { if (fallback()) done(); else fail(); });
+      return;
+    }
+    if (fallback()) done(); else fail();
+  }
+  function resetCalendarLink() {
+    if (!state || !state.sheet || state.sheet.type !== 'gcal' || state.sheet.status !== 'ready' || !window.WBCalendar) return;
+    if (!window.confirm('Make a new link? Google Calendar will stop following the old one.')) return;
+    var zone = WBCalendar.deviceZone();
+    var userId = state.userId || 'self';
+    var wasPreview = !!state.sheet.preview;
+    var reset = options && options.resetCalendar;
+    state.sheet.status = 'loading';
+    state.sheet.error = '';
+    state.sheet.note = '';
+    render();
+    var pending = reset && !wasPreview
+      ? Promise.resolve().then(function () { return reset(zone); })
+      : Promise.reject(localFeedErr());
+    pending.then(function (row) {
+      if (!row || !WBCalendar.validToken(row.token)) throw localFeedErr();
+      feedRemember(userId, row);
+      showFeed(row, !!row.preview, 'This is a new link. The old one no longer works.');
+    }, function (err) {
+      if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
+      if ((err && err.local) || wasPreview) {
+        var row = { token: WBCalendar.newToken(), timezone: zone };
+        feedRemember(userId, row);
+        showFeed(row, true, 'This is a new link. The old one no longer works.');
+        return;
+      }
+      state.sheet.status = 'ready';
+      state.sheet.note = (err && err.message) || 'Could not reset the link.';
+      render();
+    });
+  }
   function onClick(e) {
     if (!state) return;
     if (e.target.id === 'pv-sheet') { state.sheet = null; render(); return; }
+    if (e.target.closest('#pv-gcal')) { openCalendar(); return; }
+    var gcalBtn = e.target.closest('[data-gcal]');
+    if (gcalBtn && state.sheet && state.sheet.type === 'gcal') {
+      var gact = gcalBtn.getAttribute('data-gcal');
+      if (gact === 'copy') { copyCalendarLink(); return; }
+      if (gact === 'reset') { resetCalendarLink(); return; }
+      return;
+    }
     var pick = e.target.closest('[data-pick]');
     if (pick && state.sheet && state.sheet.type === 'add') {
       readSheetTimes();

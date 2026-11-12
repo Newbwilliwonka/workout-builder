@@ -285,8 +285,77 @@
         if (res.error) throw programError(res.error);
         return true;
       });
+    },
+    calendarFeed: function (zone, preferToken) {
+      return saveCalendarFeed(zone, preferToken, false);
+    },
+    resetCalendarFeed: function (zone) {
+      return saveCalendarFeed(zone, '', true);
     }
   };
+  function feedZone(zone) {
+    var z = String(zone || '').trim();
+    if (/^[A-Za-z0-9_+-]{1,64}(\/[A-Za-z0-9_+-]{1,64}){0,3}$/.test(z)) return z;
+    return 'UTC';
+  }
+  function feedToken(prefer) {
+    if (/^[0-9a-f]{64}$/.test(prefer || '')) return prefer;
+    if (root.WBCalendar && root.WBCalendar.newToken) return root.WBCalendar.newToken();
+    var bytes = new Uint8Array(32);
+    if (root.crypto && root.crypto.getRandomValues) root.crypto.getRandomValues(bytes);
+    var hex = '';
+    for (var i = 0; i < bytes.length; i++) hex += ('0' + bytes[i].toString(16)).slice(-2);
+    return hex;
+  }
+  function feedMissing(err) {
+    var msg = (err && (err.message || err.details || err.hint || err.code)) || '';
+    return /schema cache|could not find|does not exist|PGRST205|42P01|calendar_feeds/i.test(String(msg));
+  }
+  function feedLocal(err) {
+    var e = err || new Error('The calendar link is saved on this device until the calendar feed SQL is applied.');
+    e.local = true;
+    return e;
+  }
+  function feedRow(data, preview) {
+    return { token: data.token, timezone: data.time_zone, preview: !!preview };
+  }
+  function saveCalendarFeed(zone, preferToken, reset) {
+    var tz = feedZone(zone);
+    return db().then(function (c) {
+      return c.auth.getSession().then(function (res) {
+        if (res.error) throw res.error;
+        var user = userOf(res.data.session);
+        if (!user) throw feedLocal(new Error('Sign in first.'));
+        if (!reset) {
+          return c.from('calendar_feeds').select('token,time_zone').eq('user_id', user.id).maybeSingle().then(function (row) {
+            if (row.error) throw row.error;
+            if (row.data && row.data.token) return feedRow(row.data, false);
+            return insertCalendarFeed(c, user.id, feedToken(preferToken), tz);
+          });
+        }
+        return insertCalendarFeed(c, user.id, feedToken(''), tz, true);
+      });
+    }).catch(function (err) {
+      if (err && err.local) throw err;
+      if (feedMissing(err)) throw feedLocal();
+      throw new Error((err && err.message) || 'Could not make the calendar link.');
+    });
+  }
+  function insertCalendarFeed(c, userId, token, tz, reset) {
+    var write = reset
+      ? c.from('calendar_feeds').upsert({ user_id: userId, token: token, time_zone: tz }, { onConflict: 'user_id' })
+      : c.from('calendar_feeds').insert({ user_id: userId, token: token, time_zone: tz });
+    return write.select('token,time_zone').single().then(function (ins) {
+      if (!ins.error) return feedRow(ins.data, false);
+      if (!reset && (ins.error.code === '23505' || /duplicate/i.test(ins.error.message || ''))) {
+        return c.from('calendar_feeds').select('token,time_zone').eq('user_id', userId).single().then(function (again) {
+          if (again.error) throw again.error;
+          return feedRow(again.data, false);
+        });
+      }
+      throw ins.error;
+    });
+  }
   function timeColumnMissing(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
     return /starts_at|ends_at/i.test(msg);
