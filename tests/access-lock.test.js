@@ -76,8 +76,12 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
   await signedOut.goto(URL + '?code=reset-code');
   await signedOut.waitForFunction(function () {
-    return location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in';
+    var h = document.querySelector('h2');
+    return h && h.textContent === 'Set a new password' &&
+      document.body.innerText.indexOf('This reset link is invalid or has expired.') !== -1 &&
+      !document.querySelector('[data-a=new]');
   });
+  assert.strictEqual(await signedOut.evaluate(() => window.__leak), false, 'reset code showed the builder');
   await signedOut.goto(URL + '#/subscriptions');
   await signedOut.waitForFunction(function () {
     return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');

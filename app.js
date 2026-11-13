@@ -18,7 +18,7 @@
   function hashPage() { return hashBody().split('/')[0]; }
   backBtn.onclick = function () {
     var page = hashPage();
-    if (page === 'signin' || page === 'join') return;
+    if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') return;
     if (page === 'subscriptions' && backBtn.hidden) return;
     if (page === 'programs' || page === 'preview') {
       if (window.WBPreview && WBPreview.back()) return;
@@ -41,7 +41,7 @@
     go(p.length > 3 ? '#/w/' + p[2] : '#/');
   };
 
-  function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join'; }
+  function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join' || p === 'reset'; }
   var INVITE_KEY = 'wb.invite', TRAINER_KEY = 'wb.trainer', pendingInviteNotice = null;
   function pendingCode() { try { return sessionStorage.getItem(INVITE_KEY) || ''; } catch (e) { return ''; } }
   function rememberCode(code) {
@@ -591,6 +591,25 @@
     app.onchange = null;
   }
   var pendingSignNotice = null, authBusy = false, planBusy = false;
+  // recoveryPhase: '' | 'checking' | 'form' | 'invalid' | 'done'
+  var recoveryPhase = '', recoverySettled = false, recoveryReady = false;
+  var RECOVERY_LOCK = 'wb.recovery';
+  var RESET_SENT = 'If that email has an account, a reset link is on its way. Check your inbox and spam.';
+  var RESET_INVALID = 'This reset link is invalid or has expired.';
+  var RESET_UNREAD = 'Could not check your reset link. Try again.';
+  var recoveryMessage = '';
+  // The URL tokens are removed once the link is accepted, but the recovery
+  // session stays in the browser. Remember that here so a reload still asks
+  // for a new password instead of opening the app.
+  function recoveryLocked() {
+    try { return localStorage.getItem(RECOVERY_LOCK) === '1'; } catch (e) { return false; }
+  }
+  function lockRecovery() {
+    try { localStorage.setItem(RECOVERY_LOCK, '1'); } catch (e) {}
+  }
+  function unlockRecovery() {
+    try { localStorage.removeItem(RECOVERY_LOCK); } catch (e) {}
+  }
   function openAccount() {
     var from = hashPage();
     WBAuth.session().then(function (session) {
@@ -657,6 +676,7 @@
     h += '<label for="acct-pass">Password</label><input id="acct-pass" type="password" autocomplete="' + (create ? 'new-password' : 'current-password') + '">';
     h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
     h += '<div class="actions"><button class="pri" data-auth="' + (create ? 'up' : 'in') + '" style="width:100%"' + (authBusy ? ' disabled' : '') + '>' + (create ? 'Create account' : 'Sign in') + '</button></div>';
+    if (!create) h += '<button class="linkish" data-auth="forgot">Forgot password?</button>';
     h += create
       ? '<button class="linkish" data-auth="switch" data-mode="in">Already have an account? Sign in</button>'
       : '<button class="linkish" data-auth="switch" data-mode="up">Create an account</button>';
@@ -664,6 +684,7 @@
     app.innerHTML = h;
     app.onclick = function (e) {
       var b = e.target.closest('[data-auth]'); if (!b) return;
+      if (b.dataset.auth === 'forgot') return go('#/forgot');
       if (b.dataset.auth === 'switch') {
         var dest = b.dataset.mode === 'up' ? '#/join' : '#/signin';
         if (location.hash === dest) return route();
@@ -688,6 +709,274 @@
         renderSign(startedOn === 'join' ? 'up' : 'in', (err && err.message) || 'Could not reach sign-in', true);
       });
     };
+  }
+  function resetSendError(err) {
+    var msg = (err && err.message) || '';
+    if (/could not load sign-in|sign-in library|failed to fetch|networkerror|load failed/i.test(msg)) {
+      return 'Could not send the reset link. Check your connection and try again.';
+    }
+    if (/valid email|unable to validate email|invalid email/i.test(msg)) return 'Enter a valid email.';
+    return '';
+  }
+  function renderForgot(message, isError, email) {
+    titleEl.textContent = 'Forgot password';
+    backBtn.hidden = true;
+    var sent = message && !isError;
+    var h = '<div class="gate">';
+    if (message && isError) h += '<div class="errs">' + esc(message) + '</div>';
+    h += sent
+      ? '<h2>Check your email</h2><p class="lede">' + esc(message) + '</p>'
+      : '<h2>Forgot password</h2><p class="lede">We\'ll email you a link to choose a new password.</p>';
+    if (!sent) {
+      h += '<label for="reset-email">Email</label><input id="reset-email" type="email" autocomplete="username" value="' + esc(email || '') + '">';
+      h += '<div class="actions"><button class="pri" data-auth="send-reset" style="width:100%"' + (authBusy ? ' disabled' : '') + '>Send reset link</button></div>';
+    }
+    h += '<button class="linkish" data-auth="back-signin">Back to sign in</button></div>';
+    app.innerHTML = h;
+    app.oninput = null;
+    app.onchange = null;
+    app.onclick = function (e) {
+      var b = e.target.closest('[data-auth]'); if (!b) return;
+      if (b.dataset.auth === 'back-signin') return go('#/signin');
+      if (b.dataset.auth !== 'send-reset' || authBusy) return;
+      var emailEl = document.getElementById('reset-email');
+      var entered = emailEl ? emailEl.value.trim() : '';
+      if (!entered || entered.indexOf('@') < 1) return renderForgot('Enter your email.', true, entered);
+      authBusy = true; b.disabled = true;
+      var started = hashPage();
+      WBAuth.requestPasswordReset(entered).then(function () {
+        authBusy = false;
+        if (hashPage() !== started) return;
+        renderForgot(RESET_SENT, false);
+      }).catch(function (err) {
+        authBusy = false;
+        if (hashPage() !== started) return;
+        var shown = resetSendError(err);
+        if (!shown) return renderForgot(RESET_SENT, false);
+        renderForgot(shown, true, entered);
+      });
+    };
+  }
+  function renderReset(message, isError, keepPass, keepConfirm) {
+    titleEl.textContent = recoveryPhase === 'done' ? 'Password updated' : (recoveryPhase === 'checking' ? 'Checking your link' : 'Set a new password');
+    backBtn.hidden = true;
+    var h = '<div class="gate">';
+    if (recoveryPhase === 'done') {
+      h += '<h2>Password updated</h2><p class="lede">You\'re signed in.</p>';
+    } else if (recoveryPhase === 'invalid') {
+      h += '<h2>Set a new password</h2>';
+      h += '<div class="errs">' + esc(message || RESET_INVALID) + '</div>';
+      h += '<p class="lede">Request a new link, then open it in this browser.</p>';
+      h += '<div class="actions"><button class="pri" data-auth="forgot" style="width:100%">Send a new reset link</button></div>';
+      h += '<button class="linkish" data-auth="back-signin">Back to sign in</button>';
+    } else if (recoveryPhase === 'retry') {
+      h += '<h2>Set a new password</h2>';
+      h += '<div class="errs">' + esc(message || recoveryMessage || RESET_UNREAD) + '</div>';
+      h += '<div class="actions"><button class="pri" data-auth="retry-reset" style="width:100%">Try again</button></div>';
+      h += '<button class="linkish" data-auth="back-signin">Back to sign in</button>';
+    } else if (recoveryPhase === 'form') {
+      h += '<h2>Set a new password</h2><p class="lede">Choose a new password for your account.</p>';
+      if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
+      h += '<label for="new-pass">New password</label><input id="new-pass" type="password" autocomplete="new-password" value="' + esc(keepPass || '') + '">';
+      h += '<label for="confirm-pass">Confirm password</label><input id="confirm-pass" type="password" autocomplete="new-password" value="' + esc(keepConfirm || '') + '">';
+      h += '<div class="actions"><button class="pri" data-auth="update-pass" style="width:100%"' + (authBusy || !recoveryReady ? ' disabled' : '') + '>Update password</button></div>';
+      h += '<button class="linkish" data-auth="back-signin">Back to sign in</button>';
+    } else {
+      h += '<h2>Checking your link…</h2><p class="lede">This will only take a moment.</p>';
+    }
+    h += '</div>';
+    app.innerHTML = h;
+    app.oninput = null;
+    app.onchange = null;
+    app.onclick = function (e) {
+      var b = e.target.closest('[data-auth]'); if (!b) return;
+      if (b.dataset.auth === 'forgot') {
+        unlockRecovery();
+        recoverySettled = true;
+        recoveryPhase = '';
+        recoveryReady = false;
+        return go('#/forgot');
+      }
+      if (b.dataset.auth === 'retry-reset') {
+        recoveryPhase = '';
+        recoveryMessage = '';
+        if (WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(++routeToken);
+        return resumeRecovery(++routeToken);
+      }
+      if (b.dataset.auth === 'back-signin') return abandonReset();
+      if (b.dataset.auth !== 'update-pass' || authBusy || !recoveryReady) return;
+      var passEl = document.getElementById('new-pass'), confirmEl = document.getElementById('confirm-pass');
+      var password = passEl ? passEl.value : '', confirm = confirmEl ? confirmEl.value : '';
+      if (password.length < 6) return renderReset('Enter a password of at least 6 characters.', true, password, confirm);
+      if (password !== confirm) return renderReset('Those passwords do not match.', true, password, confirm);
+      authBusy = true; b.disabled = true;
+      var started = hashPage();
+      WBAuth.updatePassword(password).then(function () {
+        authBusy = false;
+        if (hashPage() !== started && hashPage() !== 'reset') return;
+        unlockRecovery();
+        recoverySettled = true;
+        recoveryReady = false;
+        recoveryPhase = 'done';
+        renderReset();
+        afterSignIn();
+      }).catch(function (err) {
+        authBusy = false;
+        if (hashPage() !== started && hashPage() !== 'reset') return;
+        var msg = (err && err.message) || '';
+        if (/expired|invalid|session/i.test(msg)) {
+          unlockRecovery();
+          recoveryPhase = 'invalid';
+          recoverySettled = true;
+          recoveryReady = false;
+          return renderReset(RESET_INVALID, true);
+        }
+        renderReset(msg || 'Could not update the password.', true, password, confirm);
+      });
+    };
+  }
+  function abandonReset() {
+    var mustSignOut = recoveryLocked() || (recoveryPhase === 'form' && recoveryReady);
+    function goSign() {
+      unlockRecovery();
+      recoverySettled = true;
+      recoveryPhase = '';
+      recoveryReady = false;
+      recoveryMessage = '';
+      go('#/signin');
+    }
+    if (!mustSignOut || !WBAuth.signOut) return goSign();
+    // Sign out before dropping the lock. A failed read can leave the recovery
+    // session in place, and clearing the lock first would open the app.
+    recoveryPhase = 'checking';
+    recoverySettled = false;
+    renderReset();
+    Promise.resolve().then(function () { return WBAuth.signOut(); }).then(goSign, function () {
+      holdRecovery('Could not sign out. Stay here until the new password is set.');
+    });
+  }
+  function holdRecovery(message) {
+    recoveryMessage = message || RESET_UNREAD;
+    recoveryPhase = 'retry';
+    recoverySettled = false;
+    recoveryReady = false;
+    renderReset(recoveryMessage, true);
+  }
+  function replaceAuthHash(hash) {
+    try {
+      var u = new URL(location.href);
+      ['code', 'access_token', 'refresh_token', 'token_hash', 'type', 'error', 'error_code', 'error_description', 'expires_in', 'expires_at', 'token_type', 'provider_token', 'provider_refresh_token'].forEach(function (k) {
+        u.searchParams.delete(k);
+      });
+      var search = u.searchParams.toString();
+      var next = u.pathname + (search ? '?' + search : '') + hash;
+      history.replaceState(null, '', next);
+    } catch (e) {
+      if (location.hash !== hash) location.hash = hash;
+    }
+  }
+  function openSignedIn(token, requested, page) {
+    loadGateProfile().then(function (gate) {
+      if (token !== routeToken || location.hash !== requested) return;
+      var profile = gate.profile;
+      if (gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
+      levelNoteOn = false;
+      if (programsRequested()) return openPrograms();
+      if (page === 'account') return renderSimpleAccount();
+      if (page === 'messages') return openMessages(token);
+      if (page === 'client') {
+        if (!window.WBPrograms || !WBPrograms.isTrainer(WBPrograms.roleOf(profile))) return renderLevelNote(profile);
+        return openClient(token);
+      }
+      if (page === 'send') {
+        if (!levelCan(profile, 'send')) return renderLevelNote(profile);
+        return openSends(token);
+      }
+      if (page === 'received') return openSends(token);
+      if (page === 'w' && !levelCan(profile, 'open')) {
+        var opened = getW(hashBody().split('/')[1]);
+        if (!(opened && opened.sourceTrainerId)) return renderLevelNote(profile);
+      }
+      showBuilder();
+    });
+  }
+  function beginRecovery(token) {
+    var kind = WBAuth.recoveryArrival ? WBAuth.recoveryArrival() : '';
+    if (kind === 'error') {
+      unlockRecovery();
+      recoveryPhase = 'invalid';
+      recoverySettled = true;
+      replaceAuthHash('#/reset');
+      return renderReset();
+    }
+    if (kind === 'recovery') lockRecovery();
+    recoveryPhase = 'checking';
+    renderReset();
+    var pending;
+    try { pending = WBAuth.consumeAuthCallback ? WBAuth.consumeAuthCallback() : Promise.resolve({ kind: 'invalid' }); }
+    catch (e) { pending = Promise.reject(e); }
+    Promise.resolve(pending).then(function (result) {
+      // The auth client may strip the code or hash while this is in flight.
+      // A newer route() call (routeToken) means the person already left.
+      if (token !== routeToken) return;
+      if (result && result.kind === 'signed-in') {
+        unlockRecovery();
+        recoverySettled = true;
+        recoveryPhase = '';
+        recoveryReady = false;
+        return openSignedIn(token, location.hash, hashPage());
+      }
+      if (result && result.kind === 'recovery') {
+        lockRecovery();
+        recoveryPhase = 'form';
+        recoveryReady = true;
+        replaceAuthHash('#/reset');
+        return renderReset();
+      }
+      unlockRecovery();
+      recoveryPhase = 'invalid';
+      recoverySettled = true;
+      recoveryReady = false;
+      replaceAuthHash('#/reset');
+      renderReset(result && result.message);
+    }, function () {
+      if (token !== routeToken) return;
+      // The client may already have stored the recovery session. A failed
+      // exchange is not proof that session is gone, so keep the lock.
+      if (recoveryLocked()) return holdRecovery();
+      recoveryPhase = 'invalid';
+      recoverySettled = true;
+      recoveryReady = false;
+      replaceAuthHash('#/reset');
+      renderReset();
+    });
+  }
+  // A reload has no token left in the URL. The lock says this browser still
+  // owes a new password; the saved session is what makes Update password work.
+  function resumeRecovery(token) {
+    recoveryPhase = 'checking';
+    renderReset();
+    var pending;
+    try { pending = WBAuth.session ? WBAuth.session() : Promise.resolve(null); }
+    catch (e) { pending = Promise.reject(e); }
+    Promise.resolve(pending).then(function (session) {
+      if (token !== routeToken) return;
+      if (session) {
+        recoveryPhase = 'form';
+        recoveryReady = true;
+        if (hashPage() !== 'reset') replaceAuthHash('#/reset');
+        return renderReset();
+      }
+      unlockRecovery();
+      recoveryPhase = 'invalid';
+      recoverySettled = true;
+      recoveryReady = false;
+      if (hashPage() !== 'reset') replaceAuthHash('#/reset');
+      renderReset();
+    }, function () {
+      if (token !== routeToken) return;
+      holdRecovery();
+    });
   }
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1508,10 +1797,25 @@
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
     var page = hashPage();
-    // Sign-in, create-account, and Subscriptions stay reachable with no session.
+    // Recovery links are claimed before any guard replaces the hash or sends
+    // a signed-out person to the normal sign-in page.
+    if (recoveryPhase === 'checking') return renderReset();
+    if (recoveryPhase === 'form' || recoveryPhase === 'retry') {
+      if (page !== 'reset') replaceAuthHash('#/reset');
+      return renderReset(recoveryPhase === 'retry' ? recoveryMessage : '', recoveryPhase === 'retry');
+    }
+    if (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(token);
+    if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
+    // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
     // Invite links and email confirmation land on this flow. Every other page waits for a session.
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
+    if (page === 'forgot') return renderForgot();
+    if (page === 'reset') {
+      recoveryPhase = 'invalid';
+      recoverySettled = true;
+      return renderReset();
+    }
     if (page === 'subscriptions') return renderSubscriptions();
     var requested = location.hash;
     app.innerHTML = '';
@@ -1522,29 +1826,7 @@
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
       if (!session) return go('#/signin');
-      loadGateProfile().then(function (gate) {
-        if (token !== routeToken || location.hash !== requested) return;
-        var profile = gate.profile;
-        if (gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
-        levelNoteOn = false;
-        if (programsRequested()) return openPrograms();
-        if (page === 'account') return renderSimpleAccount();
-        if (page === 'messages') return openMessages(token);
-        if (page === 'client') {
-          if (!window.WBPrograms || !WBPrograms.isTrainer(WBPrograms.roleOf(profile))) return renderLevelNote(profile);
-          return openClient(token);
-        }
-        if (page === 'send') {
-          if (!levelCan(profile, 'send')) return renderLevelNote(profile);
-          return openSends(token);
-        }
-        if (page === 'received') return openSends(token);
-        if (page === 'w' && !levelCan(profile, 'open')) {
-          var opened = getW(hashBody().split('/')[1]);
-          if (!(opened && opened.sourceTrainerId)) return renderLevelNote(profile);
-        }
-        showBuilder();
-      });
+      openSignedIn(token, requested, page);
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
       go('#/signin');
@@ -1559,7 +1841,9 @@
     releasePendingImage();
     draft = null;
     if (hashPage() !== 'signin') pendingSignNotice = null;
-    route();
+    // While a recovery link is still being read, ignore hash churn from the
+    // auth client so the token is not thrown away for the sign-in page.
+    if (recoveryPhase !== 'checking') route();
     window.scrollTo(0, 0);
   });
 
