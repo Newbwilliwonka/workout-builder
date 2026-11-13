@@ -350,9 +350,25 @@
     if (state.sheet.type === 'gcal') return gcalSheetHtml();
     return '';
   }
-  var GCAL_HOW = 'On a computer, open Google Calendar > Other calendars + > From URL, paste, and Add. It will sync to your phone.';
+  // Phones and tablets: Google's app cannot subscribe from a link.
+  // iPadOS reports a Mac user agent and still has a multi-touch screen.
+  function calendarOnPhone(nav) {
+    var n = nav || (typeof navigator !== 'undefined' ? navigator : null);
+    if (!n) return false;
+    var ua = String(n.userAgent || '');
+    var data = n.userAgentData;
+    if (data && data.mobile) return true;
+    if (/Android|iPhone|iPad|iPod/i.test(ua)) return true;
+    var touch = Number(n.maxTouchPoints) || 0;
+    var platform = String(n.platform || '');
+    if (data && data.platform) platform += ' ' + String(data.platform);
+    if (touch > 1 && /Mac/i.test(ua + ' ' + platform)) return true;
+    return false;
+  }
+  var GCAL_PHONE_NOTE = 'Google\'s phone app can\'t add calendar links. Do it once on a computer: sign in at coachtrainerapp.com, tap Add to Google Calendar there, and it will sync to this phone on its own.';
   function gcalSheetHtml() {
     var sheet = state.sheet;
+    var phone = calendarOnPhone();
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-gcal-sheet" role="dialog" aria-label="Add to Google Calendar">';
     h += '<h3 class="name">Add to Google Calendar</h3>';
     if (sheet.status === 'signedout') {
@@ -361,25 +377,26 @@
     }
     if (sheet.note) h += '<p class="mute" id="pv-gcal-note">' + esc(sheet.note) + '</p>';
     if (sheet.error) h += '<p class="mute" id="pv-gcal-error">' + esc(sheet.error) + '</p>';
-    var ready = sheet.status === 'ready' && sheet.url && sheet.openUrl;
-    if (ready) {
-      h += '<button type="button" class="pri" id="pv-gcal-copy" data-gcal="copy">Copy link</button>';
-      h += '<input id="pv-gcal-link" class="pv-gcal-link" type="text" readonly value="' + esc(sheet.url) + '" aria-label="Calendar link" spellcheck="false">';
-      h += '<p class="mute" id="pv-gcal-how">' + esc(GCAL_HOW) + '</p>';
-      h += '<a class="pv-gcal-open" id="pv-gcal-open" href="' + esc(sheet.openUrl) + '" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>';
-    } else if (sheet.status === 'error') {
-      h += '<button type="button" class="pri" id="pv-gcal-open" data-gcal="retry">Open Google Calendar</button>';
-    } else {
-      h += '<button type="button" class="pri" id="pv-gcal-copy" disabled>Copy link</button>';
-      h += '<button type="button" id="pv-gcal-open" disabled>Open Google Calendar</button>';
-    }
+    h += gcalActionsHtml(sheet, phone);
     h += '<button type="button" class="ghost" data-gcal="reset" id="pv-gcal-reset">Reset link</button>';
     h += '<button type="button" data-sheet="cancel">Close</button></div></div>';
     if (sheet.confirmReset) h += resetConfirmHtml();
     return h;
   }
+  function gcalActionsHtml(sheet, phone) {
+    var ready = sheet.status === 'ready' && sheet.url && sheet.openUrl;
+    if (phone) {
+      var note = '<p class="mute" id="pv-gcal-phone">' + esc(GCAL_PHONE_NOTE) + '</p>';
+      if (ready) return note + '<button type="button" class="pri" id="pv-gcal-share" data-gcal="share">Send the link to myself</button>';
+      if (sheet.status === 'error') return note + '<button type="button" class="pri" id="pv-gcal-share" data-gcal="retry">Send the link to myself</button>';
+      return note + '<button type="button" class="pri" id="pv-gcal-share" disabled>Send the link to myself</button>';
+    }
+    if (ready) return '<a class="pri" id="pv-gcal-open" href="' + esc(sheet.openUrl) + '" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>';
+    if (sheet.status === 'error') return '<button type="button" class="pri" id="pv-gcal-open" data-gcal="retry">Open Google Calendar</button>';
+    return '<button type="button" class="pri" id="pv-gcal-open" disabled>Open Google Calendar</button>';
+  }
   function resetConfirmHtml() {
-    return '<div class="pl-modal" id="pv-gcal-reset-confirm" role="dialog" aria-label="Reset your calendar link?"><div class="card"><h3>Reset your calendar link?</h3><p class="mute">Your current link will stop working, and anyone who has it will no longer see your schedule. You\'ll need to copy the new link and add it to Google Calendar again on a computer.</p><button type="button" class="pri" id="pv-gcal-reset-yes" data-gcal="reset-yes">Yes, reset</button><button type="button" id="pv-gcal-reset-cancel" data-gcal="reset-cancel">Cancel</button></div></div>';
+    return '<div class="pl-modal" id="pv-gcal-reset-confirm" role="dialog" aria-label="Reset your calendar link?"><div class="card"><h3>Reset your calendar link?</h3><p class="mute">Your current link will stop working, and anyone who has it will no longer see your schedule. You\'ll need to add it to Google Calendar again on a computer.</p><button type="button" class="pri" id="pv-gcal-reset-yes" data-gcal="reset-yes">Yes, reset</button><button type="button" id="pv-gcal-reset-cancel" data-gcal="reset-cancel">Cancel</button></div></div>';
   }
   function daySheetHtml() {
     var date = state.sheet.date;
@@ -832,18 +849,34 @@
     state.sheet.error = '';
     render();
   }
+  function revealLinkField(url) {
+    var field = document.getElementById('pv-gcal-link');
+    if (!field) {
+      var card = document.getElementById('pv-gcal-sheet');
+      if (!card) return null;
+      field = document.createElement('input');
+      field.id = 'pv-gcal-link';
+      field.className = 'pv-gcal-link';
+      field.type = 'text';
+      field.readOnly = true;
+      field.value = url;
+      field.setAttribute('aria-label', 'Calendar link');
+      field.spellcheck = false;
+      var reset = document.getElementById('pv-gcal-reset');
+      if (reset && reset.parentNode === card) card.insertBefore(field, reset);
+      else card.appendChild(field);
+    }
+    try {
+      field.focus();
+      field.select();
+      if (field.setSelectionRange) field.setSelectionRange(0, field.value.length);
+    } catch (err) {}
+    return field;
+  }
   function copyCalendarLink() {
     if (!state || !state.sheet || state.sheet.type !== 'gcal' || !state.sheet.url) return;
     var url = state.sheet.url;
-    var field = document.getElementById('pv-gcal-link');
-    function selectField() {
-      if (!field) return;
-      try {
-        field.focus();
-        field.select();
-        if (field.setSelectionRange) field.setSelectionRange(0, field.value.length);
-      } catch (err) {}
-    }
+    function selectField() { revealLinkField(url); }
     function copied() {
       if (options && options.toast) options.toast('Link copied');
     }
@@ -860,6 +893,86 @@
       }
     }
     selectField();
+  }
+  function shareCancelled(err) {
+    return !!(err && err.name === 'AbortError');
+  }
+  // Share consumes the tap on iOS, so a later clipboard.writeText is rejected.
+  // Start the clipboard write during the tap and only fill it in if share fails.
+  function armShareCopy(url) {
+    var committed = false;
+    var writeFailed = false;
+    var resolveText = null;
+    var rejectText = null;
+    var armed = false;
+    var clip = typeof navigator !== 'undefined' ? navigator.clipboard : null;
+    if (clip && typeof clip.write === 'function' && typeof ClipboardItem === 'function') {
+      try {
+        var textPromise = new Promise(function (resolve, reject) {
+          resolveText = resolve;
+          rejectText = reject;
+        });
+        var blobPromise = textPromise.then(function (text) {
+          return new Blob([text], { type: 'text/plain' });
+        });
+        blobPromise.then(function () {}, function () {});
+        var pending = clip.write([new ClipboardItem({ 'text/plain': blobPromise })]);
+        armed = true;
+        if (pending && typeof pending.then === 'function') {
+          pending.then(function () {
+            if (committed && options && options.toast) options.toast('Link copied');
+          }, function () {
+            writeFailed = true;
+            if (committed) revealLinkField(url);
+          });
+        }
+      } catch (err) {
+        armed = false;
+      }
+    }
+    return {
+      commit: function () {
+        committed = true;
+        if (!armed || writeFailed) {
+          copyCalendarLink();
+          return;
+        }
+        resolveText(url);
+      },
+      cancel: function () {
+        if (rejectText) rejectText(new Error('cancelled'));
+      }
+    };
+  }
+  function shareCalendarLink() {
+    if (!state || !state.sheet || state.sheet.type !== 'gcal' || !state.sheet.url) return;
+    var url = state.sheet.url;
+    var nav = typeof navigator !== 'undefined' ? navigator : null;
+    if (!nav || typeof nav.share !== 'function') {
+      copyCalendarLink();
+      return;
+    }
+    var armed = armShareCopy(url);
+    var pending;
+    try {
+      pending = nav.share({
+        title: 'My workout calendar link',
+        text: 'Open this on a computer to add my workouts to Google Calendar',
+        url: url
+      });
+    } catch (err) {
+      if (shareCancelled(err)) { armed.cancel(); return; }
+      armed.commit();
+      return;
+    }
+    if (pending && typeof pending.then === 'function') {
+      pending.then(function () { armed.cancel(); }, function (err) {
+        if (shareCancelled(err)) { armed.cancel(); return; }
+        armed.commit();
+      });
+      return;
+    }
+    armed.cancel();
   }
   function showSignedOut() {
     if (!state || !state.sheet || state.sheet.type !== 'gcal') return;
@@ -961,6 +1074,7 @@
       if (gact === 'reset-yes') { resetCalendarLink(); return; }
       if (gact === 'reset-cancel') { dismissResetConfirm(); return; }
       if (gact === 'retry') { openCalendar(); return; }
+      if (gact === 'share') { shareCalendarLink(); return; }
       if (gact === 'copy') { copyCalendarLink(); return; }
       return;
     }
@@ -1139,5 +1253,5 @@
     state = null;
     options = null;
   }
-  window.WBPreview = { mount: mount, unmount: unmount, back: back };
+  window.WBPreview = { mount: mount, unmount: unmount, back: back, calendarOnPhone: calendarOnPhone };
 })();
