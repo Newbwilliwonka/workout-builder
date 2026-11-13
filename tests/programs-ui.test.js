@@ -77,7 +77,30 @@ async function stub(page, extra) {
   }, M.STORAGE_KEY, JSON.stringify(base));
   await enthusiast.reload();
   await enthusiast.waitForSelector('#programs-open');
-  assert.strictEqual(await enthusiast.$eval('#programs-open', function (el) { return el.textContent; }), 'Programs');
+  assert.deepStrictEqual(await enthusiast.$eval('#programs-open', function (el) {
+    var row = el.parentElement;
+    var account = row.firstElementChild;
+    var next = row.nextElementSibling;
+    return {
+      text: el.textContent,
+      className: el.className,
+      type: el.type,
+      action: el.getAttribute('data-a'),
+      rowClass: row.className,
+      rowStyle: row.getAttribute('style'),
+      account: account.getAttribute('data-a') + ' ' + account.className + ' ' + account.type + ' ' + account.textContent,
+      messages: next.firstElementChild.id + ' ' + next.lastElementChild.id
+    };
+  }), {
+    text: 'Programs',
+    className: 'grow',
+    type: 'button',
+    action: 'programs',
+    rowClass: 'row',
+    rowStyle: 'margin-bottom:8px',
+    account: 'account grow button Account',
+    messages: 'messages-nav send-nav'
+  });
   assert.ok((await enthusiast.$eval('#app', function (el) { return el.innerText; })).indexOf('(preview)') === -1);
   const before = await enthusiast.evaluate(function (key) { return localStorage.getItem(key); }, M.STORAGE_KEY);
   await enthusiast.click('#programs-open');

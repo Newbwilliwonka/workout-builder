@@ -1853,8 +1853,9 @@
     var note = takeInviteNotice();
     var h = (levelNoteOn ? levelNoteHtml(cachedProfile) : '') +
       (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
-      '<button style="width:100%;margin-bottom:8px" data-a="account">Account</button>' +
-      '<button id="programs-open" class="ghost" style="width:100%;margin-bottom:8px" data-a="programs">Programs</button>' +
+      '<div class="row" style="margin-bottom:8px">' +
+      '<button class="grow" type="button" data-a="account">Account</button>' +
+      '<button id="programs-open" class="grow" type="button" data-a="programs">Programs</button></div>' +
       '<div class="row" style="margin-bottom:8px">' +
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
