@@ -174,7 +174,7 @@
       var localAt = ms(w.updatedAt);
       if (!row) {
         // No account row. Keep the device copy unless the user deleted it here.
-        if (userAt(id) > localAt) return;
+        if (userAt(id) >= localAt && userAt(id) > 0) return;
         delete drops[id];
         next.push(w);
         return;
@@ -182,6 +182,9 @@
       var contentAt = contentTime(row);
       var writtenAt = writtenTime(row);
       if (isDeleted(row)) {
+        // A Delete pressed after this copy, and after the account's delete,
+        // stays deleted. A newer edit on the device still wins.
+        if (userAt(id) >= localAt && userAt(id) > contentAt) return;
         if (localAt > contentAt) {
           delete drops[id];
           next.push(w);
@@ -219,6 +222,7 @@
       var contentAt = contentTime(row);
       var writtenAt = writtenTime(row);
       if (isDeleted(row)) {
+        if (userAt(id) > contentAt) return;
         var marked = serverDrop(contentAt);
         if (marked) drops[id] = marked;
         ack[id] = contentAt;
@@ -276,7 +280,10 @@
     var localAt = ms(workout.updatedAt);
     if (userAt < localAt) return false;
     if (!remoteRow) return true;
-    if (isDeleted(remoteRow)) return localAt <= contentTime(remoteRow);
+    if (isDeleted(remoteRow)) {
+      if (userAt > contentTime(remoteRow)) return true;
+      return localAt <= contentTime(remoteRow);
+    }
     return userAt > writtenTime(remoteRow);
   }
   // The device copy wins on a tie so an open editor is not replaced.

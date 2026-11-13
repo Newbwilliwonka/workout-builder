@@ -376,6 +376,27 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
   assert.strictEqual(editing.updatedAt, 4000);
 })();
 
+(function userDeleteIsNotUndoneByAnOlderAccountDelete() {
+  const local = wo('wo_new', 'New workout', 2500);
+  const row = remote('wo_new', 'New workout', 1000, { deleted: true });
+  const drop = L.userDrop(3000);
+  const kept = L.reconcileDevice([local], [wo('wo_new', 'New workout', 2500)], { wo_new: drop }, [row]);
+  assert.deepStrictEqual(kept, []);
+  const merged = L.mergeAccount([local], [row], { wo_new: drop });
+  assert.ok(!merged.workouts.some(function (w) { return w.id === 'wo_new'; }));
+  assert.strictEqual(L.isUserDrop(merged.tombstones.wo_new), true);
+  const pushed = L.pushChanges(merged.workouts, merged.tombstones, merged.ack);
+  assert.strictEqual(pushed.length, 1);
+  assert.strictEqual(pushed[0].deleted, true);
+  assert.strictEqual(pushed[0].revisedAt, 3000);
+
+  const edited = wo('wo_new', 'Edited after', 4000);
+  const revived = L.mergeAccount([edited], [row], { wo_new: drop });
+  assert.strictEqual(revived.workouts.length, 1);
+  assert.strictEqual(revived.workouts[0].name, 'Edited after');
+  assert.ok(!revived.tombstones.wo_new);
+})();
+
 (function anotherAccountDoesNotReceiveTheLibrary() {
   const ada = [wo('wo_ada', 'Ada', 1000)];
   const first = L.libraryForAccount('', 'ada', ada, null);
