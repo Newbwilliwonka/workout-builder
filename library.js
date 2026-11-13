@@ -265,11 +265,19 @@
     Object.keys(copy).forEach(function (key) { target[key] = copy[key]; });
     return target;
   }
-  function userRemoved(tombstones, workout) {
+  // A Delete removes the open object only when that Delete still wins.
+  // A newer account copy must keep the object so the open screen is updated
+  // in place instead of being handed a new one.
+  function userRemoved(tombstones, workout, remoteRow) {
     if (!ownWorkout(workout)) return false;
     var mark = tombstones && tombstones[String(workout.id)];
     if (!isUserDrop(mark)) return false;
-    return dropTime(mark) >= ms(workout.updatedAt);
+    var userAt = dropTime(mark);
+    var localAt = ms(workout.updatedAt);
+    if (userAt < localAt) return false;
+    if (!remoteRow) return true;
+    if (isDeleted(remoteRow)) return localAt <= contentTime(remoteRow);
+    return userAt > writtenTime(remoteRow);
   }
   // The device copy wins on a tie so an open editor is not replaced.
   function unionWorkouts(primary, extra) {
@@ -295,16 +303,25 @@
     return next;
   }
   // Another open tab saved. A Delete there removes the workout here.
-  // A workout only this tab has, with no Delete, stays.
-  function reconcileDevice(local, incoming, tombstones) {
+  // A workout only this tab has, with no Delete, stays. When the account
+  // rows are passed, a Delete that the account has already superseded keeps
+  // the object this screen is editing.
+  function reconcileDevice(local, incoming, tombstones, remote) {
+    var rows = {};
+    (remote || []).forEach(function (row) {
+      if (row && row.localId) rows[String(row.localId)] = row;
+    });
+    function gone(w) {
+      return userRemoved(tombstones, w, rows[String(w.id)]);
+    }
     var kept = [];
     (local || []).forEach(function (w) {
-      if (!w || !w.id || userRemoved(tombstones, w)) return;
+      if (!w || !w.id || gone(w)) return;
       kept.push(w);
     });
     var extras = [];
     (incoming || []).forEach(function (w) {
-      if (!w || !w.id || userRemoved(tombstones, w)) return;
+      if (!w || !w.id || gone(w)) return;
       extras.push(w);
     });
     return unionWorkouts(kept, extras);

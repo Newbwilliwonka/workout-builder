@@ -401,16 +401,19 @@
     absorbUserDrops(pendingDrops);
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var stored = M.load(localStorage);
-    var united = WBLibrary.reconcileDevice(data.workouts, stored.workouts, drops);
+    // Snapshot first. Later steps update the open workout objects in place,
+    // so a snapshot taken afterwards would already match and skip the save.
+    var before = '';
+    try { before = JSON.stringify(data.workouts); } catch (e) { before = ''; }
+    var united = WBLibrary.reconcileDevice(data.workouts, stored.workouts, drops, rows);
     var archive = readArchive(libraryUserId);
     if (libraryUserId && !librarySwitched) archive = WBLibrary.rememberWorkouts(archive, valuesOf(readArchive('_device')));
     archive = WBLibrary.rememberWorkouts(archive, united);
     archive = foldSavedCopies(archive, united, rows);
     var merged = WBLibrary.mergeAccount(united, rows, drops);
     var restored = WBLibrary.restoreArchived(merged.workouts, archive, merged.tombstones, rows);
-    var before = '';
     var after = '';
-    try { before = JSON.stringify(data.workouts); after = JSON.stringify(restored); } catch (e) { before = ''; after = 'x'; }
+    try { after = JSON.stringify(restored); } catch (e) { after = 'x'; }
     data.workouts = restored;
     writeUserMap(WBLibrary.DROP_KEY, libraryUserId, merged.tombstones);
     writeUserMap(ARCHIVE_KEY, libraryUserId || '_device', WBLibrary.pruneArchive(WBLibrary.rememberWorkouts(archive, restored), restored));

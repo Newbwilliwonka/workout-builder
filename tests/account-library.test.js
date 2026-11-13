@@ -363,6 +363,17 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
   assert.strictEqual(fromOther[0], open);
   assert.strictEqual(open.name, 'Hollow Body');
   assert.strictEqual(open.items.length, 2);
+
+  // A newer account copy keeps the object on screen. The Delete is older than that save.
+  const editing = wo('wo_live', 'Old', 1000, { items: [{ name: 'Hold' }] });
+  const account = remote('wo_live', 'Hollow Body', 4000, { items: [{ name: 'Hold' }, { name: 'Press' }] });
+  const stillOpen = L.reconcileDevice([editing], [], { wo_live: L.userDrop(2000) }, [account]);
+  assert.strictEqual(stillOpen[0], editing);
+  const keptOpen = L.mergeAccount(stillOpen, [account], { wo_live: L.userDrop(2000) });
+  assert.strictEqual(keptOpen.workouts[0], editing);
+  assert.strictEqual(editing.name, 'Hollow Body');
+  assert.strictEqual(editing.items.length, 2);
+  assert.strictEqual(editing.updatedAt, 4000);
 })();
 
 (function anotherAccountDoesNotReceiveTheLibrary() {
