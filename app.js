@@ -401,7 +401,7 @@
     absorbUserDrops(pendingDrops);
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var stored = M.load(localStorage);
-    var united = WBLibrary.unionWorkouts(data.workouts, stored.workouts);
+    var united = WBLibrary.reconcileDevice(data.workouts, stored.workouts, drops);
     var archive = readArchive(libraryUserId);
     if (libraryUserId && !librarySwitched) archive = WBLibrary.rememberWorkouts(archive, valuesOf(readArchive('_device')));
     archive = WBLibrary.rememberWorkouts(archive, united);
@@ -2753,15 +2753,57 @@
   window.WB_buildFromDraft = buildFromDraft; window.WB_makeDraft = makeDraft; // exposed for testing
   captureInvite();
   archiveCurrent();
+  function readUserDrops() {
+    var merged = {};
+    if (!window.WBLibrary) return merged;
+    [libraryUserId, libraryOwner(), '_pending'].forEach(function (key) {
+      if (!key) return;
+      var row = userMap(WBLibrary.DROP_KEY, key);
+      Object.keys(row).forEach(function (id) {
+        if (!WBLibrary.isUserDrop(row[id])) return;
+        if (!WBLibrary.isUserDrop(merged[id]) || WBLibrary.dropTime(row[id]) > WBLibrary.dropTime(merged[id])) merged[id] = row[id];
+      });
+    });
+    return merged;
+  }
+  function listStamp(list) {
+    return (list || []).map(function (w) {
+      if (!w) return '';
+      var n = 0;
+      try { n = JSON.stringify(w.items || []).length; } catch (e) { n = 0; }
+      return [w.id, w.name, w.updatedAt || 0, n].join(':');
+    }).join('|');
+  }
+  // Another tab saved the list or recorded a Delete. Honor that Delete, and
+  // copy a newer workout onto the object this tab already has open.
+  function adoptSiblingSave() {
+    if (!window.WBLibrary || applyingLibrary) return;
+    var before = listStamp(data.workouts);
+    var had = {};
+    data.workouts.forEach(function (w) { if (w && w.id) had[String(w.id)] = 1; });
+    var next = WBLibrary.reconcileDevice(data.workouts, M.load(localStorage).workouts, readUserDrops());
+    if (listStamp(next) === before) return;
+    var removed = {};
+    var still = {};
+    next.forEach(function (w) { if (w && w.id) still[String(w.id)] = 1; });
+    Object.keys(had).forEach(function (id) { if (!still[id]) removed[id] = 1; });
+    data.workouts = next;
+    var page = hashPage();
+    var id = hashBody().split('/')[1] || '';
+    if (id && removed[id] && (page === 'w' || page === 'play')) {
+      go('#/');
+    } else if (page === '') {
+      renderList();
+    } else if (page === 'w' && hashBody().split('/').length === 2 && !document.getElementById('wo-name-input')) {
+      var live = getW(id);
+      if (live) renderWorkout(live);
+    }
+    scheduleAccountSync();
+  }
   window.addEventListener('storage', function (e) {
     if (!e || !window.WBLibrary || e.storageArea !== localStorage) return;
-    if (e.key === M.STORAGE_KEY && e.newValue) {
-      var loaded;
-      try { loaded = JSON.parse(e.newValue); } catch (err) { return; }
-      if (!loaded || !Array.isArray(loaded.workouts)) return;
-      data.workouts = WBLibrary.unionWorkouts(data.workouts, loaded.workouts);
-      scheduleAccountSync();
-    }
+    if (e.key !== M.STORAGE_KEY && e.key !== WBLibrary.DROP_KEY) return;
+    adoptSiblingSave();
   });
   window.addEventListener('online', function () { ensureShare(); libraryOff = false; scheduleAccountSync(); });
   window.addEventListener('offline', function () {

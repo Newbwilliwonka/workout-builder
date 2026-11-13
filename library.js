@@ -254,6 +254,23 @@
     try { return JSON.parse(JSON.stringify(w)); }
     catch (e) { return null; }
   }
+  // Keep the object the screen already holds. A newer copy updates that
+  // object in place so an open editor is not left holding the old one.
+  function copyOnto(target, source) {
+    var copy = copyWorkout(source);
+    if (!copy || !target) return target || source;
+    Object.keys(target).forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(copy, key)) delete target[key];
+    });
+    Object.keys(copy).forEach(function (key) { target[key] = copy[key]; });
+    return target;
+  }
+  function userRemoved(tombstones, workout) {
+    if (!ownWorkout(workout)) return false;
+    var mark = tombstones && tombstones[String(workout.id)];
+    if (!isUserDrop(mark)) return false;
+    return dropTime(mark) >= ms(workout.updatedAt);
+  }
   // The device copy wins on a tie so an open editor is not replaced.
   function unionWorkouts(primary, extra) {
     var seen = {};
@@ -273,13 +290,24 @@
         next.push(w);
         return;
       }
-      if (ms(w.updatedAt) > ms(prev.updatedAt)) {
-        var i = next.indexOf(prev);
-        if (i >= 0) next[i] = w;
-        seen[id] = w;
-      }
+      if (ms(w.updatedAt) > ms(prev.updatedAt)) copyOnto(prev, w);
     });
     return next;
+  }
+  // Another open tab saved. A Delete there removes the workout here.
+  // A workout only this tab has, with no Delete, stays.
+  function reconcileDevice(local, incoming, tombstones) {
+    var kept = [];
+    (local || []).forEach(function (w) {
+      if (!w || !w.id || userRemoved(tombstones, w)) return;
+      kept.push(w);
+    });
+    var extras = [];
+    (incoming || []).forEach(function (w) {
+      if (!w || !w.id || userRemoved(tombstones, w)) return;
+      extras.push(w);
+    });
+    return unionWorkouts(kept, extras);
   }
   function rememberWorkouts(archive, workouts) {
     var next = {};
@@ -545,6 +573,7 @@
     isUserDrop: isUserDrop,
     userDrop: userDrop,
     unionWorkouts: unionWorkouts,
+    reconcileDevice: reconcileDevice,
     rememberWorkouts: rememberWorkouts,
     pruneArchive: pruneArchive,
     restoreArchived: restoreArchived,

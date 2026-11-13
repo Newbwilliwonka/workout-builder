@@ -312,6 +312,11 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
   const same = L.unionWorkouts([open], [wo('wo_old', 'Renamed', 1000)]);
   assert.strictEqual(same[0], open);
   assert.strictEqual(same[0].name, 'Hollow Body - Shoulders - Neck');
+  const newer = L.unionWorkouts([open], [wo('wo_old', 'Renamed', 5000, { items: [{ name: 'Press' }] })]);
+  assert.strictEqual(newer[0], open);
+  assert.strictEqual(open.name, 'Renamed');
+  assert.strictEqual(open.updatedAt, 5000);
+  assert.strictEqual(open.items[0].name, 'Press');
 
   const archive = L.rememberWorkouts({}, [wo('wo_chest', 'Chest - press', 2000, { items: [{ name: 'Press' }] })]);
   const restored = L.restoreArchived([], archive, { wo_chest: 3000 }, []);
@@ -330,6 +335,34 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
     [remote('wo_hollow', 'Hollow Body - Shoulders - Neck', 1000)]
   );
   assert.deepStrictEqual(unseen.map(function (w) { return w.id; }), ['wo_chest']);
+})();
+
+(function otherTabDeleteStaysDeleted() {
+  const here = wo('wo_new', 'New workout', 1000);
+  const drop = L.userDrop(2000);
+  const reconciled = L.reconcileDevice([here], [], { wo_new: drop });
+  assert.deepStrictEqual(reconciled, []);
+  const merged = L.mergeAccount(reconciled, [remote('wo_new', 'New workout', 1000)], { wo_new: drop });
+  assert.ok(!merged.workouts.some(function (w) { return w.id === 'wo_new'; }));
+  const pushed = L.pushChanges(merged.workouts, merged.tombstones, {});
+  assert.strictEqual(pushed.length, 1);
+  assert.strictEqual(pushed[0].localId, 'wo_new');
+  assert.strictEqual(pushed[0].deleted, true);
+
+  const storedCopy = wo('wo_new', 'New workout', 1000);
+  const notRevived = L.reconcileDevice([here], [storedCopy], { wo_new: drop });
+  assert.deepStrictEqual(notRevived, []);
+
+  const chest = wo('wo_chest', 'Chest - press', 3000);
+  const kept = L.reconcileDevice([chest, here], [], { wo_new: drop });
+  assert.strictEqual(kept.length, 1);
+  assert.strictEqual(kept[0], chest);
+
+  const open = wo('wo_hollow', 'Old name', 1000, { items: [{ name: 'Hold' }] });
+  const fromOther = L.reconcileDevice([open], [wo('wo_hollow', 'Hollow Body', 4000, { items: [{ name: 'Hold' }, { name: 'Press' }] })], {});
+  assert.strictEqual(fromOther[0], open);
+  assert.strictEqual(open.name, 'Hollow Body');
+  assert.strictEqual(open.items.length, 2);
 })();
 
 (function anotherAccountDoesNotReceiveTheLibrary() {
