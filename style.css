@@ -19,6 +19,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .grow{flex:1;min-width:0}
 .mute{color:var(--mute);font-size:14px}
+#library-status a{color:var(--pri);font-weight:600}
 .name{font-weight:600;font-size:17px;word-break:break-word}
 .stack>*+*{margin-top:8px}
 .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}

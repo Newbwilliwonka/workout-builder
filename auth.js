@@ -8,7 +8,7 @@
   // A library demo is this value + "/180/" + id + ".gif" (or "/360/"). Not a secret.
   var EXERCISE_GIF_BASE = 'https://kinisiexercises.b-cdn.net';
   var LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js';
-  var client = null, loading = null;
+  var client = null, loading = null, authWatchers = [];
   var Mem = root.WBMembership;
   // Snapshot the URL before app.js routing can replace the hash. Recovery links
   // arrive as ?code= (PKCE), #access_token&type=recovery, or token_hash&type=recovery.
@@ -35,8 +35,11 @@
         });
         // Subscribe before getSession() so a PASSWORD_RECOVERY event fired
         // while the client reads the URL is not missed.
-        client.auth.onAuthStateChange(function (event) {
+        client.auth.onAuthStateChange(function (event, session) {
           if (event === 'PASSWORD_RECOVERY') recoveryEvent = true;
+          authWatchers.slice().forEach(function (fn) {
+            try { fn(event, session || null); } catch (e) {}
+          });
         });
       }
       return client;
@@ -154,6 +157,28 @@
         if (res.error) throw res.error;
         return res.data.session || null;
       });
+    },
+    // getSession can hand back a saved sign-in whose access token has already expired.
+    // Refresh that before a workout sync, so an expired token is not reported as offline.
+    freshSession: function () {
+      return api.session().then(function (session) {
+        if (!session || !sessionExpired(session)) return session;
+        return db().then(function (c) {
+          if (!c.auth.refreshSession) return session;
+          return c.auth.refreshSession().then(function (again) {
+            if (again.error) {
+              var failed = new Error((again.error && again.error.message) || 'Sign in again');
+              if (/failed to fetch|network|timeout|load failed/i.test(failed.message)) failed.offline = true;
+              else failed.auth = true;
+              throw failed;
+            }
+            return (again.data && again.data.session) || null;
+          });
+        });
+      });
+    },
+    onAuth: function (fn) {
+      if (typeof fn === 'function') authWatchers.push(fn);
     },
     signUp: function (email, password) {
       return db().then(function (c) {
@@ -560,6 +585,12 @@
       return res.data;
     });
   }
+  function sessionExpired(session) {
+    var exp = session && session.expires_at;
+    if (typeof exp !== 'number' || !isFinite(exp)) return false;
+    var ms = exp > 1e12 ? exp : exp * 1000;
+    return ms <= Date.now() + 60000;
+  }
   function accountSaveError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
     if (accountMissing(err)) {
@@ -567,7 +598,11 @@
       missing.missing = true;
       return missing;
     }
-    return new Error(msg || 'Could not save that workout.');
+    var out = new Error(msg || 'Could not save that workout.');
+    if (/failed to fetch|networkerror|load failed|timeout/i.test(msg)) out.offline = true;
+    else if (/jwt expired|invalid jwt|invalid claim|not authenticated|sign in first|pgrst301|invalid token|permission denied|42501/i.test(msg)) out.auth = true;
+    else if (/up to 6 workouts|enter a workout name|could not save that workout|that workout could not be saved|you cannot (save|edit|delete)|cannot be reassigned|there is no connection|only view these workouts|choose a linked client|only an enthusiast|was not found/i.test(msg)) out.permanent = true;
+    return out;
   }
   function workoutError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';

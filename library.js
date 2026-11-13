@@ -203,10 +203,70 @@
     });
     return out;
   }
-  function statusText(phase) {
-    if (phase === 'saved') return 'Saved';
-    if (phase === 'offline') return 'Offline, will sync';
-    return '';
+  // How long a rejected save stays parked. The workout stays on the device.
+  // A later edit, or this much time passing, tries again. Other workouts do not wait on it.
+  var REJECT_HOLD_MS = 10 * 60 * 1000;
+
+  function plainSyncMessage(err) {
+    var msg = '';
+    if (typeof err === 'string') msg = err;
+    else if (err) msg = err.message || err.details || err.hint || '';
+    msg = String(msg || '').replace(/^ERROR:\s*/i, '').trim().split('\n')[0];
+    if (/jwt expired|invalid jwt|invalid claim|pgrst301|invalid token|refresh token|auth session missing/i.test(msg)) return 'Sign in again';
+    if (/sign in first/i.test(msg)) return 'Sign in again';
+    if (/permission denied|42501/i.test(msg)) return 'Sign in again';
+    if (msg.length > 160) msg = msg.slice(0, 157) + '…';
+    return msg || 'Could not sync workouts.';
+  }
+  // offline: the request never reached the server. auth: the sign-in was not accepted.
+  // permanent: the server refused this workout (plan, name, or no connection). retry: try again later.
+  function syncFailure(err) {
+    if (!err) return 'retry';
+    if (err.missing) return 'missing';
+    var msg = String((err && (err.message || err.details || err.hint)) || err || '');
+    if (/account workout SQL|not available yet|schema cache|could not find the function|PGRST202|PGRST205|42883|42P01/i.test(msg)) return 'missing';
+    if (err.offline || /failed to fetch|networkerror|load failed|network request failed|the internet connection appears to be offline|could not reach|fetch failed|econnreset|etimedout|timeout/i.test(msg)) return 'offline';
+    if (err.auth || /jwt expired|invalid jwt|invalid claim|not authenticated|sign in first|sign in again|pgrst301|invalid token|refresh token|auth session missing|permission denied|42501/i.test(msg)) return 'auth';
+    if (err.permanent || /up to 6 workouts|enter a workout name|could not save that workout|that workout could not be saved|you cannot (save|edit|delete)|cannot be reassigned|there is no connection|only view these workouts|choose a linked client|only an enthusiast|was not found/i.test(msg)) return 'permanent';
+    return 'retry';
+  }
+  function bodyStamp(value) {
+    try { return JSON.stringify(value == null ? null : value); }
+    catch (e) { return ''; }
+  }
+  function rejectionHolds(entry, stamp, now) {
+    if (!entry || !stamp || entry.stamp !== stamp) return false;
+    var at = typeof entry.at === 'number' ? entry.at : 0;
+    return (now || 0) - at < REJECT_HOLD_MS;
+  }
+  function statusModel(phase, detail) {
+    if (phase === 'saved') return { text: 'Saved', plans: false };
+    if (phase === 'offline') return { text: 'Offline, will sync', plans: false };
+    if (phase === 'auth') return { text: 'Sign in again', plans: false };
+    if (phase === 'error') {
+      var text = String(detail || 'Could not sync workouts.');
+      return { text: text, plans: /up to 6 workouts/i.test(text) };
+    }
+    return { text: '', plans: false };
+  }
+  function statusText(phase, detail) {
+    return statusModel(phase, detail).text;
+  }
+  function preferNotice(current, next) {
+    if (!next) return current || '';
+    if (!current) return next;
+    if (/up to 6 workouts/i.test(next) && !/up to 6 workouts/i.test(current)) return next;
+    return current;
+  }
+  // The account pull returns a list. A string or a wrapper must not be read as "no workouts".
+  function rowsFromPull(data) {
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); }
+      catch (e) { return []; }
+    }
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.workouts)) return data.workouts;
+    return [];
   }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -332,7 +392,15 @@
     absorbImports: absorbImports,
     mergeAccount: mergeAccount,
     pushChanges: pushChanges,
+    REJECT_HOLD_MS: REJECT_HOLD_MS,
+    plainSyncMessage: plainSyncMessage,
+    syncFailure: syncFailure,
+    bodyStamp: bodyStamp,
+    rejectionHolds: rejectionHolds,
+    statusModel: statusModel,
     statusText: statusText,
+    preferNotice: preferNotice,
+    rowsFromPull: rowsFromPull,
     viewOnlyHtml: viewOnlyHtml,
     clientToolsHtml: clientToolsHtml,
     guestFromAccount: guestFromAccount,

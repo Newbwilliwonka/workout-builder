@@ -263,7 +263,8 @@
     });
   }
   var guests = [], guestStamp = {}, guestGen = {}, applyingLibrary = false, clientScreen = null;
-  var libraryFlight = null, libraryAgain = false, libraryPhase = '', libraryOff = false, libraryUserId = '';
+  var libraryFlight = null, libraryAgain = false, libraryPhase = '', libraryDetail = '', libraryOff = false, libraryUserId = '';
+  var libraryResumeAt = 0;
   var libraryAck = {}, pendingDrops = {}, clientQueue = [];
   function libraryBox(key) {
     try {
@@ -309,17 +310,29 @@
     clientQueue = [];
     libraryUserId = '';
     libraryPhase = '';
+    libraryDetail = '';
     libraryAgain = false;
     clientScreen = null;
   }
   function libraryMissing(err) {
     return !!(err && (err.missing || /account workout SQL|not available yet/i.test(String(err.message || ''))));
   }
+  function libraryStatusHtml() {
+    if (!window.WBLibrary) return '';
+    var model = WBLibrary.statusModel(libraryPhase, libraryDetail);
+    if (!model.text) return '';
+    return '<p class="mute" id="library-status">' + esc(model.text) +
+      (model.plans ? ' <a href="#/subscriptions">See plans</a>' : '') + '</p>';
+  }
+  function setLibraryStatus(phase, detail) {
+    libraryPhase = phase || '';
+    libraryDetail = detail || '';
+  }
   function paintLibraryStatus() {
     if (hashPage() !== '') return;
-    var text = window.WBLibrary ? WBLibrary.statusText(libraryPhase) : '';
+    var model = window.WBLibrary ? WBLibrary.statusModel(libraryPhase, libraryDetail) : { text: '', plans: false };
     var el = document.getElementById('library-status');
-    if (!text) {
+    if (!model.text) {
       if (el) el.remove();
       return;
     }
@@ -329,7 +342,7 @@
       btn.insertAdjacentHTML('afterend', '<p class="mute" id="library-status"></p>');
       el = document.getElementById('library-status');
     }
-    if (el) el.textContent = text;
+    if (el) el.innerHTML = esc(model.text) + (model.plans ? ' <a href="#/subscriptions">See plans</a>' : '');
   }
   function applyLibraryRows(rows) {
     if (!window.WBLibrary) return;
@@ -346,13 +359,15 @@
     Object.keys(merged.ack || {}).forEach(function (id) { libraryAck[id] = merged.ack[id]; });
     if (before !== after) {
       applyingLibrary = true;
-      persistLocal();
-      applyingLibrary = false;
+      try { persistLocal(); }
+      catch (e) {}
+      finally { applyingLibrary = false; }
     }
   }
   var LIBRARY_OWNER_KEY = 'wb.libraryOwner.v1';
   var LIBRARY_CACHE_KEY = 'wb.libraryCache.v1';
   var LIBRARY_SEED_KEY = 'wb.accountSeed.v1';
+  var LIBRARY_REJECT_KEY = 'wb.accountReject.v1';
   function libraryOwner() {
     try { return localStorage.getItem(LIBRARY_OWNER_KEY) || ''; } catch (e) { return ''; }
   }
@@ -417,84 +432,212 @@
       data.sessions = cached && Array.isArray(cached.sessions) ? cached.sessions : [];
       data.programs = cached && Array.isArray(cached.programs) ? cached.programs : [];
       applyingLibrary = true;
-      persistLocal();
-      applyingLibrary = false;
+      try { persistLocal(); }
+      catch (e) {}
+      finally { applyingLibrary = false; }
     }
     setLibraryOwner(userId);
     libraryUserId = userId;
+  }
+  function blankOutcome() {
+    return { offline: false, auth: false, notice: '', missing: false, permanent: false };
+  }
+  function noteFailure(outcome, err) {
+    if (!outcome || !window.WBLibrary) return;
+    var kind = WBLibrary.syncFailure(err);
+    if (kind === 'missing' || libraryMissing(err)) { outcome.missing = true; return; }
+    if (kind === 'offline') { outcome.offline = true; return; }
+    if (kind === 'auth') { outcome.auth = true; return; }
+    outcome.notice = WBLibrary.preferNotice(outcome.notice, WBLibrary.plainSyncMessage(err));
+    if (kind === 'permanent') outcome.permanent = true;
+  }
+  function mergeOutcome(into, extra) {
+    if (!into || !extra) return into;
+    if (extra.missing) into.missing = true;
+    if (extra.auth) into.auth = true;
+    if (extra.offline) into.offline = true;
+    if (extra.permanent) into.permanent = true;
+    into.notice = WBLibrary.preferNotice(into.notice, extra.notice);
+    return into;
+  }
+  function applyOutcome(outcome) {
+    if (!outcome) return;
+    if (outcome.missing) { libraryOff = true; setLibraryStatus('', ''); return; }
+    if (outcome.notice && /up to 6 workouts/i.test(outcome.notice)) setLibraryStatus('error', outcome.notice);
+    else if (outcome.auth) setLibraryStatus('auth', '');
+    else if (outcome.notice) setLibraryStatus('error', outcome.notice);
+    else if (outcome.offline) setLibraryStatus('offline', '');
+    else setLibraryStatus('saved', '');
+  }
+  function finishLibraryView(beforeSig) {
+    if (hashPage() !== '') return;
+    if (listSig(data.workouts) !== beforeSig) renderList();
+    else paintLibraryStatus();
+  }
+  function readRejects() {
+    var row = userMap(LIBRARY_REJECT_KEY, libraryUserId);
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return {};
+    return row;
+  }
+  function writeRejects(map) {
+    writeUserMap(LIBRARY_REJECT_KEY, libraryUserId, map || {});
+  }
+  function changeStamp(change) {
+    return WBLibrary.bodyStamp({
+      name: change && change.name || '',
+      items: change && change.items || [],
+      deleted: !!(change && change.deleted),
+      revisedAt: change && change.revisedAt || 0
+    });
+  }
+  function heldRejection(key, stamp) {
+    var entry = readRejects()[key];
+    if (!WBLibrary.rejectionHolds(entry, stamp, Date.now())) return '';
+    return entry.message || 'Could not sync workouts.';
+  }
+  function parkRejection(key, stamp, message) {
+    var map = readRejects();
+    map[key] = { stamp: stamp, at: Date.now(), message: message || '' };
+    writeRejects(map);
+  }
+  function clearRejection(key) {
+    var map = readRejects();
+    if (!map[key]) return;
+    delete map[key];
+    writeRejects(map);
+  }
+  function rememberHeld(outcome, message) {
+    outcome.notice = WBLibrary.preferNotice(outcome.notice, message);
+    outcome.permanent = true;
+  }
+  function keepFailure(outcome, key, stamp, err) {
+    noteFailure(outcome, err);
+    if (WBLibrary.syncFailure(err) !== 'permanent') return;
+    parkRejection(key, stamp, WBLibrary.plainSyncMessage(err));
+  }
+  // One workout at a time. A refusal or a throw is recorded and the next workout still runs.
+  function eachStep(list, step) {
+    var outcome = blankOutcome();
+    var i = 0;
+    function next() {
+      if (outcome.missing || outcome.auth) return Promise.resolve(outcome);
+      if (i >= list.length) return Promise.resolve(outcome);
+      var item = list[i++];
+      return Promise.resolve().then(function () { return step(item, outcome); }).then(next, function (err) {
+        noteFailure(outcome, err);
+        if (outcome.missing) return outcome;
+        return next();
+      });
+    }
+    return next();
   }
   function importPending() {
     var claimed = userMap(WBLibrary.CLAIM_KEY, libraryUserId);
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var seed = ensureSeed(libraryUserId);
     var pending = WBLibrary.importsForSeed(data.workouts, claimed, drops, seed);
-    var failed = false;
-    var chain = Promise.resolve();
-    pending.forEach(function (w) {
-      chain = chain.then(function () {
-        return WBAuth.accountImport(WBLibrary.changeFrom(w, false)).then(function (row) {
-          if (!row || !row.localId) { failed = true; return; }
-          claimed = WBLibrary.rememberClaim(claimed, row.localId);
-          writeUserMap(WBLibrary.CLAIM_KEY, libraryUserId, claimed);
-          if (row.revisedAt != null) libraryAck[String(row.localId)] = row.revisedAt;
-        }, function (err) {
-          if (libraryMissing(err)) throw err;
-          failed = true;
-        });
+    return eachStep(pending, function (w, outcome) {
+      var change = WBLibrary.changeFrom(w, false);
+      var key = String(w.id);
+      var stamp = changeStamp(change);
+      var held = heldRejection(key, stamp);
+      if (held) { rememberHeld(outcome, held); return; }
+      return Promise.resolve().then(function () {
+        return WBAuth.accountImport(change);
+      }).then(function (row) {
+        if (!row || !row.localId) {
+          var soft = new Error('Could not save that workout.');
+          soft.permanent = true;
+          keepFailure(outcome, key, stamp, soft);
+          return;
+        }
+        clearRejection(key);
+        claimed = WBLibrary.rememberClaim(claimed, row.localId);
+        writeUserMap(WBLibrary.CLAIM_KEY, libraryUserId, claimed);
+        if (row.revisedAt != null) libraryAck[String(row.localId)] = row.revisedAt;
+      }, function (err) {
+        if (libraryMissing(err)) throw err;
+        keepFailure(outcome, key, stamp, err);
       });
     });
-    return chain.then(function () { return failed; });
   }
-  function pushPending() {
+  function pushAccountChanges() {
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var changes = WBLibrary.pushChanges(data.workouts, drops, libraryAck);
-    var failed = false;
-    var chain = Promise.resolve();
-    changes.forEach(function (change) {
-      chain = chain.then(function () {
-        return WBAuth.accountPush(change).then(function (row) {
-          if (row && row.localId) libraryAck[String(row.localId)] = row.revisedAt;
-          if (change.deleted && row && !row.deleted && WBLibrary.ms(row.revisedAt) > change.revisedAt) {
-            applyLibraryRows([row]);
-          }
-        }, function (err) {
-          if (libraryMissing(err)) throw err;
-          failed = true;
-        });
+    return eachStep(changes, function (change, outcome) {
+      var key = String(change.localId);
+      var stamp = changeStamp(change);
+      var held = heldRejection(key, stamp);
+      if (held) { rememberHeld(outcome, held); return; }
+      return Promise.resolve().then(function () {
+        return WBAuth.accountPush(change);
+      }).then(function (row) {
+        clearRejection(key);
+        if (row && row.localId) libraryAck[String(row.localId)] = row.revisedAt;
+        if (change.deleted && row && !row.deleted && WBLibrary.ms(row.revisedAt) > change.revisedAt) {
+          applyLibraryRows([row]);
+        }
+      }, function (err) {
+        if (libraryMissing(err)) throw err;
+        keepFailure(outcome, key, stamp, err);
       });
     });
-    return chain.then(function () { return failed; });
+  }
+  function queueKey(item) {
+    return 'q:' + (item && item.ownerId || '') + ':' + (item && item.kind || '') + ':' + (item && item.localId || '');
+  }
+  function queueStamp(item) {
+    return WBLibrary.bodyStamp({
+      name: item && item.name || '',
+      items: item && item.items || [],
+      deleted: !!(item && item.deleted),
+      change: item && item.change || null,
+      gen: item && item.gen || 0
+    });
   }
   function flushClientQueue() {
     var queue = clientQueue.slice();
-    var failed = false;
-    var chain = Promise.resolve();
-    queue.forEach(function (item) {
-      chain = chain.then(function () {
-        var call = item.kind === 'sent'
-          ? (item.deleted ? WBAuth.deleteClientCopy(item.localId) : WBAuth.saveClientCopy(item.localId, item.name, item.items))
-          : WBAuth.saveClientWorkout(item.ownerId, item.change);
-        if (!call) return;
-        return Promise.resolve(call).then(function () {
-          clientQueue = WBLibrary.queueDrop(clientQueue, item);
-          writeUserMap(WBLibrary.QUEUE_KEY, libraryUserId, clientQueue);
-        }, function (err) {
-          if (libraryMissing(err)) throw err;
-          failed = true;
-        });
+    return eachStep(queue, function (item, outcome) {
+      var key = queueKey(item);
+      var stamp = queueStamp(item);
+      var held = heldRejection(key, stamp);
+      if (held) { rememberHeld(outcome, held); return; }
+      var call = item.kind === 'sent'
+        ? (item.deleted ? WBAuth.deleteClientCopy(item.localId) : WBAuth.saveClientCopy(item.localId, item.name, item.items))
+        : WBAuth.saveClientWorkout(item.ownerId, item.change);
+      if (!call) return;
+      return Promise.resolve(call).then(function () {
+        clearRejection(key);
+        clientQueue = WBLibrary.queueDrop(clientQueue, item);
+        writeUserMap(WBLibrary.QUEUE_KEY, libraryUserId, clientQueue);
+      }, function (err) {
+        if (libraryMissing(err)) throw err;
+        keepFailure(outcome, key, stamp, err);
       });
     });
-    return chain.then(function () { return failed; });
+  }
+  function pullAccount() {
+    function read(data) { return WBLibrary.rowsFromPull(data); }
+    return Promise.resolve().then(function () {
+      return WBAuth.accountPull();
+    }).then(read, function (err) {
+      if (!WBAuth.freshSession || !window.WBLibrary || WBLibrary.syncFailure(err) !== 'auth') throw err;
+      return WBAuth.freshSession().then(function () {
+        return WBAuth.accountPull();
+      }).then(read);
+    });
   }
   function runAccountSync() {
     if (!window.WBLibrary || !WBAuth.accountPull || !WBAuth.accountImport || !WBAuth.accountPush) return Promise.resolve();
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      libraryPhase = libraryUserId ? 'offline' : libraryPhase;
+      if (libraryUserId || libraryOwner()) setLibraryStatus('offline', '');
       paintLibraryStatus();
       return Promise.resolve();
     }
+    var readSession = WBAuth.freshSession || WBAuth.session;
     var pending;
-    try { pending = WBAuth.session(); } catch (e) { return Promise.resolve(); }
+    try { pending = readSession(); } catch (e) { return Promise.resolve(); }
+    var beforeSig = listSig(data.workouts);
     return Promise.resolve(pending).then(function (session) {
       var userId = accountUserId(session);
       if (!userId) return;
@@ -515,23 +658,43 @@
         var storedQueue = userMap(WBLibrary.QUEUE_KEY, libraryUserId);
         clientQueue = Array.isArray(storedQueue) ? storedQueue : [];
       }
-      return WBAuth.accountPull().then(function (rows) {
-        if (!Array.isArray(rows)) rows = [];
-        applyLibraryRows(rows);
-        return importPending();
-      }).then(function (importFailed) {
-        return pushPending().then(function (pushFailed) { return importFailed || pushFailed; });
-      }).then(function (failed) {
-        return flushClientQueue().then(function (queueFailed) { return failed || queueFailed; });
-      }).then(function (failed) {
-        libraryPhase = failed ? 'offline' : 'saved';
-        paintLibraryStatus();
-        if (!failed && hashPage() === '' && !libraryAgain) renderList();
+      // The one-time copy is only the library already on this device.
+      // Workouts that arrive from the account are not copied back as if this phone built them.
+      if (!readSeed(libraryUserId)) writeUserMap(LIBRARY_SEED_KEY, libraryUserId, WBLibrary.seedIds(null, data.workouts));
+      return pullAccount().then(function (rows) {
+        try { applyLibraryRows(rows); }
+        catch (err) { return { pullError: err }; }
+        return { rows: rows };
+      }, function (err) {
+        return { pullError: err };
+      }).then(function (pulled) {
+        var outcome = blankOutcome();
+        if (pulled && pulled.pullError) noteFailure(outcome, pulled.pullError);
+        if (outcome.missing || outcome.auth || outcome.offline) return outcome;
+        return importPending().then(function (imported) {
+          mergeOutcome(outcome, imported);
+          if (outcome.missing || outcome.auth) return outcome;
+          return pushAccountChanges().then(function (pushed) {
+            mergeOutcome(outcome, pushed);
+            if (outcome.missing || outcome.auth) return outcome;
+            return flushClientQueue().then(function (flushed) {
+              mergeOutcome(outcome, flushed);
+              return outcome;
+            });
+          });
+        });
       });
+    }).then(function (outcome) {
+      if (!outcome) return;
+      applyOutcome(outcome);
+      // A refused save must not hide workouts the account just sent.
+      finishLibraryView(beforeSig);
     }).catch(function (err) {
-      if (libraryMissing(err)) { libraryOff = true; libraryPhase = ''; paintLibraryStatus(); return; }
-      libraryPhase = 'offline';
-      paintLibraryStatus();
+      if (libraryMissing(err)) { libraryOff = true; setLibraryStatus('', ''); paintLibraryStatus(); return; }
+      var outcome = blankOutcome();
+      noteFailure(outcome, err);
+      applyOutcome(outcome);
+      finishLibraryView(beforeSig);
     });
   }
   function scheduleAccountSync() {
@@ -1860,11 +2023,12 @@
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
-    var statusLine = window.WBLibrary ? WBLibrary.statusText(libraryPhase) : '';
-    if (statusLine) h += '<p class="mute" id="library-status">' + esc(statusLine) + '</p>';
+    var statusLine = libraryStatusHtml();
+    if (statusLine) h += statusLine;
     if (!data.workouts.length) h += '<div class="empty">No workouts yet.<br>Tap “New workout” to build one.</div>';
     data.workouts.forEach(function (w, wi) {
-      var n = w.items.length, nW = data.workouts.length;
+      if (!w) return;
+      var n = Array.isArray(w.items) ? w.items.length : 0, nW = data.workouts.length;
       var locked = copyLocked(w);
       h += '<div class="card">';
       if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span>';
@@ -1912,7 +2076,7 @@
         if (!(w && w.sourceTrainerId) && !levelCan(cachedProfile, 'open')) { levelNoteOn = true; return renderList(); }
         setCopyReturn(''); go('#/w/' + w.id);
       }
-      else if (a === 'run') { if (w.items.length) { setCopyReturn(''); go('#/play/' + w.id); } }
+      else if (a === 'run') { if (w && w.items && w.items.length) { setCopyReturn(''); go('#/play/' + w.id); } }
       else if (a === 'dup') {
         if (!levelCan(cachedProfile, 'open') || atWorkoutCap(cachedProfile)) { levelNoteOn = true; return renderList(); }
         var c = M.duplicateWorkout(w);
@@ -2522,12 +2686,33 @@
   captureInvite();
   window.addEventListener('online', function () { ensureShare(); libraryOff = false; scheduleAccountSync(); });
   window.addEventListener('offline', function () {
-    if (!libraryUserId || libraryOff) return;
-    libraryPhase = 'offline';
+    if ((!libraryUserId && !libraryOwner()) || libraryOff) return;
+    setLibraryStatus('offline', '');
     paintLibraryStatus();
   });
+  // Coming back to the app checks for workouts saved on another device.
+  // Focus, pageshow, and visibility often fire together, so one check covers the burst.
+  function resumeLibrarySoon() {
+    if (libraryOff) return;
+    var wait = (typeof window.__wbLibraryResumeMs === 'number') ? window.__wbLibraryResumeMs : 4000;
+    var now = Date.now();
+    if (now < libraryResumeAt) return;
+    libraryResumeAt = now + wait;
+    scheduleAccountSync();
+  }
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') ensureShare();
+    if (document.visibilityState !== 'visible') return;
+    ensureShare();
+    resumeLibrarySoon();
   });
+  window.addEventListener('focus', resumeLibrarySoon);
+  window.addEventListener('pageshow', resumeLibrarySoon);
+  if (WBAuth.onAuth) {
+    WBAuth.onAuth(function (event) {
+      if (event !== 'SIGNED_IN' && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION') return;
+      // This callback runs while the sign-in client holds its lock. Sync after it lets go.
+      setTimeout(function () { scheduleAccountSync(); }, 0);
+    });
+  }
   route();
 })();
