@@ -125,24 +125,34 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
   ];
   const merged = L.mergeAccount(local, rows, { wo_back: 5000 });
   assert.ok(!merged.workouts.some(function (w) { return w.id === 'wo_keep'; }));
-  assert.strictEqual(merged.tombstones.wo_keep, 2000);
+  assert.strictEqual(merged.tombstones.wo_keep.byUser, false);
+  assert.strictEqual(merged.tombstones.wo_keep.at, 2000);
   const edited = merged.workouts.filter(function (w) { return w.id === 'wo_edit'; })[0];
   assert.strictEqual(edited.name, 'Edited here');
-  assert.ok(!merged.workouts.some(function (w) { return w.id === 'wo_back'; }));
-  assert.strictEqual(merged.tombstones.wo_back, 5000);
+  // A bare timestamp is not a Delete. The live account workout stays visible.
+  const back = merged.workouts.filter(function (w) { return w.id === 'wo_back'; })[0];
+  assert.strictEqual(back.name, 'Comes back');
+  assert.ok(!merged.tombstones.wo_back);
 })();
 
 (function pushOnlyWhatTheServerDoesNotHave() {
   const local = [wo('wo_same', 'Same', 1000), wo('wo_new', 'New', 3000)];
-  const changes = L.pushChanges(local, { wo_drop: 4000, wo_old: 1000 }, { wo_same: 1000, wo_old: 1000 });
+  const drops = { wo_drop: L.userDrop(4000), wo_old: L.userDrop(1000) };
+  const changes = L.pushChanges(local, drops, { wo_same: 1000, wo_old: 1000 });
   assert.deepStrictEqual(changes.map(function (c) { return c.localId + (c.deleted ? ':del' : ''); }), ['wo_new', 'wo_drop:del']);
-  const second = L.pushChanges(local, { wo_drop: 4000 }, { wo_same: 1000, wo_new: 3000, wo_drop: 4000 });
+  const second = L.pushChanges(local, { wo_drop: L.userDrop(4000) }, { wo_same: 1000, wo_new: 3000, wo_drop: 4000 });
   assert.deepStrictEqual(second, []);
+  // An old removal mark must not be sent as a delete.
+  const legacy = L.pushChanges(local, { wo_drop: 4000 }, {});
+  assert.deepStrictEqual(legacy.map(function (c) { return c.localId; }), ['wo_same', 'wo_new']);
+  assert.ok(legacy.every(function (c) { return c.deleted === false; }));
 })();
 
 (function tombstoneBlocksImport() {
   const local = [wo('wo_live', 'Live', 1000), wo('wo_dead', 'Dead', 1000)];
-  const pending = L.pendingImports(local, {}, { wo_dead: 2000 });
+  const legacy = L.pendingImports(local, {}, { wo_dead: 2000 });
+  assert.deepStrictEqual(legacy.map(function (w) { return w.id; }), ['wo_live', 'wo_dead']);
+  const pending = L.pendingImports(local, {}, { wo_dead: L.userDrop(2000) });
   assert.deepStrictEqual(pending.map(function (w) { return w.id; }), ['wo_live']);
 })();
 
@@ -225,6 +235,166 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
   const pending = L.importsForSeed(later, {}, {}, seed);
   assert.deepStrictEqual(pending.map(function (w) { return w.id; }), ['wo_old']);
   assert.deepStrictEqual(L.seedIds(seed, later), ['wo_old']);
+})();
+
+(function phoneAndComputerDoNotDeleteEachOther() {
+  const createdAt = Date.parse('2026-11-13T15:44:00.000Z');
+  const phone = [wo('wo_new', 'New workout', createdAt, { items: [{ name: 'Press', sets: 1 }] })];
+  const server = [remote('wo_new', 'New workout', createdAt, { items: [{ name: 'Press', sets: 1 }] })];
+  // Computer signs in while the phone stays signed in. It has no copy yet, and a
+  // stale removal mark newer than the workout. That mark must not delete it.
+  const signedIn = L.mergeAccount([], server, { wo_new: Date.parse('2026-11-13T16:14:21.612Z') });
+  assert.strictEqual(signedIn.workouts.length, 1);
+  assert.strictEqual(signedIn.workouts[0].name, 'New workout');
+  assert.strictEqual(signedIn.workouts[0].items.length, 1);
+  const computerPush = L.pushChanges(signedIn.workouts, signedIn.tombstones, signedIn.ack);
+  assert.deepStrictEqual(computerPush, []);
+
+  // The phone already has it. A pull must not turn it into a delete either.
+  const phonePull = L.mergeAccount(phone, server, {});
+  assert.strictEqual(phonePull.workouts[0], phone[0]);
+  assert.deepStrictEqual(L.pushChanges(phonePull.workouts, phonePull.tombstones, phonePull.ack), []);
+
+  // Chest is created on the computer and has never reached the account.
+  // The next pull must keep it and still offer it.
+  const chestAt = Date.parse('2026-11-13T15:10:00.000Z');
+  const withChest = phonePull.workouts.concat([wo('wo_chest', 'Chest - press', chestAt)]);
+  const afterPull = L.mergeAccount(withChest, server, { wo_chest: chestAt + 5000 });
+  const chest = afterPull.workouts.filter(function (w) { return w.id === 'wo_chest'; })[0];
+  assert.strictEqual(chest.name, 'Chest - press');
+  const offered = L.pushChanges(afterPull.workouts, afterPull.tombstones, afterPull.ack);
+  assert.deepStrictEqual(offered.map(function (c) { return c.localId + (c.deleted ? ':del' : ''); }), ['wo_chest']);
+
+  // A real Delete on this device, newer than the account, is still sent.
+  const removed = L.mergeAccount(withChest, server, { wo_chest: L.userDrop(chestAt + 5000) });
+  assert.ok(!removed.workouts.some(function (w) { return w.id === 'wo_chest'; }));
+  const deletion = L.pushChanges(removed.workouts, removed.tombstones, removed.ack);
+  assert.strictEqual(deletion.length, 1);
+  assert.strictEqual(deletion[0].localId, 'wo_chest');
+  assert.strictEqual(deletion[0].deleted, true);
+})();
+
+(function importedWorkoutIsNotHiddenByAnOlderClock() {
+  const revised = Date.parse('2026-11-12T10:41:43.209Z');
+  const saved = Date.parse('2026-11-13T00:54:58.000Z');
+  const row = remote('wo_hollow', 'Hollow Body - Shoulders - Neck', revised, {
+    updatedAt: saved,
+    items: new Array(10).fill({ name: 'Hold' })
+  });
+  // Removal mark from the afternoon before the account saved the row.
+  const marked = revised + (5 * 60 * 60 * 1000);
+  const legacy = L.mergeAccount([], [row], { wo_hollow: marked });
+  assert.strictEqual(legacy.workouts.length, 1);
+  assert.strictEqual(legacy.workouts[0].name, 'Hollow Body - Shoulders - Neck');
+  assert.strictEqual(legacy.workouts[0].items.length, 10);
+  assert.deepStrictEqual(L.pushChanges([], legacy.tombstones, {}), []);
+
+  const userBeforeSave = L.mergeAccount([], [row], { wo_hollow: L.userDrop(marked) });
+  assert.strictEqual(userBeforeSave.workouts.length, 1);
+  assert.deepStrictEqual(L.pushChanges(userBeforeSave.workouts, userBeforeSave.tombstones, userBeforeSave.ack), []);
+
+  const userAfterSave = L.mergeAccount([wo('wo_hollow', 'Hollow Body - Shoulders - Neck', revised)], [row], {
+    wo_hollow: L.userDrop(saved + 60 * 1000)
+  });
+  assert.ok(!userAfterSave.workouts.some(function (w) { return w.id === 'wo_hollow'; }));
+  const pushed = L.pushChanges(userAfterSave.workouts, userAfterSave.tombstones, {});
+  assert.strictEqual(pushed.length, 1);
+  assert.strictEqual(pushed[0].deleted, true);
+  assert.strictEqual(pushed[0].revisedAt, saved + 60 * 1000);
+})();
+
+(function staleDeviceKeepsAWorkoutTheAccountDoesNotHave() {
+  const memory = [wo('wo_old', 'Hollow Body - Shoulders - Neck', 1000)];
+  const stored = memory.concat([wo('wo_chest', 'Chest - press', 2000)]);
+  const united = L.unionWorkouts(memory, stored);
+  assert.deepStrictEqual(united.map(function (w) { return w.id; }), ['wo_old', 'wo_chest']);
+  const open = memory[0];
+  const same = L.unionWorkouts([open], [wo('wo_old', 'Renamed', 1000)]);
+  assert.strictEqual(same[0], open);
+  assert.strictEqual(same[0].name, 'Hollow Body - Shoulders - Neck');
+  const newer = L.unionWorkouts([open], [wo('wo_old', 'Renamed', 5000, { items: [{ name: 'Press' }] })]);
+  assert.strictEqual(newer[0], open);
+  assert.strictEqual(open.name, 'Renamed');
+  assert.strictEqual(open.updatedAt, 5000);
+  assert.strictEqual(open.items[0].name, 'Press');
+
+  const archive = L.rememberWorkouts({}, [wo('wo_chest', 'Chest - press', 2000, { items: [{ name: 'Press' }] })]);
+  const restored = L.restoreArchived([], archive, { wo_chest: 3000 }, []);
+  assert.strictEqual(restored[0].name, 'Chest - press');
+  assert.strictEqual(restored[0].items[0].name, 'Press');
+  const blocked = L.restoreArchived([], archive, { wo_chest: L.userDrop(3000) }, []);
+  assert.strictEqual(blocked.length, 0);
+  const deletedOnAccount = L.restoreArchived([], archive, {}, [
+    remote('wo_chest', 'Chest - press', 4000, { deleted: true })
+  ]);
+  assert.strictEqual(deletedOnAccount.length, 0);
+
+  const unseen = L.unseenWorkouts(
+    [wo('wo_chest', 'Chest - press', 2000), wo('wo_hollow', 'Hollow Body - Shoulders - Neck', 1000)],
+    [wo('wo_other', 'Other', 1)],
+    [remote('wo_hollow', 'Hollow Body - Shoulders - Neck', 1000)]
+  );
+  assert.deepStrictEqual(unseen.map(function (w) { return w.id; }), ['wo_chest']);
+})();
+
+(function otherTabDeleteStaysDeleted() {
+  const here = wo('wo_new', 'New workout', 1000);
+  const drop = L.userDrop(2000);
+  const reconciled = L.reconcileDevice([here], [], { wo_new: drop });
+  assert.deepStrictEqual(reconciled, []);
+  const merged = L.mergeAccount(reconciled, [remote('wo_new', 'New workout', 1000)], { wo_new: drop });
+  assert.ok(!merged.workouts.some(function (w) { return w.id === 'wo_new'; }));
+  const pushed = L.pushChanges(merged.workouts, merged.tombstones, {});
+  assert.strictEqual(pushed.length, 1);
+  assert.strictEqual(pushed[0].localId, 'wo_new');
+  assert.strictEqual(pushed[0].deleted, true);
+
+  const storedCopy = wo('wo_new', 'New workout', 1000);
+  const notRevived = L.reconcileDevice([here], [storedCopy], { wo_new: drop });
+  assert.deepStrictEqual(notRevived, []);
+
+  const chest = wo('wo_chest', 'Chest - press', 3000);
+  const kept = L.reconcileDevice([chest, here], [], { wo_new: drop });
+  assert.strictEqual(kept.length, 1);
+  assert.strictEqual(kept[0], chest);
+
+  const open = wo('wo_hollow', 'Old name', 1000, { items: [{ name: 'Hold' }] });
+  const fromOther = L.reconcileDevice([open], [wo('wo_hollow', 'Hollow Body', 4000, { items: [{ name: 'Hold' }, { name: 'Press' }] })], {});
+  assert.strictEqual(fromOther[0], open);
+  assert.strictEqual(open.name, 'Hollow Body');
+  assert.strictEqual(open.items.length, 2);
+
+  // A newer account copy keeps the object on screen. The Delete is older than that save.
+  const editing = wo('wo_live', 'Old', 1000, { items: [{ name: 'Hold' }] });
+  const account = remote('wo_live', 'Hollow Body', 4000, { items: [{ name: 'Hold' }, { name: 'Press' }] });
+  const stillOpen = L.reconcileDevice([editing], [], { wo_live: L.userDrop(2000) }, [account]);
+  assert.strictEqual(stillOpen[0], editing);
+  const keptOpen = L.mergeAccount(stillOpen, [account], { wo_live: L.userDrop(2000) });
+  assert.strictEqual(keptOpen.workouts[0], editing);
+  assert.strictEqual(editing.name, 'Hollow Body');
+  assert.strictEqual(editing.items.length, 2);
+  assert.strictEqual(editing.updatedAt, 4000);
+})();
+
+(function userDeleteIsNotUndoneByAnOlderAccountDelete() {
+  const local = wo('wo_new', 'New workout', 2500);
+  const row = remote('wo_new', 'New workout', 1000, { deleted: true });
+  const drop = L.userDrop(3000);
+  const kept = L.reconcileDevice([local], [wo('wo_new', 'New workout', 2500)], { wo_new: drop }, [row]);
+  assert.deepStrictEqual(kept, []);
+  const merged = L.mergeAccount([local], [row], { wo_new: drop });
+  assert.ok(!merged.workouts.some(function (w) { return w.id === 'wo_new'; }));
+  assert.strictEqual(L.isUserDrop(merged.tombstones.wo_new), true);
+  const pushed = L.pushChanges(merged.workouts, merged.tombstones, merged.ack);
+  assert.strictEqual(pushed.length, 1);
+  assert.strictEqual(pushed[0].deleted, true);
+  assert.strictEqual(pushed[0].revisedAt, 3000);
+
+  const edited = wo('wo_new', 'Edited after', 4000);
+  const revived = L.mergeAccount([edited], [row], { wo_new: drop });
+  assert.strictEqual(revived.workouts.length, 1);
+  assert.strictEqual(revived.workouts[0].name, 'Edited after');
+  assert.ok(!revived.tombstones.wo_new);
 })();
 
 (function anotherAccountDoesNotReceiveTheLibrary() {

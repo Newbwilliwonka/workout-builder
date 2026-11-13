@@ -4,8 +4,8 @@
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
   var data = M.load(localStorage), selected = {}, draft = null;
 
-  function persist() { M.save(localStorage, data); scheduleCopySave(); scheduleSharePush(); if (!applyingLibrary) scheduleAccountSync(); scheduleGuestSave(); }
-  function persistLocal() { M.save(localStorage, data); }
+  function persist() { archiveCurrent(); M.save(localStorage, data); scheduleCopySave(); scheduleSharePush(); if (!applyingLibrary) scheduleAccountSync(); scheduleGuestSave(); }
+  function persistLocal() { archiveCurrent(); M.save(localStorage, data); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function getW(id) {
     var found = data.workouts.filter(function (w) { return w && String(w.id) === String(id); })[0];
@@ -264,6 +264,7 @@
   }
   var guests = [], guestStamp = {}, guestGen = {}, applyingLibrary = false, clientScreen = null;
   var libraryFlight = null, libraryAgain = false, libraryPhase = '', libraryDetail = '', libraryOff = false, libraryUserId = '';
+  var librarySwitched = false;
   var libraryResumeAt = 0;
   var libraryAck = {}, pendingDrops = {}, clientQueue = [];
   function libraryBox(key) {
@@ -294,12 +295,63 @@
   }
   function noteDrop(id, at) {
     if (!id || !window.WBLibrary) return;
-    var stamp = at || Date.now();
-    pendingDrops[String(id)] = stamp;
+    var mark = WBLibrary.userDrop(at);
+    if (!mark) return;
+    pendingDrops[String(id)] = mark;
     var key = libraryUserId || '_pending';
     var drops = userMap(WBLibrary.DROP_KEY, key);
-    if (!drops[String(id)] || WBLibrary.ms(drops[String(id)]) < WBLibrary.ms(stamp)) drops[String(id)] = stamp;
+    if (!WBLibrary.isUserDrop(drops[String(id)]) || WBLibrary.dropTime(drops[String(id)]) < mark.at) drops[String(id)] = mark;
     writeUserMap(WBLibrary.DROP_KEY, key, drops);
+    forgetArchived(id);
+  }
+  function absorbUserDrops(box) {
+    Object.keys(box || {}).forEach(function (id) {
+      if (WBLibrary.isUserDrop(box[id])) noteDrop(id, WBLibrary.dropTime(box[id]));
+    });
+  }
+  var ARCHIVE_KEY = 'wb.workoutArchive.v1';
+  var ARCHIVE_FOLD_KEY = 'wb.workoutArchiveFold.v1';
+  function valuesOf(box) {
+    return Object.keys(box || {}).map(function (id) { return box[id]; });
+  }
+  function archiveScope() {
+    return libraryUserId || libraryOwner() || '_device';
+  }
+  function readArchive(userId) {
+    var row = userMap(ARCHIVE_KEY, userId || '_device');
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return {};
+    return row;
+  }
+  function archiveCurrent() {
+    if (!window.WBLibrary) return;
+    var key = archiveScope();
+    var archive = WBLibrary.rememberWorkouts(readArchive(key), data.workouts);
+    writeUserMap(ARCHIVE_KEY, key, WBLibrary.pruneArchive(archive, data.workouts));
+  }
+  function forgetArchived(id) {
+    if (!id) return;
+    [archiveScope(), libraryUserId, '_device'].forEach(function (key) {
+      if (!key) return;
+      var archive = readArchive(key);
+      if (!archive[String(id)]) return;
+      delete archive[String(id)];
+      writeUserMap(ARCHIVE_KEY, key, archive);
+    });
+  }
+  function foldSavedCopies(archive, current, remote) {
+    if (!libraryUserId) return archive;
+    var folded = libraryBox(ARCHIVE_FOLD_KEY);
+    if (folded[libraryUserId]) return archive;
+    var cached = libraryBox(LIBRARY_CACHE_KEY)[libraryUserId];
+    var found = cached && Array.isArray(cached.workouts) ? cached.workouts : [];
+    return WBLibrary.rememberWorkouts(archive, WBLibrary.unseenWorkouts(found, current, remote));
+  }
+  function markArchiveFolded() {
+    if (!libraryUserId) return;
+    var folded = libraryBox(ARCHIVE_FOLD_KEY);
+    if (folded[libraryUserId]) return;
+    folded[libraryUserId] = Date.now();
+    writeLibraryBox(ARCHIVE_FOLD_KEY, folded);
   }
   function resetLibraryMemory() {
     guests = [];
@@ -346,16 +398,27 @@
   }
   function applyLibraryRows(rows) {
     if (!window.WBLibrary) return;
+    absorbUserDrops(pendingDrops);
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
-    Object.keys(pendingDrops).forEach(function (id) {
-      if (!drops[id] || WBLibrary.ms(pendingDrops[id]) > WBLibrary.ms(drops[id])) drops[id] = pendingDrops[id];
-    });
-    var merged = WBLibrary.mergeAccount(data.workouts, rows, drops);
+    var stored = M.load(localStorage);
+    // Snapshot first. Later steps update the open workout objects in place,
+    // so a snapshot taken afterwards would already match and skip the save.
     var before = '';
+    try { before = JSON.stringify(data.workouts); } catch (e) { before = ''; }
+    var united = WBLibrary.reconcileDevice(data.workouts, stored.workouts, drops, rows);
+    var archive = readArchive(libraryUserId);
+    if (libraryUserId && !librarySwitched) archive = WBLibrary.rememberWorkouts(archive, valuesOf(readArchive('_device')));
+    archive = WBLibrary.rememberWorkouts(archive, united);
+    archive = foldSavedCopies(archive, united, rows);
+    var merged = WBLibrary.mergeAccount(united, rows, drops);
+    var restored = WBLibrary.restoreArchived(merged.workouts, archive, merged.tombstones, rows);
     var after = '';
-    try { before = JSON.stringify(data.workouts); after = JSON.stringify(merged.workouts); } catch (e) { before = ''; after = 'x'; }
-    data.workouts = merged.workouts;
+    try { after = JSON.stringify(restored); } catch (e) { after = 'x'; }
+    data.workouts = restored;
     writeUserMap(WBLibrary.DROP_KEY, libraryUserId, merged.tombstones);
+    writeUserMap(ARCHIVE_KEY, libraryUserId || '_device', WBLibrary.pruneArchive(WBLibrary.rememberWorkouts(archive, restored), restored));
+    markArchiveFolded();
+    if (libraryUserId && !librarySwitched) writeUserMap(ARCHIVE_KEY, '_device', {});
     Object.keys(merged.ack || {}).forEach(function (id) { libraryAck[id] = merged.ack[id]; });
     if (before !== after) {
       applyingLibrary = true;
@@ -396,15 +459,21 @@
     };
     writeLibraryBox(LIBRARY_CACHE_KEY, box);
     var prevDrops = userMap(WBLibrary.DROP_KEY, ownerId);
-    var loose = userMap(WBLibrary.DROP_KEY, '_pending');
-    Object.keys(loose).forEach(function (id) {
-      if (!prevDrops[id] || WBLibrary.ms(loose[id]) > WBLibrary.ms(prevDrops[id])) prevDrops[id] = loose[id];
+    function copyUserDrop(id, value) {
+      if (!WBLibrary.isUserDrop(value)) return;
+      var stamp = WBLibrary.dropTime(value);
+      if (!WBLibrary.isUserDrop(prevDrops[id]) || stamp > WBLibrary.dropTime(prevDrops[id])) {
+        prevDrops[id] = WBLibrary.userDrop(stamp);
+      }
+    }
+    Object.keys(userMap(WBLibrary.DROP_KEY, '_pending')).forEach(function (id) {
+      copyUserDrop(id, userMap(WBLibrary.DROP_KEY, '_pending')[id]);
     });
-    Object.keys(pendingDrops).forEach(function (id) {
-      if (!prevDrops[id] || WBLibrary.ms(pendingDrops[id]) > WBLibrary.ms(prevDrops[id])) prevDrops[id] = pendingDrops[id];
-    });
+    Object.keys(pendingDrops).forEach(function (id) { copyUserDrop(id, pendingDrops[id]); });
     writeUserMap(WBLibrary.DROP_KEY, ownerId, prevDrops);
     writeUserMap(WBLibrary.DROP_KEY, '_pending', {});
+    var parked = WBLibrary.rememberWorkouts(readArchive(ownerId), data.workouts);
+    writeUserMap(ARCHIVE_KEY, ownerId, WBLibrary.pruneArchive(parked, data.workouts));
     var looseQueue = userMap(WBLibrary.QUEUE_KEY, '_pending');
     if (Array.isArray(looseQueue) && looseQueue.length) {
       var prevQueue = userMap(WBLibrary.QUEUE_KEY, ownerId);
@@ -416,7 +485,8 @@
   }
   function adoptAccount(userId) {
     var owner = libraryOwner();
-    if (owner && owner !== userId) {
+    librarySwitched = !!(owner && owner !== userId);
+    if (librarySwitched) {
       parkLibrary(owner);
       pendingDrops = {};
       clientQueue = [];
@@ -431,6 +501,8 @@
       data.workouts = choice.workouts;
       data.sessions = cached && Array.isArray(cached.sessions) ? cached.sessions : [];
       data.programs = cached && Array.isArray(cached.programs) ? cached.programs : [];
+      setLibraryOwner(userId);
+      libraryUserId = userId;
       applyingLibrary = true;
       try { persistLocal(); }
       catch (e) {}
@@ -644,9 +716,8 @@
       var switching = !!(libraryOwner() && libraryOwner() !== userId);
       adoptAccount(userId);
       if (!switching) {
-        var pendingDropsBox = userMap(WBLibrary.DROP_KEY, '_pending');
-        Object.keys(pendingDropsBox).forEach(function (id) { noteDrop(id, pendingDropsBox[id]); });
-        Object.keys(pendingDrops).forEach(function (id) { noteDrop(id, pendingDrops[id]); });
+        absorbUserDrops(userMap(WBLibrary.DROP_KEY, '_pending'));
+        absorbUserDrops(pendingDrops);
         writeUserMap(WBLibrary.DROP_KEY, '_pending', {});
         [userMap(WBLibrary.QUEUE_KEY, '_pending'), userMap(WBLibrary.QUEUE_KEY, libraryUserId)].forEach(function (list) {
           if (!Array.isArray(list)) return;
@@ -2684,6 +2755,59 @@
   }
   window.WB_buildFromDraft = buildFromDraft; window.WB_makeDraft = makeDraft; // exposed for testing
   captureInvite();
+  archiveCurrent();
+  function readUserDrops() {
+    var merged = {};
+    if (!window.WBLibrary) return merged;
+    [libraryUserId, libraryOwner(), '_pending'].forEach(function (key) {
+      if (!key) return;
+      var row = userMap(WBLibrary.DROP_KEY, key);
+      Object.keys(row).forEach(function (id) {
+        if (!WBLibrary.isUserDrop(row[id])) return;
+        if (!WBLibrary.isUserDrop(merged[id]) || WBLibrary.dropTime(row[id]) > WBLibrary.dropTime(merged[id])) merged[id] = row[id];
+      });
+    });
+    return merged;
+  }
+  function listStamp(list) {
+    return (list || []).map(function (w) {
+      if (!w) return '';
+      var n = 0;
+      try { n = JSON.stringify(w.items || []).length; } catch (e) { n = 0; }
+      return [w.id, w.name, w.updatedAt || 0, n].join(':');
+    }).join('|');
+  }
+  // Another tab saved the list or recorded a Delete. Honor that Delete, and
+  // copy a newer workout onto the object this tab already has open.
+  function adoptSiblingSave() {
+    if (!window.WBLibrary || applyingLibrary) return;
+    var before = listStamp(data.workouts);
+    var had = {};
+    data.workouts.forEach(function (w) { if (w && w.id) had[String(w.id)] = 1; });
+    var next = WBLibrary.reconcileDevice(data.workouts, M.load(localStorage).workouts, readUserDrops());
+    if (listStamp(next) === before) return;
+    var removed = {};
+    var still = {};
+    next.forEach(function (w) { if (w && w.id) still[String(w.id)] = 1; });
+    Object.keys(had).forEach(function (id) { if (!still[id]) removed[id] = 1; });
+    data.workouts = next;
+    var page = hashPage();
+    var id = hashBody().split('/')[1] || '';
+    if (id && removed[id] && (page === 'w' || page === 'play')) {
+      go('#/');
+    } else if (page === '') {
+      renderList();
+    } else if (page === 'w' && hashBody().split('/').length === 2 && !document.getElementById('wo-name-input')) {
+      var live = getW(id);
+      if (live) renderWorkout(live);
+    }
+    scheduleAccountSync();
+  }
+  window.addEventListener('storage', function (e) {
+    if (!e || !window.WBLibrary || e.storageArea !== localStorage) return;
+    if (e.key !== M.STORAGE_KEY && e.key !== WBLibrary.DROP_KEY) return;
+    adoptSiblingSave();
+  });
   window.addEventListener('online', function () { ensureShare(); libraryOff = false; scheduleAccountSync(); });
   window.addEventListener('offline', function () {
     if ((!libraryUserId && !libraryOwner()) || libraryOff) return;
