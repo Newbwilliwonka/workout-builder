@@ -596,6 +596,8 @@
   var RECOVERY_LOCK = 'wb.recovery';
   var RESET_SENT = 'If that email has an account, a reset link is on its way. Check your inbox and spam.';
   var RESET_INVALID = 'This reset link is invalid or has expired.';
+  var RESET_UNREAD = 'Could not check your reset link. Try again.';
+  var recoveryMessage = '';
   // The URL tokens are removed once the link is accepted, but the recovery
   // session stays in the browser. Remember that here so a reload still asks
   // for a new password instead of opening the app.
@@ -767,6 +769,11 @@
       h += '<p class="lede">Request a new link, then open it in this browser.</p>';
       h += '<div class="actions"><button class="pri" data-auth="forgot" style="width:100%">Send a new reset link</button></div>';
       h += '<button class="linkish" data-auth="back-signin">Back to sign in</button>';
+    } else if (recoveryPhase === 'retry') {
+      h += '<h2>Set a new password</h2>';
+      h += '<div class="errs">' + esc(message || recoveryMessage || RESET_UNREAD) + '</div>';
+      h += '<div class="actions"><button class="pri" data-auth="retry-reset" style="width:100%">Try again</button></div>';
+      h += '<button class="linkish" data-auth="back-signin">Back to sign in</button>';
     } else if (recoveryPhase === 'form') {
       h += '<h2>Set a new password</h2><p class="lede">Choose a new password for your account.</p>';
       if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
@@ -789,6 +796,12 @@
         recoveryPhase = '';
         recoveryReady = false;
         return go('#/forgot');
+      }
+      if (b.dataset.auth === 'retry-reset') {
+        recoveryPhase = '';
+        recoveryMessage = '';
+        if (WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(++routeToken);
+        return resumeRecovery(++routeToken);
       }
       if (b.dataset.auth === 'back-signin') return abandonReset();
       if (b.dataset.auth !== 'update-pass' || authBusy || !recoveryReady) return;
@@ -823,14 +836,31 @@
     };
   }
   function abandonReset() {
-    unlockRecovery();
-    recoverySettled = true;
-    var signedIn = recoveryPhase === 'form' && recoveryReady;
-    recoveryPhase = '';
+    var mustSignOut = recoveryLocked() || (recoveryPhase === 'form' && recoveryReady);
+    function goSign() {
+      unlockRecovery();
+      recoverySettled = true;
+      recoveryPhase = '';
+      recoveryReady = false;
+      recoveryMessage = '';
+      go('#/signin');
+    }
+    if (!mustSignOut || !WBAuth.signOut) return goSign();
+    // Sign out before dropping the lock. A failed read can leave the recovery
+    // session in place, and clearing the lock first would open the app.
+    recoveryPhase = 'checking';
+    recoverySettled = false;
+    renderReset();
+    Promise.resolve().then(function () { return WBAuth.signOut(); }).then(goSign, function () {
+      holdRecovery('Could not sign out. Stay here until the new password is set.');
+    });
+  }
+  function holdRecovery(message) {
+    recoveryMessage = message || RESET_UNREAD;
+    recoveryPhase = 'retry';
+    recoverySettled = false;
     recoveryReady = false;
-    function goSign() { go('#/signin'); }
-    if (!signedIn || !WBAuth.signOut) return goSign();
-    Promise.resolve().then(function () { return WBAuth.signOut(); }).then(goSign, goSign);
+    renderReset(recoveryMessage, true);
   }
   function replaceAuthHash(hash) {
     try {
@@ -911,7 +941,9 @@
       renderReset(result && result.message);
     }, function () {
       if (token !== routeToken) return;
-      unlockRecovery();
+      // The client may already have stored the recovery session. A failed
+      // exchange is not proof that session is gone, so keep the lock.
+      if (recoveryLocked()) return holdRecovery();
       recoveryPhase = 'invalid';
       recoverySettled = true;
       recoveryReady = false;
@@ -943,11 +975,7 @@
       renderReset();
     }, function () {
       if (token !== routeToken) return;
-      unlockRecovery();
-      recoveryPhase = 'invalid';
-      recoverySettled = true;
-      recoveryReady = false;
-      renderReset();
+      holdRecovery();
     });
   }
   function copyText(text) {
@@ -1772,9 +1800,9 @@
     // Recovery links are claimed before any guard replaces the hash or sends
     // a signed-out person to the normal sign-in page.
     if (recoveryPhase === 'checking') return renderReset();
-    if (recoveryPhase === 'form' && !recoverySettled) {
+    if (recoveryPhase === 'form' || recoveryPhase === 'retry') {
       if (page !== 'reset') replaceAuthHash('#/reset');
-      return renderReset();
+      return renderReset(recoveryPhase === 'retry' ? recoveryMessage : '', recoveryPhase === 'retry');
     }
     if (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(token);
     if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);

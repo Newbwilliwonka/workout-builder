@@ -45,6 +45,11 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
               window.__cleared = true;
               try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
             }
+            var reads = 0;
+            try { reads = Number(sessionStorage.getItem('wb.sessionReads') || '0') || 0; } catch (e) {}
+            reads += 1;
+            try { sessionStorage.setItem('wb.sessionReads', String(reads)); } catch (e) {}
+            if (cfg.failSessionRead && reads === cfg.failSessionRead) return Promise.reject(new Error('Failed to fetch'));
             return Promise.resolve(cfg.session || null);
           };
           v.profile = function () { return Promise.resolve(cfg.profile == null ? null : cfg.profile); };
@@ -240,6 +245,26 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   assert.strictEqual(await again.$eval('h2', e => e.textContent), 'Set a new password');
   assert.ok(await again.$('[data-auth=update-pass]:not([disabled])'));
   assert.ok(!(await again.evaluate(() => document.body.innerText.indexOf('Checking your link') !== -1)));
+
+  const UNREAD = 'Could not check your reset link. Try again.';
+  const flaky = await open({
+    session: { user: { id: 'u', email: 'ada@example.com' } },
+    profile: none,
+    clearHash: true,
+    failSessionRead: 2
+  });
+  await flaky.goto(URL + '#type=recovery');
+  await flaky.waitForSelector('#new-pass');
+  await flaky.reload();
+  await flaky.waitForFunction((msg) => document.body.innerText.indexOf(msg) !== -1 && !document.querySelector('#new-pass') && !document.querySelector('[data-a=new]'), {}, UNREAD);
+  assert.strictEqual(await flaky.evaluate(() => localStorage.getItem('wb.recovery')), '1');
+  assert.ok(await flaky.evaluate(() => document.body.innerText.indexOf('invalid or has expired') === -1));
+  await flaky.evaluate(() => { location.hash = '#/'; });
+  await flaky.waitForFunction((msg) => location.hash === '#/reset' && document.body.innerText.indexOf(msg) !== -1 && !document.querySelector('[data-a=new]'), {}, UNREAD);
+  await flaky.click('[data-auth=retry-reset]');
+  await flaky.waitForSelector('#new-pass');
+  assert.strictEqual(await flaky.evaluate(() => localStorage.getItem('wb.recovery')), '1');
+  assert.ok(!(await flaky.$('[data-a=new]')));
 
   const bare = await open({});
   await bare.goto(URL + '#/reset');
