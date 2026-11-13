@@ -186,6 +186,16 @@
       return workoutRpc('workout_save', { p_id: id, p_name: name || '', p_items: items || [] });
     },
     deleteWorkoutCopy: function (id) { return workoutRpc('workout_delete', { p_id: id }); },
+    accountPull: function () { return accountRpc('account_workout_pull'); },
+    accountImport: function (workout) { return accountRpc('account_workout_import', { p_workout: workout || {} }); },
+    accountPush: function (change) { return accountRpc('account_workout_push', { p_change: change || {} }); },
+    clientAccountWorkouts: function (clientId) { return accountRpc('account_client_workouts', { p_client: clientId }); },
+    saveClientWorkout: function (clientId, change) { return accountRpc('account_client_save', { p_client: clientId, p_change: change || {} }); },
+    clientSentWorkouts: function (clientId) { return accountRpc('workout_sent', { p_client: clientId }); },
+    saveClientCopy: function (id, name, items) {
+      return accountRpc('workout_trainer_save', { p_id: id, p_name: name || '', p_items: items || [] });
+    },
+    deleteClientCopy: function (id) { return accountRpc('workout_trainer_delete', { p_id: id }); },
     watchMessages: function (handler) {
       return db().then(function (c) {
         var channel = c.channel('wb-messages-' + Math.random().toString(36).slice(2));
@@ -402,6 +412,25 @@
       if (res.error) throw workoutError(res.error);
       return res.data;
     });
+  }
+  function accountMissing(err) {
+    var msg = (err && (err.message || err.details || err.hint || err.code)) || '';
+    return /schema cache|could not find the function|does not exist|PGRST202|PGRST205|42P01|account_workout|workout_sent|workout_trainer/i.test(String(msg));
+  }
+  function accountRpc(name, args) {
+    return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
+      if (res.error) throw accountSaveError(res.error);
+      return res.data;
+    });
+  }
+  function accountSaveError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (accountMissing(err)) {
+      var missing = new Error('Workouts stay on this device until the account workout SQL is applied.');
+      missing.missing = true;
+      return missing;
+    }
+    return new Error(msg || 'Could not save that workout.');
   }
   function workoutError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';

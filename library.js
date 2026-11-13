@@ -1,0 +1,305 @@
+/* Account workout sync. No network. Browser: window.WBLibrary. Node: require.
+   The account is the shared copy. The device keeps its own copy so a workout
+   still opens with no signal. The later edit wins, including a delete. */
+(function (root) {
+  'use strict';
+
+  var CLAIM_KEY = 'wb.accountClaimed.v1';
+  var DROP_KEY = 'wb.accountDropped.v1';
+  var QUEUE_KEY = 'wb.clientQueue.v1';
+
+  function ms(value) {
+    if (typeof value === 'number' && isFinite(value)) return value;
+    var n = Date.parse(value || '');
+    return isNaN(n) ? 0 : n;
+  }
+  function clone(value) {
+    try { return JSON.parse(JSON.stringify(value == null ? [] : value)); }
+    catch (e) { return []; }
+  }
+  function ownWorkout(w) {
+    return !!(w && w.id && !w.sourceTrainerId && !w.remoteOwnerId);
+  }
+  function ownWorkouts(list) {
+    return (list || []).filter(ownWorkout);
+  }
+  function isDeleted(row) {
+    return !!(row && (row.deleted === true || row.deleted === 'true'));
+  }
+  function changeFrom(w, deleted, revisedAt) {
+    var at = revisedAt == null ? ms(w && w.updatedAt) : ms(revisedAt);
+    if (!at) at = Date.now();
+    return {
+      localId: String(w && w.id || ''),
+      name: String(w && w.name || 'Workout'),
+      items: deleted ? [] : clone(w && w.items || []),
+      revisedAt: at,
+      deleted: !!deleted
+    };
+  }
+  function pendingImports(workouts, claimed, tombstones) {
+    claimed = claimed || {};
+    tombstones = tombstones || {};
+    return ownWorkouts(workouts).filter(function (w) {
+      var id = String(w.id);
+      return !claimed[id] && !tombstones[id];
+    });
+  }
+  function rememberClaim(claimed, localId) {
+    var next = Object.assign({}, claimed || {});
+    next[String(localId)] = 1;
+    return next;
+  }
+  // Runs the copy one workout at a time. A failed step keeps the earlier
+  // claims and leaves the failed workout, and anything after it, still pending.
+  function absorbImports(workouts, claimed, tombstones, absorb) {
+    var next = Object.assign({}, claimed || {});
+    var pending = pendingImports(workouts, next, tombstones);
+    var saved = [];
+    var stopped = false;
+    for (var i = 0; i < pending.length; i++) {
+      var result;
+      try { result = absorb(pending[i], i); }
+      catch (e) { stopped = true; break; }
+      if (!result || result.ok !== true || !result.localId) { stopped = true; break; }
+      next[String(result.localId)] = 1;
+      saved.push(String(result.localId));
+    }
+    return {
+      claimed: next,
+      saved: saved,
+      stopped: stopped,
+      pending: pendingImports(workouts, next, tombstones).map(function (w) { return String(w.id); })
+    };
+  }
+  function fromRemote(row, previous) {
+    var at = ms(row && row.revisedAt);
+    return {
+      id: String(row.localId),
+      name: row.name || 'Workout',
+      items: clone(row.items || []),
+      createdAt: previous && previous.createdAt ? previous.createdAt : (ms(row.createdAt) || at),
+      updatedAt: at
+    };
+  }
+  // Remote rows use localId, the same id a program day stores as workoutId.
+  function mergeAccount(workouts, remote, tombstones) {
+    var drops = {};
+    Object.keys(tombstones || {}).forEach(function (id) {
+      if (tombstones[id]) drops[String(id)] = ms(tombstones[id]);
+    });
+    var incoming = {};
+    (remote || []).forEach(function (row) {
+      if (row && row.localId) incoming[String(row.localId)] = row;
+    });
+    var ack = {};
+    var seen = {};
+    var next = [];
+    (workouts || []).forEach(function (w) {
+      if (!w) return;
+      if (!ownWorkout(w)) { next.push(w); return; }
+      var id = String(w.id);
+      seen[id] = 1;
+      var row = incoming[id];
+      var localAt = ms(w.updatedAt);
+      var dropAt = drops[id] || 0;
+      if (!row) {
+        if (dropAt > localAt) return;
+        next.push(w);
+        return;
+      }
+      var remoteAt = ms(row.revisedAt);
+      if (isDeleted(row)) {
+        if (localAt > remoteAt) {
+          delete drops[id];
+          next.push(w);
+        } else {
+          drops[id] = Math.max(dropAt, remoteAt);
+          ack[id] = remoteAt;
+        }
+        return;
+      }
+      if (dropAt > remoteAt && dropAt >= localAt) return;
+      if (localAt > remoteAt) {
+        delete drops[id];
+        next.push(w);
+        return;
+      }
+      delete drops[id];
+      next.push(fromRemote(row, w));
+      ack[id] = remoteAt;
+    });
+    Object.keys(incoming).forEach(function (id) {
+      if (seen[id]) return;
+      var row = incoming[id];
+      var remoteAt = ms(row.revisedAt);
+      var dropAt = drops[id] || 0;
+      if (isDeleted(row)) {
+        drops[id] = Math.max(dropAt, remoteAt);
+        ack[id] = remoteAt;
+        return;
+      }
+      if (dropAt > remoteAt) return;
+      if (dropAt && dropAt === remoteAt) return;
+      delete drops[id];
+      next.push(fromRemote(row, null));
+      ack[id] = remoteAt;
+    });
+    return { workouts: next, tombstones: drops, ack: ack };
+  }
+  function pushChanges(workouts, tombstones, ack) {
+    ack = ack || {};
+    var out = [];
+    var live = {};
+    ownWorkouts(workouts).forEach(function (w) {
+      var id = String(w.id);
+      live[id] = 1;
+      var at = ms(w.updatedAt);
+      if (ack[id] != null && at <= ms(ack[id])) return;
+      out.push(changeFrom(w, false));
+    });
+    Object.keys(tombstones || {}).forEach(function (id) {
+      if (!tombstones[id] || live[id]) return;
+      var at = ms(tombstones[id]);
+      if (ack[id] != null && at <= ms(ack[id])) return;
+      out.push({ localId: String(id), name: 'Workout', items: [], revisedAt: at, deleted: true });
+    });
+    return out;
+  }
+  function statusText(phase) {
+    if (phase === 'saved') return 'Saved';
+    if (phase === 'offline') return 'Offline, will sync';
+    return '';
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function viewOnlyHtml(w) {
+    var h = '<p class="mute" id="copy-note">You can run this workout. You cannot edit or delete it.</p>';
+    (w && w.items || []).forEach(function (it) {
+      var line = '';
+      try { if (root.WB && root.WB.summarize) line = root.WB.summarize(it); } catch (e) { line = ''; }
+      h += '<div class="card"><div class="name">' + esc(it && it.name || 'Exercise') + '</div>' +
+        (line ? '<div class="mute">' + esc(line) + '</div>' : '') + '</div>';
+    });
+    if (w && w.items && w.items.length) h += '<button type="button" class="pri" id="copy-run" style="width:100%">Start</button>';
+    return h;
+  }
+  function cardButtons(kind, id, edit) {
+    var h = '<div class="actions">';
+    if (edit) h += '<button type="button" class="pri sm" data-client-open="' + esc(id) + '" data-client-kind="' + kind + '">Open</button>';
+    h += '<button type="button" class="sm" data-client-run="' + esc(id) + '" data-client-kind="' + kind + '">Run</button>';
+    if (edit) h += '<button type="button" class="sm danger" data-client-del="' + esc(id) + '" data-client-kind="' + kind + '">Delete</button>';
+    return h + '</div>';
+  }
+  // Extra block under the existing client screen. Empty when there is nothing new to show.
+  function clientToolsHtml(model) {
+    model = model || {};
+    var permission = model.permission || 'hidden';
+    var workouts = Array.isArray(model.workouts) ? model.workouts : [];
+    var sent = Array.isArray(model.sent) ? model.sent : [];
+    if (permission === 'hidden' && !sent.length) return '';
+    if (permission !== 'edit' && permission !== 'view' && !sent.length) return '';
+    var h = '<div id="client-account">';
+    if (permission === 'view' || permission === 'edit') {
+      h += '<div class="name" style="margin:12px 0 8px">' + (permission === 'edit' ? 'Their workouts' : 'Run a workout') + '</div>';
+      if (permission === 'view') h += '<p class="mute">You can run these. You cannot edit or delete them.</p>';
+      if (permission === 'edit') h += '<p class="mute">You can view, run, and edit these workouts.</p>';
+      if (!workouts.length) h += '<p class="mute" id="client-account-empty">No workouts on this account yet.</p>';
+      workouts.forEach(function (w) {
+        if (!w || isDeleted(w) || !w.localId) return;
+        var n = (w.items || []).length;
+        h += '<div class="card" data-account-id="' + esc(w.localId) + '"><div class="name">' + esc(w.name || 'Workout') + '</div>';
+        h += '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div>';
+        h += cardButtons('account', w.localId, permission === 'edit');
+        h += '</div>';
+      });
+      if (permission === 'edit') {
+        h += '<button type="button" class="pri" id="client-account-new" data-client-new style="width:100%;margin-bottom:12px">+ New workout</button>';
+      }
+    }
+    if (sent.length) {
+      h += '<div class="name" style="margin:12px 0 8px">Workouts you sent</div>';
+      h += '<p class="mute">You can view, run, and edit a workout you sent.</p>';
+      sent.forEach(function (w) {
+        if (!w || !w.id) return;
+        var n = (w.items || []).length;
+        h += '<div class="card" data-sent-id="' + esc(w.id) + '"><div class="name">' + esc(w.name || 'Workout') + '</div>';
+        h += '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div>';
+        h += cardButtons('sent', w.id, true);
+        h += '</div>';
+      });
+    }
+    return h + '</div>';
+  }
+  function guestFromAccount(row, ownerId, permission) {
+    var at = ms(row && row.revisedAt) || Date.now();
+    return {
+      id: String(row.localId),
+      name: row.name || 'Workout',
+      items: clone(row.items || []),
+      createdAt: ms(row.createdAt) || at,
+      updatedAt: at,
+      remoteOwnerId: String(ownerId || ''),
+      remoteLocked: permission !== 'edit',
+      remoteEditable: permission === 'edit'
+    };
+  }
+  function guestFromCopy(row, ownerId) {
+    var at = ms(row && row.updatedAt) || Date.now();
+    return {
+      id: String(row.id),
+      name: row.name || 'Workout',
+      items: clone(row.items || []),
+      createdAt: ms(row.createdAt) || at,
+      updatedAt: at,
+      sourceTrainerId: row.sourceTrainerId || 'trainer',
+      sourceWorkoutId: row.sourceWorkoutId || '',
+      remoteOwnerId: String(ownerId || ''),
+      remoteEditable: true,
+      sentCopy: true
+    };
+  }
+  function queueUpsert(queue, item) {
+    var list = (queue || []).filter(function (row) {
+      if (!row || !item) return false;
+      return !(row.ownerId === item.ownerId && row.kind === item.kind && row.localId === item.localId);
+    });
+    list.push(item);
+    return list;
+  }
+  function queueDrop(queue, item) {
+    return (queue || []).filter(function (row) {
+      if (!row || !item) return false;
+      var same = row.ownerId === item.ownerId && row.kind === item.kind && String(row.localId) === String(item.localId);
+      if (!same) return true;
+      if (item.gen != null && row.gen != null && row.gen !== item.gen) return true;
+      return false;
+    });
+  }
+
+  var api = {
+    CLAIM_KEY: CLAIM_KEY,
+    DROP_KEY: DROP_KEY,
+    QUEUE_KEY: QUEUE_KEY,
+    ms: ms,
+    ownWorkouts: ownWorkouts,
+    changeFrom: changeFrom,
+    pendingImports: pendingImports,
+    rememberClaim: rememberClaim,
+    absorbImports: absorbImports,
+    mergeAccount: mergeAccount,
+    pushChanges: pushChanges,
+    statusText: statusText,
+    viewOnlyHtml: viewOnlyHtml,
+    clientToolsHtml: clientToolsHtml,
+    guestFromAccount: guestFromAccount,
+    guestFromCopy: guestFromCopy,
+    queueUpsert: queueUpsert,
+    queueDrop: queueDrop
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.WBLibrary = api;
+})(typeof window !== 'undefined' ? window : this);

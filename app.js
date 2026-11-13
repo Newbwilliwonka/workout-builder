@@ -4,10 +4,14 @@
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
   var data = M.load(localStorage), selected = {}, draft = null;
 
-  function persist() { M.save(localStorage, data); scheduleCopySave(); scheduleSharePush(); }
+  function persist() { M.save(localStorage, data); scheduleCopySave(); scheduleSharePush(); if (!applyingLibrary) scheduleAccountSync(); scheduleGuestSave(); }
   function persistLocal() { M.save(localStorage, data); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function getW(id) { return data.workouts.filter(function (w) { return w.id === id; })[0]; }
+  function getW(id) {
+    var found = data.workouts.filter(function (w) { return w && String(w.id) === String(id); })[0];
+    if (found) return found;
+    return guests.filter(function (w) { return w && String(w.id) === String(id); })[0];
+  }
   function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2200); }
   function go(h) { location.hash = h; }
   function hashBody() { return location.hash.replace(/^#\/?/, '').split('?')[0]; }
@@ -29,7 +33,9 @@
     if (page === 'w') {
       var segs = hashBody().split('/');
       if (segs.length > 2) return go('#/w/' + segs[1]);
-      var back = receivedBack(getW(segs[1]));
+      var opened = getW(segs[1]);
+      if (opened && opened.remoteOwnerId) return go('#/client/' + opened.remoteOwnerId);
+      var back = receivedBack(opened);
       if (back) return go(back);
     }
     go(p.length > 3 ? '#/w/' + p[2] : '#/');
@@ -152,6 +158,8 @@
     try { return sessionStorage.getItem(COPY_RETURN) || ''; } catch (e) { return ''; }
   }
   function copyLocked(w) {
+    if (w && w.remoteLocked) return true;
+    if (w && w.remoteEditable) return false;
     if (!w || !w.sourceTrainerId || !window.WBSends) return false;
     if (!cachedProfile) return true;
     return !WBSends.canEditCopy(cachedProfile, w);
@@ -254,10 +262,244 @@
       });
     });
   }
+  var guests = [], guestStamp = {}, guestGen = {}, applyingLibrary = false, clientScreen = null;
+  var libraryFlight = null, libraryAgain = false, libraryPhase = '', libraryOff = false, libraryUserId = '';
+  var libraryAck = {}, pendingDrops = {}, clientQueue = [];
+  function libraryBox(key) {
+    try {
+      var raw = localStorage.getItem(key);
+      var box = raw ? JSON.parse(raw) : {};
+      return box && typeof box === 'object' ? box : {};
+    } catch (e) { return {}; }
+  }
+  function writeLibraryBox(key, box) {
+    try { localStorage.setItem(key, JSON.stringify(box)); } catch (e) {}
+  }
+  function userMap(key, userId) {
+    var box = libraryBox(key);
+    var row = box[userId];
+    return row && typeof row === 'object' ? row : {};
+  }
+  function writeUserMap(key, userId, row) {
+    if (!userId) return;
+    var box = libraryBox(key);
+    box[userId] = row || {};
+    writeLibraryBox(key, box);
+  }
+  function accountUserId(session) {
+    var id = session && session.user && session.user.id;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ''))) return '';
+    return String(id);
+  }
+  function noteDrop(id, at) {
+    if (!id || !window.WBLibrary) return;
+    var stamp = at || Date.now();
+    pendingDrops[String(id)] = stamp;
+    var key = libraryUserId || '_pending';
+    var drops = userMap(WBLibrary.DROP_KEY, key);
+    if (!drops[String(id)] || WBLibrary.ms(drops[String(id)]) < WBLibrary.ms(stamp)) drops[String(id)] = stamp;
+    writeUserMap(WBLibrary.DROP_KEY, key, drops);
+  }
+  function resetLibraryMemory() {
+    guests = [];
+    guestStamp = {};
+    guestGen = {};
+    libraryAck = {};
+    pendingDrops = {};
+    clientQueue = [];
+    libraryUserId = '';
+    libraryPhase = '';
+    libraryAgain = false;
+    clientScreen = null;
+  }
+  function libraryMissing(err) {
+    return !!(err && (err.missing || /account workout SQL|not available yet/i.test(String(err.message || ''))));
+  }
+  function paintLibraryStatus() {
+    if (hashPage() !== '') return;
+    var text = window.WBLibrary ? WBLibrary.statusText(libraryPhase) : '';
+    var el = document.getElementById('library-status');
+    if (!text) {
+      if (el) el.remove();
+      return;
+    }
+    if (!el) {
+      var btn = app.querySelector('[data-a=new]');
+      if (!btn) return;
+      btn.insertAdjacentHTML('afterend', '<p class="mute" id="library-status"></p>');
+      el = document.getElementById('library-status');
+    }
+    if (el) el.textContent = text;
+  }
+  function applyLibraryRows(rows) {
+    if (!window.WBLibrary) return;
+    var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
+    Object.keys(pendingDrops).forEach(function (id) {
+      if (!drops[id] || WBLibrary.ms(pendingDrops[id]) > WBLibrary.ms(drops[id])) drops[id] = pendingDrops[id];
+    });
+    var merged = WBLibrary.mergeAccount(data.workouts, rows, drops);
+    var before = '';
+    var after = '';
+    try { before = JSON.stringify(data.workouts); after = JSON.stringify(merged.workouts); } catch (e) { before = ''; after = 'x'; }
+    data.workouts = merged.workouts;
+    writeUserMap(WBLibrary.DROP_KEY, libraryUserId, merged.tombstones);
+    Object.keys(merged.ack || {}).forEach(function (id) { libraryAck[id] = merged.ack[id]; });
+    if (before !== after) {
+      applyingLibrary = true;
+      persistLocal();
+      applyingLibrary = false;
+    }
+  }
+  function importPending() {
+    var claimed = userMap(WBLibrary.CLAIM_KEY, libraryUserId);
+    var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
+    var pending = WBLibrary.pendingImports(data.workouts, claimed, drops);
+    var chain = Promise.resolve();
+    pending.forEach(function (w) {
+      chain = chain.then(function () {
+        return WBAuth.accountImport(WBLibrary.changeFrom(w, false)).then(function (row) {
+          if (!row || !row.localId) throw new Error('Could not save that workout.');
+          claimed = WBLibrary.rememberClaim(claimed, row.localId);
+          writeUserMap(WBLibrary.CLAIM_KEY, libraryUserId, claimed);
+          libraryAck[String(row.localId)] = row.revisedAt;
+        });
+      });
+    });
+    return chain;
+  }
+  function pushPending() {
+    var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
+    var changes = WBLibrary.pushChanges(data.workouts, drops, libraryAck);
+    var chain = Promise.resolve();
+    changes.forEach(function (change) {
+      chain = chain.then(function () {
+        return WBAuth.accountPush(change).then(function (row) {
+          if (row && row.localId) libraryAck[String(row.localId)] = row.revisedAt;
+          if (change.deleted && row && !row.deleted && WBLibrary.ms(row.revisedAt) > change.revisedAt) {
+            applyLibraryRows([row]);
+          }
+        });
+      });
+    });
+    return chain;
+  }
+  function flushClientQueue() {
+    var queue = clientQueue.slice();
+    var chain = Promise.resolve();
+    queue.forEach(function (item) {
+      chain = chain.then(function () {
+        var call = item.kind === 'sent'
+          ? (item.deleted ? WBAuth.deleteClientCopy(item.localId) : WBAuth.saveClientCopy(item.localId, item.name, item.items))
+          : WBAuth.saveClientWorkout(item.ownerId, item.change);
+        if (!call) return;
+        return Promise.resolve(call).then(function () {
+          clientQueue = WBLibrary.queueDrop(clientQueue, item);
+          writeUserMap(WBLibrary.QUEUE_KEY, libraryUserId, clientQueue);
+        });
+      });
+    });
+    return chain;
+  }
+  function runAccountSync() {
+    if (!window.WBLibrary || !WBAuth.accountPull || !WBAuth.accountImport || !WBAuth.accountPush) return Promise.resolve();
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      libraryPhase = libraryUserId ? 'offline' : libraryPhase;
+      paintLibraryStatus();
+      return Promise.resolve();
+    }
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return Promise.resolve(); }
+    return Promise.resolve(pending).then(function (session) {
+      var userId = accountUserId(session);
+      if (!userId) return;
+      if (libraryUserId && libraryUserId !== userId) {
+        libraryAck = {};
+        clientQueue = [];
+        guests = [];
+        guestStamp = {};
+      }
+      libraryUserId = userId;
+      var pendingDropsBox = userMap(WBLibrary.DROP_KEY, '_pending');
+      Object.keys(pendingDropsBox).forEach(function (id) { noteDrop(id, pendingDropsBox[id]); });
+      Object.keys(pendingDrops).forEach(function (id) { noteDrop(id, pendingDrops[id]); });
+      writeUserMap(WBLibrary.DROP_KEY, '_pending', {});
+      [userMap(WBLibrary.QUEUE_KEY, '_pending'), userMap(WBLibrary.QUEUE_KEY, libraryUserId)].forEach(function (list) {
+        if (!Array.isArray(list)) return;
+        list.forEach(function (item) { clientQueue = WBLibrary.queueUpsert(clientQueue, item); });
+      });
+      writeUserMap(WBLibrary.QUEUE_KEY, libraryUserId, clientQueue);
+      writeUserMap(WBLibrary.QUEUE_KEY, '_pending', []);
+      return WBAuth.accountPull().then(function (rows) {
+        if (!Array.isArray(rows)) rows = [];
+        applyLibraryRows(rows);
+        return importPending();
+      }).then(function () {
+        return pushPending();
+      }).then(function () {
+        return flushClientQueue();
+      }).then(function () {
+        libraryPhase = 'saved';
+        paintLibraryStatus();
+        if (hashPage() === '' && !libraryAgain) renderList();
+      });
+    }).catch(function (err) {
+      if (libraryMissing(err)) { libraryOff = true; libraryPhase = ''; paintLibraryStatus(); return; }
+      libraryPhase = 'offline';
+      paintLibraryStatus();
+    });
+  }
+  function scheduleAccountSync() {
+    if (libraryOff || applyingLibrary || !window.WBLibrary || !WBAuth.accountPull) return;
+    if (libraryFlight) { libraryAgain = true; return; }
+    libraryAgain = false;
+    libraryFlight = runAccountSync().then(finishSync, finishSync);
+    function finishSync() {
+      libraryFlight = null;
+      if (libraryAgain && !libraryOff) { libraryAgain = false; scheduleAccountSync(); }
+    }
+  }
+  function enqueueClient(item) {
+    if (!window.WBLibrary || !item) return;
+    clientQueue = WBLibrary.queueUpsert(clientQueue, item);
+    writeUserMap(WBLibrary.QUEUE_KEY, libraryUserId || '_pending', clientQueue);
+    scheduleAccountSync();
+  }
+  function scheduleGuestSave() {
+    if (!window.WBLibrary) return;
+    guests.forEach(function (w) {
+      if (!w || w.remoteLocked || !w.remoteOwnerId) return;
+      var stamp = (w.name || '') + '|' + (w.updatedAt || 0);
+      try { stamp += JSON.stringify(w.items || []); } catch (e) { return; }
+      if (guestStamp[w.id] === stamp) return;
+      guestStamp[w.id] = stamp;
+      guestGen[w.id] = (guestGen[w.id] || 0) + 1;
+      var gen = guestGen[w.id];
+      if (w.sentCopy) {
+        enqueueClient({ ownerId: w.remoteOwnerId, kind: 'sent', localId: String(w.id), name: w.name, items: w.items, deleted: false, gen: gen });
+      } else {
+        enqueueClient({
+          ownerId: w.remoteOwnerId,
+          kind: 'account',
+          localId: String(w.id),
+          change: WBLibrary.changeFrom(w, false),
+          gen: gen
+        });
+      }
+    });
+  }
+  function rememberGuest(w) {
+    if (!w || !w.id) return;
+    guests = guests.filter(function (g) { return !g || String(g.id) !== String(w.id); });
+    guests.push(w);
+  }
   function renderLocked(w) {
     titleEl.textContent = w.name;
     backBtn.hidden = false;
-    app.innerHTML = window.WBSends ? WBSends.lockedHtml(w) : '<p class="mute" id="copy-note">You can run this copy.</p>';
+    if (w.remoteOwnerId && window.WBLibrary) {
+      app.innerHTML = WBLibrary.viewOnlyHtml(w);
+    } else {
+      app.innerHTML = window.WBSends ? WBSends.lockedHtml(w) : '<p class="mute" id="copy-note">You can run this copy.</p>';
+    }
     app.onclick = function (e) { if (e.target.closest('#copy-run')) go('#/play/' + w.id); };
     app.oninput = null;
     app.onchange = null;
@@ -765,7 +1007,7 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        return WBAuth.signOut().then(function () { cachedProfile = null; go('#/signin'); });
+        return WBAuth.signOut().then(function () { cachedProfile = null; resetLibraryMemory(); go('#/signin'); });
       }
       if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
@@ -855,6 +1097,7 @@
         resetShareLookup();
         pushPending = false;
         stopPushRetry();
+        resetLibraryMemory();
         if (window.WBSharing) shareState = WBSharing.initialState();
         if (hashPage() !== 'account') return;
         go('#/signin');
@@ -866,6 +1109,7 @@
   }
   function showBuilder() {
     ensureShare();
+    scheduleAccountSync();
     var p = location.hash.replace(/^#\/?/, '').split('/');
     var current = (p[0] === 'play' || p[0] === 'w') ? getW(p[1]) : null;
     if (current && current.sourceTrainerId && !cachedProfile && WBAuth.profile && profileLookup !== routeToken) {
@@ -941,6 +1185,121 @@
       go('#/signin');
     });
   }
+  function guestStampOf(w) {
+    var stamp = (w.name || '') + '|' + (w.updatedAt || 0);
+    try { stamp += JSON.stringify(w.items || []); } catch (e) {}
+    return stamp;
+  }
+  function paintClientTools() {
+    var old = document.getElementById('client-account');
+    if (old) old.remove();
+    if (!clientScreen || !window.WBLibrary) return;
+    var html = WBLibrary.clientToolsHtml(clientScreen);
+    if (html) app.insertAdjacentHTML('beforeend', html);
+  }
+  function openClientGuest(clientId, localId, kind, run) {
+    if (!clientScreen || !window.WBLibrary) return;
+    var guest = null;
+    if (kind === 'sent') {
+      var copy = (clientScreen.sent || []).filter(function (w) { return w && String(w.id) === String(localId); })[0];
+      if (!copy) return;
+      guest = WBLibrary.guestFromCopy(copy, clientId);
+    } else {
+      var row = (clientScreen.workouts || []).filter(function (w) { return w && String(w.localId) === String(localId); })[0];
+      if (!row) return;
+      guest = WBLibrary.guestFromAccount(row, clientId, clientScreen.permission);
+    }
+    rememberGuest(guest);
+    guestStamp[guest.id] = guestStampOf(guest);
+    go((run ? '#/play/' : '#/w/') + guest.id);
+  }
+  function newClientWorkout(clientId) {
+    if (!clientScreen || clientScreen.permission !== 'edit' || !window.WBLibrary) return;
+    var name = prompt('Workout name', 'New workout');
+    if (name === null) return;
+    var w = M.newWorkout(String(name || '').trim() || 'New workout');
+    w.remoteOwnerId = String(clientId);
+    w.remoteEditable = true;
+    rememberGuest(w);
+    guestStamp[w.id] = guestStampOf(w);
+    guestGen[w.id] = 1;
+    enqueueClient({
+      ownerId: String(clientId),
+      kind: 'account',
+      localId: String(w.id),
+      change: WBLibrary.changeFrom(w, false),
+      gen: 1
+    });
+    go('#/w/' + w.id);
+  }
+  function deleteClientWorkout(clientId, localId, kind) {
+    if (!clientScreen) return;
+    var rowName = 'this workout';
+    if (kind === 'sent') {
+      var copy = (clientScreen.sent || []).filter(function (w) { return w && String(w.id) === String(localId); })[0];
+      if (copy && copy.name) rowName = copy.name;
+    } else {
+      var row = (clientScreen.workouts || []).filter(function (w) { return w && String(w.localId) === String(localId); })[0];
+      if (row && row.name) rowName = row.name;
+    }
+    if (!confirm('Delete “' + rowName + '”? This cannot be undone.')) return;
+    var gen = Date.now();
+    if (kind === 'sent') {
+      enqueueClient({ ownerId: String(clientId), kind: 'sent', localId: String(localId), deleted: true, gen: gen });
+      clientScreen.sent = (clientScreen.sent || []).filter(function (w) { return String(w.id) !== String(localId); });
+    } else {
+      enqueueClient({
+        ownerId: String(clientId),
+        kind: 'account',
+        localId: String(localId),
+        change: { localId: String(localId), name: rowName, items: [], revisedAt: gen, deleted: true },
+        gen: gen
+      });
+      clientScreen.workouts = (clientScreen.workouts || []).filter(function (w) { return String(w.localId) !== String(localId); });
+    }
+    guests = guests.filter(function (g) { return !g || String(g.id) !== String(localId); });
+    delete guestStamp[localId];
+    paintClientTools();
+  }
+  function bindClientTools(clientId, token, requested) {
+    app.onclick = function (e) {
+      if (token !== routeToken || location.hash !== requested) return;
+      var openBtn = e.target.closest('[data-client-open]');
+      var runBtn = e.target.closest('[data-client-run]');
+      var delBtn = e.target.closest('[data-client-del]');
+      var newBtn = e.target.closest('[data-client-new]');
+      if (openBtn) return openClientGuest(clientId, openBtn.getAttribute('data-client-open'), openBtn.getAttribute('data-client-kind'), false);
+      if (runBtn) return openClientGuest(clientId, runBtn.getAttribute('data-client-run'), runBtn.getAttribute('data-client-kind'), true);
+      if (delBtn) return deleteClientWorkout(clientId, delBtn.getAttribute('data-client-del'), delBtn.getAttribute('data-client-kind'));
+      if (newBtn) return newClientWorkout(clientId);
+    };
+  }
+  function attachClientTools(clientId, token, requested) {
+    clientScreen = null;
+    if (!window.WBLibrary || !WBAuth.clientAccountWorkouts || !WBAuth.session) return;
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return; }
+    Promise.resolve(pending).then(function (session) {
+      if (token !== routeToken || location.hash !== requested) return;
+      if (!accountUserId(session)) return;
+      var sentCall = WBAuth.clientSentWorkouts ? WBAuth.clientSentWorkouts(clientId) : Promise.resolve([]);
+      return Promise.all([
+        Promise.resolve(WBAuth.clientAccountWorkouts(clientId)).then(function (v) { return v; }, function () { return null; }),
+        Promise.resolve(sentCall).then(function (v) { return v; }, function () { return []; })
+      ]);
+    }).then(function (pair) {
+      if (!pair || token !== routeToken || location.hash !== requested) return;
+      var account = pair[0] && typeof pair[0] === 'object' ? pair[0] : {};
+      var sent = Array.isArray(pair[1]) ? pair[1] : [];
+      clientScreen = {
+        permission: account.permission || 'hidden',
+        workouts: Array.isArray(account.workouts) ? account.workouts : [],
+        sent: sent
+      };
+      paintClientTools();
+      if (document.getElementById('client-account')) bindClientTools(clientId, token, requested);
+    }).catch(function () {});
+  }
   function openClient(token) {
     var id = hashBody().split('/')[1] || '';
     var requested = location.hash;
@@ -970,6 +1329,7 @@
         titleEl.textContent = status.email || 'Client';
         if (!status.shared) {
           app.innerHTML = WBSharing.clientHtml(status, null, null);
+          attachClientTools(id, token, requested);
           return;
         }
         return Promise.all([
@@ -979,6 +1339,7 @@
           if (token !== routeToken || location.hash !== requested) return;
           if (!Array.isArray(pair[0]) || !Array.isArray(pair[1])) return showError('Could not load workouts.');
           app.innerHTML = WBSharing.clientHtml(status, pair[0], pair[1]);
+          attachClientTools(id, token, requested);
         }, function (err) {
           if (token !== routeToken || location.hash !== requested) return;
           if (WBSharing.isUnavailable(err)) return showWait(err);
@@ -1128,6 +1489,8 @@
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
+    var statusLine = window.WBLibrary ? WBLibrary.statusText(libraryPhase) : '';
+    if (statusLine) h += '<p class="mute" id="library-status">' + esc(statusLine) + '</p>';
     if (!data.workouts.length) h += '<div class="empty">No workouts yet.<br>Tap “New workout” to build one.</div>';
     data.workouts.forEach(function (w, wi) {
       var n = w.items.length, nW = data.workouts.length;
@@ -1220,7 +1583,7 @@
             if (WBAuth.deleteWorkoutCopy && !copyLocked(w)) {
               WBAuth.deleteWorkoutCopy(w.id).catch(function () { toast('Could not remove that copy'); });
             }
-          }
+          } else if (!w.remoteOwnerId) noteDrop(w.id, Date.now());
           data.workouts.splice(data.workouts.indexOf(w), 1);
           dropKeys.forEach(function (key) {
             if (!customKeyInUse(key) && window.WBMedia) WBMedia.remove(key);
@@ -1786,7 +2149,12 @@
   }
   window.WB_buildFromDraft = buildFromDraft; window.WB_makeDraft = makeDraft; // exposed for testing
   captureInvite();
-  window.addEventListener('online', function () { ensureShare(); });
+  window.addEventListener('online', function () { ensureShare(); libraryOff = false; scheduleAccountSync(); });
+  window.addEventListener('offline', function () {
+    if (!libraryUserId || libraryOff) return;
+    libraryPhase = 'offline';
+    paintLibraryStatus();
+  });
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') ensureShare();
   });
