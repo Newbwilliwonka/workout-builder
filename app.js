@@ -350,41 +350,142 @@
       applyingLibrary = false;
     }
   }
+  var LIBRARY_OWNER_KEY = 'wb.libraryOwner.v1';
+  var LIBRARY_CACHE_KEY = 'wb.libraryCache.v1';
+  var LIBRARY_SEED_KEY = 'wb.accountSeed.v1';
+  var capHold = {};
+  function libraryOwner() {
+    try { return localStorage.getItem(LIBRARY_OWNER_KEY) || ''; } catch (e) { return ''; }
+  }
+  function setLibraryOwner(id) {
+    try { if (id) localStorage.setItem(LIBRARY_OWNER_KEY, id); } catch (e) {}
+  }
+  function readSeed(userId) {
+    var box = libraryBox(LIBRARY_SEED_KEY);
+    if (!Object.prototype.hasOwnProperty.call(box, userId)) return null;
+    return Array.isArray(box[userId]) ? box[userId] : [];
+  }
+  function ensureSeed(userId) {
+    var existing = readSeed(userId);
+    if (existing) return existing;
+    var ids = WBLibrary.seedIds(null, data.workouts);
+    writeUserMap(LIBRARY_SEED_KEY, userId, ids);
+    return ids;
+  }
+  function parkLibrary(ownerId) {
+    if (!ownerId) return;
+    var box = libraryBox(LIBRARY_CACHE_KEY);
+    box[ownerId] = {
+      workouts: data.workouts || [],
+      sessions: data.sessions || [],
+      programs: data.programs || []
+    };
+    writeLibraryBox(LIBRARY_CACHE_KEY, box);
+    var prevDrops = userMap(WBLibrary.DROP_KEY, ownerId);
+    var loose = userMap(WBLibrary.DROP_KEY, '_pending');
+    Object.keys(loose).forEach(function (id) {
+      if (!prevDrops[id] || WBLibrary.ms(loose[id]) > WBLibrary.ms(prevDrops[id])) prevDrops[id] = loose[id];
+    });
+    Object.keys(pendingDrops).forEach(function (id) {
+      if (!prevDrops[id] || WBLibrary.ms(pendingDrops[id]) > WBLibrary.ms(prevDrops[id])) prevDrops[id] = pendingDrops[id];
+    });
+    writeUserMap(WBLibrary.DROP_KEY, ownerId, prevDrops);
+    writeUserMap(WBLibrary.DROP_KEY, '_pending', {});
+    var looseQueue = userMap(WBLibrary.QUEUE_KEY, '_pending');
+    if (Array.isArray(looseQueue) && looseQueue.length) {
+      var prevQueue = userMap(WBLibrary.QUEUE_KEY, ownerId);
+      var queued = Array.isArray(prevQueue) ? prevQueue.slice() : [];
+      looseQueue.forEach(function (item) { queued = WBLibrary.queueUpsert(queued, item); });
+      writeUserMap(WBLibrary.QUEUE_KEY, ownerId, queued);
+    }
+    writeUserMap(WBLibrary.QUEUE_KEY, '_pending', []);
+  }
+  function adoptAccount(userId) {
+    var owner = libraryOwner();
+    if (owner && owner !== userId) {
+      parkLibrary(owner);
+      pendingDrops = {};
+      clientQueue = [];
+      libraryAck = {};
+      guests = [];
+      guestStamp = {};
+      guestGen = {};
+      copyStamp = {};
+      removedCopies = [];
+      capHold = {};
+      var cached = libraryBox(LIBRARY_CACHE_KEY)[userId];
+      var choice = WBLibrary.libraryForAccount(owner, userId, data.workouts, cached);
+      data.workouts = choice.workouts;
+      data.sessions = cached && Array.isArray(cached.sessions) ? cached.sessions : [];
+      data.programs = cached && Array.isArray(cached.programs) ? cached.programs : [];
+      applyingLibrary = true;
+      persistLocal();
+      applyingLibrary = false;
+    }
+    setLibraryOwner(userId);
+    libraryUserId = userId;
+  }
+  function capMessage(err) {
+    return /up to 6/i.test(String(err && err.message || ''));
+  }
   function importPending() {
     var claimed = userMap(WBLibrary.CLAIM_KEY, libraryUserId);
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
-    var pending = WBLibrary.pendingImports(data.workouts, claimed, drops);
+    var seed = ensureSeed(libraryUserId);
+    var pending = WBLibrary.importsForSeed(data.workouts, claimed, drops, seed);
+    var failed = false;
     var chain = Promise.resolve();
     pending.forEach(function (w) {
       chain = chain.then(function () {
         return WBAuth.accountImport(WBLibrary.changeFrom(w, false)).then(function (row) {
-          if (!row || !row.localId) throw new Error('Could not save that workout.');
+          if (!row || !row.localId) { failed = true; return; }
           claimed = WBLibrary.rememberClaim(claimed, row.localId);
           writeUserMap(WBLibrary.CLAIM_KEY, libraryUserId, claimed);
-          libraryAck[String(row.localId)] = row.revisedAt;
+          if (row.revisedAt != null) libraryAck[String(row.localId)] = row.revisedAt;
+        }, function (err) {
+          if (libraryMissing(err)) throw err;
+          failed = true;
         });
       });
     });
-    return chain;
+    return chain.then(function () { return failed; });
+  }
+  function closeSeedIfDone() {
+    if (!WBAuth.accountSeedClose) return Promise.resolve();
+    var seed = ensureSeed(libraryUserId);
+    var claimed = userMap(WBLibrary.CLAIM_KEY, libraryUserId);
+    var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
+    if (WBLibrary.importsForSeed(data.workouts, claimed, drops, seed).length) return Promise.resolve();
+    return WBAuth.accountSeedClose().then(function () {}, function (err) {
+      if (libraryMissing(err)) throw err;
+    });
   }
   function pushPending() {
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var changes = WBLibrary.pushChanges(data.workouts, drops, libraryAck);
+    var failed = false;
     var chain = Promise.resolve();
     changes.forEach(function (change) {
       chain = chain.then(function () {
+        if (capHold[change.localId] === change.revisedAt) return;
         return WBAuth.accountPush(change).then(function (row) {
           if (row && row.localId) libraryAck[String(row.localId)] = row.revisedAt;
+          delete capHold[change.localId];
           if (change.deleted && row && !row.deleted && WBLibrary.ms(row.revisedAt) > change.revisedAt) {
             applyLibraryRows([row]);
           }
+        }, function (err) {
+          if (libraryMissing(err)) throw err;
+          if (capMessage(err)) { capHold[change.localId] = change.revisedAt; return; }
+          failed = true;
         });
       });
     });
-    return chain;
+    return chain.then(function () { return failed; });
   }
   function flushClientQueue() {
     var queue = clientQueue.slice();
+    var failed = false;
     var chain = Promise.resolve();
     queue.forEach(function (item) {
       chain = chain.then(function () {
@@ -395,10 +496,13 @@
         return Promise.resolve(call).then(function () {
           clientQueue = WBLibrary.queueDrop(clientQueue, item);
           writeUserMap(WBLibrary.QUEUE_KEY, libraryUserId, clientQueue);
+        }, function (err) {
+          if (libraryMissing(err)) throw err;
+          failed = true;
         });
       });
     });
-    return chain;
+    return chain.then(function () { return failed; });
   }
   function runAccountSync() {
     if (!window.WBLibrary || !WBAuth.accountPull || !WBAuth.accountImport || !WBAuth.accountPush) return Promise.resolve();
@@ -412,35 +516,37 @@
     return Promise.resolve(pending).then(function (session) {
       var userId = accountUserId(session);
       if (!userId) return;
-      if (libraryUserId && libraryUserId !== userId) {
-        libraryAck = {};
-        clientQueue = [];
-        guests = [];
-        guestStamp = {};
+      var switching = !!(libraryOwner() && libraryOwner() !== userId);
+      adoptAccount(userId);
+      if (!switching) {
+        var pendingDropsBox = userMap(WBLibrary.DROP_KEY, '_pending');
+        Object.keys(pendingDropsBox).forEach(function (id) { noteDrop(id, pendingDropsBox[id]); });
+        Object.keys(pendingDrops).forEach(function (id) { noteDrop(id, pendingDrops[id]); });
+        writeUserMap(WBLibrary.DROP_KEY, '_pending', {});
+        [userMap(WBLibrary.QUEUE_KEY, '_pending'), userMap(WBLibrary.QUEUE_KEY, libraryUserId)].forEach(function (list) {
+          if (!Array.isArray(list)) return;
+          list.forEach(function (item) { clientQueue = WBLibrary.queueUpsert(clientQueue, item); });
+        });
+        writeUserMap(WBLibrary.QUEUE_KEY, libraryUserId, clientQueue);
+        writeUserMap(WBLibrary.QUEUE_KEY, '_pending', []);
+      } else {
+        var storedQueue = userMap(WBLibrary.QUEUE_KEY, libraryUserId);
+        clientQueue = Array.isArray(storedQueue) ? storedQueue : [];
       }
-      libraryUserId = userId;
-      var pendingDropsBox = userMap(WBLibrary.DROP_KEY, '_pending');
-      Object.keys(pendingDropsBox).forEach(function (id) { noteDrop(id, pendingDropsBox[id]); });
-      Object.keys(pendingDrops).forEach(function (id) { noteDrop(id, pendingDrops[id]); });
-      writeUserMap(WBLibrary.DROP_KEY, '_pending', {});
-      [userMap(WBLibrary.QUEUE_KEY, '_pending'), userMap(WBLibrary.QUEUE_KEY, libraryUserId)].forEach(function (list) {
-        if (!Array.isArray(list)) return;
-        list.forEach(function (item) { clientQueue = WBLibrary.queueUpsert(clientQueue, item); });
-      });
-      writeUserMap(WBLibrary.QUEUE_KEY, libraryUserId, clientQueue);
-      writeUserMap(WBLibrary.QUEUE_KEY, '_pending', []);
       return WBAuth.accountPull().then(function (rows) {
         if (!Array.isArray(rows)) rows = [];
         applyLibraryRows(rows);
         return importPending();
-      }).then(function () {
-        return pushPending();
-      }).then(function () {
-        return flushClientQueue();
-      }).then(function () {
-        libraryPhase = 'saved';
+      }).then(function (importFailed) {
+        return closeSeedIfDone().then(function () { return importFailed; });
+      }).then(function (importFailed) {
+        return pushPending().then(function (pushFailed) { return importFailed || pushFailed; });
+      }).then(function (failed) {
+        return flushClientQueue().then(function (queueFailed) { return failed || queueFailed; });
+      }).then(function (failed) {
+        libraryPhase = failed ? 'offline' : 'saved';
         paintLibraryStatus();
-        if (hashPage() === '' && !libraryAgain) renderList();
+        if (!failed && hashPage() === '' && !libraryAgain) renderList();
       });
     }).catch(function (err) {
       if (libraryMissing(err)) { libraryOff = true; libraryPhase = ''; paintLibraryStatus(); return; }

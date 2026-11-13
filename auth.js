@@ -196,6 +196,7 @@
       return accountRpc('workout_trainer_save', { p_id: id, p_name: name || '', p_items: items || [] });
     },
     deleteClientCopy: function (id) { return accountRpc('workout_trainer_delete', { p_id: id }); },
+    accountSeedClose: function () { return accountRpc('account_seed_close'); },
     watchMessages: function (handler) {
       return db().then(function (c) {
         var channel = c.channel('wb-messages-' + Math.random().toString(36).slice(2));
@@ -415,7 +416,7 @@
   }
   function accountMissing(err) {
     var msg = (err && (err.message || err.details || err.hint || err.code)) || '';
-    return /schema cache|could not find the function|does not exist|PGRST202|PGRST205|42P01|account_workout|workout_sent|workout_trainer/i.test(String(msg));
+    return /schema cache|could not find the function|PGRST202|PGRST205|42883|42P01/i.test(String(msg));
   }
   function accountRpc(name, args) {
     return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {

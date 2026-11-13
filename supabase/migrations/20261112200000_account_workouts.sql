@@ -34,7 +34,8 @@
 --
 -- An Enthusiast's plan still stops at 6 workouts for a new save. The one-time
 -- copy may keep a library they already built, up to 40, so those workouts are
--- not dropped on the floor. Tracking is not part of this file.
+-- not dropped on the floor. account_seed_close() ends that window. After it
+-- runs, another import cannot sneak past the 6. Tracking is not part of this file.
 --
 -- Safe to run again: tables are created only if missing, functions are
 -- replaced, and policies are dropped before they are recreated.
@@ -76,11 +77,20 @@ create index if not exists trainer_clients_trainer_open_idx
 create index if not exists workout_copies_trainer_idx
   on public.workout_copies (trainer_id, owner_id);
 
+-- Set when the one-time browser copy has finished. Until then an import may
+-- keep an existing library that is already over the plan cap of 6.
+create table if not exists public.account_seed_closed (
+  owner_id uuid primary key references public.profiles (id) on delete cascade,
+  closed_at timestamptz not null default now()
+);
+
 alter table public.account_workouts enable row level security;
 alter table public.account_workout_imports enable row level security;
+alter table public.account_seed_closed enable row level security;
 
 revoke all on public.account_workouts from public, anon, authenticated;
 revoke all on public.account_workout_imports from public, anon, authenticated;
+revoke all on public.account_seed_closed from public, anon, authenticated;
 grant select, insert, update, delete on public.account_workouts to authenticated;
 
 -- Trainer and Master Trainer, matching program_is_trainer.
@@ -247,10 +257,13 @@ begin
     if public.share_is_enthusiast(new.owner_id) and new.deleted_at is null then
       select count(*) into n from public.account_workouts
         where owner_id = new.owner_id and deleted_at is null;
-      if importing and n >= 40 then
+      if n >= 40 then
         raise exception 'Could not save that workout.';
       end if;
-      if not importing and n >= 6 then
+      if n >= 6 and (
+        not importing
+        or exists (select 1 from public.account_seed_closed where owner_id = new.owner_id)
+      ) then
         raise exception 'Your plan includes up to 6 workouts.';
       end if;
     end if;
@@ -773,6 +786,22 @@ begin
 end;
 $$;
 
+create or replace function public.account_seed_close()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+begin
+  if uid is null then raise exception 'Sign in first.'; end if;
+  insert into public.account_seed_closed (owner_id)
+  values (uid)
+  on conflict (owner_id) do nothing;
+end;
+$$;
+
 revoke all on function public.account_is_trainer(uuid) from public, anon, authenticated;
 revoke all on function public.account_is_free_client(uuid) from public, anon, authenticated;
 revoke all on function public.account_linked(uuid, uuid) from public, anon, authenticated;
@@ -782,6 +811,7 @@ revoke all on function public.account_ms(timestamptz) from public, anon;
 revoke all on function public.account_from_ms(bigint) from public, anon;
 revoke all on function public.account_workout_json(public.account_workouts) from public, anon;
 revoke all on function public.account_workouts_guard() from public, anon;
+revoke all on function public.account_seed_close() from public, anon, authenticated;
 revoke all on function public.account_workout_pull() from public, anon, authenticated;
 revoke all on function public.account_workout_push(jsonb) from public, anon, authenticated;
 revoke all on function public.account_workout_import(jsonb) from public, anon, authenticated;
@@ -797,6 +827,7 @@ grant execute on function public.account_ms(timestamptz) to authenticated;
 grant execute on function public.account_from_ms(bigint) to authenticated;
 grant execute on function public.account_workout_json(public.account_workouts) to authenticated;
 grant execute on function public.account_workouts_guard() to authenticated;
+grant execute on function public.account_seed_close() to authenticated;
 grant execute on function public.account_workout_pull() to authenticated;
 grant execute on function public.account_workout_push(jsonb) to authenticated;
 grant execute on function public.account_workout_import(jsonb) to authenticated;

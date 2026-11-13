@@ -187,4 +187,36 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
   assert.ok(sentOnly.indexOf('Easy') === -1);
 })();
 
+(function equalTimeKeepsTheOpenWorkout() {
+  const open = wo('wo_open', 'Typing', 1000);
+  const same = L.mergeAccount([open], [remote('wo_open', 'From the server', 1000)], {});
+  assert.strictEqual(same.workouts[0], open);
+  assert.strictEqual(open.name, 'Typing');
+  assert.strictEqual(same.ack.wo_open, 1000);
+  const newer = L.mergeAccount([open], [remote('wo_open', 'Newer phone', 2000)], {});
+  assert.strictEqual(newer.workouts[0], open);
+  assert.strictEqual(open.name, 'Newer phone');
+})();
+
+(function seedDoesNotImportWorkoutsCreatedLater() {
+  const first = [wo('wo_old', 'Old', 1000)];
+  const seed = L.seedIds(null, first);
+  const later = first.concat([wo('wo_new', 'New', 3000)]);
+  const pending = L.importsForSeed(later, {}, {}, seed);
+  assert.deepStrictEqual(pending.map(function (w) { return w.id; }), ['wo_old']);
+  assert.deepStrictEqual(L.seedIds(seed, later), ['wo_old']);
+})();
+
+(function anotherAccountDoesNotReceiveTheLibrary() {
+  const ada = [wo('wo_ada', 'Ada', 1000)];
+  const first = L.libraryForAccount('', 'ada', ada, null);
+  assert.strictEqual(first.switched, false);
+  assert.strictEqual(first.workouts[0].id, 'wo_ada');
+  const bob = L.libraryForAccount('ada', 'bob', ada, null);
+  assert.strictEqual(bob.switched, true);
+  assert.deepStrictEqual(bob.workouts, []);
+  const back = L.libraryForAccount('bob', 'ada', [], { workouts: ada });
+  assert.strictEqual(back.workouts[0].name, 'Ada');
+})();
+
 console.log('ACCOUNT LIBRARY OK');

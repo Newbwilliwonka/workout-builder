@@ -177,6 +177,23 @@ begin
   end;
   select count(*) into n from public.account_workouts where owner_id = '${E}' and local_id = 'wo_7';
   if n <> 0 then raise exception 'seventh stored'; end if;
+  perform public.account_workout_import(jsonb_build_object(
+    'localId', 'wo_legacy', 'name', 'Already built', 'items', '[]'::jsonb, 'revisedAt', 4000
+  ));
+  select count(*) into n from public.account_workouts where owner_id = '${E}' and local_id = 'wo_legacy' and deleted_at is null;
+  if n <> 1 then raise exception 'legacy copy dropped'; end if;
+  perform public.account_seed_close();
+  begin
+    perform public.account_workout_import(jsonb_build_object(
+      'localId', 'wo_after', 'name', 'After close', 'items', '[]'::jsonb, 'revisedAt', 5000
+    ));
+    raise exception 'import after close should fail';
+  exception when others then
+    if sqlerrm not like '%up to 6%' then raise; end if;
+  end;
+  delete from public.account_workouts where owner_id = '${E}' and local_id = 'wo_legacy';
+  select count(*) into n from public.account_workouts where owner_id = '${E}' and deleted_at is null;
+  if n <> 6 then raise exception 'cap left %', n; end if;
 end $$;
 
 -- Sharing off: the linked trainer cannot see or change the Enthusiast's own workouts.

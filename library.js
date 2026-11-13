@@ -37,6 +37,26 @@
       deleted: !!deleted
     };
   }
+  function seedIds(stored, workouts) {
+    if (Array.isArray(stored)) return stored.map(function (id) { return String(id); });
+    return ownWorkouts(workouts).map(function (w) { return String(w.id); });
+  }
+  function importsForSeed(workouts, claimed, tombstones, seed) {
+    var allow = {};
+    (seed || []).forEach(function (id) { allow[String(id)] = 1; });
+    return pendingImports(workouts, claimed, tombstones).filter(function (w) {
+      return allow[String(w.id)];
+    });
+  }
+  // A browser already tied to one account does not hand that library to the next person.
+  function libraryForAccount(ownerId, userId, workouts, cached) {
+    if (!userId) return { ownerId: ownerId || '', workouts: workouts || [], switched: false };
+    if (!ownerId || ownerId === userId) {
+      return { ownerId: userId, workouts: workouts || [], switched: false };
+    }
+    var saved = cached && Array.isArray(cached.workouts) ? cached.workouts : [];
+    return { ownerId: userId, workouts: saved, switched: true };
+  }
   function pendingImports(workouts, claimed, tombstones) {
     claimed = claimed || {};
     tombstones = tombstones || {};
@@ -82,6 +102,16 @@
       updatedAt: at
     };
   }
+  // A newer remote edit updates the workout the screen already holds.
+  function takeRemote(previous, row) {
+    var next = fromRemote(row, previous);
+    if (!previous) return next;
+    previous.name = next.name;
+    previous.items = next.items;
+    previous.createdAt = next.createdAt;
+    previous.updatedAt = next.updatedAt;
+    return previous;
+  }
   // Remote rows use localId, the same id a program day stores as workoutId.
   function mergeAccount(workouts, remote, tombstones) {
     var drops = {};
@@ -125,8 +155,15 @@
         next.push(w);
         return;
       }
+      // Same time keeps this object. The open editor mutates it in place.
+      if (localAt === remoteAt) {
+        delete drops[id];
+        next.push(w);
+        ack[id] = remoteAt;
+        return;
+      }
       delete drops[id];
-      next.push(fromRemote(row, w));
+      next.push(takeRemote(w, row));
       ack[id] = remoteAt;
     });
     Object.keys(incoming).forEach(function (id) {
@@ -288,6 +325,9 @@
     ownWorkouts: ownWorkouts,
     changeFrom: changeFrom,
     pendingImports: pendingImports,
+    seedIds: seedIds,
+    importsForSeed: importsForSeed,
+    libraryForAccount: libraryForAccount,
     rememberClaim: rememberClaim,
     absorbImports: absorbImports,
     mergeAccount: mergeAccount,
