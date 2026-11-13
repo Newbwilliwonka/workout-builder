@@ -164,7 +164,27 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
 (function statusAndGuestAccess() {
   assert.strictEqual(L.statusText('saved'), 'Saved');
   assert.strictEqual(L.statusText('offline'), 'Offline, will sync');
+  assert.strictEqual(L.statusText('auth'), 'Sign in again');
+  assert.strictEqual(L.statusText('error', 'Your plan includes up to 6 workouts.'), 'Your plan includes up to 6 workouts.');
+  assert.strictEqual(L.statusModel('error', 'Your plan includes up to 6 workouts.').plans, true);
+  assert.strictEqual(L.statusModel('error', 'Enter a workout name.').plans, false);
   assert.strictEqual(L.statusText(''), '');
+  assert.strictEqual(L.syncFailure(new Error('Failed to fetch')), 'offline');
+  assert.strictEqual(L.syncFailure(new Error('JWT expired')), 'auth');
+  assert.strictEqual(L.syncFailure(new Error('Sign in first.')), 'auth');
+  assert.strictEqual(L.syncFailure(new Error('Your plan includes up to 6 workouts.')), 'permanent');
+  assert.strictEqual(L.syncFailure(new Error('There is no connection.')), 'permanent');
+  assert.strictEqual(L.syncFailure(new Error('Enter a workout name.')), 'permanent');
+  assert.strictEqual(L.plainSyncMessage(new Error('Your plan includes up to 6 workouts.')), 'Your plan includes up to 6 workouts.');
+  assert.strictEqual(L.plainSyncMessage(new Error('JWT expired')), 'Sign in again');
+  const stamp = L.bodyStamp({ name: 'Chest', items: [] });
+  assert.strictEqual(L.rejectionHolds({ stamp: stamp, at: 1000 }, stamp, 1000 + L.REJECT_HOLD_MS - 1), true);
+  assert.strictEqual(L.rejectionHolds({ stamp: stamp, at: 1000 }, stamp, 1000 + L.REJECT_HOLD_MS), false);
+  assert.strictEqual(L.rejectionHolds({ stamp: stamp, at: 1000 }, L.bodyStamp({ name: 'Chest 2', items: [] }), 1000), false);
+  assert.deepStrictEqual(L.rowsFromPull('[{"localId":"wo_chest"}]').map(function (row) { return row.localId; }), ['wo_chest']);
+  assert.deepStrictEqual(L.rowsFromPull({ workouts: [{ localId: 'wo_chest' }] }).map(function (row) { return row.localId; }), ['wo_chest']);
+  assert.deepStrictEqual(L.rowsFromPull({ localId: 'wo_chest' }), []);
+  assert.strictEqual(L.preferNotice('Enter a workout name.', 'Your plan includes up to 6 workouts.'), 'Your plan includes up to 6 workouts.');
   const view = L.guestFromAccount(remote('wo_e', 'Easy', 10), 'fan', 'view');
   assert.strictEqual(view.remoteLocked, true);
   assert.strictEqual(view.id, 'wo_e');
