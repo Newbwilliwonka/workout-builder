@@ -10,6 +10,10 @@
   var LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js';
   var client = null, loading = null;
   var Mem = root.WBMembership;
+  // Snapshot the URL before app.js routing can replace the hash. Recovery links
+  // arrive as ?code= (PKCE), #access_token&type=recovery, or token_hash&type=recovery.
+  var recoveryEvent = false;
+  var arrival = readAuthArrival();
 
   function loadLib() {
     if (root.supabase && root.supabase.createClient) return Promise.resolve(root.supabase);
@@ -25,9 +29,16 @@
   }
   function db() {
     return loadLib().then(function (lib) {
-      if (!client) client = lib.createClient(URL, PUBLISHABLE_KEY, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' }
-      });
+      if (!client) {
+        client = lib.createClient(URL, PUBLISHABLE_KEY, {
+          auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' }
+        });
+        // Subscribe before getSession() so a PASSWORD_RECOVERY event fired
+        // while the client reads the URL is not missed.
+        client.auth.onAuthStateChange(function (event) {
+          if (event === 'PASSWORD_RECOVERY') recoveryEvent = true;
+        });
+      }
       return client;
     });
   }
@@ -43,6 +54,100 @@
     });
   }
 
+  function decodePart(s) {
+    try { return decodeURIComponent(String(s || '').replace(/\+/g, ' ')); }
+    catch (e) { return String(s || ''); }
+  }
+  function parseAuthParams(s) {
+    var out = {};
+    var q = String(s || '').replace(/^[?#]/, '');
+    if (!q || q.indexOf('=') === -1) return out;
+    q.split('&').forEach(function (part) {
+      if (!part) return;
+      var i = part.indexOf('=');
+      var key = decodePart(i < 0 ? part : part.slice(0, i));
+      var val = decodePart(i < 0 ? '' : part.slice(i + 1));
+      if (key && !out[key]) out[key] = val;
+    });
+    return out;
+  }
+  function readAuthArrival() {
+    var search = '', hash = '';
+    try { search = location.search || ''; hash = location.hash || ''; } catch (e) {}
+    var fromSearch = parseAuthParams(search);
+    var rawHash = hash.charAt(0) === '#' ? hash.slice(1) : hash;
+    var fromHash = rawHash.indexOf('=') === -1 ? {} : parseAuthParams(rawHash);
+    function pick(k) { return fromSearch[k] || fromHash[k] || ''; }
+    return {
+      type: pick('type'),
+      code: pick('code'),
+      tokenHash: pick('token_hash'),
+      accessToken: pick('access_token'),
+      refreshToken: pick('refresh_token'),
+      error: pick('error'),
+      errorCode: pick('error_code'),
+      errorDescription: pick('error_description')
+    };
+  }
+  function arrivalKind() {
+    // Expired links often arrive as only error/error_code, with no type left.
+    // Claim those before a sign-in redirect can erase the hash.
+    if (arrival.error || arrival.errorCode || arrival.errorDescription) return 'error';
+    if (arrival.type === 'recovery') return 'recovery';
+    if (arrival.code) return 'code';
+    return '';
+  }
+  function liveParam(name) {
+    var search = '', hash = '';
+    try { search = location.search || ''; hash = location.hash || ''; } catch (e) {}
+    if (parseAuthParams(search)[name]) return true;
+    var raw = hash.charAt(0) === '#' ? hash.slice(1) : hash;
+    if (raw.indexOf('=') === -1) return false;
+    return !!parseAuthParams(raw)[name];
+  }
+  function invalidRecovery() {
+    return { kind: 'invalid', message: 'This reset link is invalid or has expired.' };
+  }
+  function looksLikeJwt(token) {
+    return typeof token === 'string' && token.length > 20 && token.split('.').length === 3;
+  }
+  // PKCE clients reject implicit hash tokens. A recovery link that still has
+  // access_token/refresh_token, or a token_hash from the email template, is
+  // exchanged here so routing cannot drop it first.
+  function establishRecovery() {
+    if (arrival.tokenHash && arrival.type === 'recovery') {
+      return db().then(function (c) {
+        return c.auth.verifyOtp({ type: 'recovery', token_hash: arrival.tokenHash });
+      }).then(function (res) {
+        if (res.error || !res.data || !res.data.session) return invalidRecovery();
+        recoveryEvent = true;
+        return { kind: 'recovery', session: res.data.session };
+      }, function () { return invalidRecovery(); });
+    }
+    if (arrival.type === 'recovery' && looksLikeJwt(arrival.accessToken) && arrival.refreshToken) {
+      return db().then(function (c) {
+        return c.auth.setSession({ access_token: arrival.accessToken, refresh_token: arrival.refreshToken });
+      }).then(function (res) {
+        if (res.error || !res.data || !res.data.session) return invalidRecovery();
+        recoveryEvent = true;
+        return { kind: 'recovery', session: res.data.session };
+      }, function () { return invalidRecovery(); });
+    }
+    return Promise.resolve(invalidRecovery());
+  }
+  function classifyArrival(session) {
+    if (recoveryEvent && session) return { kind: 'recovery', session: session };
+    if (arrival.type === 'recovery' && session && !liveParam('code') && !liveParam('access_token')) {
+      return { kind: 'recovery', session: session };
+    }
+    if (arrival.type === 'recovery') return establishRecovery();
+    if (arrival.code) {
+      if (session && !liveParam('code')) return { kind: 'signed-in', session: session };
+      return invalidRecovery();
+    }
+    if (session) return { kind: 'signed-in', session: session };
+    return { kind: 'none' };
+  }
   var api = {
     session: function () {
       return db().then(function (c) { return c.auth.getSession(); }).then(function (res) {
@@ -67,6 +172,38 @@
     signOut: function () {
       return db().then(function (c) { return c.auth.signOut(); }).then(function (res) {
         if (res.error) throw res.error;
+      });
+    },
+    // Same redirect as email confirmation. coachtrainerapp.com/** is already allowed.
+    requestPasswordReset: function (email) {
+      return db().then(function (c) {
+        return c.auth.resetPasswordForEmail(String(email || '').trim(), { redirectTo: REDIRECT });
+      }).then(function (res) {
+        if (res.error) throw res.error;
+        return true;
+      });
+    },
+    updatePassword: function (password) {
+      return db().then(function (c) {
+        return c.auth.updateUser({ password: password });
+      }).then(function (res) {
+        if (res.error) throw res.error;
+        return true;
+      });
+    },
+    // '', 'recovery', 'code', or 'error'. Read from the URL captured at load.
+    recoveryArrival: function () { return arrivalKind(); },
+    // Classify the link after the client has had a chance to read it.
+    // 'recovery' shows the new-password form, 'signed-in' is an email
+    // confirmation (or other non-recovery code), 'invalid' is an expired link.
+    consumeAuthCallback: function () {
+      if (arrivalKind() === 'error') return Promise.resolve(invalidRecovery());
+      return api.session().then(function (session) {
+        return classifyArrival(session);
+      }, function () {
+        if (arrival.type === 'recovery') return establishRecovery();
+        if (arrival.code || arrivalKind() === 'error') return invalidRecovery();
+        return { kind: 'none' };
       });
     },
     profile: function () {
