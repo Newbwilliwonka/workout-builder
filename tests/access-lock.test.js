@@ -125,6 +125,25 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await allowed.goto(URL + '#/'); await allowed.reload();
   await allowed.waitForSelector('[data-a=run]');
   assert.strictEqual(await allowed.$eval('.name', e => e.textContent), 'Hidden workout');
+  assert.deepStrictEqual(await allowed.$eval('#programs-open', function (el) {
+    var row = el.parentElement;
+    var account = row.firstElementChild;
+    return {
+      className: el.className,
+      type: el.type,
+      action: el.getAttribute('data-a'),
+      rowClass: row.className,
+      rowStyle: row.getAttribute('style'),
+      account: account.textContent + ' ' + account.className + ' ' + account.type + ' ' + account.getAttribute('data-a')
+    };
+  }), {
+    className: 'grow',
+    type: 'button',
+    action: 'programs',
+    rowClass: 'row',
+    rowStyle: 'margin-bottom:8px',
+    account: 'Account grow button account'
+  });
   await allowed.screenshot({ path: '/tmp/allowlisted-workouts-412.png' });
   await allowed.click('[data-a=run]');
   await allowed.waitForSelector('.pl-screen');
