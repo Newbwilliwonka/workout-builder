@@ -83,29 +83,44 @@ async function shareMode(page, mode) {
   await page.evaluate(function (mode) {
     window.__shareCalls = [];
     window.__copyAttempts = [];
+    window.__order = [];
     if (!window.__realWrite && navigator.clipboard && navigator.clipboard.writeText) {
       window.__realWrite = navigator.clipboard.writeText.bind(navigator.clipboard);
     }
+    if (!window.__realClipboardWrite && navigator.clipboard && navigator.clipboard.write) {
+      window.__realClipboardWrite = navigator.clipboard.write.bind(navigator.clipboard);
+    }
     if (navigator.clipboard) {
       navigator.clipboard.writeText = function (text) {
+        window.__order.push('writeText');
         window.__copyAttempts.push(String(text));
         if (window.__realWrite) return window.__realWrite(text);
         return Promise.resolve();
       };
+      if (navigator.clipboard.write) {
+        navigator.clipboard.write = function (items) {
+          window.__order.push('clipboard');
+          if (window.__realClipboardWrite) return window.__realClipboardWrite(items);
+          return Promise.resolve();
+        };
+      }
     }
     var share;
     if (mode === 'missing') share = undefined;
     else if (mode === 'ok') share = function (data) {
+      window.__order.push('share');
       window.__shareCalls.push(data);
       return Promise.resolve();
     };
     else if (mode === 'abort') share = function (data) {
+      window.__order.push('share');
       window.__shareCalls.push(data);
       var err = new Error('Share canceled');
       err.name = 'AbortError';
       return Promise.reject(err);
     };
     else share = function (data) {
+      window.__order.push('share');
       window.__shareCalls.push(data);
       return Promise.reject(new Error('share failed'));
     };
@@ -250,8 +265,10 @@ async function shareMode(page, mode) {
     var toast = document.getElementById('toast');
     return toast && toast.textContent === 'Link copied' && toast.classList.contains('show');
   });
-  assert.deepStrictEqual(await phone.evaluate(function () { return window.__copyAttempts; }), [phoneFeed]);
+  const failOrder = await phone.evaluate(function () { return window.__order.slice(); });
+  assert.ok(failOrder.indexOf('clipboard') !== -1 && failOrder.indexOf('clipboard') < failOrder.indexOf('share'), JSON.stringify(failOrder));
   assert.strictEqual(await phone.evaluate(function () { return navigator.clipboard.readText(); }), phoneFeed);
+  assert.strictEqual(await phone.$('#pv-gcal-link'), null);
 
   await phone.evaluate(function () {
     var toast = document.getElementById('toast');

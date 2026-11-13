@@ -849,18 +849,34 @@
     state.sheet.error = '';
     render();
   }
+  function revealLinkField(url) {
+    var field = document.getElementById('pv-gcal-link');
+    if (!field) {
+      var card = document.getElementById('pv-gcal-sheet');
+      if (!card) return null;
+      field = document.createElement('input');
+      field.id = 'pv-gcal-link';
+      field.className = 'pv-gcal-link';
+      field.type = 'text';
+      field.readOnly = true;
+      field.value = url;
+      field.setAttribute('aria-label', 'Calendar link');
+      field.spellcheck = false;
+      var reset = document.getElementById('pv-gcal-reset');
+      if (reset && reset.parentNode === card) card.insertBefore(field, reset);
+      else card.appendChild(field);
+    }
+    try {
+      field.focus();
+      field.select();
+      if (field.setSelectionRange) field.setSelectionRange(0, field.value.length);
+    } catch (err) {}
+    return field;
+  }
   function copyCalendarLink() {
     if (!state || !state.sheet || state.sheet.type !== 'gcal' || !state.sheet.url) return;
     var url = state.sheet.url;
-    var field = document.getElementById('pv-gcal-link');
-    function selectField() {
-      if (!field) return;
-      try {
-        field.focus();
-        field.select();
-        if (field.setSelectionRange) field.setSelectionRange(0, field.value.length);
-      } catch (err) {}
-    }
+    function selectField() { revealLinkField(url); }
     function copied() {
       if (options && options.toast) options.toast('Link copied');
     }
@@ -881,6 +897,53 @@
   function shareCancelled(err) {
     return !!(err && err.name === 'AbortError');
   }
+  // Share consumes the tap on iOS, so a later clipboard.writeText is rejected.
+  // Start the clipboard write during the tap and only fill it in if share fails.
+  function armShareCopy(url) {
+    var committed = false;
+    var writeFailed = false;
+    var resolveText = null;
+    var rejectText = null;
+    var armed = false;
+    var clip = typeof navigator !== 'undefined' ? navigator.clipboard : null;
+    if (clip && typeof clip.write === 'function' && typeof ClipboardItem === 'function') {
+      try {
+        var textPromise = new Promise(function (resolve, reject) {
+          resolveText = resolve;
+          rejectText = reject;
+        });
+        var blobPromise = textPromise.then(function (text) {
+          return new Blob([text], { type: 'text/plain' });
+        });
+        blobPromise.then(function () {}, function () {});
+        var pending = clip.write([new ClipboardItem({ 'text/plain': blobPromise })]);
+        armed = true;
+        if (pending && typeof pending.then === 'function') {
+          pending.then(function () {
+            if (committed && options && options.toast) options.toast('Link copied');
+          }, function () {
+            writeFailed = true;
+            if (committed) revealLinkField(url);
+          });
+        }
+      } catch (err) {
+        armed = false;
+      }
+    }
+    return {
+      commit: function () {
+        committed = true;
+        if (!armed || writeFailed) {
+          copyCalendarLink();
+          return;
+        }
+        resolveText(url);
+      },
+      cancel: function () {
+        if (rejectText) rejectText(new Error('cancelled'));
+      }
+    };
+  }
   function shareCalendarLink() {
     if (!state || !state.sheet || state.sheet.type !== 'gcal' || !state.sheet.url) return;
     var url = state.sheet.url;
@@ -889,6 +952,7 @@
       copyCalendarLink();
       return;
     }
+    var armed = armShareCopy(url);
     var pending;
     try {
       pending = nav.share({
@@ -897,16 +961,18 @@
         url: url
       });
     } catch (err) {
-      if (shareCancelled(err)) return;
-      copyCalendarLink();
+      if (shareCancelled(err)) { armed.cancel(); return; }
+      armed.commit();
       return;
     }
     if (pending && typeof pending.then === 'function') {
-      pending.then(function () {}, function (err) {
-        if (shareCancelled(err)) return;
-        copyCalendarLink();
+      pending.then(function () { armed.cancel(); }, function (err) {
+        if (shareCancelled(err)) { armed.cancel(); return; }
+        armed.commit();
       });
+      return;
     }
+    armed.cancel();
   }
   function showSignedOut() {
     if (!state || !state.sheet || state.sheet.type !== 'gcal') return;

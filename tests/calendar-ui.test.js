@@ -157,36 +157,53 @@ async function installShare(page, mode) {
   await page.evaluate(function (mode) {
     window.__shareCalls = [];
     window.__copyAttempts = [];
+    window.__order = [];
     if (!window.__realWrite && navigator.clipboard && navigator.clipboard.writeText) {
       window.__realWrite = navigator.clipboard.writeText.bind(navigator.clipboard);
     }
+    if (!window.__realClipboardWrite && navigator.clipboard && navigator.clipboard.write) {
+      window.__realClipboardWrite = navigator.clipboard.write.bind(navigator.clipboard);
+    }
     if (navigator.clipboard) {
       navigator.clipboard.writeText = function (text) {
+        window.__order.push('writeText');
         window.__copyAttempts.push(String(text));
         if (mode === 'copy-fail') return Promise.reject(new Error('denied'));
         if (window.__realWrite) return window.__realWrite(text);
         return Promise.resolve();
       };
+      if (navigator.clipboard.write) {
+        navigator.clipboard.write = function (items) {
+          window.__order.push('clipboard');
+          if (mode === 'copy-fail') return Promise.reject(new Error('denied'));
+          if (window.__realClipboardWrite) return window.__realClipboardWrite(items);
+          return Promise.resolve();
+        };
+      }
     }
     var share;
     if (mode === 'missing') share = undefined;
     else if (mode === 'ok') share = function (data) {
+      window.__order.push('share');
       window.__shareCalls.push(data);
       return Promise.resolve();
     };
     else if (mode === 'abort') share = function (data) {
+      window.__order.push('share');
       window.__shareCalls.push(data);
       var err = new Error('Share canceled');
       err.name = 'AbortError';
       return Promise.reject(err);
     };
     else if (mode === 'abort-throw') share = function (data) {
+      window.__order.push('share');
       window.__shareCalls.push(data);
       var err = new Error('Share canceled');
       err.name = 'AbortError';
       throw err;
     };
     else share = function (data) {
+      window.__order.push('share');
       window.__shareCalls.push(data);
       if (mode === 'throw') throw new Error('share threw');
       return Promise.reject(new Error('share failed'));
@@ -292,11 +309,14 @@ async function toastText(page) {
   assert.deepStrictEqual(await phone.evaluate(function () { return window.__copyAttempts; }), []);
   assert.strictEqual(await toastText(phone), '');
 
+  await phone.evaluate(function () { return navigator.clipboard.writeText('untouched'); });
   await installShare(phone, 'abort');
   await phone.click('#pv-gcal-share');
   await phone.waitForFunction(function () { return window.__shareCalls.length === 1; });
   assert.deepStrictEqual(await phone.evaluate(function () { return window.__copyAttempts; }), []);
   assert.strictEqual(await toastText(phone), '');
+  assert.strictEqual(await phone.evaluate(function () { return navigator.clipboard.readText(); }), 'untouched');
+  assert.strictEqual(await phone.$('#pv-gcal-link'), null);
 
   await installShare(phone, 'abort-throw');
   await phone.click('#pv-gcal-share');
@@ -311,8 +331,10 @@ async function toastText(page) {
     var toast = document.getElementById('toast');
     return toast && toast.textContent === 'Link copied' && toast.classList.contains('show');
   });
-  assert.deepStrictEqual(await phone.evaluate(function () { return window.__copyAttempts; }), [phoneFeed]);
+  const failOrder = await phone.evaluate(function () { return window.__order.slice(); });
+  assert.ok(failOrder.indexOf('clipboard') !== -1 && failOrder.indexOf('clipboard') < failOrder.indexOf('share'), JSON.stringify(failOrder));
   assert.strictEqual(await phone.evaluate(function () { return navigator.clipboard.readText(); }), phoneFeed);
+  assert.strictEqual(await phone.$('#pv-gcal-link'), null);
 
   await clearToast(phone);
   await installShare(phone, 'throw');
@@ -321,7 +343,8 @@ async function toastText(page) {
     var toast = document.getElementById('toast');
     return toast && toast.textContent === 'Link copied' && toast.classList.contains('show');
   });
-  assert.deepStrictEqual(await phone.evaluate(function () { return window.__copyAttempts; }), [phoneFeed]);
+  const throwOrder = await phone.evaluate(function () { return window.__order.slice(); });
+  assert.ok(throwOrder.indexOf('clipboard') !== -1 && throwOrder.indexOf('clipboard') < throwOrder.indexOf('share'), JSON.stringify(throwOrder));
 
   await clearToast(phone);
   await phone.evaluate(function () { return navigator.clipboard.writeText('cleared'); });
@@ -338,8 +361,11 @@ async function toastText(page) {
   await clearToast(phone);
   await installShare(phone, 'copy-fail');
   await phone.click('#pv-gcal-share');
-  await phone.waitForFunction(function () { return window.__copyAttempts.length === 1; });
-  assert.deepStrictEqual(await phone.evaluate(function () { return window.__copyAttempts; }), [phoneFeed]);
+  await phone.waitForFunction(function () {
+    var field = document.getElementById('pv-gcal-link');
+    return field && field.value && document.activeElement === field && field.selectionStart === 0 && field.selectionEnd === field.value.length;
+  });
+  assert.strictEqual(await phone.$eval('#pv-gcal-link', function (el) { return el.value; }), phoneFeed);
   assert.strictEqual(await toastText(phone), '');
 
   await phone.click('#pv-gcal-reset');
