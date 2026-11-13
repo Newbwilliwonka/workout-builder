@@ -180,8 +180,8 @@
     var head = '<p class="mute">' + esc(status.plan || (status.enthusiast ? 'Enthusiast' : 'Free Client')) + '</p>';
     if (!status.enthusiast) {
       return '<div id="client-free">' + head +
-        '<div class="card"><div class="name">Not part of this option</div>' +
-        '<p class="mute">Free Clients are unchanged. Their own workouts and tracking stay private.</p></div></div>';
+        '<div class="card"><div class="name">Free Client</div>' +
+        '<p class="mute">Free Clients keep workouts on their account. You can view, run, and edit those. Tracking stays off this screen.</p></div></div>';
     }
     if (!status.shared) {
       return '<div id="client-private">' + head +
