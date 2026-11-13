@@ -196,7 +196,6 @@
       return accountRpc('workout_trainer_save', { p_id: id, p_name: name || '', p_items: items || [] });
     },
     deleteClientCopy: function (id) { return accountRpc('workout_trainer_delete', { p_id: id }); },
-    accountSeedClose: function () { return accountRpc('account_seed_close'); },
     watchMessages: function (handler) {
       return db().then(function (c) {
         var channel = c.channel('wb-messages-' + Math.random().toString(36).slice(2));

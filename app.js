@@ -353,7 +353,6 @@
   var LIBRARY_OWNER_KEY = 'wb.libraryOwner.v1';
   var LIBRARY_CACHE_KEY = 'wb.libraryCache.v1';
   var LIBRARY_SEED_KEY = 'wb.accountSeed.v1';
-  var capHold = {};
   function libraryOwner() {
     try { return localStorage.getItem(LIBRARY_OWNER_KEY) || ''; } catch (e) { return ''; }
   }
@@ -412,7 +411,6 @@
       guestGen = {};
       copyStamp = {};
       removedCopies = [];
-      capHold = {};
       var cached = libraryBox(LIBRARY_CACHE_KEY)[userId];
       var choice = WBLibrary.libraryForAccount(owner, userId, data.workouts, cached);
       data.workouts = choice.workouts;
@@ -424,9 +422,6 @@
     }
     setLibraryOwner(userId);
     libraryUserId = userId;
-  }
-  function capMessage(err) {
-    return /up to 6/i.test(String(err && err.message || ''));
   }
   function importPending() {
     var claimed = userMap(WBLibrary.CLAIM_KEY, libraryUserId);
@@ -450,16 +445,6 @@
     });
     return chain.then(function () { return failed; });
   }
-  function closeSeedIfDone() {
-    if (!WBAuth.accountSeedClose) return Promise.resolve();
-    var seed = ensureSeed(libraryUserId);
-    var claimed = userMap(WBLibrary.CLAIM_KEY, libraryUserId);
-    var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
-    if (WBLibrary.importsForSeed(data.workouts, claimed, drops, seed).length) return Promise.resolve();
-    return WBAuth.accountSeedClose().then(function () {}, function (err) {
-      if (libraryMissing(err)) throw err;
-    });
-  }
   function pushPending() {
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var changes = WBLibrary.pushChanges(data.workouts, drops, libraryAck);
@@ -467,16 +452,13 @@
     var chain = Promise.resolve();
     changes.forEach(function (change) {
       chain = chain.then(function () {
-        if (capHold[change.localId] === change.revisedAt) return;
         return WBAuth.accountPush(change).then(function (row) {
           if (row && row.localId) libraryAck[String(row.localId)] = row.revisedAt;
-          delete capHold[change.localId];
           if (change.deleted && row && !row.deleted && WBLibrary.ms(row.revisedAt) > change.revisedAt) {
             applyLibraryRows([row]);
           }
         }, function (err) {
           if (libraryMissing(err)) throw err;
-          if (capMessage(err)) { capHold[change.localId] = change.revisedAt; return; }
           failed = true;
         });
       });
@@ -537,8 +519,6 @@
         if (!Array.isArray(rows)) rows = [];
         applyLibraryRows(rows);
         return importPending();
-      }).then(function (importFailed) {
-        return closeSeedIfDone().then(function () { return importFailed; });
       }).then(function (importFailed) {
         return pushPending().then(function (pushFailed) { return importFailed || pushFailed; });
       }).then(function (failed) {

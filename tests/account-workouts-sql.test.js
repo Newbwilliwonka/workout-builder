@@ -182,12 +182,17 @@ begin
   ));
   select count(*) into n from public.account_workouts where owner_id = '${E}' and local_id = 'wo_legacy' and deleted_at is null;
   if n <> 1 then raise exception 'legacy copy dropped'; end if;
-  perform public.account_seed_close();
+end $$;
+
+-- A later save is a new request, so the one-time import flag is gone and the cap holds.
+do $$
+declare n int;
+begin
   begin
-    perform public.account_workout_import(jsonb_build_object(
-      'localId', 'wo_after', 'name', 'After close', 'items', '[]'::jsonb, 'revisedAt', 5000
+    perform public.account_workout_push(jsonb_build_object(
+      'localId', 'wo_after', 'name', 'After the copy', 'items', '[]'::jsonb, 'revisedAt', 5000
     ));
-    raise exception 'import after close should fail';
+    raise exception 'new save should still stop at 6';
   exception when others then
     if sqlerrm not like '%up to 6%' then raise; end if;
   end;
