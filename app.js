@@ -593,8 +593,21 @@
   var pendingSignNotice = null, authBusy = false, planBusy = false;
   // recoveryPhase: '' | 'checking' | 'form' | 'invalid' | 'done'
   var recoveryPhase = '', recoverySettled = false, recoveryReady = false;
+  var RECOVERY_LOCK = 'wb.recovery';
   var RESET_SENT = 'If that email has an account, a reset link is on its way. Check your inbox and spam.';
   var RESET_INVALID = 'This reset link is invalid or has expired.';
+  // The URL tokens are removed once the link is accepted, but the recovery
+  // session stays in the browser. Remember that here so a reload still asks
+  // for a new password instead of opening the app.
+  function recoveryLocked() {
+    try { return localStorage.getItem(RECOVERY_LOCK) === '1'; } catch (e) { return false; }
+  }
+  function lockRecovery() {
+    try { localStorage.setItem(RECOVERY_LOCK, '1'); } catch (e) {}
+  }
+  function unlockRecovery() {
+    try { localStorage.removeItem(RECOVERY_LOCK); } catch (e) {}
+  }
   function openAccount() {
     var from = hashPage();
     WBAuth.session().then(function (session) {
@@ -771,6 +784,7 @@
     app.onclick = function (e) {
       var b = e.target.closest('[data-auth]'); if (!b) return;
       if (b.dataset.auth === 'forgot') {
+        unlockRecovery();
         recoverySettled = true;
         recoveryPhase = '';
         recoveryReady = false;
@@ -787,6 +801,7 @@
       WBAuth.updatePassword(password).then(function () {
         authBusy = false;
         if (hashPage() !== started && hashPage() !== 'reset') return;
+        unlockRecovery();
         recoverySettled = true;
         recoveryReady = false;
         recoveryPhase = 'done';
@@ -797,6 +812,7 @@
         if (hashPage() !== started && hashPage() !== 'reset') return;
         var msg = (err && err.message) || '';
         if (/expired|invalid|session/i.test(msg)) {
+          unlockRecovery();
           recoveryPhase = 'invalid';
           recoverySettled = true;
           recoveryReady = false;
@@ -807,6 +823,7 @@
     };
   }
   function abandonReset() {
+    unlockRecovery();
     recoverySettled = true;
     var signedIn = recoveryPhase === 'form' && recoveryReady;
     recoveryPhase = '';
@@ -856,11 +873,13 @@
   function beginRecovery(token) {
     var kind = WBAuth.recoveryArrival ? WBAuth.recoveryArrival() : '';
     if (kind === 'error') {
+      unlockRecovery();
       recoveryPhase = 'invalid';
       recoverySettled = true;
       replaceAuthHash('#/reset');
       return renderReset();
     }
+    if (kind === 'recovery') lockRecovery();
     recoveryPhase = 'checking';
     renderReset();
     var pending;
@@ -871,17 +890,20 @@
       // A newer route() call (routeToken) means the person already left.
       if (token !== routeToken) return;
       if (result && result.kind === 'signed-in') {
+        unlockRecovery();
         recoverySettled = true;
         recoveryPhase = '';
         recoveryReady = false;
         return openSignedIn(token, location.hash, hashPage());
       }
       if (result && result.kind === 'recovery') {
+        lockRecovery();
         recoveryPhase = 'form';
         recoveryReady = true;
         replaceAuthHash('#/reset');
         return renderReset();
       }
+      unlockRecovery();
       recoveryPhase = 'invalid';
       recoverySettled = true;
       recoveryReady = false;
@@ -889,10 +911,42 @@
       renderReset(result && result.message);
     }, function () {
       if (token !== routeToken) return;
+      unlockRecovery();
       recoveryPhase = 'invalid';
       recoverySettled = true;
       recoveryReady = false;
       replaceAuthHash('#/reset');
+      renderReset();
+    });
+  }
+  // A reload has no token left in the URL. The lock says this browser still
+  // owes a new password; the saved session is what makes Update password work.
+  function resumeRecovery(token) {
+    recoveryPhase = 'checking';
+    renderReset();
+    var pending;
+    try { pending = WBAuth.session ? WBAuth.session() : Promise.resolve(null); }
+    catch (e) { pending = Promise.reject(e); }
+    Promise.resolve(pending).then(function (session) {
+      if (token !== routeToken) return;
+      if (session) {
+        recoveryPhase = 'form';
+        recoveryReady = true;
+        if (hashPage() !== 'reset') replaceAuthHash('#/reset');
+        return renderReset();
+      }
+      unlockRecovery();
+      recoveryPhase = 'invalid';
+      recoverySettled = true;
+      recoveryReady = false;
+      if (hashPage() !== 'reset') replaceAuthHash('#/reset');
+      renderReset();
+    }, function () {
+      if (token !== routeToken) return;
+      unlockRecovery();
+      recoveryPhase = 'invalid';
+      recoverySettled = true;
+      recoveryReady = false;
       renderReset();
     });
   }
@@ -1723,12 +1777,17 @@
       return renderReset();
     }
     if (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(token);
+    if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
     // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
     // Invite links and email confirmation land on this flow. Every other page waits for a session.
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
     if (page === 'forgot') return renderForgot();
-    if (page === 'reset') return renderReset();
+    if (page === 'reset') {
+      recoveryPhase = 'invalid';
+      recoverySettled = true;
+      return renderReset();
+    }
     if (page === 'subscriptions') return renderSubscriptions();
     var requested = location.hash;
     app.innerHTML = '';

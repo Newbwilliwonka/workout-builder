@@ -27,7 +27,11 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
         enumerable: true,
         get: function () { return current; },
         set: function (v) {
-          window.__resetSource = String(v.requestPasswordReset || '');
+          try {
+        if (!sessionStorage.getItem('wb.testReady')) localStorage.removeItem('wb.recovery');
+        sessionStorage.setItem('wb.testReady', '1');
+      } catch (e) {}
+      window.__resetSource = String(v.requestPasswordReset || '');
           v.session = function () {
             if (cfg.consumeCode && !window.__consumed) {
               window.__consumed = true;
@@ -44,7 +48,11 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
             return Promise.resolve(cfg.session || null);
           };
           v.profile = function () { return Promise.resolve(cfg.profile == null ? null : cfg.profile); };
-          v.signOut = function () { window.__signedOut = (window.__signedOut || 0) + 1; return Promise.resolve(); };
+          v.signOut = function () {
+            window.__signedOut = (window.__signedOut || 0) + 1;
+            cfg.session = null;
+            return Promise.resolve();
+          };
           v.requestPasswordReset = function (email) {
             window.__reset = window.__reset || [];
             window.__reset.push(email);
@@ -213,6 +221,29 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   await leave.click('[data-auth=back-signin]');
   await leave.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2').textContent === 'Sign in');
   assert.strictEqual(await leave.evaluate(() => window.__signedOut), 1);
+  assert.strictEqual(await leave.evaluate(() => localStorage.getItem('wb.recovery')), null);
+  await leave.evaluate(() => { location.hash = '#/'; });
+  await leave.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2').textContent === 'Sign in');
+
+  const again = await open({
+    session: { user: { id: 'u', email: 'ada@example.com' } },
+    profile: none,
+    clearHash: true
+  });
+  await again.goto(URL + '#type=recovery');
+  await again.waitForSelector('#new-pass');
+  assert.strictEqual(await again.evaluate(() => localStorage.getItem('wb.recovery')), '1');
+  await again.evaluate(() => { location.hash = '#/'; });
+  await again.waitForFunction(() => location.hash === '#/reset' && document.querySelector('#new-pass') && !document.querySelector('[data-a=new]'));
+  await again.reload();
+  await again.waitForSelector('#new-pass');
+  assert.strictEqual(await again.$eval('h2', e => e.textContent), 'Set a new password');
+  assert.ok(await again.$('[data-auth=update-pass]:not([disabled])'));
+  assert.ok(!(await again.evaluate(() => document.body.innerText.indexOf('Checking your link') !== -1)));
+
+  const bare = await open({});
+  await bare.goto(URL + '#/reset');
+  await bare.waitForFunction((msg) => document.body.innerText.indexOf(msg) !== -1 && document.body.innerText.indexOf('Checking your link') === -1 && !document.querySelector('#new-pass'), {}, INVALID);
 
   assert.deepStrictEqual(errs, []);
   console.log('PASSWORD RESET OK');
