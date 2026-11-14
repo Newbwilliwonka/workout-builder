@@ -57,6 +57,7 @@ fs.writeFileSync(fileB, pngB);
       api.exerciseFilters = function () {
         return Promise.resolve({ bodyParts: ['chest'], equipment: ['barbell'], targets: ['pectorals'] });
       };
+      api.exercisesByIds = function () { return Promise.resolve([]); };
       return api;
     }
     Object.defineProperty(window, 'WBAuth', {

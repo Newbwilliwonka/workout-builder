@@ -337,6 +337,46 @@
   }
   function save(storage, data) { storage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
+  // Saved library exercises the user named themselves. A query of 2+ letters
+  // matches anywhere in that name. One row per animation, newest use first.
+  function savedLibraryMatches(workouts, query) {
+    var q = String(query == null ? '' : query).trim().toLowerCase();
+    if (q.length < 2) return [];
+    var best = {}, seq = 0;
+    (workouts || []).forEach(function (w) {
+      if (!w || !w.id || w.sourceTrainerId || w.remoteOwnerId) return;
+      var at = Number(w.updatedAt);
+      if (!isFinite(at)) at = 0;
+      (w.items || []).forEach(function (it) {
+        seq += 1;
+        var media = cleanMedia(it && it.media);
+        if (!media || media.kind !== 'library') return;
+        var name = String(it && it.name || '').trim();
+        if (!name || name.toLowerCase().indexOf(q) < 0) return;
+        var prev = best[media.libraryId];
+        if (!prev || at > prev.at || (at === prev.at && seq >= prev.seq)) {
+          best[media.libraryId] = { libraryId: media.libraryId, name: name, at: at, seq: seq };
+        }
+      });
+    });
+    var out = [];
+    Object.keys(best).forEach(function (id) { out.push(best[id]); });
+    out.sort(function (a, b) { return (b.at - a.at) || (b.seq - a.seq); });
+    return out.map(function (row) { return { libraryId: row.libraryId, name: row.name }; });
+  }
+
+  // Same equipment / target / body-part check the library search uses.
+  function libraryRowMatches(row, filters) {
+    if (!row) return false;
+    filters = filters || {};
+    function want(value) { return String(value == null ? '' : value).trim(); }
+    var equipment = want(filters.equipment), target = want(filters.target), body = want(filters.bodyPart);
+    if (equipment && String(row.equipment || '') !== equipment) return false;
+    if (target && String(row.target || '') !== target) return false;
+    if (body && String(row.body_part || '') !== body) return false;
+    return true;
+  }
+
   var api = {
     SCHEMA_VERSION: SCHEMA_VERSION, STORAGE_KEY: STORAGE_KEY, MODES: MODES, REPS_TYPES: REPS_TYPES, UNITS: UNITS,
     SAVE_SESSIONS: SAVE_SESSIONS, REPS_MODE_TYPES: REPS_MODE_TYPES, repsText: repsText, uid: uid, clone: clone, formatStopwatch: formatStopwatch, migrate: migrate, num: num, fmtTime: fmtTime, toSec: toSec,
@@ -345,7 +385,7 @@
     blocks: blocks, cleanGroups: cleanGroups, upsertExercise: upsertExercise, deleteExercise: deleteExercise,
     moveExercise: moveExercise, moveGroup: moveGroup, supersetLinkSize: supersetLinkSize, linkSuperset: linkSuperset, unlinkGroup: unlinkGroup,
     unlinkExercise: unlinkExercise, duplicateWorkout: duplicateWorkout, buildPlayQueue: buildPlayQueue,
-    load: load, save: save
+    load: load, save: save, savedLibraryMatches: savedLibraryMatches, libraryRowMatches: libraryRowMatches
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.WB = api;
 })(this);

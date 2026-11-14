@@ -117,6 +117,38 @@ assert.deepStrictEqual(photoEx.media, { kind: 'custom', imageKey: 'img_local1' }
 assert.strictEqual(M.normalizeExercise(mk({ name: 'x', media: { kind: 'library', libraryId: '' } })).media, null);
 assert.strictEqual(M.cleanMedia({ type: 'image', src: 'https://example.test/secret.gif' }), null);
 assert.strictEqual(M.cleanMedia(null), null);
+// A saved custom name can point at a library animation. Newest use wins, and each animation is listed once.
+(function () {
+  function wo(id, at, items, extra) {
+    var w = { id: id, name: id, updatedAt: at, items: items };
+    if (extra) Object.keys(extra).forEach(function (k) { w[k] = extra[k]; });
+    return w;
+  }
+  function lib(name, id) { return { name: name, media: { kind: 'library', libraryId: id, view: '180' } }; }
+  const workouts = [
+    wo('old', 1000, [lib('Goblet squat', 'dsq'), { name: 'Not a goblet thing', media: null }]),
+    wo('new', 3000, [lib('Heavy goblet', 'dsq'), lib('My goblet press', 'agob')]),
+    wo('mid', 2000, [lib('cable goblet', 'cgob')]),
+    wo('trainer', 9000, [lib('Secret goblet', 'secret')], { sourceTrainerId: 'tr' }),
+    wo('client', 9000, [lib('Client goblet', 'client')], { remoteOwnerId: 'c1' }),
+    wo('photo', 8000, [{ name: 'Goblet photo', media: { kind: 'custom', imageKey: 'img_1' } }])
+  ];
+  assert.deepStrictEqual(M.savedLibraryMatches(workouts, 'g'), []);
+  assert.deepStrictEqual(M.savedLibraryMatches(workouts, ' g '), []);
+  assert.deepStrictEqual(M.savedLibraryMatches(workouts, '  go ').map(function (r) { return r.libraryId + ':' + r.name; }), [
+    'agob:My goblet press', 'dsq:Heavy goblet', 'cgob:cable goblet'
+  ]);
+  assert.deepStrictEqual(M.savedLibraryMatches(workouts, 'SQUAT'), [{ libraryId: 'dsq', name: 'Goblet squat' }]);
+  const dumbbell = { id: 'dsq', name: 'Dumbbell squat', equipment: 'dumbbell', target: 'quads', body_part: 'upper legs' };
+  assert.strictEqual(M.libraryRowMatches(dumbbell, {}), true);
+  assert.strictEqual(M.libraryRowMatches(dumbbell, { equipment: 'dumbbell', target: 'quads' }), true);
+  assert.strictEqual(M.libraryRowMatches(dumbbell, { equipment: ' dumbbell ' }), true);
+  assert.strictEqual(M.libraryRowMatches(dumbbell, { equipment: 'cable' }), false);
+  assert.strictEqual(M.libraryRowMatches(dumbbell, { target: 'abs' }), false);
+  assert.strictEqual(M.libraryRowMatches(dumbbell, { bodyPart: 'upper legs' }), true);
+  assert.strictEqual(M.libraryRowMatches(dumbbell, { bodyPart: 'waist' }), false);
+  assert.strictEqual(M.libraryRowMatches(null, {}), false);
+})();
 console.log('MODEL OK');
 
 // ---- browser UI test ----

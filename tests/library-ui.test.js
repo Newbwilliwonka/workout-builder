@@ -75,6 +75,15 @@ data.workouts.push(w);
         window.__filterCalls = (window.__filterCalls || 0) + 1;
         return Promise.resolve({ bodyParts: ['chest', 'waist'], equipment: ['barbell', 'dumbbell'], targets: ['pectorals'] });
       };
+      api.exercisesByIds = function (ids) {
+        var want = {};
+        (ids || []).forEach(function (id) { want[String(id)] = 1; });
+        return Promise.resolve([
+          { id: '0101', name: 'Test press', body_part: 'chest', equipment: 'barbell', target: 'pectorals', description: pressDesc },
+          { id: '0102', name: 'Other press', body_part: 'chest', equipment: 'dumbbell', target: 'pectorals', description: otherDesc },
+          { id: '0103', name: 'No cue press', body_part: 'chest', equipment: 'barbell', target: 'pectorals', description: '' }
+        ].filter(function (row) { return want[row.id]; }));
+      };
       return api;
     }
     Object.defineProperty(window, 'WBAuth', {

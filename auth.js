@@ -394,6 +394,24 @@
         return res.data || { bodyParts: [], equipment: [], targets: [] };
       });
     },
+    // Library rows for animations the user already saved, so a custom name can
+    // bring that animation to the top. Reads the existing catalog by id.
+    exercisesByIds: function (ids) {
+      var seen = {}, list = [];
+      (ids || []).forEach(function (id) {
+        var s = String(id || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,32}$/.test(s) || seen[s]) return;
+        seen[s] = 1;
+        list.push(s);
+      });
+      if (!list.length) return Promise.resolve([]);
+      return db().then(function (c) {
+        return c.from('exercises').select('id,name,body_part,equipment,target,description').in('id', list);
+      }).then(function (res) {
+        if (res.error) throw libraryError(res.error);
+        return res.data || [];
+      });
+    },
     programEntries: function (ownerId) {
       var base = 'local_id,owner_id,workout_local_id,workout_name,items,day,presence,updated_at';
       function query(cols) {
