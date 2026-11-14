@@ -182,6 +182,59 @@
     if (h12 === 0) h12 = 12;
     return { text: h12 + ':' + pad(m), ap: ap };
   }
+  // 24-hour storage ("18:30") shown as a typed 12-hour HH:MM plus AM/PM.
+  function clock12(value) {
+    var mins = parseClock(value);
+    if (mins == null) return null;
+    var shown = formatClock(mins);
+    var parts = shown.text.split(':');
+    var hour = parts[0].length === 1 ? '0' + parts[0] : parts[0];
+    return { text: hour + ':' + parts[1], ap: shown.ap };
+  }
+  // Typed HH:MM (or digits) plus AM/PM, back to the 24-hour HH:MM the calendar stores.
+  function clock24(text, ap) {
+    var raw = String(text == null ? '' : text).trim();
+    var apRaw = String(ap == null ? '' : ap).trim().toUpperCase();
+    if (!raw) return { ok: false, empty: true, value: '' };
+    var m = /^(\d{1,2}):(\d{2})$/.exec(raw);
+    if (!m) {
+      var digits = raw.replace(/\D/g, '');
+      if (digits.length === 4) m = [digits, digits.slice(0, 2), digits.slice(2)];
+      else if (digits.length === 3) {
+        var head = Number(digits.slice(0, 2));
+        if (head >= 1 && head <= 12) return { ok: false, empty: false, value: '' };
+        m = [digits, digits.slice(0, 1), digits.slice(1)];
+      }
+    }
+    if (!m || (apRaw !== 'AM' && apRaw !== 'PM')) return { ok: false, empty: false, value: '' };
+    var h = Number(m[1]);
+    var min = Number(m[2]);
+    if (h < 1 || h > 12 || min > 59) return { ok: false, empty: false, value: '' };
+    var h24 = h % 12;
+    if (apRaw === 'PM') h24 += 12;
+    return { ok: true, empty: false, value: pad(h24) + ':' + pad(min) };
+  }
+  // Keep a typed time looking like HH:MM while the person is entering digits.
+  function shapeClock(value) {
+    var raw = String(value == null ? '' : value);
+    var colon = raw.indexOf(':');
+    if (colon !== -1) {
+      var left = raw.slice(0, colon).replace(/\D/g, '').slice(0, 2);
+      var right = raw.slice(colon + 1).replace(/\D/g, '').slice(0, 2);
+      if (!left && !right) return '';
+      return left + ':' + right;
+    }
+    var digits = raw.replace(/\D/g, '').slice(0, 4);
+    if (digits.length <= 2) return digits;
+    if (digits.length === 3) {
+      var h2 = Number(digits.slice(0, 2));
+      if (h2 >= 1 && h2 <= 12) return digits.slice(0, 2) + ':' + digits.slice(2);
+      return digits.slice(0, 1) + ':' + digits.slice(1);
+    }
+    var h = Number(digits.slice(0, 2));
+    if (h >= 1 && h <= 12) return digits.slice(0, 2) + ':' + digits.slice(2);
+    return digits.slice(0, 1) + ':' + digits.slice(1, 3);
+  }
   function formatRange(start, end) {
     var a = parseClock(start);
     var b = parseClock(end);
@@ -345,6 +398,9 @@
     entryMenu: entryMenu,
     validTimes: validTimes,
     formatRange: formatRange,
+    clock12: clock12,
+    clock24: clock24,
+    shapeClock: shapeClock,
     byStart: byStart,
     setTimes: setTimes,
     entryDone: entryDone,

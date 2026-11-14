@@ -265,6 +265,15 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-sheet-card button{width:100%}
 input.pv-gcal-link{font-size:12px;line-height:1.3;color:var(--mute);min-height:32px;padding:4px 10px;text-overflow:ellipsis}
 .pv-slot{display:contents}
+p.pv-dropped{margin:0;font-size:17px;font-weight:600;overflow-wrap:anywhere}
+.pv-time{display:flex;align-items:center;gap:8px}
+.pv-time input{width:auto;flex:1;min-width:0;text-align:center;font-variant-numeric:tabular-nums}
+.pv-ampm{display:flex;flex:none;border:1px solid #d1d5db;border-radius:12px;background:#fff}
+.pv-sheet-card .pv-ampm button{width:56px;min-width:48px;min-height:48px;padding:0 8px;border:0;border-radius:0;background:#fff;box-shadow:none;font-weight:600}
+.pv-sheet-card .pv-ampm button:first-child{border-radius:11px 0 0 11px}
+.pv-sheet-card .pv-ampm button:last-child{border-radius:0 11px 11px 0}
+.pv-sheet-card .pv-ampm button+button{box-shadow:inset 1px 0 0 #d1d5db}
+.pv-sheet-card .pv-ampm button.on{background:var(--pri);color:#fff}
 .pv-picks{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
 button.pv-pick{width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:64px;padding:10px 12px}
 button.pv-pick.on{border-color:var(--pri);background:#eff6ff;box-shadow:0 0 0 1px var(--pri)}
