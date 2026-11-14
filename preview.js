@@ -440,12 +440,22 @@
     var label = which === 'end' ? 'End AM or PM' : 'Start AM or PM';
     return '<div class="pv-ampm" role="group" aria-label="' + label + '">' + btn('AM') + btn('PM') + '</div>';
   }
-  function timeField(which, text, ap) {
-    var id = which === 'end' ? 'pv-end' : 'pv-start';
+  function timePart(which, part, value, bad) {
+    var id = (which === 'end' ? 'pv-end' : 'pv-start') + '-' + part;
+    var label = (which === 'end' ? 'End' : 'Start') + (part === 'h' ? ' hour' : ' minute');
+    var cls = bad ? ' class="is-empty"' : '';
+    var invalid = bad ? ' aria-invalid="true"' : '';
+    return '<input id="' + id + '"' + cls + ' data-clock="' + which + '" data-part="' + part + '" data-clear="1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="' + (part === 'h' ? 'HH' : 'MM') + '" aria-label="' + label + '" value="' + esc(value || '') + '"' + invalid + '>';
+  }
+  function timeField(which, hour, minute, ap) {
     var label = which === 'end' ? 'End' : 'Start';
+    var hourId = (which === 'end' ? 'pv-end' : 'pv-start') + '-h';
     var period = ap === 'PM' ? 'PM' : 'AM';
-    return '<label for="' + id + '">' + label + '</label><div class="pv-time">' +
-      '<input id="' + id + '" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="HH:MM" value="' + esc(text || '') + '">' +
+    var bad = (state.sheet && state.sheet.bad && state.sheet.bad[which]) || [];
+    return '<label for="' + hourId + '">' + label + '</label><div class="pv-time">' +
+      timePart(which, 'h', hour, bad.indexOf('h') >= 0) +
+      '<span class="pv-colon" aria-hidden="true">:</span>' +
+      timePart(which, 'm', minute, bad.indexOf('m') >= 0) +
       ampmHtml(which, period) + '</div>';
   }
   function addSheetHtml() {
@@ -466,8 +476,8 @@
       h += '</div>';
     }
     h += presenceChoice('pv-presence', sheet.presence || '', '') +
-      timeField('start', sheet.startText, sheet.startAp) +
-      timeField('end', sheet.endText, sheet.endAp);
+      timeField('start', sheet.startH, sheet.startM, sheet.startAp) +
+      timeField('end', sheet.endH, sheet.endM, sheet.endAp);
     if (sheet.error) h += '<p class="errs" id="pv-sheet-error">' + esc(sheet.error) + '</p>';
     return h + '<button type="button" class="pri" data-sheet="save">Add to this day</button><button type="button" data-sheet="cancel">Cancel</button></div></div>';
   }
@@ -596,21 +606,30 @@
     all[id] = { start: start, end: end };
     try { localStorage.setItem(TIME_KEY, JSON.stringify(all)); } catch (e) {}
   }
+  function clockParts(value, fallbackH, fallbackM, fallbackAp) {
+    var shown = P.clock12(value);
+    if (!shown) return { h: fallbackH, m: fallbackM, ap: fallbackAp };
+    var bits = shown.text.split(':');
+    return { h: bits[0] || fallbackH, m: bits[1] || fallbackM, ap: shown.ap || fallbackAp };
+  }
   function openAdd(date, workoutId, dropped) {
     var remembered = rememberedClock();
-    var start = P.clock12(remembered.start);
-    var end = P.clock12(remembered.end);
+    var start = clockParts(remembered.start, '09', '00', 'AM');
+    var end = clockParts(remembered.end, '10', '00', 'AM');
     state.sheet = {
       type: 'add',
       date: date,
       workoutId: workoutId || '',
       dropped: !!dropped && !!workoutId,
-      startText: start ? start.text : '09:00',
-      startAp: start ? start.ap : 'AM',
-      endText: end ? end.text : '10:00',
-      endAp: end ? end.ap : 'AM',
+      startH: start.h,
+      startM: start.m,
+      startAp: start.ap,
+      endH: end.h,
+      endM: end.m,
+      endAp: end.ap,
       presence: '',
-      error: ''
+      error: '',
+      bad: null
     };
     state.hint = '';
     render();
@@ -622,10 +641,14 @@
   function readSheetTimes() {
     if (!state || !state.sheet) return;
     if (state.sheet.type === 'add') {
-      var startEl = document.getElementById('pv-start');
-      var endEl = document.getElementById('pv-end');
-      if (startEl) state.sheet.startText = startEl.value;
-      if (endEl) state.sheet.endText = endEl.value;
+      function readPart(which, part) {
+        var el = document.querySelector('#pv-sheet input[data-clock="' + which + '"][data-part="' + part + '"]');
+        return el ? el.value : '';
+      }
+      state.sheet.startH = readPart('start', 'h');
+      state.sheet.startM = readPart('start', 'm');
+      state.sheet.endH = readPart('end', 'h');
+      state.sheet.endM = readPart('end', 'm');
       var startAp = document.querySelector('#pv-sheet [data-ampm="start"].on');
       var endAp = document.querySelector('#pv-sheet [data-ampm="end"].on');
       if (startAp) state.sheet.startAp = startAp.getAttribute('data-ap') === 'PM' ? 'PM' : 'AM';
@@ -645,11 +668,21 @@
     readSheetTimes();
     var sheet = state.sheet;
     if (!sheet || sheet.type !== 'add' || !data()) return;
-    if (!sheet.workoutId) { sheet.error = 'Pick a workout.'; render(); return; }
-    var start = P.clock24(sheet.startText, sheet.startAp);
-    var end = P.clock24(sheet.endText, sheet.endAp);
+    if (!sheet.workoutId) { sheet.error = 'Pick a workout.'; sheet.bad = null; render(); return; }
+    var startBits = clockIssue(sheet.startH, sheet.startM);
+    var endBits = clockIssue(sheet.endH, sheet.endM);
+    if (startBits.bad.length || endBits.bad.length) {
+      sheet.bad = { start: startBits.bad, end: endBits.bad };
+      sheet.error = (startBits.empty || endBits.empty) ? 'Fill in the highlighted fields.' : 'Use an hour from 1 to 12 and minutes from 00 to 59.';
+      render();
+      return;
+    }
+    sheet.bad = null;
+    var start = P.clock24(startBits.h + ':' + startBits.m, sheet.startAp);
+    var end = P.clock24(endBits.h + ':' + endBits.m, sheet.endAp);
     if (!start.ok || !end.ok) {
-      sheet.error = (start.empty || end.empty) ? 'Pick a start and an end time.' : 'Use an hour from 1 to 12 and minutes from 00 to 59.';
+      sheet.bad = { start: start.ok ? [] : ['h', 'm'], end: end.ok ? [] : ['h', 'm'] };
+      sheet.error = (start.empty || end.empty) ? 'Fill in the highlighted fields.' : 'Use an hour from 1 to 12 and minutes from 00 to 59.';
       render();
       return;
     }
@@ -844,7 +877,7 @@
       readSheetTimes();
       if (state.sheet.type === 'add') {
         state.sheet.presence = radio.value === 'trainer' ? 'trainer' : 'solo';
-        state.sheet.error = '';
+        refreshAddNotice();
         render();
         return;
       }
@@ -868,6 +901,55 @@
     render();
     loadClientShare(++loadToken);
   }
+  function clockIssue(hour, minute) {
+    var h = String(hour == null ? '' : hour).trim();
+    var m = String(minute == null ? '' : minute).trim();
+    var hn = /^\d{1,2}$/.test(h) ? Number(h) : NaN;
+    var mn = /^\d{2}$/.test(m) ? Number(m) : NaN;
+    var bad = [];
+    if (!(hn >= 1 && hn <= 12)) bad.push('h');
+    if (!(mn >= 0 && mn <= 59)) bad.push('m');
+    return { h: h, m: m, bad: bad, empty: !h || !m };
+  }
+  function clockPartOk(part, value) {
+    if (part === 'h') return /^\d{1,2}$/.test(value) && Number(value) >= 1 && Number(value) <= 12;
+    return /^\d{2}$/.test(value) && Number(value) <= 59;
+  }
+  function refreshAddNotice() {
+    var sheet = state.sheet;
+    if (!sheet || sheet.type !== 'add') return;
+    var marked = sheet.bad && ((sheet.bad.start && sheet.bad.start.length) || (sheet.bad.end && sheet.bad.end.length));
+    if (!marked) {
+      sheet.error = '';
+      sheet.bad = null;
+      return;
+    }
+    var startBits = clockIssue(sheet.startH, sheet.startM);
+    var endBits = clockIssue(sheet.endH, sheet.endM);
+    if (startBits.bad.length || endBits.bad.length) {
+      sheet.bad = { start: startBits.bad, end: endBits.bad };
+      sheet.error = (startBits.empty || endBits.empty) ? 'Fill in the highlighted fields.' : 'Use an hour from 1 to 12 and minutes from 00 to 59.';
+      return;
+    }
+    sheet.bad = null;
+    sheet.error = '';
+  }
+  function runnableWorkout(id) {
+    var workout = workoutById(id);
+    if (!workout || !window.WB || !WB.validateExercise) return true;
+    return !(workout.items || []).some(function (it) {
+      var c = it.modeConfig || {};
+      if (!Number.isInteger(it.sets) || it.sets < 1) return true;
+      if (it.mode === 'reps' || it.mode === 'intervals' || it.mode === 'timer') {
+        if (c.repsType === 'number' && !(Number.isInteger(c.count) && c.count >= 1)) return true;
+        if (c.repsType === 'range' && (!(Number.isInteger(c.min) && c.min >= 1) || !(Number.isInteger(c.max) && c.max >= 1))) return true;
+      }
+      if (it.mode === 'intervals' && !(c.workSec > 0)) return true;
+      if (it.mode === 'timer' && (!(c.workSec > 0) || !(typeof c.restSec === 'number' && c.restSec >= 0))) return true;
+      if (it.mode === 'stopwatch' && c.lapsEnabled !== false && !(Number.isInteger(c.lapCount) && c.lapCount >= 1)) return true;
+      return false;
+    });
+  }
   function playFrom(node, mode) {
     var workoutId = node.getAttribute(mode === 'view' ? 'data-view-wo' : 'data-run');
     var entryId = node.getAttribute('data-entry') || '';
@@ -877,6 +959,10 @@
       var row = entryById(entryId);
       var edited = draft && row && ((draft.start || '') !== (row.start || '') || (draft.end || '') !== (row.end || ''));
       if (edited && !saveEntryTimes(entryId)) return;
+    }
+    if (mode === 'run' && !runnableWorkout(workoutId)) {
+      if (options && options.toast) options.toast('Fill in every number before running this workout.');
+      return;
     }
     state.focusWorkout = workoutId;
     state.focusEntry = entryId;
@@ -1139,19 +1225,29 @@
   function onInput(e) {
     if (!state || !state.sheet || state.sheet.type !== 'add') return;
     var el = e.target;
-    if (!el || (el.id !== 'pv-start' && el.id !== 'pv-end')) return;
-    var next = P.shapeClock(el.value);
-    if (next === el.value) return;
-    var caret = el.selectionStart || 0;
-    var digitsBefore = String(el.value.slice(0, caret)).replace(/\D/g, '').length;
-    el.value = next;
-    var seen = 0;
-    var pos = next.length;
-    for (var i = 0; i < next.length; i++) {
-      if (/\d/.test(next.charAt(i))) seen++;
-      if (seen >= digitsBefore) { pos = i + 1; break; }
+    if (!el || !el.getAttribute) return;
+    var which = el.getAttribute('data-clock');
+    var part = el.getAttribute('data-part');
+    if ((which !== 'start' && which !== 'end') || (part !== 'h' && part !== 'm')) return;
+    var next = String(el.value || '').replace(/\D/g, '').slice(0, 2);
+    if (next !== el.value) el.value = next;
+    state.sheet[(which === 'end' ? 'end' : 'start') + (part === 'h' ? 'H' : 'M')] = next;
+    if (!clockPartOk(part, next)) return;
+    el.classList.remove('is-empty');
+    el.removeAttribute('aria-invalid');
+    var removed = false;
+    if (state.sheet.bad && state.sheet.bad[which]) {
+      var before = state.sheet.bad[which].length;
+      state.sheet.bad[which] = state.sheet.bad[which].filter(function (p) { return p !== part; });
+      removed = state.sheet.bad[which].length !== before;
     }
-    try { el.setSelectionRange(pos, pos); } catch (err) {}
+    var left = state.sheet.bad && ((state.sheet.bad.start && state.sheet.bad.start.length) || (state.sheet.bad.end && state.sheet.bad.end.length));
+    if (removed && !left) {
+      state.sheet.bad = null;
+      state.sheet.error = '';
+      var note = document.getElementById('pv-sheet-error');
+      if (note) note.remove();
+    }
   }
   function onClick(e) {
     if (!state) return;
@@ -1163,7 +1259,7 @@
       var ap = ampm.getAttribute('data-ap') === 'PM' ? 'PM' : 'AM';
       if (which === 'end') state.sheet.endAp = ap;
       else state.sheet.startAp = ap;
-      state.sheet.error = '';
+      refreshAddNotice();
       render();
       return;
     }
@@ -1184,7 +1280,7 @@
     if (pick && state.sheet && state.sheet.type === 'add') {
       readSheetTimes();
       state.sheet.workoutId = pick.getAttribute('data-pick');
-      state.sheet.error = '';
+      refreshAddNotice();
       render();
       return;
     }

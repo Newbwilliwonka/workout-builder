@@ -157,12 +157,15 @@ async function stub(page, extra) {
   assert.ok(icon.d.indexOf('M12') === 0 || icon.d.indexOf('M9') === 0);
   assert.strictEqual(icon.tag, 'BUTTON');
   await enthusiast.click('.pv-day .pv-day-h');
-  await enthusiast.waitForSelector('#pv-start');
-  await enthusiast.waitForSelector('#pv-end');
+  await enthusiast.waitForSelector('#pv-start-h');
+  await enthusiast.waitForSelector('#pv-start-m');
+  await enthusiast.waitForSelector('#pv-end-h');
+  await enthusiast.waitForSelector('#pv-end-m');
   assert.ok(await enthusiast.$('#pv-sheet .pv-pick'));
   assert.strictEqual(await enthusiast.$('#pv-dropped'), null);
-  assert.strictEqual(await enthusiast.$eval('#pv-start', function (el) { return el.type; }), 'text');
-  assert.strictEqual(await enthusiast.$eval('#pv-start', function (el) { return el.getAttribute('inputmode'); }), 'numeric');
+  assert.strictEqual(await enthusiast.$eval('#pv-start-h', function (el) { return el.type; }), 'text');
+  assert.strictEqual(await enthusiast.$eval('#pv-start-h', function (el) { return el.getAttribute('inputmode'); }), 'numeric');
+  assert.strictEqual(await enthusiast.$eval('#pv-start-m', function (el) { return el.getAttribute('inputmode'); }), 'numeric');
   await enthusiast.click('[data-sheet=cancel]');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
@@ -195,19 +198,27 @@ async function stub(page, extra) {
       return on ? on.textContent : '';
     }
     return {
-      start: read('pv-start'),
-      end: read('pv-end'),
+      startH: read('pv-start-h'),
+      startM: read('pv-start-m'),
+      endH: read('pv-end-h'),
+      endM: read('pv-end-m'),
       startAp: ap('start'),
       endAp: ap('end'),
       native: document.querySelectorAll('#pv-sheet input[type="time"]').length
     };
   });
-  assert.strictEqual(clocks.start.type, 'text');
-  assert.strictEqual(clocks.end.type, 'text');
-  assert.strictEqual(clocks.start.mode, 'numeric');
-  assert.strictEqual(clocks.end.mode, 'numeric');
-  assert.strictEqual(clocks.start.value, '09:00');
-  assert.strictEqual(clocks.end.value, '10:00');
+  assert.strictEqual(clocks.startH.type, 'text');
+  assert.strictEqual(clocks.endH.type, 'text');
+  assert.strictEqual(clocks.startM.type, 'text');
+  assert.strictEqual(clocks.endM.type, 'text');
+  assert.strictEqual(clocks.startH.mode, 'numeric');
+  assert.strictEqual(clocks.endH.mode, 'numeric');
+  assert.strictEqual(clocks.startM.mode, 'numeric');
+  assert.strictEqual(clocks.endM.mode, 'numeric');
+  assert.strictEqual(clocks.startH.value, '09');
+  assert.strictEqual(clocks.startM.value, '00');
+  assert.strictEqual(clocks.endH.value, '10');
+  assert.strictEqual(clocks.endM.value, '00');
   assert.strictEqual(clocks.startAp, 'AM');
   assert.strictEqual(clocks.endAp, 'AM');
   assert.strictEqual(clocks.native, 0);
@@ -223,11 +234,17 @@ async function stub(page, extra) {
   assert.strictEqual(unchosen.checked, 0);
   assert.ok(unchosen.labels[0].indexOf('Solo') !== -1);
   assert.ok(unchosen.labels[1].indexOf('Trainer present') !== -1);
-  await enthusiast.$eval('#pv-end', function (el) { el.value = '08:00'; });
+  await enthusiast.evaluate(function () {
+    document.getElementById('pv-end-h').value = '08';
+    document.getElementById('pv-end-m').value = '00';
+  });
   await enthusiast.click('[data-sheet=save]');
   await enthusiast.waitForSelector('#pv-sheet-error');
   assert.ok((await enthusiast.$eval('#pv-sheet-error', function (el) { return el.textContent; })).indexOf('after') !== -1);
-  await enthusiast.$eval('#pv-end', function (el) { el.value = '10:00'; });
+  await enthusiast.evaluate(function () {
+    document.getElementById('pv-end-h').value = '10';
+    document.getElementById('pv-end-m').value = '00';
+  });
   await enthusiast.click('[data-sheet=save]');
   await enthusiast.waitForFunction(function () {
     var err = document.getElementById('pv-sheet-error');
@@ -337,8 +354,8 @@ async function stub(page, extra) {
   await enthusiast.evaluate(function () { document.getElementById('pv-sheet').click(); });
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await enthusiast.click('.pv-cell:not(.today):not(.is-out)');
-  await enthusiast.waitForSelector('#pv-start');
-  await enthusiast.waitForSelector('#pv-end');
+  await enthusiast.waitForSelector('#pv-start-h');
+  await enthusiast.waitForSelector('#pv-end-h');
   assert.ok(await enthusiast.$('.pv-month'));
   await enthusiast.click('[data-sheet=cancel]');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
@@ -353,7 +370,7 @@ async function stub(page, extra) {
   await enthusiast.waitForSelector('#pv-sheet');
   assert.strictEqual(await enthusiast.$eval('#pv-dropped', function (el) { return el.textContent; }), 'Morning lift');
   assert.strictEqual(await enthusiast.$('#pv-sheet .pv-pick'), null);
-  assert.strictEqual(await enthusiast.$eval('#pv-start', function (el) { return el.type; }), 'text');
+  assert.strictEqual(await enthusiast.$eval('#pv-start-h', function (el) { return el.type; }), 'text');
   await enthusiast.click('[data-sheet=cancel]');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
@@ -406,38 +423,32 @@ async function stub(page, extra) {
   assert.strictEqual(await enthusiast.$eval('#pv-dropped', function (el) { return el.textContent; }), 'Easy day');
   assert.deepStrictEqual(await enthusiast.evaluate(function () {
     return {
-      start: document.getElementById('pv-start').value,
-      end: document.getElementById('pv-end').value,
+      startH: document.getElementById('pv-start-h').value,
+      startM: document.getElementById('pv-start-m').value,
+      endH: document.getElementById('pv-end-h').value,
+      endM: document.getElementById('pv-end-m').value,
       startAp: document.querySelector('[data-ampm="start"].on').textContent,
       endAp: document.querySelector('[data-ampm="end"].on').textContent
     };
-  }), { start: '09:00', end: '10:00', startAp: 'AM', endAp: 'AM' });
-  await enthusiast.$eval('#pv-start', function (el) { el.value = '13:00'; });
+  }), { startH: '09', startM: '00', endH: '10', endM: '00', startAp: 'AM', endAp: 'AM' });
+  await enthusiast.$eval('#pv-start-h', function (el) { el.value = '13'; });
   await enthusiast.click('[data-sheet=save]');
   await enthusiast.waitForFunction(function () {
     var err = document.getElementById('pv-sheet-error');
     return err && err.textContent.indexOf('1 to 12') !== -1;
   });
-  await enthusiast.evaluate(function () {
-    var el = document.getElementById('pv-start');
-    el.focus();
-    el.value = '';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  await enthusiast.keyboard.type('1200');
-  assert.strictEqual(await enthusiast.$eval('#pv-start', function (el) { return el.value; }), '12:00');
-  await enthusiast.evaluate(function () {
-    var el = document.getElementById('pv-end');
-    el.focus();
-    el.value = '';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  await enthusiast.keyboard.type('0100');
-  assert.strictEqual(await enthusiast.$eval('#pv-end', function (el) { return el.value; }), '01:00');
+  await enthusiast.click('#pv-start-h');
+  await enthusiast.keyboard.type('12');
+  assert.strictEqual(await enthusiast.$eval('#pv-start-h', function (el) { return el.value; }), '12');
+  assert.strictEqual(await enthusiast.$eval('#pv-start-m', function (el) { return el.value; }), '00');
+  await enthusiast.click('#pv-end-h');
+  await enthusiast.keyboard.type('01');
+  assert.strictEqual(await enthusiast.$eval('#pv-end-h', function (el) { return el.value; }), '01');
+  assert.strictEqual(await enthusiast.$eval('#pv-end-m', function (el) { return el.value; }), '00');
   await enthusiast.click('[data-ampm="end"][data-ap="PM"]');
   await enthusiast.waitForFunction(function () {
     var on = document.querySelector('[data-ampm="end"][data-ap="PM"]');
-    return on && on.getAttribute('aria-pressed') === 'true' && document.getElementById('pv-end').value === '01:00';
+    return on && on.getAttribute('aria-pressed') === 'true' && document.getElementById('pv-end-h').value === '01' && document.getElementById('pv-end-m').value === '00';
   });
   await enthusiast.click('[data-ampm="end"][data-ap="AM"]');
   await enthusiast.waitForFunction(function () {
@@ -463,14 +474,16 @@ async function stub(page, extra) {
   assert.deepStrictEqual(await enthusiast.evaluate(function () {
     return {
       name: document.getElementById('pv-dropped').textContent,
-      start: document.getElementById('pv-start').value,
-      end: document.getElementById('pv-end').value,
+      startH: document.getElementById('pv-start-h').value,
+      startM: document.getElementById('pv-start-m').value,
+      endH: document.getElementById('pv-end-h').value,
+      endM: document.getElementById('pv-end-m').value,
       startAp: document.querySelector('[data-ampm="start"].on').textContent,
       endAp: document.querySelector('[data-ampm="end"].on').textContent,
       picks: document.querySelectorAll('#pv-sheet .pv-pick').length,
       native: document.querySelectorAll('#pv-sheet input[type="time"]').length
     };
-  }), { name: 'Easy day', start: '12:00', end: '01:00', startAp: 'AM', endAp: 'AM', picks: 0, native: 0 });
+  }), { name: 'Easy day', startH: '12', startM: '00', endH: '01', endM: '00', startAp: 'AM', endAp: 'AM', picks: 0, native: 0 });
   await enthusiast.click('[data-sheet=cancel]');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
