@@ -2416,7 +2416,7 @@
       view: media && media.kind === 'library' ? media.view : '180',
       imageKey: media && media.kind === 'custom' ? media.imageKey : '',
       pendingBlob: null, pendingUrl: '', clearImage: false, savedMedia: media,
-      libQuery: '', libBody: '', libEquip: '', libTarget: '', libRows: [], libMore: false, libStatus: '', libError: false, libCollapsed: false,
+      libQuery: '', libBody: '', libEquip: '', libTarget: '', libRows: [], libBoosted: [], libServerOffset: 0, libMore: false, libStatus: '', libError: false, libCollapsed: false,
       notesFor: media && media.kind === 'library' ? 'library:' + String(media.libraryId || '') : 'manual',
       libraryName: media && media.kind === 'library' ? String(ex.name || '') : '' };
     M.MODES.forEach(function (m) { d.cfg[m] = M.defaultModeConfig(m); });
@@ -2476,7 +2476,7 @@
     }
     return h;
   }
-  var libToken = 0, libFilters = { bodyParts: [], equipment: [], targets: [] }, libFiltersLoaded = false;
+  var libToken = 0, libFilters = { bodyParts: [], equipment: [], targets: [] }, libFiltersLoaded = false, libCatalog = {};
   var PHOTO_LIMIT = 5 * 1024 * 1024;
   function gifBase() { return (window.WBAuth && WBAuth.gifBase) || ''; }
   function customKeyInUse(key, exceptId) {
@@ -2497,6 +2497,14 @@
     return h + '</select>';
   }
   function libMeta(row) { return [row.body_part, row.equipment, row.target].filter(Boolean).join(' · '); }
+  function libHitHtml(row, d) {
+    var on = String(row.id) === String(d.libraryId) ? ' on' : '';
+    var yours = row.savedName ? '<span class="mute lib-yours">Your name: ' + esc(row.savedName) + '</span>' : '';
+    var savedAttr = row.savedName ? ' data-saved-name="' + esc(row.savedName) + '"' : '';
+    return '<button type="button" class="lib-hit' + on + '" data-a="pick" data-id="' + esc(row.id) + '" data-name="' + esc(row.name) + '"' + savedAttr + '><span class="name">' + esc(row.name) + '</span>' +
+      yours +
+      (libMeta(row) ? '<span class="mute">' + esc(libMeta(row)) + '</span>' : '') + '</button>';
+  }
   function resultsHtml(d) {
     // A pick hides the list. It stays hidden through filter changes and re-renders
     // until the search text itself changes, then the usual search output comes back.
@@ -2505,14 +2513,64 @@
     var q = String(d.libQuery || '').trim();
     var filtered = d.libBody || d.libEquip || d.libTarget;
     if (q.length < 2 && !filtered) return '<p class="mute">Type at least 2 letters, or choose a filter.</p>';
-    if (!d.libRows || !d.libRows.length) return '<p class="mute">No exercises match that search.</p>';
-    var h = d.libRows.map(function (row) {
-      var on = row.id === d.libraryId ? ' on' : '';
-      return '<button type="button" class="lib-hit' + on + '" data-a="pick" data-id="' + esc(row.id) + '" data-name="' + esc(row.name) + '"><span class="name">' + esc(row.name) + '</span>' +
-        (libMeta(row) ? '<span class="mute">' + esc(libMeta(row)) + '</span>' : '') + '</button>';
-    }).join('');
+    var rows = (d.libBoosted || []).concat(d.libRows || []);
+    if (!rows.length) return '<p class="mute">No exercises match that search.</p>';
+    var h = rows.map(function (row) { return libHitHtml(row, d); }).join('');
     if (d.libMore && !d.libBusy) h += '<button type="button" data-a="libmore">More</button>';
     return h;
+  }
+  function rememberLibRows(rows) {
+    (rows || []).forEach(function (row) {
+      if (!row || row.id == null || String(row.id) === '') return;
+      libCatalog[String(row.id)] = {
+        id: row.id,
+        name: row.name,
+        body_part: row.body_part,
+        equipment: row.equipment,
+        target: row.target,
+        description: row.description
+      };
+    });
+  }
+  // Saved custom names already point at a library id. Keep the catalog row so
+  // the next keystroke can filter it without another lookup.
+  function boostedFrom(aliases, rows, filters) {
+    var byId = {};
+    (rows || []).forEach(function (row) {
+      if (!row || row.id == null) return;
+      byId[String(row.id)] = row;
+    });
+    var out = [];
+    (aliases || []).forEach(function (alias) {
+      var row = byId[String(alias.libraryId)];
+      if (!row || !M.libraryRowMatches(row, filters)) return;
+      out.push({
+        id: row.id,
+        name: row.name,
+        body_part: row.body_part,
+        equipment: row.equipment,
+        target: row.target,
+        description: row.description,
+        savedName: alias.name
+      });
+    });
+    return out;
+  }
+  function libraryRowsFor(aliases, filters) {
+    var missing = [], found = [];
+    aliases.forEach(function (alias) {
+      var row = libCatalog[String(alias.libraryId)];
+      if (row) found.push(row);
+      else missing.push(alias.libraryId);
+    });
+    function finish(extra) { return boostedFrom(aliases, found.concat(extra || []), filters); }
+    if (!missing.length) return Promise.resolve(finish());
+    var lookup = window.WBAuth && WBAuth.exercisesByIds;
+    if (typeof lookup !== 'function') return Promise.resolve(finish());
+    return Promise.resolve().then(function () { return lookup(missing); }).then(function (rows) {
+      rememberLibRows(rows);
+      return finish(rows);
+    }).catch(function () { return finish(); });
   }
   function paintLib() {
     var box = document.getElementById('lib-results');
@@ -2529,6 +2587,8 @@
     draft.libError = false;
     draft.libBusy = false;
     draft.libMore = false;
+    draft.libBoosted = [];
+    draft.libServerOffset = 0;
     if (draft.source !== 'library') {
       clearTimeout(scheduleLibSearch.t);
       libToken++;
@@ -2552,28 +2612,40 @@
     var q = String(d.libQuery || '').trim();
     var filters = { bodyPart: d.libBody || '', equipment: d.libEquip || '', target: d.libTarget || '' };
     if (q.length < 2 && !filters.bodyPart && !filters.equipment && !filters.target) {
-      d.libRows = []; d.libMore = false; d.libStatus = ''; d.libError = false; d.libBusy = false; paintLib(); return;
+      d.libRows = []; d.libBoosted = []; d.libServerOffset = 0; d.libMore = false; d.libStatus = ''; d.libError = false; d.libBusy = false; paintLib(); return;
     }
     var search = window.WBAuth && WBAuth.searchExercises;
     if (!search) { d.libStatus = 'The exercise library is not ready yet.'; d.libError = true; d.libBusy = false; paintLib(); return; }
     d.libBusy = true;
     if (!append) { d.libStatus = 'Searching\u2026'; d.libError = false; }
     paintLib();
-    var offset = append ? (d.libRows || []).length : 0;
+    var offset = append ? (d.libServerOffset || 0) : 0;
     search(q, filters, 21, offset).then(function (rows) {
       if (token !== libToken || !draft || draft.source !== 'library') return;
       rows = Array.isArray(rows) ? rows : [];
+      rememberLibRows(rows);
       var more = rows.length > 20;
       if (more) rows = rows.slice(0, 20);
-      draft.libMore = more;
-      draft.libRows = append ? (draft.libRows || []).concat(rows) : rows;
-      draft.libStatus = ''; draft.libError = false; draft.libBusy = false;
-      paintLib();
+      draft.libServerOffset = offset + rows.length;
+      var aliases = append || q.length < 2 || !M.savedLibraryMatches ? [] : M.savedLibraryMatches(data.workouts || [], q);
+      var boostReady = aliases.length ? libraryRowsFor(aliases, filters) : Promise.resolve(append ? (draft.libBoosted || []) : []);
+      return boostReady.then(function (boosts) {
+        if (token !== libToken || !draft || draft.source !== 'library') return;
+        if (!append) draft.libBoosted = boosts || [];
+        var skip = {};
+        (draft.libBoosted || []).forEach(function (row) { if (row && row.id != null) skip[String(row.id)] = 1; });
+        if (append) (draft.libRows || []).forEach(function (row) { if (row && row.id != null) skip[String(row.id)] = 1; });
+        var page = rows.filter(function (row) { return row && row.id != null && !skip[String(row.id)]; });
+        draft.libRows = append ? (draft.libRows || []).concat(page) : page;
+        draft.libMore = more;
+        draft.libStatus = ''; draft.libError = false; draft.libBusy = false;
+        paintLib();
+      });
     }).catch(function (err) {
       if (token !== libToken || !draft) return;
       draft.libStatus = (err && err.message) || 'Could not search the exercise library.';
       draft.libError = true; draft.libBusy = false;
-      if (!append) draft.libRows = [];
+      if (!append) { draft.libRows = []; draft.libBoosted = []; }
       paintLib();
     });
   }
@@ -2638,8 +2710,11 @@
     if (notesEl) notesEl.value = '';
   }
   function libRowById(d, id) {
-    var rows = d.libRows || [], i;
-    for (i = 0; i < rows.length; i++) if (rows[i] && String(rows[i].id) === id) return rows[i];
+    var lists = [d.libBoosted, d.libRows], j, i;
+    for (j = 0; j < lists.length; j++) {
+      var rows = lists[j] || [];
+      for (i = 0; i < rows.length; i++) if (rows[i] && String(rows[i].id) === String(id)) return rows[i];
+    }
     return null;
   }
   function planMedia(d) {
@@ -2782,7 +2857,8 @@
       if (b.dataset.a === 'cancel') { releasePendingImage(); return go('#/w/' + w.id); }
       if (b.dataset.a === 'pick') {
         d.libraryId = b.dataset.id || '';
-        d.name = b.dataset.name || d.name;
+        var savedName = b.getAttribute('data-saved-name');
+        d.name = savedName ? savedName : (b.dataset.name || d.name);
         d.source = 'library';
         if (d.view !== '360') d.view = '180';
         applyLibraryDescription(d, libRowById(d, d.libraryId));
