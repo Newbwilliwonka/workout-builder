@@ -2673,9 +2673,9 @@
       (d.source === 'library'
         ? '<input id="lib-q" aria-label="Search exercises" placeholder="Search exercises" autocomplete="off" value="' + esc(d.libQuery || '') + '">' +
           '<div class="lib-filters">' +
-            filterSelect('lib-body', 'Any body part', d.libBody, libFilters.bodyParts) +
-            filterSelect('lib-equip', 'Any equipment', d.libEquip, libFilters.equipment) +
-            filterSelect('lib-target', 'Any target', d.libTarget, libFilters.targets) +
+            (isNew ? '' : filterSelect('lib-body', 'Any body part', d.libBody, libFilters.bodyParts)) +
+            filterSelect('lib-equip', isNew ? 'Equipment used' : 'Any equipment', d.libEquip, libFilters.equipment) +
+            filterSelect('lib-target', isNew ? 'Target muscle' : 'Any target', d.libTarget, libFilters.targets) +
           '</div><div id="lib-results">' + resultsHtml(d) + '</div>'
         : '') +
       '<label>Exercise name</label><input data-b="name" value="' + esc(d.name) + '" placeholder="e.g. Goblet squat" autocomplete="off">' +
