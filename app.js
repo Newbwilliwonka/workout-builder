@@ -13,6 +13,75 @@
     return guests.filter(function (w) { return w && String(w.id) === String(id); })[0];
   }
   function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2200); }
+  var RUN_NEEDS_NUMBERS = 'Fill in every number before running this workout.';
+  var EMPTY_FIELDS = 'Fill in the highlighted fields.';
+  // A stored exercise can be run only when every required number is actually filled in.
+  function missingRequiredNumber(ex) {
+    if (!ex) return true;
+    var c = ex.modeConfig || {};
+    if (!Number.isInteger(ex.sets) || ex.sets < 1) return true;
+    if (ex.mode === 'reps' || ex.mode === 'intervals' || ex.mode === 'timer') {
+      if (c.repsType === 'number' && !(Number.isInteger(c.count) && c.count >= 1)) return true;
+      if (c.repsType === 'range' && (!(Number.isInteger(c.min) && c.min >= 1) || !(Number.isInteger(c.max) && c.max >= 1))) return true;
+    }
+    if (ex.mode === 'intervals' && !(c.workSec > 0)) return true;
+    if (ex.mode === 'timer' && (!(c.workSec > 0) || !(typeof c.restSec === 'number' && c.restSec >= 0))) return true;
+    if (ex.mode === 'stopwatch' && c.lapsEnabled !== false && !(Number.isInteger(c.lapCount) && c.lapCount >= 1)) return true;
+    return false;
+  }
+  function workoutRunnable(w) {
+    return !!(w && Array.isArray(w.items) && w.items.length && w.items.every(function (it) { return !missingRequiredNumber(it); }));
+  }
+  function reqOk(el) {
+    var raw = String(el.value == null ? '' : el.value).trim();
+    if (!/^\d+$/.test(raw)) return false;
+    var n = Number(raw);
+    var b = el.getAttribute('data-b') || '';
+    if (b === 'cfg.ws' || b === 'cfg.rs') return n <= 59;
+    if (b === 'cfg.wm' || b === 'cfg.rm') return true;
+    return n >= 1;
+  }
+  // Tap or focus clears a pre-filled number. Leaving it blank keeps it blank.
+  function clearPrefilled(el) {
+    if (!el || el.disabled || el.readOnly || !el.hasAttribute('data-clear') || el._wbClear) return;
+    var original = el.value;
+    if (original === '') return;
+    var typed = false, mine = false;
+    function stop() {
+      if (el._wbClear !== stop) return;
+      el._wbClear = null;
+      el.removeEventListener('keydown', onKey);
+      el.removeEventListener('input', onInput);
+      el.removeEventListener('blur', stop);
+    }
+    function onKey() { typed = true; }
+    function onInput() { if (!mine) typed = true; }
+    el.addEventListener('keydown', onKey);
+    el.addEventListener('input', onInput);
+    el.addEventListener('blur', stop);
+    el._wbClear = stop;
+    var started = Date.now();
+    function wipe() {
+      if (el._wbClear !== stop) return;
+      if (typed || !el.isConnected) { stop(); return; }
+      if (el.value === original) {
+        mine = true;
+        el.value = '';
+        try { el.setSelectionRange(0, 0); } catch (err) {}
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        mine = false;
+      }
+      if (Date.now() - started > 280) { stop(); return; }
+      setTimeout(wipe, 40);
+    }
+    wipe();
+  }
+  document.addEventListener('pointerdown', function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('input[data-clear]') : null;
+    if (!el || el === document.activeElement) return;
+    clearPrefilled(el);
+  }, true);
+  document.addEventListener('focusin', function (e) { clearPrefilled(e.target); });
   function go(h) { location.hash = h; }
   function hashBody() { return location.hash.replace(/^#\/?/, '').split('?')[0]; }
   function hashPage() { return hashBody().split('/')[0]; }
@@ -820,7 +889,11 @@
     } else {
       app.innerHTML = window.WBSends ? WBSends.lockedHtml(w) : '<p class="mute" id="copy-note">You can run this copy.</p>';
     }
-    app.onclick = function (e) { if (e.target.closest('#copy-run')) go('#/play/' + w.id); };
+    app.onclick = function (e) {
+      if (!e.target.closest('#copy-run')) return;
+      if (!workoutRunnable(w)) { toast(RUN_NEEDS_NUMBERS); return; }
+      go('#/play/' + w.id);
+    };
     app.oninput = null;
     app.onchange = null;
   }
@@ -1735,6 +1808,10 @@
       return;
     }
     if (p[0] === 'play' && current && current.items.length) {
+      if (!workoutRunnable(current)) {
+        toast(RUN_NEEDS_NUMBERS);
+        return go('#/w/' + current.id);
+      }
       titleEl.textContent = current.name; backBtn.hidden = false;
       return WBPlayer.mount(app, current, data, persist, function () { go('#/w/' + current.id); });
     }
@@ -2147,7 +2224,11 @@
         if (!(w && w.sourceTrainerId) && !levelCan(cachedProfile, 'open')) { levelNoteOn = true; return renderList(); }
         setCopyReturn(''); go('#/w/' + w.id);
       }
-      else if (a === 'run') { if (w && w.items && w.items.length) { setCopyReturn(''); go('#/play/' + w.id); } }
+      else if (a === 'run') {
+        if (!(w && w.items && w.items.length)) return;
+        if (!workoutRunnable(w)) { toast(RUN_NEEDS_NUMBERS); return; }
+        setCopyReturn(''); go('#/play/' + w.id);
+      }
       else if (a === 'dup') {
         if (!levelCan(cachedProfile, 'open') || atWorkoutCap(cachedProfile)) { levelNoteOn = true; return renderList(); }
         var c = M.duplicateWorkout(w);
@@ -2301,7 +2382,10 @@
       var b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
       var a = b.dataset.a, id = b.dataset.id, g = b.dataset.g;
       if (a === 'add') return go('#/w/' + w.id + '/ex/new');
-      if (a === 'play') return go('#/play/' + w.id);
+      if (a === 'play') {
+        if (!workoutRunnable(w)) { toast(RUN_NEEDS_NUMBERS); return; }
+        return go('#/play/' + w.id);
+      }
       if (a === 'edit') return go('#/w/' + w.id + '/ex/' + id);
       if (a === 'up' || a === 'down') M.moveExercise(w, id, a === 'up' ? -1 : 1);
       else if (a === 'gup' || a === 'gdown') M.moveGroup(w, g, a === 'gup' ? -1 : 1);
@@ -2351,12 +2435,17 @@
   function seg(key, opts, cur) {
     return '<div class="seg">' + opts.map(function (o) { return '<button type="button" data-seg="' + key + '" data-v="' + o[0] + '" class="' + (o[0] === cur ? 'on' : '') + '">' + o[1] + '</button>'; }).join('') + '</div>';
   }
-  function numIn(bind, val, ph, step) { return '<input type="number" inputmode="' + (step ? 'decimal' : 'numeric') + '" min="0" step="' + (step || 1) + '" data-b="' + bind + '" value="' + esc(val) + '" placeholder="' + (ph || '') + '">'; }
-  function timeIn(prefix, c, mk, sk, dis) {
+  function numIn(bind, val, ph, step, req) {
+    var mode = step ? 'decimal' : 'numeric';
+    return '<input type="text" inputmode="' + mode + '" data-clear="1"' + (req ? ' data-req="1"' : '') + ' data-b="' + bind + '" value="' + esc(val) + '" placeholder="' + esc(ph || '') + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"' + (step ? '' : ' pattern="[0-9]*"') + '>';
+  }
+  function timeIn(prefix, c, mk, sk, dis, req) {
     var d = dis ? ' disabled' : '', off = dis ? ' is-off' : '';
+    var open = dis ? '' : ' data-clear="1"' + (req ? ' data-req="1"' : '');
+    var attrs = ' type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"' + open;
     return '<div class="time' + off + '">' +
-      '<input type="number" inputmode="numeric" min="0" step="1" data-b="' + prefix + '.' + mk + '" value="' + esc(c[mk]) + '" placeholder="min"' + d + '><span>:</span>' +
-      '<input type="number" inputmode="numeric" min="0" max="59" data-b="' + prefix + '.' + sk + '" value="' + esc(c[sk]) + '" placeholder="sec"' + d + '><span class="mute" style="font-size:14px;font-weight:400">mm:ss</span></div>';
+      '<input' + attrs + ' data-b="' + prefix + '.' + mk + '" value="' + esc(c[mk]) + '" placeholder="min"' + d + '><span>:</span>' +
+      '<input' + attrs + ' data-b="' + prefix + '.' + sk + '" value="' + esc(c[sk]) + '" placeholder="sec"' + d + '><span class="mute" style="font-size:14px;font-weight:400">mm:ss</span></div>';
   }
   function lapQuantity(v) {
     var n = M.num(v);
@@ -2592,15 +2681,15 @@
       '<label>Exercise name</label><input data-b="name" value="' + esc(d.name) + '" placeholder="e.g. Goblet squat" autocomplete="off">' +
       (d.source === 'library' && d.libraryId ? '<p class="mute">Library demo is attached.</p>' : '') +
       '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode) +
-      (d.mode === 'stopwatch' ? '<label>Attempts</label>' + numIn('sets', d.sets, 'e.g. 3') : d.mode === 'intervals' ? '<label># of intervals</label>' + numIn('sets', d.sets, 'e.g. 8') : '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3')) +
+      (d.mode === 'stopwatch' ? '<label>Attempts</label>' + numIn('sets', d.sets, 'e.g. 3', null, true) : d.mode === 'intervals' ? '<label># of intervals</label>' + numIn('sets', d.sets, 'e.g. 8', null, true) : '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3', null, true)) +
       '<label>Weight</label>' + seg('unit', [['lb', 'lb'], ['kg', 'kg'], ['bodyweight', 'Bodyweight']], d.unit) +
       (d.unit !== 'bodyweight' ? '<div style="margin-top:8px">' + numIn('wval', d.wval, 'Weight in ' + d.unit + ' (optional)', 'any') + '</div>' : '') +
       '';
     function repsUI(allowStatic) {
       var o = [['number', 'Number'], ['range', 'Range']]; if (allowStatic) o.push(['static', 'Static hold']);
       var x = '<label>Reps type' + (allowStatic ? ' <span class="mute" style="font-weight:400">(optional — tap again to clear)</span>' : '') + '</label>' + seg('repsType', o, c.repsType);
-      if (c.repsType === 'number') x += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10');
-      if (c.repsType === 'range') x += '<label>Rep range (min – max)</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min') + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max') + '</div></div>';
+      if (c.repsType === 'number') x += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10', null, true);
+      if (c.repsType === 'range') x += '<label>Rep range (min – max)</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min', null, true) + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max', null, true) + '</div></div>';
       if (c.repsType === 'static') x += '<p class="mute">Static hold — time only, no rep count.</p>';
       return x;
     }
@@ -2608,13 +2697,13 @@
       h += repsUI(false);
       h += '<label>Rest time between sets (optional)' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal);
     } else if (d.mode === 'intervals') {
-      h += '<label>Interval time</label>' + timeIn('cfg', c, 'wm', 'ws') + repsUI(true);
+      h += '<label>Interval time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + repsUI(true);
     } else if (d.mode === 'timer') {
-      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws') + '<label>Rest time' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal) + repsUI(true);
+      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + '<label>Rest time' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal, true) + repsUI(true);
     } else {
       h += '<p class="mute">Counts up from 0:00 during the workout. No settings needed.</p>' +
         '<label class="row" style="font-weight:400"><input type="checkbox" class="sel" data-b="cfg.lapsEnabled"' + (c.lapsEnabled ? ' checked' : '') + '> Record laps (agility / splits)</label>' +
-        (c.lapsEnabled ? '<label>Lap quantity</label>' + numIn('cfg.lapCount', c.lapCount, 'e.g. 4') + '<div id="lap-events">' + lapEventsHtml(c) + '</div>' : '');
+        (c.lapsEnabled ? '<label>Lap quantity</label>' + numIn('cfg.lapCount', c.lapCount, 'e.g. 4', null, true) + '<div id="lap-events">' + lapEventsHtml(c) + '</div>' : '');
     }
     h += '<label>Notes</label><textarea data-b="notes" placeholder="Cues, tempo, equipment…">' + esc(d.notes) + '</textarea>' +
       editorMediaHtml(d) + '<div id="errs"></div>' +
@@ -2662,6 +2751,7 @@
       var b = t.dataset.b; if (!b) return;
       var v = t.type === 'checkbox' ? t.checked : t.value;
       if (b.indexOf('cfg.') === 0) d.cfg[d.mode][b.slice(4)] = v; else d[b] = v;
+      if (t.hasAttribute('data-req') && reqOk(t)) { t.classList.remove('is-empty'); t.removeAttribute('aria-invalid'); }
       if (b === 'name') clearNotesIfReplacingLibraryExercise(d, v);
       if (b === 'cfg.lapCount') {
         var box = document.getElementById('lap-events');
@@ -2710,9 +2800,23 @@
         if (d.saving) return;
         var plan = planMedia(d);
         d.media = plan.media;
+        var emptyReq = false;
+        Array.prototype.forEach.call(app.querySelectorAll('input[data-req]'), function (field) {
+          if (reqOk(field)) { field.classList.remove('is-empty'); field.removeAttribute('aria-invalid'); return; }
+          field.classList.add('is-empty');
+          field.setAttribute('aria-invalid', 'true');
+          if (String(field.value == null ? '' : field.value).trim() === '') emptyReq = true;
+        });
         var res = buildFromDraft(d);
         if (plan.error) res.errors.unshift(plan.error);
-        if (res.errors.length) { document.getElementById('errs').innerHTML = '<div class="errs">' + res.errors.map(esc).join('<br>') + '</div>'; document.getElementById('errs').scrollIntoView({ block: 'center' }); return; }
+        var msgs = res.errors.filter(function (msg) { return !(emptyReq && emptyExplains(msg, d)); });
+        if (emptyReq) msgs.unshift(EMPTY_FIELDS);
+        if (msgs.length) {
+          document.getElementById('errs').innerHTML = '<div class="errs">' + msgs.map(esc).join('<br>') + '</div>';
+          var badField = app.querySelector('input.is-empty');
+          (badField || document.getElementById('errs')).scrollIntoView({ block: 'center' });
+          return;
+        }
         d.saving = true;
         var write = plan.blob && window.WBMedia ? WBMedia.put(plan.key, plan.blob) : Promise.resolve();
         write.then(function () {
@@ -2726,6 +2830,18 @@
         });
       }
     };
+  }
+  function emptyExplains(msg, d) {
+    var c = d.cfg[d.mode];
+    function blank(v) { return String(v == null ? '' : v).trim() === ''; }
+    if (blank(d.sets) && (/^Sets must be/.test(msg) || /^Attempts must be/.test(msg))) return true;
+    if (c.repsType === 'number' && blank(c.count) && /^Reps must be/.test(msg)) return true;
+    if (c.repsType === 'range' && (blank(c.min) || blank(c.max)) && /^Range min and max/.test(msg)) return true;
+    if (d.mode === 'intervals' && (blank(c.wm) || blank(c.ws)) && /^Interval time must/.test(msg)) return true;
+    if (d.mode === 'timer' && (blank(c.wm) || blank(c.ws)) && /^Work time must/.test(msg)) return true;
+    if (d.mode === 'timer' && (blank(c.rm) || blank(c.rs)) && /^Rest time cannot/.test(msg)) return true;
+    if (d.mode === 'stopwatch' && c.lapsEnabled && blank(c.lapCount) && /^Lap quantity/.test(msg)) return true;
+    return false;
   }
   function buildFromDraft(d) {
     var errs = [], c = d.cfg[d.mode], raw = [d.sets, d.wval];
