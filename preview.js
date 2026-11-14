@@ -877,7 +877,7 @@
       readSheetTimes();
       if (state.sheet.type === 'add') {
         state.sheet.presence = radio.value === 'trainer' ? 'trainer' : 'solo';
-        state.sheet.error = '';
+        refreshAddNotice();
         render();
         return;
       }
@@ -914,6 +914,25 @@
   function clockPartOk(part, value) {
     if (part === 'h') return /^\d{1,2}$/.test(value) && Number(value) >= 1 && Number(value) <= 12;
     return /^\d{2}$/.test(value) && Number(value) <= 59;
+  }
+  function refreshAddNotice() {
+    var sheet = state.sheet;
+    if (!sheet || sheet.type !== 'add') return;
+    var marked = sheet.bad && ((sheet.bad.start && sheet.bad.start.length) || (sheet.bad.end && sheet.bad.end.length));
+    if (!marked) {
+      sheet.error = '';
+      sheet.bad = null;
+      return;
+    }
+    var startBits = clockIssue(sheet.startH, sheet.startM);
+    var endBits = clockIssue(sheet.endH, sheet.endM);
+    if (startBits.bad.length || endBits.bad.length) {
+      sheet.bad = { start: startBits.bad, end: endBits.bad };
+      sheet.error = (startBits.empty || endBits.empty) ? 'Fill in the highlighted fields.' : 'Use an hour from 1 to 12 and minutes from 00 to 59.';
+      return;
+    }
+    sheet.bad = null;
+    sheet.error = '';
   }
   function runnableWorkout(id) {
     var workout = workoutById(id);
@@ -1216,8 +1235,18 @@
     if (!clockPartOk(part, next)) return;
     el.classList.remove('is-empty');
     el.removeAttribute('aria-invalid');
+    var removed = false;
     if (state.sheet.bad && state.sheet.bad[which]) {
+      var before = state.sheet.bad[which].length;
       state.sheet.bad[which] = state.sheet.bad[which].filter(function (p) { return p !== part; });
+      removed = state.sheet.bad[which].length !== before;
+    }
+    var left = state.sheet.bad && ((state.sheet.bad.start && state.sheet.bad.start.length) || (state.sheet.bad.end && state.sheet.bad.end.length));
+    if (removed && !left) {
+      state.sheet.bad = null;
+      state.sheet.error = '';
+      var note = document.getElementById('pv-sheet-error');
+      if (note) note.remove();
     }
   }
   function onClick(e) {
@@ -1230,7 +1259,7 @@
       var ap = ampm.getAttribute('data-ap') === 'PM' ? 'PM' : 'AM';
       if (which === 'end') state.sheet.endAp = ap;
       else state.sheet.startAp = ap;
-      state.sheet.error = '';
+      refreshAddNotice();
       render();
       return;
     }
@@ -1251,7 +1280,7 @@
     if (pick && state.sheet && state.sheet.type === 'add') {
       readSheetTimes();
       state.sheet.workoutId = pick.getAttribute('data-pick');
-      state.sheet.error = '';
+      refreshAddNotice();
       render();
       return;
     }

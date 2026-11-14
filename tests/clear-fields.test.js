@@ -188,6 +188,25 @@ function ex(over) {
   assert.strictEqual(sheet.minute, true);
   assert.strictEqual(sheet.hour, false);
   assert.strictEqual(sheet.end, false);
+  await page.tap('[data-ampm="start"][data-ap="PM"]');
+  await page.tap('#pv-sheet .pv-pick.on');
+  await page.tap('#pv-sheet .pv-presence input[value="solo"]');
+  const kept = await page.evaluate(function () {
+    var err = document.getElementById('pv-sheet-error');
+    return {
+      text: err ? err.textContent : '',
+      minute: document.getElementById('pv-start-m').classList.contains('is-empty'),
+      minuteValue: document.getElementById('pv-start-m').value,
+      hour: document.getElementById('pv-start-h').classList.contains('is-empty'),
+      hourValue: document.getElementById('pv-start-h').value
+    };
+  });
+  assert.ok(kept.text.indexOf('Fill in the highlighted fields.') !== -1, kept.text);
+  assert.strictEqual(kept.minute, true);
+  assert.strictEqual(kept.minuteValue, '');
+  assert.strictEqual(kept.hour, false);
+  assert.strictEqual(kept.hourValue, '09');
+  await page.tap('[data-ampm="start"][data-ap="AM"]');
   await page.tap('#pv-start-m');
   await page.keyboard.type('00');
   await page.waitForFunction(function () { return !document.getElementById('pv-start-m').classList.contains('is-empty'); });
