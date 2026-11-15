@@ -47,30 +47,76 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
 
   const signedOut = await open(null);
   await seed(signedOut);
-  await denied(signedOut, '#/', '#/signin');
-  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Sign in');
+  await denied(signedOut, '#/', '#/subscriptions');
+  await signedOut.waitForFunction(() => document.body.innerText.includes('Choose how you want to train') && document.getElementById('header-signin') && !document.getElementById('header-signin').hidden);
+  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Choose how you want to train');
   assert.deepStrictEqual(await signedOut.$eval('#back', e => ({ hidden: e.hidden, display: getComputedStyle(e).display })), { hidden: true, display: 'none' });
-  await signedOut.screenshot({ path: '/tmp/signed-out-signin-412.png' });
+  const headerSign = await signedOut.evaluate(() => {
+    var link = document.getElementById('header-signin');
+    var out = document.getElementById('account-signout');
+    var style = getComputedStyle(link);
+    var title = document.getElementById('title').getBoundingClientRect();
+    var box = link.getBoundingClientRect();
+    var bar = document.querySelector('.bar').getBoundingClientRect();
+    var hit = document.elementFromPoint(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2));
+    return {
+      text: link.textContent,
+      tag: link.tagName,
+      href: link.getAttribute('href'),
+      hidden: link.hidden,
+      outHidden: out.hidden,
+      bg: style.backgroundColor,
+      radius: style.borderRadius,
+      decoration: style.textDecorationLine,
+      weight: style.fontWeight,
+      size: style.fontSize,
+      color: style.color,
+      sameLine: Math.abs((title.top + title.height / 2) - (box.top + box.height / 2)) < 14,
+      signRight: box.right > title.right,
+      inBar: box.top >= bar.top - 1 && box.bottom <= bar.bottom + 1,
+      hit: hit && hit.id,
+      plans: document.body.innerText
+    };
+  });
+  assert.strictEqual(headerSign.text, 'Sign in');
+  assert.strictEqual(headerSign.tag, 'A');
+  assert.strictEqual(headerSign.href, '#/signin');
+  assert.strictEqual(headerSign.hidden, false);
+  assert.strictEqual(headerSign.outHidden, true);
+  assert.ok(headerSign.bg === 'rgba(0, 0, 0, 0)' || headerSign.bg === 'transparent');
+  assert.strictEqual(headerSign.radius, '0px');
+  assert.strictEqual(headerSign.decoration, 'none');
+  assert.ok(headerSign.weight === '400' || headerSign.weight === 'normal');
+  assert.strictEqual(headerSign.size, '16px');
+  assert.strictEqual(headerSign.color, 'rgb(255, 255, 255)');
+  assert.strictEqual(headerSign.sameLine, true);
+  assert.strictEqual(headerSign.signRight, true);
+  assert.strictEqual(headerSign.inBar, true);
+  assert.strictEqual(headerSign.hit, 'header-signin');
+  assert.ok(headerSign.plans.includes('$9.99') && headerSign.plans.includes('$19.99') && headerSign.plans.includes('$29.99') && headerSign.plans.includes('Free'));
+  await signedOut.screenshot({ path: '/tmp/signed-out-subscriptions-412.png' });
   await signedOut.evaluate(() => { window.__left = 0; window.addEventListener('hashchange', function () { window.__left++; }); document.getElementById('back').click(); });
   await new Promise(r => setTimeout(r, 250));
-  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/signin');
-  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left sign-in');
-  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Sign in');
+  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/subscriptions');
+  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left subscriptions');
+  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Choose how you want to train');
   assert.strictEqual(await signedOut.evaluate(() => window.__leak), false, 'back button opened the builder');
-  await denied(signedOut, '#/w/' + w.id, '#/signin');
-  await denied(signedOut, '#/w/' + w.id + '/ex/new', '#/signin');
-  await denied(signedOut, '#/play/' + w.id, '#/signin');
+  await denied(signedOut, '#/w/' + w.id, '#/subscriptions');
+  await denied(signedOut, '#/w/' + w.id + '/ex/new', '#/subscriptions');
+  await denied(signedOut, '#/play/' + w.id, '#/subscriptions');
   await signedOut.evaluate(() => { window.__left = 0; document.getElementById('back').click(); });
   await new Promise(r => setTimeout(r, 250));
-  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/signin');
-  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left sign-in after a player link');
-  await denied(signedOut, '#/programs', '#/signin');
-  await denied(signedOut, '#/account', '#/signin');
-  await denied(signedOut, '#/messages', '#/signin');
-  await denied(signedOut, '#/client/abc', '#/signin');
-  await denied(signedOut, '#/send', '#/signin');
-  await denied(signedOut, '#/received', '#/signin');
-  await denied(signedOut, '#/preview', '#/signin');
+  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/subscriptions');
+  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left subscriptions after a player link');
+  await denied(signedOut, '#/programs', '#/subscriptions');
+  await denied(signedOut, '#/account', '#/subscriptions');
+  await denied(signedOut, '#/messages', '#/subscriptions');
+  await denied(signedOut, '#/client/abc', '#/subscriptions');
+  await denied(signedOut, '#/send', '#/subscriptions');
+  await denied(signedOut, '#/received', '#/subscriptions');
+  await denied(signedOut, '#/preview', '#/subscriptions');
+  await signedOut.click('#header-signin');
+  await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden && document.getElementById('acct-email') && document.getElementById('invite-code') && document.querySelector('[data-auth=forgot]') && document.querySelector('[data-auth=switch]'));
   await signedOut.goto(URL + '?invite=ABCD2345#/signin');
   await signedOut.waitForSelector('#invite-code');
   assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
@@ -103,6 +149,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await seed(stranger);
   await denied(stranger, '#/', '#/subscriptions');
   await stranger.waitForFunction(() => document.body.innerText.includes('Choose how you want to train'));
+  assert.strictEqual(await stranger.$eval('#header-signin', el => el.hidden), true);
   await denied(stranger, '#/w/' + w.id, '#/subscriptions');
   await denied(stranger, '#/play/' + w.id, '#/subscriptions');
   assert.strictEqual(await stranger.$eval('#back', function (el) { return el.hidden; }), true);
@@ -160,6 +207,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await other.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train'));
   await new Promise(r => setTimeout(r, 300));
   assert.strictEqual(await other.evaluate(() => location.hash), '#/subscriptions');
+  assert.strictEqual(await other.$eval('#header-signin', el => el.hidden), true);
   await other.click('#back');
   await other.waitForSelector('[data-a=run]');
   assert.strictEqual(await other.evaluate(() => location.hash), '#/');

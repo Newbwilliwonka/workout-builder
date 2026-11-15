@@ -210,8 +210,8 @@ button.avatar{border:0;cursor:pointer}
 .avatar img{width:100%;height:100%;object-fit:cover;display:block}
 .account-id{display:flex;gap:12px;align-items:center}
 .account-id .mute{margin:2px 0 0}
-#account-signout{color:#fff;font-size:16px;font-weight:400;text-decoration:none;padding:6px 0 6px 8px;white-space:nowrap;background:none;border:0}
-#account-signout[hidden]{display:none !important}
+#account-signout,#header-signin{color:#fff;font-size:16px;font-weight:400;text-decoration:none;padding:6px 0 6px 8px;white-space:nowrap;background:none;border:0}
+#account-signout[hidden],#header-signin[hidden]{display:none !important}
 body:has(#profile-sheet) .bar{z-index:50}
 #profile-sheet{top:56px}
 #profile-sheet .pv-sheet-card{max-height:calc(100dvh - 80px);overflow:hidden}

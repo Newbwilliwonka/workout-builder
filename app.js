@@ -1638,6 +1638,12 @@
     if (!link) return;
     link.hidden = !(hashPage() === 'account' || profileGateOn);
   }
+  // Plain header link, same treatment as Sign out. Only the signed-out Subscriptions page shows it.
+  function showHeaderSignIn(show) {
+    var link = document.getElementById('header-signin');
+    if (!link) return;
+    link.hidden = !(show && hashPage() === 'subscriptions');
+  }
   function signOutFromAccount() {
     var from = hashPage();
     WBAuth.signOut().then(function () {
@@ -1862,11 +1868,16 @@
     });
   }
   function renderSubscriptions(message, isError) {
-    titleEl.textContent = 'Subscriptions'; backBtn.hidden = false;
+    titleEl.textContent = 'Subscriptions';
+    backBtn.hidden = true;
+    showHeaderSignIn(false);
     app.innerHTML = '<p class="mute">Loading…</p>';
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'subscriptions') return;
-      if (!session) return drawSubscriptions(null, null, message, isError, null, false);
+      if (!session) {
+        backBtn.hidden = true;
+        return drawSubscriptions(null, null, message, isError, null, false);
+      }
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
         if (profile) cachedProfile = profile;
@@ -1936,6 +1947,8 @@
     if (locked) h += '<button class="linkish" type="button" id="level-signout">Sign out</button>';
     h += '</div>';
     app.innerHTML = h;
+    if (!session) backBtn.hidden = true;
+    showHeaderSignIn(!session);
     app.onchange = function (e) {
       if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
     };
@@ -2350,6 +2363,7 @@
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
     var page = hashPage();
+    showHeaderSignIn(false);
     // Recovery links are claimed before any guard replaces the hash or sends
     // a signed-out person to the normal sign-in page.
     if (recoveryPhase === 'checking') return renderReset();
@@ -2360,12 +2374,14 @@
     if (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(token);
     if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
     // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
-    // Invite links and email confirmation land on this flow. Every other page waits for a session.
+    // Invite links and recovery links are claimed above. A signed-out visit to any other page
+    // opens Subscriptions. A failed session check still opens sign-in.
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') {
       profileGateOn = false;
       closeProfileSheet(true);
     } else closeProfileSheet(false);
     syncHeaderSignOut();
+    showHeaderSignIn(false);
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
     if (page === 'forgot') return renderForgot();
@@ -2383,7 +2399,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return go('#/subscriptions');
       openSignedIn(token, requested, page);
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
