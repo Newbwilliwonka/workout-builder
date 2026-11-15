@@ -157,12 +157,12 @@ data.workouts.push(solo, pair, triple, quad);
   s = await toRest(['A Curl', 'B Press', 'C Row']);
   assert.strictEqual(s.ro, '0:12');
   assert.strictEqual(s.info, 'A Curl'); // single frame shows the next exercise, not a combined card
-  assert.strictEqual(await p.$eval('.pl-ci.cur b', e => e.textContent), 'C Row');
+  assert.strictEqual(await p.$eval('.pl-ci.cur', e => e.getAttribute('aria-label')), 'C Row');
   assert.deepStrictEqual(await p.$$eval('.pl-chip', a => a.map(e => e.textContent)), ['Rest', 'Superset']);
   assert.deepStrictEqual(await p.$$eval('.pl-track-g .pl-th b', a => a.map(e => e.textContent)), ['A Curl', 'B Press', 'C Row']);
   assert.strictEqual(await p.$$eval('.pl-track-g', a => a.length), 3);
   assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 3);
-  assert.deepStrictEqual(await p.$eval('.pl-car', el => [...el.children].map(n => n.classList.contains('pl-chain') ? '·' : n.querySelector('b').textContent)),
+  assert.deepStrictEqual(await p.$eval('.pl-car', el => [...el.children].map(n => n.classList.contains('pl-chain') ? '·' : n.getAttribute('aria-label'))),
     ['A Curl', '·', 'B Press', '·', 'C Row', 'A Curl', '·', 'B Press']);
   await p.evaluate(() => document.querySelectorAll('.pl-track-g')[2].querySelector('[data-st=reps][data-d="1"]').click());
   await wait(40);
@@ -204,7 +204,7 @@ data.workouts.push(solo, pair, triple, quad);
   assert.strictEqual(await p.$$eval('.pl-info', a => a.length), 1);
   assert.deepStrictEqual(await p.$$eval('.pl-track-g .pl-th b', a => a.map(e => e.textContent)), ['A Curl', 'B Press', 'C Row', 'D Fly']);
   assert.strictEqual(await p.$$eval('.pl-ok', a => a.length), 4);
-  assert.deepStrictEqual(await p.$eval('.pl-car', el => [...el.children].map(n => n.classList.contains('pl-chain') ? '·' : n.querySelector('b').textContent + ' ' + n.querySelector('span').textContent)),
+  assert.deepStrictEqual(await p.$eval('.pl-car', el => [...el.children].map(n => n.classList.contains('pl-chain') ? '·' : n.getAttribute('aria-label') + ' ' + n.querySelector('span').textContent)),
     ['A Curl Set 1/2', '·', 'B Press Set 1/2', '·', 'C Row Set 1/1', '·', 'D Fly Set 1/2', 'A Curl Set 2/2', '·', 'B Press Set 2/2', '·', 'D Fly Set 2/2']);
   await p.evaluate(() => document.querySelector('.pl-track-g [data-st=reps][data-d="1"]').click());
   await wait(40);

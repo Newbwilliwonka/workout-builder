@@ -446,6 +446,46 @@
     }
     return '<svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg><span>Exercise media coming soon</span>';
   }
+  // Carousel tile picture only. The main screen still uses playerMedia (the GIF).
+  function carouselMedia(ex) {
+    var miss = '<div class="pl-miss">No media available</div>';
+    var m = M.cleanMedia(ex && ex.media);
+    if (m && m.kind === 'library') {
+      var url = M.exerciseStillUrl(m.libraryId, (window.WBAuth && WBAuth.gifBase) || '');
+      if (url) return '<img class="pl-still" alt="" data-still="1" src="' + esc(url) + '">';
+      return miss;
+    }
+    if (m && m.kind === 'custom' && m.imageKey) {
+      var cached = window.WBMedia && WBMedia.peek(m.imageKey);
+      if (cached) return '<img class="pl-still" alt="" src="' + esc(cached) + '">';
+      return '<span class="pl-miss" data-local-img="' + esc(m.imageKey) + '">No media available</span>';
+    }
+    return miss;
+  }
+  // Up next is only the following queue tile, and only in three cases:
+  // rest; the other exercise in this superset round; the next interval of this exercise.
+  function carouselUpNext(i) {
+    var n = i + 1;
+    if (n >= S.queue.length) return false;
+    if (S.phase === 'rest') return true;
+    var q = S.queue[i], nx = S.queue[n];
+    if (q.groupId && nx.groupId === q.groupId && nx.set === q.set) return true;
+    if (exOf(i).mode === 'intervals' && nx.exerciseId === q.exerciseId) return true;
+    return false;
+  }
+  function bindStillErrors(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('.pl-ci img[data-still]'), function (img) {
+      function fail() {
+        if (!img.isConnected) return;
+        var miss = document.createElement('div');
+        miss.className = 'pl-miss';
+        miss.textContent = 'No media available';
+        img.replaceWith(miss);
+      }
+      img.addEventListener('error', fail);
+      if (img.complete && img.naturalWidth === 0) fail();
+    });
+  }
   function render() {
     var i = S.idx, st = S.queue[i], ex = exOf(i), c = ex.modeConfig, r = res(i);
     var chip = statusChip(ex);
@@ -475,7 +515,10 @@
       var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
       if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
       var sub = e2.mode === 'stopwatch' ? 'Attempt ' + q.set + '/' + q.of : (e2.mode === 'intervals' ? 'Interval ' + q.set + '/' + q.of : 'Set ' + q.set + '/' + q.of);
-      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '"' + (j === i ? ' aria-current="true"' : '') + '>' + (lg ? '<i class="pl-ck">✓</i>' : '') + '<b>' + esc(e2.name) + '</b>' + (sub ? '<span>' + esc(sub) + '</span>' : '') + '</button>';
+      var up = j === i + 1 && carouselUpNext(i);
+      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '" aria-label="' + esc(e2.name) + '"' + (j === i ? ' aria-current="true"' : '') + '>' +
+        (lg ? '<i class="pl-ck">✓</i>' : '') + '<span>' + esc(sub) + '</span><div class="pl-frame">' + carouselMedia(e2) + '</div>' +
+        (up ? '<div class="pl-upnext">Up next</div>' : '') + '</button>';
     }
     h += '</div></div>'; // end car + stage
     if (sw) h += '<button class="pl-go" data-p="primary">' + esc(primaryLabel(ex)) + '</button>';
@@ -511,6 +554,7 @@
     if (S.prompt) h += '<div class="pl-modal"><div class="card"><h3>Workout complete</h3><p class="mute">' + (S.track === false ? 'This preview is not tracked. Nothing will be saved.' : 'End the workout now, or keep editing your logged sets.') + '</p><button class="pri" data-p="endnow">End workout</button><button data-p="keep">Keep editing</button></div></div>';
     S.root.innerHTML = h;
     if (window.WBMedia) WBMedia.bind(S.root);
+    bindStillErrors(S.root);
     var car = S.root.querySelector('.pl-car'), cu = car.querySelector('.cur');
     if (cu) car.scrollTop += cu.getBoundingClientRect().top - car.getBoundingClientRect().top - 24; // keep current in view
     tick(true);
