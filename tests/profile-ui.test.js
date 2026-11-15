@@ -165,29 +165,46 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
 
   await p.evaluate(function () { location.hash = '#/account'; });
   await p.waitForSelector('#account-label');
+  await p.waitForSelector('#profile-edit');
   const account = await p.evaluate(function () {
     var card = document.getElementById('account-card');
     var link = document.getElementById('account-signout');
+    var edit = document.getElementById('profile-edit');
+    var plan = edit.parentElement;
     var style = getComputedStyle(link);
+    var editStyle = getComputedStyle(edit);
     var title = document.getElementById('title').getBoundingClientRect();
     var sign = link.getBoundingClientRect();
+    var planBox = plan.getBoundingClientRect();
+    var editBox = edit.getBoundingClientRect();
     return {
       label: document.getElementById('account-label').textContent,
       cardText: card.innerText,
       signOutButtons: card.querySelectorAll('button').length,
+      buttonIds: Array.prototype.map.call(card.querySelectorAll('button'), function (b) { return b.id; }),
       old: !!document.querySelector('[data-auth=out]'),
       signTag: link.tagName,
       bg: style.backgroundColor,
       radius: style.borderRadius,
       decoration: style.textDecorationLine,
       sameLine: Math.abs((title.top + title.height / 2) - (sign.top + sign.height / 2)) < 14,
-      signRight: sign.right > title.right
+      signRight: sign.right > title.right,
+      editTag: edit.tagName,
+      editType: edit.getAttribute('type'),
+      editText: edit.textContent,
+      planText: plan.textContent,
+      editColor: editStyle.color,
+      editDecoration: editStyle.textDecorationLine,
+      editBg: editStyle.backgroundColor,
+      editSameLine: Math.abs((planBox.top + planBox.height / 2) - (editBox.top + editBox.height / 2)) < 8,
+      editAfterPlan: editBox.left > planBox.left
     };
   });
   assert.strictEqual(account.label, 'J');
   assert.ok(account.cardText.indexOf('kinisiathletics@gmail.com') === -1);
   assert.ok(account.cardText.indexOf('Sign out') === -1);
-  assert.strictEqual(account.signOutButtons, 1);
+  assert.strictEqual(account.signOutButtons, 2);
+  assert.deepStrictEqual(account.buttonIds, ['profile-open', 'profile-edit']);
   assert.strictEqual(account.old, false);
   assert.strictEqual(account.signTag, 'A');
   assert.ok(account.bg === 'rgba(0, 0, 0, 0)' || account.bg === 'transparent');
@@ -195,7 +212,41 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   assert.strictEqual(account.decoration, 'none');
   assert.strictEqual(account.sameLine, true);
   assert.strictEqual(account.signRight, true);
+  assert.strictEqual(account.editTag, 'BUTTON');
+  assert.strictEqual(account.editType, 'button');
+  assert.strictEqual(account.editText, 'Edit profile');
+  assert.strictEqual(account.planText, 'Enthusiast · Edit profile');
+  assert.strictEqual(account.editColor, 'rgb(37, 99, 235)');
+  assert.strictEqual(account.editDecoration, 'underline');
+  assert.ok(account.editBg === 'rgba(0, 0, 0, 0)' || account.editBg === 'transparent');
+  assert.strictEqual(account.editSameLine, true);
+  assert.strictEqual(account.editAfterPlan, true);
   await p.screenshot({ path: ART + '/account-after.png' });
+  await p.screenshot({ path: ART + '/account-edit-profile.png' });
+
+  await p.click('#profile-edit');
+  await p.waitForSelector('#profile-name');
+  const fromEdit = await p.evaluate(function () {
+    return {
+      name: document.getElementById('profile-name').value,
+      save: !!document.getElementById('profile-save'),
+      cancel: !!document.getElementById('profile-cancel'),
+      required: document.getElementById('profile-sheet').getAttribute('data-required')
+    };
+  });
+  assert.strictEqual(fromEdit.name, 'J');
+  assert.strictEqual(fromEdit.save, true);
+  assert.strictEqual(fromEdit.cancel, true);
+  assert.notStrictEqual(fromEdit.required, '1');
+  await p.click('#profile-cancel');
+  await p.waitForFunction(function () { return !document.getElementById('profile-sheet'); });
+
+  await p.focus('#profile-edit');
+  await p.keyboard.press('Enter');
+  await p.waitForSelector('#profile-sheet');
+  assert.strictEqual(await p.$eval('#profile-name', function (el) { return el.value; }), 'J');
+  await p.keyboard.press('Escape');
+  await p.waitForFunction(function () { return !document.getElementById('profile-sheet'); });
 
   await p.click('#profile-open');
   await p.waitForSelector('#profile-bio');
@@ -214,7 +265,8 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   });
   await p.click('#profile-open');
   await p.waitForSelector('#profile-name');
-  await p.click('#profile-name', { clickCount: 3 });
+  await p.click('#profile-name');
+  await p.evaluate(function () { document.getElementById('profile-name').select(); });
   await p.keyboard.press('Backspace');
   await p.click('#profile-save');
   await p.waitForSelector('#profile-error');
