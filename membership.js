@@ -31,8 +31,11 @@
     {
       id: 'enthusiast',
       name: 'Enthusiast',
-      priceCents: 699,
-      priceLabel: '$6.99',
+      priceCents: 999,
+      priceLabel: '$9.99',
+      oldPriceCents: 1999,
+      oldPriceLabel: '$19.99',
+      beta: true,
       inviteOnly: false,
       selfServe: true,
       paysInApp: true,
@@ -41,40 +44,56 @@
       recommended: false,
       value: 'Build your own training, and still work with a coach if you have one.',
       available: [
-        'Create and edit up to 6 of your own workouts',
-        'See your own tracking',
-        'Run your workouts in the player'
+        'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
+        'Create your own exercises, rename them, and add a photo',
+        'Search 1,300+ exercises',
+        'Save up to 6 of your own workouts',
+        'Plan your week on a program calendar',
+        'Receive workouts and programs from your trainer',
+        'Track solo sessions and sessions with your trainer',
+        'Share your workouts and tracking with your trainer',
+        'Message your trainer',
+        'Join your trainer with an invite',
+        'Keep your workouts and history if either of you disconnects',
+        'Add a bio and location to your profile'
       ],
       comingSoon: [
-        'Receive customized programs and tracking from your trainer',
-        'Follow your program calendar',
-        'Message your trainer'
+        'Follow custom tracking dashboards from your trainer',
+        'Find a trainer in the Trainer Hub'
       ],
       cta: 'Choose Enthusiast'
     },
     {
       id: 'trainer',
       name: 'Trainer',
-      priceCents: 1499,
-      priceLabel: '$14.99',
+      priceCents: 1999,
+      priceLabel: '$19.99',
+      oldPriceCents: 3999,
+      oldPriceLabel: '$39.99',
+      beta: true,
       inviteOnly: false,
       selfServe: true,
       paysInApp: true,
       workoutCap: null,
       clientCap: 15,
       recommended: true,
-      value: 'Coach your clients from workout to tracking.',
+      value: 'Coach your clients from the workout to the calendar.',
       available: [
-        'Build customized workouts for each client',
-        'Invite up to 15 clients and enthusiasts'
+        'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
+        'Create your own exercises, rename them, and add a photo',
+        'Search 1,300+ exercises',
+        'Send workouts and programs to clients and enthusiasts',
+        'Plan solo sessions and sessions you attend on a shared calendar',
+        'Review the sessions an enthusiast shares with you',
+        'Message your clients',
+        'Invite up to 15 clients and enthusiasts',
+        'Keep your workouts if either of you ends the connection',
+        'Add a bio and location to your profile'
       ],
       comingSoon: [
-        'Send workouts to your clients',
-        'Review the tracking your clients complete',
-        'Send customized tracking to each client',
-        'Plan in-person and solo sessions on a shared program calendar',
-        'Message your clients'
+        'Build custom tracking dashboards for each client'
       ],
+      highlight: 'Get found in the Trainer Hub by clients who already train with a coach or pay for training',
       cta: 'Choose Trainer'
     },
     {
@@ -82,22 +101,25 @@
       name: 'Master Trainer',
       priceCents: 2999,
       priceLabel: '$29.99',
+      oldPriceCents: 5999,
+      oldPriceLabel: '$59.99',
+      beta: true,
       inviteOnly: false,
       selfServe: true,
       paysInApp: true,
       workoutCap: null,
       clientCap: 30,
       recommended: false,
-      value: 'A larger roster, with a verified credential.',
+      value: 'Coach a larger roster.',
       available: [
-        'Everything in Trainer',
-        'Invite up to 30 clients and enthusiasts',
-        'Show a verified certification on your profile'
+        'Everything in Trainer, plus:',
+        'Invite up to 30 clients and enthusiasts'
       ],
       comingSoon: [
-        'Send workouts, customized tracking, and messages to a larger client list',
-        'Shared program calendar for in-person and solo sessions'
+        'Show a verified certification on your profile',
+        'Team Training and Team Drills with tracking'
       ],
+      highlight: 'Get found in the Trainer Hub by clients who already train with a coach or pay for training',
       cta: 'Choose Master Trainer'
     }
   ];

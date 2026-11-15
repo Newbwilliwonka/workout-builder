@@ -1913,12 +1913,19 @@
     h += '<p class="note">Beta pricing for the first 100 members.</p>';
     h += redeemCard(conn, profile);
     WBMembership.TIERS.forEach(function (t) {
-      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
+      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + (t.beta ? ' is-beta' : '') + '">';
+      if (t.beta) h += '<span class="ribbon">BETA</span>';
       h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
-      h += '<div class="price">' + esc(WBMembership.priceLine(t)) + '</div>';
+      h += '<div class="price">';
+      if (t.oldPriceLabel) h += '<span class="was">' + esc(t.oldPriceLabel) + '</span>';
+      h += '<span class="now">' + esc(t.priceLabel) + '</span>';
+      if (t.priceCents) h += '<span class="per">/ month</span>';
+      h += '</div>';
       h += '<p class="value">' + esc(t.value) + '</p><ul>';
       t.available.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
-      h += '</ul><p class="soon">Coming soon</p><ul>';
+      h += '</ul><p class="soon">Coming soon</p>';
+      if (t.highlight) h += '<div class="hub"><span class="hub-badge">Trainer Hub</span><p>' + esc(t.highlight) + '</p></div>';
+      h += '<ul>';
       t.comingSoon.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
       h += '</ul>';
       if (t.inviteOnly) h += '<p class="invite">' + esc(t.cta) + '</p>';

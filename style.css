@@ -68,13 +68,22 @@ input.is-empty,textarea.is-empty{border-color:var(--danger);box-shadow:0 0 0 2px
 .sales{padding-top:8px}
 .sales h2{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .note{color:var(--mute);font-size:13px;margin:0 0 18px}
-.plan{padding:22px 18px 18px}
+.plan{position:relative;padding:22px 18px 18px}
 .plan h3{font-size:18px;margin:0}
-.plan .price{font-size:26px;font-weight:700;letter-spacing:-.03em;margin:8px 0 6px}
+.plan.is-beta{padding-top:18px}
+.plan .ribbon{position:absolute;top:0;right:16px;z-index:1;background:var(--pri);color:#fff;font-size:11px;font-weight:800;letter-spacing:.08em;line-height:1;padding:8px 9px 12px;clip-path:polygon(0 0,100% 0,100% 100%,50% calc(100% - 7px),0 100%)}
+.plan.is-beta .row{padding-right:52px}
+.plan .price{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:8px 0 6px}
+.plan .price .was{color:var(--mute);font-size:18px;font-weight:600;text-decoration:line-through;text-decoration-thickness:1px}
+.plan .price .now{font-size:28px;font-weight:800;letter-spacing:-.03em}
+.plan .price .per{color:var(--mute);font-size:15px;font-weight:600}
 .plan .value{margin:0 0 12px}
 .plan ul{margin:0;padding-left:18px}
 .plan li{margin:5px 0}
 .plan .soon{margin:16px 0 6px;font-size:13px;font-weight:700;color:var(--mute)}
+.plan .hub{margin:8px 0 10px;padding:10px 12px;border-radius:12px;background:#eff6ff;border:1px solid #bfdbfe}
+.plan .hub-badge{display:inline-block;margin-bottom:6px;background:var(--pri);color:#fff;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.plan .hub p{margin:0;font-size:14px;font-weight:600;line-height:1.35}
 .plan.recommended{border:1px solid var(--pri);box-shadow:0 0 0 1px var(--pri)}
 .invite-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;letter-spacing:.04em;word-break:break-all}
 .tag{display:inline-block;background:#eff6ff;color:var(--pri);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
