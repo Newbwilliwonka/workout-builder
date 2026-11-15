@@ -118,6 +118,17 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   assert.strictEqual(gate.sameLine, true);
   assert.strictEqual(gate.signRight, true);
   assert.strictEqual(gate.backHidden, true);
+  const signHit = await p.evaluate(function () {
+    var link = document.getElementById('account-signout');
+    var box = link.getBoundingClientRect();
+    var x = Math.round(box.left + box.width / 2);
+    var y = Math.round(box.top + box.height / 2);
+    var el = document.elementFromPoint(x, y);
+    var note = document.getElementById('profile-prompt').getBoundingClientRect();
+    return { id: el && el.id, noteTop: note.top, barBottom: document.querySelector('.bar').getBoundingClientRect().bottom };
+  });
+  assert.strictEqual(signHit.id, 'account-signout');
+  assert.ok(signHit.noteTop >= signHit.barBottom - 1, 'name note sits under the header');
   await p.click('#profile-sheet');
   assert.ok(await p.$('#profile-prompt'));
   await p.click('#profile-save');
