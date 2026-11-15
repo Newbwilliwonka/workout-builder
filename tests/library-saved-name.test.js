@@ -270,13 +270,14 @@ const pp = require('puppeteer-core');
   await p.keyboard.press('Tab');
   await wait(50);
   assert.strictEqual((await nameState()).value, 'Front squat', 'leaving the field keeps the edited name');
-  assert.strictEqual(await p.$eval('[data-b=notes]', function (el) { return el.value; }), '', 'editing the prefilled name still clears library notes');
-  await setField('[data-b=notes]', 'Chest up.');
+  assert.strictEqual(await p.$eval('[data-b=notes]', function (el) { return el.value; }), SQUAT_DESC, 'editing the prefilled name keeps the library notes');
   await p.click('[data-seg=mode][data-v=timer]');
   assert.strictEqual((await nameState()).value, 'Front squat', 'switching mode keeps the edited name');
   assert.strictEqual((await nameState()).readOnly, false);
+  assert.strictEqual(await p.$eval('[data-b=notes]', function (el) { return el.value; }), SQUAT_DESC, 'switching mode keeps the library notes');
   await p.click('[data-seg=mode][data-v=reps]');
   assert.strictEqual((await nameState()).value, 'Front squat');
+  assert.strictEqual(await p.$eval('[data-b=notes]', function (el) { return el.value; }), SQUAT_DESC);
   await p.$eval('[data-b=name]', function (el) { el.scrollIntoView({ block: 'center' }); });
   await wait(100);
   await p.screenshot({ path: path.join(shotDir, 'after-name-edited.png') });
@@ -288,7 +289,7 @@ const pp = require('puppeteer-core');
     return items.filter(function (it) { return it.name === 'Front squat'; })[0];
   }, M.STORAGE_KEY);
   assert.strictEqual(added.name, 'Front squat');
-  assert.strictEqual(added.notes, 'Chest up.');
+  assert.strictEqual(added.notes, SQUAT_DESC, 'saving a renamed new exercise keeps the library description');
   assert.deepStrictEqual(added.media, { kind: 'library', libraryId: 'dsq', view: '180' });
 
   await p.evaluate(function (id) {
@@ -316,8 +317,9 @@ const pp = require('puppeteer-core');
   await p.click('[data-seg=mode][data-v=stopwatch]');
   assert.strictEqual((await nameState()).value, 'Tempo squat');
   assert.strictEqual((await nameState()).disabled, false);
+  assert.strictEqual(await p.$eval('[data-b=notes]', function (el) { return el.value; }), SQUAT_DESC, 'editing the name on an existing exercise keeps the library notes');
   await p.click('[data-seg=mode][data-v=reps]');
-  await setField('[data-b=notes]', 'Own cue.');
+  assert.strictEqual(await p.$eval('[data-b=notes]', function (el) { return el.value; }), SQUAT_DESC);
   await p.$eval('[data-a=save]', function (el) { el.scrollIntoView({ block: 'center' }); });
   await p.click('[data-a=save]');
   await p.waitForSelector('[data-a=add]');
@@ -326,7 +328,7 @@ const pp = require('puppeteer-core');
     return items.filter(function (it) { return it.id === id; })[0];
   }, M.STORAGE_KEY, gobletId);
   assert.strictEqual(edited.name, 'Tempo squat');
-  assert.strictEqual(edited.notes, 'Own cue.');
+  assert.strictEqual(edited.notes, SQUAT_DESC, 'saving a renamed existing exercise keeps the library description');
   assert.deepStrictEqual(edited.media, { kind: 'library', libraryId: 'dsq', view: '180' });
 
   await p.evaluate(function (id) {
@@ -334,15 +336,19 @@ const pp = require('puppeteer-core');
   }, gobletId);
   await p.waitForSelector('[data-b=name]');
   assert.strictEqual((await nameState()).value, 'Tempo squat');
+  assert.strictEqual(await p.$eval('[data-b=notes]', function (el) { return el.value; }), SQUAT_DESC);
   await typeOverName('Easy squat');
+  assert.strictEqual(await p.$eval('[data-b=notes]', function (el) { return el.value; }), SQUAT_DESC, 'renaming a saved library exercise keeps its notes');
   await p.$eval('[data-a=save]', function (el) { el.scrollIntoView({ block: 'center' }); });
   await p.click('[data-a=save]');
   await p.waitForSelector('[data-a=add]');
   const renamed = await p.evaluate(function (k, id) {
     var items = JSON.parse(localStorage.getItem(k)).workouts.filter(function (w) { return w.name === 'Leg day'; })[0].items;
-    return items.filter(function (it) { return it.id === id; })[0].name;
+    return items.filter(function (it) { return it.id === id; })[0];
   }, M.STORAGE_KEY, gobletId);
-  assert.strictEqual(renamed, 'Easy squat');
+  assert.strictEqual(renamed.name, 'Easy squat');
+  assert.strictEqual(renamed.notes, SQUAT_DESC, 'saving after a later name edit keeps the library notes');
+  assert.deepStrictEqual(renamed.media, { kind: 'library', libraryId: 'dsq', view: '180' });
 
   assert.deepStrictEqual(errs, []);
   console.log('SAVED NAME SEARCH OK');

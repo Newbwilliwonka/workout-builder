@@ -2736,8 +2736,7 @@
       imageKey: media && media.kind === 'custom' ? media.imageKey : '',
       pendingBlob: null, pendingUrl: '', clearImage: false, savedMedia: media,
       libQuery: '', libBody: '', libEquip: '', libTarget: '', libRows: [], libBoosted: [], libServerOffset: 0, libMore: false, libStatus: '', libError: false, libCollapsed: false,
-      notesFor: media && media.kind === 'library' ? 'library:' + String(media.libraryId || '') : 'manual',
-      libraryName: media && media.kind === 'library' ? String(ex.name || '') : '' };
+      notesFor: media && media.kind === 'library' ? 'library:' + String(media.libraryId || '') : 'manual' };
     M.MODES.forEach(function (m) { d.cfg[m] = M.defaultModeConfig(m); });
     Object.assign(d.cfg[ex.mode], ex.modeConfig);
     ['reps', 'intervals', 'timer'].forEach(function (m) { var x = d.cfg[m]; ['count', 'min', 'max'].forEach(function (k) { x[k] = x[k] == null ? '' : String(x[k]); }); });
@@ -3008,8 +3007,9 @@
   // Notes follow the exercise being edited. A library pick always replaces them
   // with that exercise's description, including notes that were saved or typed.
   // No description clears Notes so the previous exercise's text does not linger.
-  // Choosing Enter manually, or typing a name over that library exercise, clears
-  // Notes. Notes typed after that stay while it remains that manual exercise.
+  // Choosing Enter manually clears Notes that still belong to that library
+  // exercise. Editing the name does not. Notes typed after Enter manually stay
+  // while it remains that manual exercise.
   function notesBelongToLibrary(d) {
     return !!(d.notesFor && String(d.notesFor).indexOf('library:') === 0);
   }
@@ -3020,13 +3020,6 @@
   function applyLibraryDescription(d, row) {
     d.notes = row && typeof row.description === 'string' ? row.description : '';
     d.notesFor = 'library:' + String((row && row.id) || d.libraryId || '');
-    d.libraryName = d.name;
-  }
-  function clearNotesIfReplacingLibraryExercise(d, name) {
-    if (!notesBelongToLibrary(d) || name === d.libraryName) return;
-    clearManualNotes(d);
-    var notesEl = app.querySelector('[data-b=notes]');
-    if (notesEl) notesEl.value = '';
   }
   function libRowById(d, id) {
     var lists = [d.libBoosted, d.libRows], j, i;
@@ -3145,7 +3138,6 @@
       var v = t.type === 'checkbox' ? t.checked : t.value;
       if (b.indexOf('cfg.') === 0) d.cfg[d.mode][b.slice(4)] = v; else d[b] = v;
       if (t.hasAttribute('data-req') && reqOk(t)) { t.classList.remove('is-empty'); t.removeAttribute('aria-invalid'); }
-      if (b === 'name') clearNotesIfReplacingLibraryExercise(d, v);
       if (b === 'cfg.lapCount') {
         var box = document.getElementById('lap-events');
         // Skip a no-op refresh (the field's change event on blur) so it doesn't
