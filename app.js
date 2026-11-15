@@ -3284,6 +3284,76 @@
     if (d.imageKey && M.cleanMedia({ kind: 'custom', imageKey: d.imageKey })) return { media: { kind: 'custom', imageKey: d.imageKey }, dropKey: '' };
     return { media: null, dropKey: oldKey };
   }
+  // Manual name suggestions. Spellings already saved on this user's workouts.
+  // Choosing one only fills the name. It does not read or write Notes.
+  var nameSuggestActive = -1;
+  function closeNameSuggest() {
+    nameSuggestActive = -1;
+    var box = document.getElementById('name-suggest');
+    var input = app.querySelector('[data-b=name]');
+    if (box) { box.hidden = true; box.innerHTML = ''; }
+    if (input) {
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    }
+  }
+  function markNameSuggest() {
+    var box = document.getElementById('name-suggest');
+    var input = app.querySelector('[data-b=name]');
+    if (!box) return;
+    var opts = box.querySelectorAll('[data-a=suggest-name]');
+    if (nameSuggestActive >= opts.length) nameSuggestActive = opts.length - 1;
+    Array.prototype.forEach.call(opts, function (el, i) {
+      var on = i === nameSuggestActive;
+      if (on) el.classList.add('on'); else el.classList.remove('on');
+      el.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    if (!input) return;
+    if (nameSuggestActive >= 0 && opts[nameSuggestActive]) input.setAttribute('aria-activedescendant', opts[nameSuggestActive].id);
+    else input.removeAttribute('aria-activedescendant');
+  }
+  function paintNameSuggest() {
+    var box = document.getElementById('name-suggest');
+    var input = app.querySelector('[data-b=name]');
+    if (!box || !input || !draft || draft.source === 'library' || !window.WBNames) return;
+    var names = WBNames.suggestNames(data.workouts || [], draft.name, { excludeExerciseId: draft.id, limit: 6 });
+    nameSuggestActive = -1;
+    if (!names.length) { closeNameSuggest(); return; }
+    box.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    input.removeAttribute('aria-activedescendant');
+    box.innerHTML = names.map(function (name, i) {
+      return '<button type="button" class="name-hit" role="option" id="name-suggest-opt-' + i + '" data-a="suggest-name" data-name="' + esc(name) + '" aria-selected="false"><span class="name">' + esc(name) + '</span></button>';
+    }).join('');
+  }
+  function chooseSuggestedName(name) {
+    if (!draft || draft.source === 'library' || !name) return;
+    draft.name = name;
+    var input = app.querySelector('[data-b=name]');
+    if (input) {
+      input.value = name;
+      try { input.setSelectionRange(name.length, name.length); } catch (err) {}
+      input.focus();
+    }
+    closeNameSuggest();
+  }
+  function nameSuggestTarget(e) {
+    return e && e.target && e.target.closest ? e.target : null;
+  }
+  function nameSuggestInside(e) {
+    var t = nameSuggestTarget(e);
+    return !!(t && (t.closest('#name-suggest') || t.closest('[data-b=name]')));
+  }
+  document.addEventListener('click', function (e) {
+    var box = document.getElementById('name-suggest');
+    if (!box || box.hidden || nameSuggestInside(e)) return;
+    closeNameSuggest();
+  });
+  document.addEventListener('focusin', function (e) {
+    var box = document.getElementById('name-suggest');
+    if (!box || box.hidden || nameSuggestInside(e)) return;
+    closeNameSuggest();
+  });
   function renderEditor(w, exId) {
     var isNew = exId === 'new', ex = isNew ? null : w.items.filter(function (x) { return x.id === exId; })[0];
     if (!isNew && !ex) return go('#/w/' + w.id);
@@ -3301,7 +3371,9 @@
             filterSelect('lib-target', 'Target muscle', d.libTarget, libFilters.targets) +
           '</div><div id="lib-results">' + resultsHtml(d) + '</div>'
         : '') +
-      '<label>Exercise name</label><input data-b="name" value="' + esc(d.name) + '" placeholder="e.g. Goblet squat" autocomplete="off">' +
+      '<label>Exercise name</label><input data-b="name" value="' + esc(d.name) + '" placeholder="e.g. Goblet squat" autocomplete="off"' +
+      (d.source === 'library' ? '' : ' role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="name-suggest"') + '>' +
+      (d.source === 'library' ? '' : '<div id="name-suggest" class="name-suggest" role="listbox" aria-label="Saved exercise names" hidden></div>') +
       (d.source === 'library' && d.libraryId ? '<p class="mute">Library demo is attached.</p>' : '') +
       '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode) +
       (d.mode === 'stopwatch' ? '<label>Attempts</label>' + numIn('sets', d.sets, 'e.g. 3', null, true) : d.mode === 'intervals' ? '<label># of intervals</label>' + numIn('sets', d.sets, 'e.g. 8', null, true) : '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3', null, true)) +
@@ -3375,6 +3447,10 @@
       var v = t.type === 'checkbox' ? t.checked : t.value;
       if (b.indexOf('cfg.') === 0) d.cfg[d.mode][b.slice(4)] = v; else d[b] = v;
       if (t.hasAttribute('data-req') && reqOk(t)) { t.classList.remove('is-empty'); t.removeAttribute('aria-invalid'); }
+      if (b === 'name') {
+        if (e.type === 'input' && d.source !== 'library') paintNameSuggest();
+        return;
+      }
       if (b === 'cfg.lapCount') {
         var box = document.getElementById('lap-events');
         // Skip a no-op refresh (the field's change event on blur) so it doesn't
@@ -3402,6 +3478,7 @@
         return renderEditor(w, exId);
       }
       var b = e.target.closest('[data-a]'); if (!b) return;
+      if (b.dataset.a === 'suggest-name') { chooseSuggestedName(b.getAttribute('data-name') || ''); return; }
       if (b.dataset.a === 'cancel') { releasePendingImage(); return go('#/w/' + w.id); }
       if (b.dataset.a === 'pick') {
         d.libraryId = b.dataset.id || '';
@@ -3451,6 +3528,37 @@
           d.saving = false;
           toast('Could not keep that image on this device');
         });
+      }
+    };
+    app.onmousedown = function (e) {
+      var hit = e.target && e.target.closest && e.target.closest('[data-a=suggest-name]');
+      if (!hit) return;
+      e.preventDefault();
+    };
+    app.onkeydown = function (e) {
+      if (e.isComposing || e.keyCode === 229) return;
+      var t = e.target;
+      if (!t || t.getAttribute('data-b') !== 'name' || !draft || draft.source === 'library') return;
+      var box = document.getElementById('name-suggest');
+      var open = box && !box.hidden;
+      if (e.key === 'Escape') {
+        if (open) { closeNameSuggest(); e.preventDefault(); }
+        return;
+      }
+      if (!open) return;
+      var opts = box.querySelectorAll('[data-a=suggest-name]');
+      if (!opts.length) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (nameSuggestActive < 0) nameSuggestActive = e.key === 'ArrowDown' ? 0 : opts.length - 1;
+        else if (e.key === 'ArrowDown') nameSuggestActive = Math.min(opts.length - 1, nameSuggestActive + 1);
+        else nameSuggestActive = Math.max(0, nameSuggestActive - 1);
+        markNameSuggest();
+        return;
+      }
+      if (e.key === 'Enter' && nameSuggestActive >= 0 && opts[nameSuggestActive]) {
+        e.preventDefault();
+        chooseSuggestedName(opts[nameSuggestActive].getAttribute('data-name') || '');
       }
     };
   }

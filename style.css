@@ -50,12 +50,12 @@ input.is-empty,textarea.is-empty{border-color:var(--danger);box-shadow:0 0 0 2px
 .file-btn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .lib-filters{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 #lib-q{margin-top:10px}
-#lib-results{margin-top:8px}
-#lib-results:empty{display:none}
-.lib-hit{display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;margin-top:6px;padding:10px 12px}
-.lib-hit.on{border-color:var(--pri);background:#eff6ff}
-.lib-hit .name{font-size:16px}
-.lib-hit .mute{font-weight:400}
+#lib-results, #name-suggest{margin-top:8px}
+#lib-results:empty, #name-suggest:empty, #name-suggest[hidden]{display:none}
+.lib-hit, .name-hit{display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;margin-top:6px;padding:10px 12px}
+.lib-hit.on, .name-hit.on{border-color:var(--pri);background:#eff6ff}
+.lib-hit .name, .name-hit .name{font-size:16px}
+.lib-hit .mute, .name-hit .mute{font-weight:400}
 .card>.seg{margin-top:2px}
 .ss{border-left:6px solid var(--ss);background:#f5f3ff;padding:10px;border-radius:var(--r);margin-bottom:10px}
 .ss>.card{margin-bottom:8px}
