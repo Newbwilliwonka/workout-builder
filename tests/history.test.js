@@ -90,6 +90,81 @@ assert.deepStrictEqual(plank.days[0].sessions[0].sets[0].badges, ['Longest hold'
 assert.strictEqual(plank.days[0].sessions[0].sets[0].planned, '1:00 hold');
 assert.strictEqual(plank.days[1].sessions[0].sets[0].actual, '0:45 hold');
 
+function timerSet(over) {
+  return Object.assign({
+    sessionId: 't1', localDate: '2026-11-10', startedAt: 1, workoutName: 'Upper',
+    exerciseName: 'Face pull', libraryExerciseId: '0201', mode: 'timer', displayUnit: 'kg',
+    setNumber: 1, status: 'completed', removed: false,
+    plannedWorkSec: 40, plannedRestSec: 15, plannedReps: 12, plannedWeightKg: 15,
+    actualWorkSec: 40, actualReps: 12, actualWeightKg: 15, actualRestSec: null
+  }, over);
+}
+const loggedRest = H.detail([timerSet()], 'lib-0201');
+assert.strictEqual(loggedRest.days[0].sessions[0].sets[0].actual, '0:40 work / 0:15 rest · 12 reps · 15 kg');
+assert.strictEqual(loggedRest.days[0].sessions[0].sets[0].planned, '');
+const shortWork = H.detail([timerSet({ actualWorkSec: 30 })], 'lib-0201');
+assert.strictEqual(shortWork.days[0].sessions[0].sets[0].actual, '0:30 work / 0:15 rest · 12 reps · 15 kg');
+assert.strictEqual(shortWork.days[0].sessions[0].sets[0].planned, '0:40 work / 0:15 rest · 12 reps · 15 kg');
+const rangedWork = H.detail([timerSet({
+  plannedReps: null, plannedRepsMin: 8, plannedRepsMax: 12, actualReps: 10, actualWorkSec: 28
+})], 'lib-0201');
+assert.strictEqual(rangedWork.days[0].sessions[0].sets[0].planned, '0:40 work / 0:15 rest · 8–12 reps · 15 kg');
+const rangedSame = H.detail([timerSet({
+  plannedReps: null, plannedRepsMin: 8, plannedRepsMax: 12, actualReps: 10
+})], 'lib-0201');
+assert.strictEqual(rangedSame.days[0].sessions[0].sets[0].planned, '');
+const rangedRounds = H.detail([timerSet({
+  mode: 'intervals', libraryExerciseId: '0001', exerciseName: 'Crunch', displayUnit: 'bodyweight',
+  plannedBodyweight: true, actualBodyweight: true, plannedWeightKg: null, actualWeightKg: null,
+  plannedRestSec: null, actualRestSec: null, plannedWorkSec: 30, actualWorkSec: 30,
+  plannedReps: null, plannedRepsMin: 8, plannedRepsMax: 12, actualReps: 10,
+  plannedRounds: 10, actualRounds: 8
+})], 'lib-0001');
+assert.strictEqual(rangedRounds.days[0].sessions[0].sets[0].actual, '0:30 work · 8 rounds · 10 reps · Bodyweight');
+assert.strictEqual(rangedRounds.days[0].sessions[0].sets[0].planned, '0:30 work · 10 rounds · 8–12 reps · Bodyweight');
+const rangedReps = H.detail([{
+  sessionId: 'r1', localDate: '2026-11-02', startedAt: 1, workoutName: 'Day',
+  exerciseName: 'Row', libraryExerciseId: '0301', mode: 'reps', displayUnit: 'lb',
+  setNumber: 1, status: 'completed', plannedRepsMin: 8, plannedRepsMax: 12, plannedWeightKg: 20,
+  actualReps: 10, actualWeightKg: 20
+}], 'lib-0301');
+assert.strictEqual(rangedReps.days[0].sessions[0].sets[0].planned, '');
+
+function ids(after, size, n) {
+  var rows = [];
+  var start = after == null ? 1 : after + 1;
+  for (var i = 0; i < n; i++) rows.push({ id: start + i });
+  return rows;
+}
+H.collectPages(function (after, size) {
+  assert.strictEqual(after, null);
+  assert.strictEqual(size, 2);
+  return Promise.resolve({ data: [{ id: 1 }] });
+}, 2).then(function (first) {
+  assert.deepStrictEqual(first.data.map(function (row) { return row.id; }), [1]);
+  return H.collectPages(function (after, size) {
+    var n = after == null ? 2 : after === 2 ? 2 : 1;
+    return Promise.resolve({ data: ids(after, size, n) });
+  }, 2);
+}).then(function (paged) {
+  assert.deepStrictEqual(paged.data.map(function (row) { return row.id; }), [1, 2, 3, 4, 5]);
+  return H.collectPages(function (after) {
+    return Promise.resolve({ data: [{ id: 1 }, { id: 2 }] });
+  }, 2);
+}).then(function (stuck) {
+  assert.strictEqual(stuck.data, null);
+  assert.ok(stuck.error);
+  return H.collectPages(function () {
+    return Promise.resolve({ error: { message: 'relation workout_sets does not exist' } });
+  }, 2);
+}).then(function (failed) {
+  assert.strictEqual(failed.data, null);
+  assert.ok(/workout_sets/.test(failed.error.message));
+}).catch(function (err) {
+  console.error(err);
+  process.exit(1);
+});
+
 const html = H.listHtml(sets, { stillBase: 'https://cdn.example.test/exercises' });
 assert.ok(html.indexOf('Test account') < 0);
 assert.ok(html.indexOf('https://cdn.example.test/exercises/still/0101.jpg') >= 0);

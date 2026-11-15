@@ -546,18 +546,30 @@
     },
     // Read-only. The signed-in person's own finished sessions. Never another client's.
     myHistory: function () {
-      var setCols = 'session_id,library_exercise_id,personal_exercise_id,exercise_name,mode,set_number,status,removed,display_unit,planned_reps,planned_reps_min,planned_reps_max,planned_weight_kg,planned_bodyweight,actual_reps,actual_weight_kg,actual_bodyweight,planned_hold_sec,actual_hold_sec,planned_work_sec,actual_work_sec,planned_rest_sec,actual_rest_sec,planned_rounds,actual_rounds,planned_total_sec,actual_total_sec,planned_lap_count,actual_laps,actual_events';
+      var setCols = 'id,session_id,library_exercise_id,personal_exercise_id,exercise_name,mode,set_number,status,removed,display_unit,planned_reps,planned_reps_min,planned_reps_max,planned_weight_kg,planned_bodyweight,actual_reps,actual_weight_kg,actual_bodyweight,planned_hold_sec,actual_hold_sec,planned_work_sec,actual_work_sec,planned_rest_sec,actual_rest_sec,planned_rounds,actual_rounds,planned_total_sec,actual_total_sec,planned_lap_count,actual_laps,actual_events';
+      var pageSize = 1000;
       return db().then(function (c) {
         return c.auth.getSession().then(function (res) {
           var user = userOf(res && res.data && res.data.session);
           if (!user || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(user.id || ''))) {
             return { sets: [], sessions: [], exercises: [] };
           }
+          var pages = root.WBHistory && root.WBHistory.collectPages;
+          if (typeof pages !== 'function') return { error: true, sets: [], sessions: [], exercises: [] };
           var id = user.id;
+          function page(table, cols, ownerCol) {
+            return function (after, size) {
+              var q = c.from(table).select(cols).eq(ownerCol, id).order('id', { ascending: true }).limit(size);
+              if (table === 'workout_sessions') q = q.in('status', ['completed', 'ended_early']);
+              if (table === 'workout_sets') q = q.eq('removed', false);
+              if (after) q = q.gt('id', after);
+              return q;
+            };
+          }
           return Promise.all([
-            c.from('workout_sessions').select('id,local_date,started_at,ended_at,workout_name,status').eq('client_id', id).in('status', ['completed', 'ended_early']),
-            c.from('workout_sets').select(setCols).eq('client_id', id).eq('removed', false),
-            c.from('personal_exercises').select('id,stable_key').eq('user_id', id)
+            pages(page('workout_sessions', 'id,local_date,started_at,ended_at,workout_name,status', 'client_id'), pageSize),
+            pages(page('workout_sets', setCols, 'client_id'), pageSize),
+            pages(page('personal_exercises', 'id,stable_key', 'user_id'), pageSize)
           ]).then(function (pair) {
             var err = (pair[0] && pair[0].error) || (pair[1] && pair[1].error) || (pair[2] && pair[2].error);
             if (err) {

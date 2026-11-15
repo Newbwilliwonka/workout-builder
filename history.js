@@ -190,7 +190,9 @@
   }
   function effortLine(mode, work, rest, rounds, reps, min, max, weight) {
     var parts = [];
-    if (mode === 'timer' && (work != null || rest != null)) parts.push(fmtTime(work) + ' work / ' + fmtTime(rest) + ' rest');
+    if (mode === 'timer' && work != null && rest != null) parts.push(fmtTime(work) + ' work / ' + fmtTime(rest) + ' rest');
+    else if (mode === 'timer' && work != null) parts.push(fmtTime(work) + ' work');
+    else if (mode === 'timer' && rest != null) parts.push(fmtTime(rest) + ' rest');
     else if (mode === 'intervals' && work != null) parts.push(fmtTime(work) + ' work');
     if (rounds != null) parts.push(trim(rounds) + (Number(rounds) === 1 ? ' round' : ' rounds'));
     var r = repsPart(reps, min, max);
@@ -211,10 +213,12 @@
       return hold == null ? '' : fmtTime(hold) + ' hold';
     }
     if (mode === 'intervals' || mode === 'timer') {
+      // A finished timer does not store its own rest. The rest that ran is the planned rest.
+      var rest = actual && set.actualRestSec != null ? set.actualRestSec : set.plannedRestSec;
       return effortLine(
         mode,
         actual ? set.actualWorkSec : set.plannedWorkSec,
-        actual ? set.actualRestSec : set.plannedRestSec,
+        rest,
         actual ? set.actualRounds : set.plannedRounds,
         actual ? set.actualReps : set.plannedReps,
         actual ? null : set.plannedRepsMin,
@@ -230,7 +234,21 @@
     }
     return '';
   }
+  function sameNum(a, b) {
+    var x = num(a), y = num(b);
+    if (x == null && y == null) return true;
+    return x === y;
+  }
+  function repsMatch(set) {
+    var actual = num(set.actualReps);
+    if (set.plannedReps != null) return actual === num(set.plannedReps);
+    if (set.plannedRepsMin != null && set.plannedRepsMax != null) {
+      return actual != null && actual >= Number(set.plannedRepsMin) && actual <= Number(set.plannedRepsMax);
+    }
+    return actual == null;
+  }
   function plannedDiffers(set, actualText) {
+    var sameWeight = weightPart(set.actualWeightKg, set.displayUnit, set.actualBodyweight) === weightPart(set.plannedWeightKg, set.displayUnit, set.plannedBodyweight);
     if (set.mode === 'stopwatch') {
       var bits = [];
       if (set.plannedTotalSec != null && set.actualTotalSec != null) {
@@ -244,11 +262,10 @@
       }
       return bits.join(' · ');
     }
-    if (set.mode === 'reps' || set.mode === 'intervals' || set.mode === 'timer') {
-      var reps = num(set.actualReps);
-      var inRange = set.plannedReps == null && set.plannedRepsMin != null && set.plannedRepsMax != null && reps != null && reps >= set.plannedRepsMin && reps <= set.plannedRepsMax;
-      var sameWeight = weightPart(set.actualWeightKg, set.displayUnit, set.actualBodyweight) === weightPart(set.plannedWeightKg, set.displayUnit, set.plannedBodyweight);
-      if (inRange && sameWeight) return '';
+    if (set.mode === 'reps' && repsMatch(set) && sameWeight) return '';
+    if (set.mode === 'intervals' || set.mode === 'timer') {
+      var restSame = set.mode !== 'timer' || set.actualRestSec == null || sameNum(set.actualRestSec, set.plannedRestSec);
+      if (sameNum(set.actualWorkSec, set.plannedWorkSec) && restSame && sameNum(set.actualRounds, set.plannedRounds) && repsMatch(set) && sameWeight) return '';
     }
     var planned = prescription(set, false);
     if (!planned || planned === actualText) return '';
@@ -549,6 +566,37 @@
     });
     return h;
   }
+  // Read every page. A bare PostgREST select stops at 1000 rows, so fetchPage(after, size)
+  // must return the next size rows with id greater than after (after is null on the first page).
+  function collectPages(fetchPage, size) {
+    size = size || 1000;
+    var cap = 50;
+    var out = [];
+    var seen = {};
+    function next(after, n) {
+      if (n >= cap) return Promise.resolve({ data: null, error: { message: 'history page limit' } });
+      return Promise.resolve().then(function () {
+        return fetchPage(after, size);
+      }).then(function (res) {
+        if (!res || res.error) return { data: null, error: (res && res.error) || { message: 'history read failed' } };
+        var rows = res.data || [];
+        if (!rows.length) return { data: out, error: null };
+        if (rows.length > size) return { data: null, error: { message: 'history page overran its limit' } };
+        var i, id;
+        for (i = 0; i < rows.length; i++) {
+          id = rows[i] && rows[i].id;
+          if (!id || seen[id]) return { data: null, error: { message: 'history page did not advance' } };
+          seen[id] = true;
+        }
+        out = out.concat(rows);
+        if (rows.length < size) return { data: out, error: null };
+        return next(rows[rows.length - 1].id, n + 1);
+      }, function () {
+        return { data: null, error: { message: 'history read failed' } };
+      });
+    }
+    return next(null, 0);
+  }
 
   var api = {
     exerciseKey: exerciseKey,
@@ -562,6 +610,7 @@
     detailHtml: detailHtml,
     emptyHtml: emptyHtml,
     stillUrl: stillUrl,
+    collectPages: collectPages,
     formatDay: formatDay,
     clock: clock
   };
