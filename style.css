@@ -94,6 +94,8 @@ input.is-empty,textarea.is-empty{border-color:var(--danger);box-shadow:0 0 0 2px
 .foot{text-align:center;color:var(--mute);font-size:13px;margin:4px 0 28px}
 /* ---------- player ---------- */
 body.playing{background:#0b0f17;color:#e5e7eb}
+/* html's own background paints the canvas, including iOS overscroll past the fixed layer. Match the player field there. */
+html:has(body.playing){background:#0b0f17}
 body.playing::before{background:#0b0f17}
 body.playing .bar{display:none}
 .pl{--pl-current:#38bdf8;display:flex;flex-direction:column;gap:12px} /* carousel current ring only; countdown digits use .pl-ro */
