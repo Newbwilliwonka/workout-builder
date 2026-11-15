@@ -460,14 +460,15 @@ begin
   if n <> 2 then raise exception 'exercise delete removed sets %', n; end if;
 end $$;
 delete from auth.users where id = '${C}';
+delete from auth.users where id = '${N}';
 do $$
 declare n int;
 begin
-  select count(*) into n from public.workout_sets where client_id = '${C}';
+  select count(*) into n from public.workout_sets where client_id in ('${C}', '${N}');
   if n <> 0 then raise exception 'account delete left sets %', n; end if;
-  select count(*) into n from public.personal_exercises where user_id = '${C}';
+  select count(*) into n from public.personal_exercises where user_id in ('${C}', '${N}');
   if n <> 0 then raise exception 'account delete left exercises %', n; end if;
-  select count(*) into n from public.workout_sessions where client_id = '${C}';
+  select count(*) into n from public.workout_sessions where client_id in ('${C}', '${N}');
   if n <> 0 then raise exception 'account delete left sessions %', n; end if;
 end $$;
 

@@ -22,7 +22,8 @@
 --     updates the name and keeps the id, so older sets stay on the same
 --     exercise. A library exercise stores the library id instead.
 --     A set may use only that client's personal exercise. Removing the
---     exercise does not remove its sets. Removing the account still does.
+--     exercise does not remove its sets. Removing the account deletes that
+--     person's sets first, then the exercises, so the link does not block it.
 --
 -- Who can see a row (row level security):
 --   The client can read and insert their own sessions and sets, and can
@@ -281,7 +282,8 @@ create table if not exists public.workout_sets (
   ),
   constraint workout_sets_personal_owner
     foreign key (personal_exercise_id, client_id)
-    references public.personal_exercises (id, user_id),
+    references public.personal_exercises (id, user_id)
+    on delete no action,
   constraint workout_sets_planned_bw check (planned_bodyweight = false or planned_weight_kg is null),
   constraint workout_sets_actual_bw check (actual_bodyweight = false or actual_weight_kg is null),
   constraint workout_sets_weight_nonneg check (
@@ -543,6 +545,33 @@ drop trigger if exists workout_sets_guard on public.workout_sets;
 create trigger workout_sets_guard
   before insert or update or delete on public.workout_sets
   for each row execute function private.tracking_set_guard();
+
+-- Account removal has to delete sets before the typed-in exercises they
+-- point at. The exercise link refuses to drop those sets on its own.
+-- This runs only as the delete trigger on profiles.
+create or replace function public.tracking_clear_client()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if tg_table_schema is distinct from 'public'
+     or tg_table_name is distinct from 'profiles'
+     or tg_op is distinct from 'DELETE' then
+    raise exception 'Account history is removed only when the account is removed.';
+  end if;
+  delete from public.workout_sessions where client_id = old.id;
+  delete from public.workout_sets where client_id = old.id;
+  delete from public.personal_exercises where user_id = old.id;
+  return old;
+end;
+$$;
+
+drop trigger if exists profiles_tracking_clear on public.profiles;
+create trigger profiles_tracking_clear
+  before delete on public.profiles
+  for each row execute function public.tracking_clear_client();
 
 drop policy if exists personal_exercises_select on public.personal_exercises;
 create policy personal_exercises_select
