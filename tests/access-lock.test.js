@@ -124,6 +124,9 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
     await signedOut.goto(url);
     await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden);
     assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+    assert.strictEqual(await signedOut.evaluate(() => sessionStorage.getItem('wb.invite')), 'ABCD2345');
+    assert.strictEqual(await signedOut.evaluate(() => new URLSearchParams(location.search).get('invite')), null);
+    assert.strictEqual(await signedOut.evaluate(() => new URLSearchParams((location.hash.split('?')[1] || '')).get('invite')), null);
     assert.strictEqual(await signedOut.$('#messages-nav, #workouts-nav, #redeem, [data-plan]'), null);
   }
   await inviteOpensSignIn(URL + '?invite=ABCD2345');
@@ -387,6 +390,73 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
       && document.body.innerText.indexOf('Could not save that plan. Please try again.') !== -1
       && plan && !plan.disabled;
   });
+
+  const consumed = await open(null);
+  await consumed.goto(URL + '?invite=ABCD2345#/signin');
+  await consumed.waitForSelector('#invite-code');
+  assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  await consumed.evaluate(() => {
+    window.__redeemed = 0;
+    var session = { user: { id: 'used', email: 'used@example.com' } };
+    var profile = { id: 'used', email: 'used@example.com', membership: 'free_client', intended_plan: null };
+    window.WBAuth.signIn = function () { return Promise.resolve({ session: session }); };
+    window.WBAuth.session = function () { return Promise.resolve(session); };
+    window.WBAuth.profile = function () { return Promise.resolve(profile); };
+    window.WBAuth.myConnection = function () { return Promise.resolve(null); };
+    window.WBAuth.redeemInvite = function () {
+      window.__redeemed++;
+      return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.', trainerId: 't' });
+    };
+  });
+  await consumed.type('#acct-email', 'used@example.com');
+  await consumed.type('#acct-pass', 'secret12');
+  await consumed.click('[data-auth=in]');
+  await consumed.waitForFunction(() => window.__redeemed === 1 && location.hash === '#/');
+  assert.strictEqual(await consumed.evaluate(() => sessionStorage.getItem('wb.invite')), null);
+  await consumed.evaluate(() => { location.hash = '#/subscriptions'; });
+  await consumed.waitForSelector('#redeem #invite-code');
+  assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), '');
+  await consumed.evaluate(() => { location.hash = '#/subscriptions?again=1'; });
+  await consumed.waitForFunction(() => location.hash === '#/subscriptions?again=1' && document.getElementById('invite-code'));
+  assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), '');
+  assert.strictEqual(await consumed.evaluate(() => sessionStorage.getItem('wb.invite')), null);
+  await consumed.evaluate(() => {
+    var session = { user: { id: 'used', email: 'used@example.com' } };
+    window.WBAuth.session = function () { return Promise.resolve(null); };
+    window.WBAuth.signIn = function () {
+      window.WBAuth.session = function () { return Promise.resolve(session); };
+      return Promise.resolve({ session: session });
+    };
+    location.hash = '#/signin';
+  });
+  await consumed.waitForFunction(() => location.hash === '#/signin' && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
+  await consumed.type('#acct-email', 'used@example.com');
+  await consumed.type('#acct-pass', 'secret12');
+  await consumed.click('[data-auth=in]');
+  await consumed.waitForFunction(() => location.hash === '#/' && window.__redeemed === 1);
+
+  const card = await open(
+    { user: { id: 'card', email: 'card@example.com' } },
+    { id: 'card', email: 'card@example.com', membership: 'none', intended_plan: null }
+  );
+  await card.goto(URL + '?invite=ABCD2345#/subscriptions');
+  await card.waitForSelector('#redeem #invite-code');
+  assert.strictEqual(await card.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  assert.strictEqual(await card.evaluate(() => new URLSearchParams(location.search).get('invite')), null);
+  await card.evaluate(() => {
+    window.__cardRedeemed = 0;
+    window.WBAuth.myConnection = function () { return Promise.resolve(null); };
+    window.WBAuth.redeemInvite = function () {
+      window.__cardRedeemed++;
+      return Promise.resolve({ message: 'Invite applied.' });
+    };
+  });
+  await card.click('[data-invite=redeem]');
+  await card.waitForFunction(() => window.__cardRedeemed === 1 && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
+  await card.evaluate(() => { location.hash = '#/subscriptions?again=1'; });
+  await card.waitForFunction(() => location.hash === '#/subscriptions?again=1' && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
+  assert.strictEqual(await card.evaluate(() => sessionStorage.getItem('wb.invite')), null);
+  assert.strictEqual(await card.evaluate(() => window.__cardRedeemed), 1);
 
   assert.deepStrictEqual(errs, []);
   console.log('ACCESS LOCK OK');

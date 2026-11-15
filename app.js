@@ -113,8 +113,12 @@
   function onAuthPage() { var p = hashPage(); return p === 'signin' || p === 'join' || p === 'reset'; }
   var INVITE_KEY = 'wb.invite', TRAINER_KEY = 'wb.trainer', pendingInviteNotice = null;
   function pendingCode() { try { return sessionStorage.getItem(INVITE_KEY) || ''; } catch (e) { return ''; } }
+  // inviteArrival is the code taken from this visit's URL. It stays until the
+  // stored code is cleared, so sign-in routing still works after the param is gone.
+  var inviteArrival = '', releasedInvites = {};
   function rememberCode(code) {
     try { if (code) sessionStorage.setItem(INVITE_KEY, code); else sessionStorage.removeItem(INVITE_KEY); } catch (e) {}
+    if (!code) inviteArrival = '';
   }
   function linkInviteCode() {
     var code = '';
@@ -124,11 +128,52 @@
     } catch (e) {}
     return code ? WBInvites.normalizeCode(code) : '';
   }
+  // Trainer links keep ?invite= in the search string across hash changes.
+  // Copy the code once, then drop it from the URL. A later route() must not
+  // write it back after a successful redeem cleared sessionStorage.
   function captureInvite() {
     var code = linkInviteCode();
-    if (code) rememberCode(code);
+    if (!code || releasedInvites[code]) {
+      if (code) stripInviteFromUrl();
+      return;
+    }
+    rememberCode(code);
+    inviteArrival = code;
+    stripInviteFromUrl();
   }
-  function signedOutHome() { return linkInviteCode() ? '#/signin' : '#/subscriptions'; }
+  function releaseInvite(code) {
+    var used = '';
+    try { used = WBInvites.normalizeCode(code || '') || pendingCode(); } catch (e) { used = pendingCode(); }
+    if (inviteArrival) releasedInvites[inviteArrival] = true;
+    if (used) releasedInvites[used] = true;
+    rememberCode('');
+    stripInviteFromUrl();
+  }
+  function stripInviteFromUrl() {
+    try {
+      var u = new URL(location.href);
+      var changed = false;
+      if (u.searchParams.has('invite')) {
+        u.searchParams.delete('invite');
+        changed = true;
+      }
+      var rawHash = u.hash || '';
+      var q = rawHash.indexOf('?');
+      if (q !== -1) {
+        var hashParams = new URLSearchParams(rawHash.slice(q + 1));
+        if (hashParams.has('invite')) {
+          hashParams.delete('invite');
+          var rest = hashParams.toString();
+          u.hash = rawHash.slice(0, q) + (rest ? '?' + rest : '');
+          changed = true;
+        }
+      }
+      if (!changed) return;
+      var search = u.searchParams.toString();
+      history.replaceState(null, '', u.pathname + (search ? '?' + search : '') + (u.hash || ''));
+    } catch (e) {}
+  }
+  function signedOutHome() { return (linkInviteCode() || inviteArrival) ? '#/signin' : '#/subscriptions'; }
   function takeInviteNotice() { var n = pendingInviteNotice; pendingInviteNotice = null; return n; }
   function rememberTrainer(trainerId, clientId) {
     try {
@@ -953,7 +998,7 @@
       }
       WBAuth.redeemInvite(code).then(function (res) {
         if (!onAuthPage()) return;
-        rememberCode('');
+        releaseInvite(code);
         pendingInviteNotice = { text: (res && res.message) || 'Invite applied.', isError: false };
         if (res && res.membership && WBMembership.tier(res.membership)) {
           cachedProfile = Object.assign({}, cachedProfile || {}, { membership: res.membership });
@@ -1617,7 +1662,7 @@
       var share = shareBox ? !!shareBox.checked : undefined;
       var redeem = shareBox ? WBAuth.redeemInvite(code, share) : WBAuth.redeemInvite(code);
       Promise.resolve(redeem).then(function (res) {
-        rememberCode('');
+        releaseInvite(code);
         if (res && res.shareStored === true && typeof share === 'boolean' && window.WBSharing) {
           shareState = WBSharing.reduce(shareState, { type: 'redeemed', on: share, enthusiast: true });
           if (WBSharing.shouldPush(shareState)) scheduleSharePush(true);
@@ -1879,8 +1924,8 @@
     app.innerHTML = '<p class="mute">Loading…</p>';
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'subscriptions') return;
-      if (!session) {
-        if (linkInviteCode()) return go('#/signin');
+          if (!session) {
+            if (linkInviteCode() || inviteArrival) return go('#/signin');
         backBtn.hidden = true;
         return drawSubscriptions(null, null, message, isError, null, false);
       }
@@ -2390,6 +2435,9 @@
     } else closeProfileSheet(false);
     syncHeaderSignOut();
     showHeaderSignIn(false);
+    // The arrival flag only forces the first landing onto sign-in. Once that page
+    // is open, a later hash without ?invite= can show Subscriptions.
+    if (page === 'signin' || page === 'join') inviteArrival = '';
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
     if (page === 'forgot') return renderForgot();
