@@ -50,8 +50,8 @@ input.is-empty,textarea.is-empty{border-color:var(--danger);box-shadow:0 0 0 2px
 .file-btn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .lib-filters{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 #lib-q{margin-top:10px}
-#lib-results, #name-suggest{margin-top:8px}
-#lib-results:empty, #name-suggest:empty, #name-suggest[hidden]{display:none}
+#lib-results, #name-suggest, .event-suggest{margin-top:8px}
+#lib-results:empty, #name-suggest:empty, #name-suggest[hidden], .event-suggest:empty, .event-suggest[hidden]{display:none}
 .lib-hit, .name-hit{display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;margin-top:6px;padding:10px 12px}
 .lib-hit.on, .name-hit.on{border-color:var(--pri);background:#eff6ff}
 .lib-hit .name, .name-hit .name{font-size:16px}

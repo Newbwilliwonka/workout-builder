@@ -3026,7 +3026,10 @@
       var row = rows[i];
       h += '<div class="lap-ev"><div class="row" style="margin-top:10px"><span class="grow" style="font-weight:600">Lap ' + (i + 1) + '</span>' +
         '<label class="row" style="font-weight:400;margin:0"><input type="checkbox" class="sel" data-lev="' + i + '"' + (row.on ? ' checked' : '') + '> Event</label></div>';
-      if (row.on) h += '<input data-lename="' + i + '" value="' + esc(row.name) + '" placeholder="Event name" autocomplete="off">';
+      if (row.on) {
+        h += '<input data-lename="' + i + '" value="' + esc(row.name) + '" placeholder="Event name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="event-suggest-' + i + '">';
+        h += '<div id="event-suggest-' + i + '" class="name-suggest event-suggest" data-for="' + i + '" role="listbox" aria-label="Saved event names" hidden></div>';
+      }
       h += '</div>';
     }
     return h;
@@ -3344,15 +3347,85 @@
     var t = nameSuggestTarget(e);
     return !!(t && (t.closest('#name-suggest') || t.closest('[data-b=name]')));
   }
+  // Stopwatch event names. Same list, keyboard, and screen-reader behavior as
+  // manual exercise names. Choosing one only fills that event. Notes stay.
+  var eventSuggestActive = -1;
+  function eventSuggestInput(index) {
+    return app.querySelector('[data-lename="' + index + '"]');
+  }
+  function closeEventSuggest() {
+    eventSuggestActive = -1;
+    var boxes = app.querySelectorAll('.event-suggest');
+    Array.prototype.forEach.call(boxes, function (box) {
+      box.hidden = true;
+      box.innerHTML = '';
+      var input = eventSuggestInput(box.getAttribute('data-for'));
+      if (!input) return;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    });
+  }
+  function markEventSuggest(index) {
+    var box = document.getElementById('event-suggest-' + index);
+    var input = eventSuggestInput(index);
+    if (!box) return;
+    var opts = box.querySelectorAll('[data-a=suggest-event]');
+    if (eventSuggestActive >= opts.length) eventSuggestActive = opts.length - 1;
+    Array.prototype.forEach.call(opts, function (el, i) {
+      var on = i === eventSuggestActive;
+      if (on) el.classList.add('on'); else el.classList.remove('on');
+      el.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    if (!input) return;
+    if (eventSuggestActive >= 0 && opts[eventSuggestActive]) input.setAttribute('aria-activedescendant', opts[eventSuggestActive].id);
+    else input.removeAttribute('aria-activedescendant');
+  }
+  function paintEventSuggest(input) {
+    if (!input || !draft || !window.WBNames || !WBNames.suggestEventNames) return;
+    var index = input.getAttribute('data-lename');
+    var box = document.getElementById('event-suggest-' + index);
+    if (index == null || !box) return;
+    var names = WBNames.suggestEventNames(data.workouts || [], input.value, { limit: 6 });
+    closeEventSuggest();
+    if (!names.length) return;
+    eventSuggestActive = -1;
+    box.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    input.removeAttribute('aria-activedescendant');
+    box.innerHTML = names.map(function (name, i) {
+      return '<button type="button" class="name-hit" role="option" id="event-suggest-' + index + '-opt-' + i + '" data-a="suggest-event" data-lap="' + index + '" data-name="' + esc(name) + '" aria-selected="false"><span class="name">' + esc(name) + '</span></button>';
+    }).join('');
+  }
+  function chooseSuggestedEvent(index, name) {
+    if (!draft || !name) return;
+    var row = ensureEventDraft(draft.cfg.stopwatch)[+index];
+    if (row) row.name = name;
+    var input = eventSuggestInput(index);
+    if (input) {
+      input.value = name;
+      try { input.setSelectionRange(name.length, name.length); } catch (err) {}
+      input.focus();
+    }
+    closeEventSuggest();
+  }
+  function eventSuggestInside(e) {
+    var t = nameSuggestTarget(e);
+    if (!t) return false;
+    if (t.closest('.event-suggest')) return true;
+    var input = t.closest('[data-lename]');
+    if (!input) return false;
+    var box = document.getElementById('event-suggest-' + input.getAttribute('data-lename'));
+    return !!(box && !box.hidden);
+  }
   document.addEventListener('click', function (e) {
     var box = document.getElementById('name-suggest');
-    if (!box || box.hidden || nameSuggestInside(e)) return;
-    closeNameSuggest();
+    if (box && !box.hidden && !nameSuggestInside(e)) closeNameSuggest();
+    if (!eventSuggestInside(e)) closeEventSuggest();
   });
   document.addEventListener('focusin', function (e) {
     var box = document.getElementById('name-suggest');
-    if (!box || box.hidden || nameSuggestInside(e)) return;
-    closeNameSuggest();
+    if (box && !box.hidden && !nameSuggestInside(e)) closeNameSuggest();
+    if (!eventSuggestInside(e)) closeEventSuggest();
   });
   function renderEditor(w, exId) {
     var isNew = exId === 'new', ex = isNew ? null : w.items.filter(function (x) { return x.id === exId; })[0];
@@ -3434,6 +3507,7 @@
       if (t.dataset && t.dataset.lev != null) {
         var row = ensureEventDraft(d.cfg.stopwatch)[+t.dataset.lev];
         if (row) row.on = !!t.checked;
+        closeEventSuggest();
         var evBox = document.getElementById('lap-events');
         if (evBox) evBox.innerHTML = lapEventsHtml(d.cfg.stopwatch);
         return;
@@ -3441,6 +3515,7 @@
       if (t.dataset && t.dataset.lename != null) {
         var named = ensureEventDraft(d.cfg.stopwatch)[+t.dataset.lename];
         if (named) named.name = t.value;
+        if (e.type === 'input') paintEventSuggest(t);
         return;
       }
       var b = t.dataset.b; if (!b) return;
@@ -3456,7 +3531,10 @@
         // Skip a no-op refresh (the field's change event on blur) so it doesn't
         // replace a checkbox the user is clicking in the lap list.
         var next = lapEventsHtml(d.cfg.stopwatch);
-        if (box && box.innerHTML !== next) box.innerHTML = next;
+        if (box && box.innerHTML !== next) {
+          closeEventSuggest();
+          box.innerHTML = next;
+        }
         return;
       }
       if (b === 'cfg.lapsEnabled') renderEditor(w, exId);
@@ -3479,6 +3557,7 @@
       }
       var b = e.target.closest('[data-a]'); if (!b) return;
       if (b.dataset.a === 'suggest-name') { chooseSuggestedName(b.getAttribute('data-name') || ''); return; }
+      if (b.dataset.a === 'suggest-event') { chooseSuggestedEvent(b.getAttribute('data-lap'), b.getAttribute('data-name') || ''); return; }
       if (b.dataset.a === 'cancel') { releasePendingImage(); return go('#/w/' + w.id); }
       if (b.dataset.a === 'pick') {
         d.libraryId = b.dataset.id || '';
@@ -3531,13 +3610,38 @@
       }
     };
     app.onmousedown = function (e) {
-      var hit = e.target && e.target.closest && e.target.closest('[data-a=suggest-name]');
+      var hit = e.target && e.target.closest && e.target.closest('[data-a=suggest-name], [data-a=suggest-event]');
       if (!hit) return;
       e.preventDefault();
     };
     app.onkeydown = function (e) {
       if (e.isComposing || e.keyCode === 229) return;
       var t = e.target;
+      if (t && t.getAttribute('data-lename') != null) {
+        var index = t.getAttribute('data-lename');
+        var evBox = document.getElementById('event-suggest-' + index);
+        var evOpen = evBox && !evBox.hidden;
+        if (e.key === 'Escape') {
+          if (evOpen) { closeEventSuggest(); e.preventDefault(); }
+          return;
+        }
+        if (!evOpen) return;
+        var evOpts = evBox.querySelectorAll('[data-a=suggest-event]');
+        if (!evOpts.length) return;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (eventSuggestActive < 0) eventSuggestActive = e.key === 'ArrowDown' ? 0 : evOpts.length - 1;
+          else if (e.key === 'ArrowDown') eventSuggestActive = Math.min(evOpts.length - 1, eventSuggestActive + 1);
+          else eventSuggestActive = Math.max(0, eventSuggestActive - 1);
+          markEventSuggest(index);
+          return;
+        }
+        if (e.key === 'Enter' && eventSuggestActive >= 0 && evOpts[eventSuggestActive]) {
+          e.preventDefault();
+          chooseSuggestedEvent(index, evOpts[eventSuggestActive].getAttribute('data-name') || '');
+        }
+        return;
+      }
       if (!t || t.getAttribute('data-b') !== 'name' || !draft || draft.source === 'library') return;
       var box = document.getElementById('name-suggest');
       var open = box && !box.hidden;
