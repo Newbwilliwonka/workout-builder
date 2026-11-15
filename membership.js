@@ -16,11 +16,15 @@
       clientCap: null,
       recommended: false,
       value: 'Train with your coach.',
-      available: ['Run the workouts your trainer sends you'],
+      available: [
+        'Get personalized workouts and programs from your trainer',
+        'Run your sessions from your program calendar, solo or with your trainer',
+        'Message your trainer anytime',
+        'Keep all your data if you switch trainers'
+      ],
       comingSoon: [
-        'Follow customized tracking from your trainer',
-        'Open each day\'s session from your program calendar',
-        'Message your trainer'
+        'Follow custom tracking dashboards set up by your trainer',
+        'Find a new trainer in the Trainer Hub'
       ],
       cta: 'Join with an invite from your trainer'
     },
