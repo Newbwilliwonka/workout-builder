@@ -116,14 +116,19 @@
   function rememberCode(code) {
     try { if (code) sessionStorage.setItem(INVITE_KEY, code); else sessionStorage.removeItem(INVITE_KEY); } catch (e) {}
   }
-  function captureInvite() {
+  function linkInviteCode() {
     var code = '';
     try {
       code = new URLSearchParams(location.search).get('invite') || '';
       if (!code) code = new URLSearchParams(location.hash.split('?')[1] || '').get('invite') || '';
     } catch (e) {}
-    if (code) rememberCode(WBInvites.normalizeCode(code));
+    return code ? WBInvites.normalizeCode(code) : '';
   }
+  function captureInvite() {
+    var code = linkInviteCode();
+    if (code) rememberCode(code);
+  }
+  function signedOutHome() { return linkInviteCode() ? '#/signin' : '#/subscriptions'; }
   function takeInviteNotice() { var n = pendingInviteNotice; pendingInviteNotice = null; return n; }
   function rememberTrainer(trainerId, clientId) {
     try {
@@ -1875,6 +1880,7 @@
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'subscriptions') return;
       if (!session) {
+        if (linkInviteCode()) return go('#/signin');
         backBtn.hidden = true;
         return drawSubscriptions(null, null, message, isError, null, false);
       }
@@ -1913,7 +1919,7 @@
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     if (locked) h += '<p class="mute" id="level-lock">Choose a level to continue.</p>';
-    if (!locked) {
+    if (session && !locked) {
       h += '<button id="messages-nav" type="button" data-go="messages" style="width:100%;margin-bottom:12px">Messages</button>';
       if (!(window.WBInvites && profile && WBInvites.trainerRole(profile))) {
         h += '<button id="workouts-nav" type="button" data-go="received" style="width:100%;margin-bottom:12px">Workouts</button>';
@@ -1922,7 +1928,7 @@
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="note">Beta pricing for the first 100 members.</p>';
-    h += redeemCard(conn, profile);
+    if (session) h += redeemCard(conn, profile);
     WBMembership.TIERS.forEach(function (t) {
       h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + (t.beta ? ' is-beta' : '') + '">';
       if (t.beta) h += '<span class="ribbon">BETA</span>';
@@ -2363,6 +2369,7 @@
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
     var page = hashPage();
+    captureInvite();
     showHeaderSignIn(false);
     // Recovery links are claimed before any guard replaces the hash or sends
     // a signed-out person to the normal sign-in page.
@@ -2374,8 +2381,9 @@
     if (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(token);
     if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
     // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
-    // Invite links and recovery links are claimed above. A signed-out visit to any other page
-    // opens Subscriptions. A failed session check still opens sign-in.
+    // A signed-out visit that carries an invite code opens sign-in, so the code can be redeemed
+    // after sign-in or create-account. Any other signed-out visit opens Subscriptions.
+    // Recovery links are claimed above. A failed session check still opens sign-in.
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') {
       profileGateOn = false;
       closeProfileSheet(true);
@@ -2399,7 +2407,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/subscriptions');
+      if (!session) return go(signedOutHome());
       openSignedIn(token, requested, page);
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;

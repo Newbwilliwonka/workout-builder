@@ -50,6 +50,9 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await denied(signedOut, '#/', '#/subscriptions');
   await signedOut.waitForFunction(() => document.body.innerText.includes('Choose how you want to train') && document.getElementById('header-signin') && !document.getElementById('header-signin').hidden);
   assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Choose how you want to train');
+  assert.strictEqual(await signedOut.$eval('.sales', el => el.firstElementChild && el.firstElementChild.tagName), 'H2');
+  assert.strictEqual(await signedOut.$('#messages-nav, #workouts-nav, #redeem, #invite-code'), null);
+  assert.ok(await signedOut.$('[data-plan=enthusiast]'));
   assert.deepStrictEqual(await signedOut.$eval('#back', e => ({ hidden: e.hidden, display: getComputedStyle(e).display })), { hidden: true, display: 'none' });
   const headerSign = await signedOut.evaluate(() => {
     var link = document.getElementById('header-signin');
@@ -117,9 +120,21 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await denied(signedOut, '#/preview', '#/subscriptions');
   await signedOut.click('#header-signin');
   await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden && document.getElementById('acct-email') && document.getElementById('invite-code') && document.querySelector('[data-auth=forgot]') && document.querySelector('[data-auth=switch]'));
+  async function inviteOpensSignIn(url) {
+    await signedOut.goto(url);
+    await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden);
+    assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+    assert.strictEqual(await signedOut.$('#messages-nav, #workouts-nav, #redeem, [data-plan]'), null);
+  }
+  await inviteOpensSignIn(URL + '?invite=ABCD2345');
+  await inviteOpensSignIn(URL + '?invite=ABCD2345#/');
+  await inviteOpensSignIn(URL + '?invite=ABCD2345#/subscriptions');
+  await inviteOpensSignIn(URL + '#/messages?invite=ABCD2345');
   await signedOut.goto(URL + '?invite=ABCD2345#/signin');
   await signedOut.waitForSelector('#invite-code');
   assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  await signedOut.click('[data-auth=switch]');
+  await signedOut.waitForFunction(() => location.hash === '#/join' && document.querySelector('#invite-code') && document.querySelector('#invite-code').value === 'ABCD-2345');
   await signedOut.goto(URL + '?code=reset-code');
   await signedOut.waitForFunction(function () {
     var h = document.querySelector('h2');
@@ -150,6 +165,9 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await denied(stranger, '#/', '#/subscriptions');
   await stranger.waitForFunction(() => document.body.innerText.includes('Choose how you want to train'));
   assert.strictEqual(await stranger.$eval('#header-signin', el => el.hidden), true);
+  assert.ok(await stranger.$('#redeem'));
+  assert.ok(await stranger.$('#level-lock'));
+  assert.strictEqual(await stranger.$('#messages-nav'), null);
   await denied(stranger, '#/w/' + w.id, '#/subscriptions');
   await denied(stranger, '#/play/' + w.id, '#/subscriptions');
   assert.strictEqual(await stranger.$eval('#back', function (el) { return el.hidden; }), true);
@@ -208,8 +226,14 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await new Promise(r => setTimeout(r, 300));
   assert.strictEqual(await other.evaluate(() => location.hash), '#/subscriptions');
   assert.strictEqual(await other.$eval('#header-signin', el => el.hidden), true);
+  assert.ok(await other.$('#messages-nav'));
+  assert.ok(await other.$('#workouts-nav'));
+  assert.ok(await other.$('#redeem'));
   await other.click('#back');
   await other.waitForSelector('[data-a=run]');
+  assert.strictEqual(await other.evaluate(() => location.hash), '#/');
+  await other.goto(URL + '?invite=ABCD2345#/');
+  await other.waitForSelector('[data-a=new]');
   assert.strictEqual(await other.evaluate(() => location.hash), '#/');
   await other.close();
 
