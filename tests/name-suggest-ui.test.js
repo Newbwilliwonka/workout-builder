@@ -112,6 +112,29 @@ const pp = require('puppeteer-core');
 
   await replaceName('gob');
   await p.waitForFunction(function () { return document.querySelectorAll('.name-hit').length === 3; });
+  const imeMoved = await p.evaluate(function () {
+    var input = document.querySelector('[data-b=name]');
+    input.focus();
+    var down = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true, isComposing: true });
+    var enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: true });
+    input.dispatchEvent(down);
+    input.dispatchEvent(enter);
+    return { on: document.querySelectorAll('.name-hit.on').length, value: input.value, downDefault: down.defaultPrevented, enterDefault: enter.defaultPrevented };
+  });
+  assert.deepStrictEqual(imeMoved, { on: 0, value: 'gob', downDefault: false, enterDefault: false }, 'IME composition keeps the suggestion keys');
+  await p.keyboard.press('ArrowDown');
+  assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.getAttribute('aria-activedescendant'); }), 'name-suggest-opt-0');
+  await p.keyboard.type('l');
+  await p.waitForFunction(function () {
+    var input = document.querySelector('[data-b=name]');
+    return input.value === 'gobl' && !input.hasAttribute('aria-activedescendant') && !document.querySelector('.name-hit.on');
+  });
+  await p.keyboard.press('Enter');
+  assert.strictEqual(await p.$eval('[data-b=name]', function (el) { return el.value; }), 'gobl', 'Enter after more typing does not accept a stale highlight');
+  assert.strictEqual(await notes(), 'Keep this cue');
+
+  await replaceName('gob');
+  await p.waitForFunction(function () { return document.querySelectorAll('.name-hit').length === 3; });
   await p.keyboard.press('ArrowDown');
   await p.keyboard.press('ArrowDown');
   assert.strictEqual(await p.$eval('.name-hit.on .name', function (el) { return el.textContent; }), 'Heavy Goblet Press');

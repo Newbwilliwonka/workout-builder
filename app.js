@@ -3321,6 +3321,7 @@
     if (!names.length) { closeNameSuggest(); return; }
     box.hidden = false;
     input.setAttribute('aria-expanded', 'true');
+    input.removeAttribute('aria-activedescendant');
     box.innerHTML = names.map(function (name, i) {
       return '<button type="button" class="name-hit" role="option" id="name-suggest-opt-' + i + '" data-a="suggest-name" data-name="' + esc(name) + '" aria-selected="false"><span class="name">' + esc(name) + '</span></button>';
     }).join('');
@@ -3535,6 +3536,7 @@
       e.preventDefault();
     };
     app.onkeydown = function (e) {
+      if (e.isComposing || e.keyCode === 229) return;
       var t = e.target;
       if (!t || t.getAttribute('data-b') !== 'name' || !draft || draft.source === 'library') return;
       var box = document.getElementById('name-suggest');
