@@ -106,7 +106,8 @@ assert.deepStrictEqual(byId.master_trainer.available, [
   'Invite up to 30 clients and enthusiasts'
 ]);
 assert.deepStrictEqual(byId.master_trainer.comingSoon, [
-  'Show a verified certification on your profile'
+  'Show a verified certification on your profile',
+  'Team Training and Team Drills with tracking'
 ]);
 assert.strictEqual(byId.master_trainer.highlight, 'Get found in the Trainer Hub by clients who already train with a coach or pay for training');
 assert.strictEqual(byId.master_trainer.recommended, false);
