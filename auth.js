@@ -544,6 +544,35 @@
     myConnection: function () {
       return rpc('invite_mine').then(function (row) { return row && row.trainerId ? row : null; });
     },
+    // Read-only. The signed-in person's own finished sessions. Never another client's.
+    myHistory: function () {
+      var setCols = 'session_id,library_exercise_id,personal_exercise_id,exercise_name,mode,set_number,status,removed,display_unit,planned_reps,planned_reps_min,planned_reps_max,planned_weight_kg,planned_bodyweight,actual_reps,actual_weight_kg,actual_bodyweight,planned_hold_sec,actual_hold_sec,planned_work_sec,actual_work_sec,planned_rest_sec,actual_rest_sec,planned_rounds,actual_rounds,planned_total_sec,actual_total_sec,planned_lap_count,actual_laps,actual_events';
+      return db().then(function (c) {
+        return c.auth.getSession().then(function (res) {
+          var user = userOf(res && res.data && res.data.session);
+          if (!user || !user.id) return { sets: [], sessions: [], exercises: [] };
+          var id = user.id;
+          return Promise.all([
+            c.from('workout_sessions').select('id,local_date,started_at,ended_at,workout_name,status').eq('client_id', id).in('status', ['completed', 'ended_early']),
+            c.from('workout_sets').select(setCols).eq('client_id', id).eq('removed', false),
+            c.from('personal_exercises').select('id,stable_key').eq('user_id', id)
+          ]).then(function (pair) {
+            var err = (pair[0] && pair[0].error) || (pair[1] && pair[1].error) || (pair[2] && pair[2].error);
+            if (err) {
+              var missing = /workout_sets|workout_sessions|personal_exercises|42P01|PGRST205|schema cache/i.test(String(err.message || err.code || err.details || ''));
+              return { unavailable: !!missing, error: true, sets: [], sessions: [], exercises: [] };
+            }
+            return {
+              sessions: pair[0].data || [],
+              sets: pair[1].data || [],
+              exercises: pair[2].data || []
+            };
+          });
+        });
+      }).then(function (out) { return out; }, function () {
+        return { error: true, sets: [], sessions: [], exercises: [] };
+      });
+    },
     gifBase: EXERCISE_GIF_BASE,
     searchExercises: function (query, filters, limit, offset) {
       filters = filters || {};

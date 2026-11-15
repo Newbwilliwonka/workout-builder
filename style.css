@@ -397,3 +397,32 @@ button.pv-cell.is-out{opacity:.4}
   .pv-sheet-card{border-radius:18px}
   #pv-gcal{flex:0 1 auto}
 }
+
+/* History. One list of the person's own exercises, then each exercise's sets. */
+#home-nav{flex-wrap:nowrap}
+#home-nav button{padding:0 8px;white-space:nowrap}
+#history-q{margin-top:2px}
+.hx-empty .name{color:var(--ink);margin-bottom:6px}
+button.hx-row{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:#fff;color:var(--ink);border-radius:14px;padding:10px 12px;margin:10px 0 0;box-shadow:0 1px 2px rgba(0,0,0,.06);font-weight:400;min-height:72px}
+button.hx-row .grow{display:flex;flex-direction:column;gap:2px;min-width:0}
+button.hx-row .name{font-size:16px}
+.hx-thumb{width:56px;height:56px;border-radius:12px;background:#f3f4f6;overflow:hidden;flex:none;display:flex;align-items:center;justify-content:center}
+.hx-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.hx-thumb.is-still{background:#fff;border:1px solid var(--line)}
+.hx-thumb.is-still img{object-fit:contain}
+.hx-date{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);margin:16px 2px 8px}
+.hx-session .name{font-size:16px}
+.hx-set{padding:10px 0 2px;border-top:1px solid var(--line)}
+.hx-session .hx-set:first-of-type{border-top:0}
+.hx-set-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hx-set-no{font-size:13px;font-weight:700;color:var(--mute)}
+.hx-badge{display:inline-block;background:#eff6ff;color:var(--pri);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;line-height:1.4}
+.hx-actual{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
+.hx-set.is-skip .hx-actual{color:var(--mute);font-weight:600}
+.hx-plan{font-size:13px;color:var(--mute);margin-top:2px}
+.hx-laps,.hx-events{list-style:none;margin:8px 0 0;padding:0}
+.hx-lap{display:flex;align-items:center;gap:8px;font-size:14px;font-variant-numeric:tabular-nums;padding:2px 0}
+.hx-lap b{font-weight:700}
+.hx-lap i{margin-left:auto;color:var(--mute);font-style:normal;font-size:13px}
+.hx-counts{margin-top:8px;font-weight:600;font-size:14px}
+.hx-events li{font-size:14px;padding:2px 0}

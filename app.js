@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new> */
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/history  |  #/history/<key> */
 (function () {
   'use strict';
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
@@ -91,6 +91,13 @@
     if (page === 'subscriptions' && backBtn.hidden) return;
     if (page === 'programs' || page === 'preview') {
       if (window.WBPreview && WBPreview.back()) return;
+      return go('#/');
+    }
+    if (page === 'history') {
+      if (hashBody().split('/')[1]) {
+        var sample = historySample();
+        return go('#/history' + (sample ? '?sample=' + sample : ''));
+      }
       return go('#/');
     }
     var p = location.hash.split('/');
@@ -1246,6 +1253,7 @@
       syncHeaderSignOut();
       levelNoteOn = false;
       if (programsRequested()) return openPrograms();
+      if (historyPreviewRequested() || page === 'history') return openHistory(token);
       if (page === 'account') return renderSimpleAccount();
       if (page === 'messages') return openMessages(token);
       if (page === 'client') {
@@ -2714,15 +2722,145 @@
     window.scrollTo(0, 0);
   });
 
+  // ---------- Exercise history ----------
+  function historySample() {
+    try {
+      var v = new URLSearchParams((location.hash.split('?')[1] || '')).get('sample');
+      if (v === 'empty') return 'empty';
+      if (v === '1' || v === 'list') return '1';
+    } catch (e) {}
+    return '';
+  }
+  function historyPreviewRequested() {
+    try { return new URLSearchParams(location.search).get('preview') === 'history'; }
+    catch (e2) { return false; }
+  }
+  function openHistory(token) {
+    if (historyPreviewRequested()) {
+      try {
+        var u = new URL(location.href);
+        u.searchParams.delete('preview');
+        var search = u.searchParams.toString();
+        var hash = hashPage() === 'history' && historySample() ? location.hash : '#/history?sample=1';
+        history.replaceState(null, '', u.pathname + (search ? '?' + search : '') + hash);
+      } catch (e) {}
+    }
+    renderHistory(token);
+  }
+  function historyImageKey(stableKey) {
+    if (!stableKey) return '';
+    var found = '';
+    (data.workouts || []).forEach(function (w) {
+      (w && w.items || []).forEach(function (it) {
+        if (!it || String(it.id) !== String(stableKey)) return;
+        var media = M.cleanMedia(it.media);
+        if (media && media.kind === 'custom') found = media.imageKey;
+      });
+    });
+    return found;
+  }
+  function bindHistoryImages() {
+    Array.prototype.forEach.call(app.querySelectorAll('.hx-thumb img'), function (img) {
+      function drop() {
+        var thumb = img.closest ? img.closest('.hx-thumb') : null;
+        if (thumb && thumb.parentNode) thumb.parentNode.removeChild(thumb);
+      }
+      img.addEventListener('error', drop);
+      if (img.complete && img.naturalWidth === 0) drop();
+    });
+    if (!window.WBMedia) return;
+    Array.prototype.forEach.call(app.querySelectorAll('[data-hx-img]'), function (el) {
+      var key = el.getAttribute('data-hx-img');
+      WBMedia.url(key).then(function (u) {
+        if (!u || !el.isConnected) {
+          if (el.parentNode) el.parentNode.removeChild(el);
+          return;
+        }
+        var img = document.createElement('img');
+        img.alt = '';
+        img.src = u;
+        el.appendChild(img);
+      }).catch(function () {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      });
+    });
+  }
+  function historyOpts(sample) {
+    return { sample: !!sample, stillBase: gifBase(), imageKey: historyImageKey };
+  }
+  function paintHistory(key, sets, sample, unavailable) {
+    if (!window.WBHistory) {
+      titleEl.textContent = 'History';
+      app.innerHTML = '<div class="empty">History is not available yet.</div>';
+      return;
+    }
+    var opts = historyOpts(sample);
+    if (unavailable) opts.unavailable = true;
+    if (!key) {
+      titleEl.textContent = 'History';
+      var rows = WBHistory.list(sets);
+      app.innerHTML = rows.length ? WBHistory.listHtml(sets, opts) : WBHistory.emptyHtml(opts);
+      bindHistoryImages();
+      var box = document.getElementById('history-q');
+      if (box) box.oninput = function () {
+        var list = document.getElementById('history-list');
+        if (!list) return;
+        list.innerHTML = WBHistory.itemsHtml(WBHistory.decorate(WBHistory.filter(WBHistory.list(sets), box.value), opts));
+        bindHistoryImages();
+      };
+      app.onclick = function (e) {
+        var button = e.target.closest('[data-history]');
+        if (!button) return;
+        var suffix = sample ? '?sample=' + sample : '';
+        go('#/history/' + button.getAttribute('data-history') + suffix);
+      };
+      return;
+    }
+    var view = WBHistory.detail(sets, key);
+    titleEl.textContent = view.name || 'History';
+    app.innerHTML = WBHistory.detailHtml(view, opts);
+    app.onclick = null;
+    app.oninput = null;
+  }
+  function renderHistory(token) {
+    backBtn.hidden = false;
+    app.onclick = null;
+    app.oninput = null;
+    app.onchange = null;
+    var key = hashBody().split('/')[1] || '';
+    var sample = historySample();
+    if (!window.WBHistory) {
+      titleEl.textContent = 'History';
+      app.innerHTML = '<div class="empty">History is not available yet.</div>';
+      return;
+    }
+    if (sample === 'empty') return paintHistory('', [], 'empty', false);
+    if (sample === '1') return paintHistory(key, WBHistory.sampleSets(), '1', false);
+    titleEl.textContent = 'History';
+    app.innerHTML = '<p class="mute">Loading…</p>';
+    var pending;
+    try { pending = WBAuth.myHistory ? WBAuth.myHistory() : Promise.resolve({ sets: [], sessions: [], exercises: [] }); }
+    catch (e) { pending = Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] }); }
+    Promise.resolve(pending).then(function (res) {
+      if (token !== routeToken || hashPage() !== 'history') return;
+      var sets = WBHistory.fromRows(res && res.sessions, res && res.sets, res && res.exercises);
+      paintHistory(key, sets, '', !!(res && (res.unavailable || res.error) && !sets.length));
+    }, function () {
+      if (token !== routeToken || hashPage() !== 'history') return;
+      paintHistory(key, [], '', true);
+    });
+  }
+
   // ---------- Workout list ----------
   function renderList() {
     titleEl.textContent = 'Workouts'; backBtn.hidden = true;
     var note = takeInviteNotice();
     var h = (levelNoteOn ? levelNoteHtml(cachedProfile) : '') +
       (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
-      '<div class="row" style="margin-bottom:8px">' +
+      '<div class="row" id="home-nav" style="margin-bottom:8px">' +
       '<button class="grow" type="button" data-a="account">Account</button>' +
-      '<button id="programs-open" class="grow" type="button" data-a="programs">Programs</button></div>' +
+      '<button id="programs-open" class="grow" type="button" data-a="programs">Programs</button>' +
+      '<button id="history-open" class="grow" type="button" data-a="history">History</button></div>' +
       '<div class="row" style="margin-bottom:8px">' +
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
@@ -2766,6 +2904,7 @@
       var b = e.target.closest('[data-a]'); if (!b) return;
       var a = b.dataset.a, w = getW(b.dataset.id);
       if (a === 'programs' || a === 'preview') return go('#/programs');
+      if (a === 'history') return go('#/history');
       if (a === 'account') return openAccount();
       if (a === 'messages') return go('#/messages');
       if (a === 'send') {
