@@ -73,6 +73,7 @@
       items: items,
       sourceTrainerId: remote.sourceTrainerId,
       sourceTrainerEmail: remote.sourceTrainerEmail || '',
+      sourceTrainerName: remote.sourceTrainerName || '',
       sourceWorkoutId: remote.sourceWorkoutId || '',
       createdAt: stamp(remote.createdAt || remote.updatedAt),
       updatedAt: stamp(remote.updatedAt)
@@ -110,8 +111,15 @@
     });
     return next;
   }
+  function personName(c) {
+    if (root.WBProfile && root.WBProfile.label) {
+      var labeled = root.WBProfile.label(c);
+      if (labeled) return labeled;
+    }
+    return (c && (c.name || c.email)) || 'Client';
+  }
   function nameList(list) {
-    var names = list.map(function (c) { return c.email || c.name || 'Client'; });
+    var names = list.map(personName);
     if (names.length <= 1) return names[0] || 'Client';
     if (names.length === 2) return names[0] + ' and ' + names[1];
     return names.slice(0, -1).join(', ') + ', and ' + names[names.length - 1];
@@ -137,9 +145,12 @@
     });
   }
   function initials(name) {
-    var local = String(name || '').split('@')[0].replace(/[^a-z0-9]/gi, '');
+    var raw = String(name || '').trim();
+    var bits = raw.split(/\s+/).filter(Boolean);
+    if (bits.length >= 2 && raw.indexOf('@') === -1) return (bits[0].charAt(0) + bits[1].charAt(0)).toUpperCase();
+    var local = raw.split('@')[0].replace(/[^a-z0-9]/gi, '');
     if (local.length >= 2) return local.slice(0, 2).toUpperCase();
-    return (String(name || '?').charAt(0) || '?').toUpperCase();
+    return (raw.charAt(0) || '?').toUpperCase();
   }
   function newId() {
     var c = (root && root.crypto) || (typeof crypto !== 'undefined' ? crypto : null);
@@ -159,7 +170,7 @@
     try { return decodeURIComponent(parts[1]); } catch (e) { return parts[1]; }
   }
   function lockedHtml(w) {
-    var h = '<span class="tag">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span>';
+    var h = '<span class="tag">From ' + esc((root.WBProfile ? WBProfile.fromTrainer(w) : w.sourceTrainerEmail) || 'your trainer') + '</span>';
     h += '<p class="mute" id="copy-note">You can run this copy. Only an Enthusiast can edit it. Your trainer\'s workout stays as it is.</p>';
     (w.items || []).forEach(function (it) {
       var line = '';
@@ -245,8 +256,8 @@
     clients.forEach(function (c) {
       var on = !!picked[c.id];
       h += '<button type="button" class="pick' + (on ? ' on' : '') + '" data-pick-client="' + esc(c.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
-        '<span class="ava" aria-hidden="true">' + esc(initials(c.email || 'Client')) + '</span>' +
-        '<span class="grow"><span class="name">' + esc(c.email || 'Client') + '</span><span class="preview">' + esc(c.plan || 'Client') + ' · client</span></span>' +
+        '<span class="ava" data-avatar-path="' + esc(c.avatarPath || '') + '" aria-hidden="true">' + esc(initials(personName(c))) + '</span>' +
+        '<span class="grow"><span class="name">' + esc(personName(c)) + '</span><span class="preview">' + esc(c.plan || 'Client') + ' · client</span></span>' +
         '<span class="mark" aria-hidden="true">' + (on ? '✓' : '') + '</span></button>';
     });
     var key = currentKey();
@@ -258,6 +269,7 @@
       (n ? ('Send to ' + n + (n === 1 ? ' client' : ' clients')) : 'Send workout') + '</button>';
     ctx.app.innerHTML = h;
     ctx.app.onclick = onSendClick;
+    if (root.WBProfile) WBProfile.fillAvatars(ctx.app);
   }
   function onSendClick(e) {
     var t = e.target && e.target.closest ? e.target.closest('[data-pick-workout], [data-pick-client], [data-send-workout]') : null;
@@ -367,7 +379,7 @@
       var edit = canEditCopy(profile, w);
       var n = (w.items || []).length;
       h += '<div class="card" data-copy="' + esc(w.id) + '"><div class="row"><div class="name grow">' + esc(w.name) + '</div>' +
-        '<span class="tag">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span></div>';
+        '<span class="tag">From ' + esc((root.WBProfile ? WBProfile.fromTrainer(w) : w.sourceTrainerEmail) || 'your trainer') + '</span></div>';
       h += '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + ' · ' + (edit ? 'You can edit it' : 'You can run it') + '</div>';
       h += '<div class="actions"><button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Open</button>';
       if (n) h += '<button type="button" class="sm" data-run-copy="' + esc(w.id) + '">Run</button>';

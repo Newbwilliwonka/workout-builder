@@ -45,16 +45,60 @@
       return client;
     });
   }
+  var PROFILE_FULL = 'id,email,membership,intended_plan,display_name,city,state,online_only,bio,avatar_path';
+  var PROFILE_BASE = 'id,email,membership,intended_plan';
   function userOf(session) { return session && session.user ? session.user : null; }
-  function ensureProfile(c, user) {
-    return c.from('profiles').select('id,email,membership,intended_plan').eq('id', user.id).maybeSingle().then(function (res) {
-      if (res.error) throw res.error;
-      if (res.data) return res.data;
-      return c.from('profiles').insert({ id: user.id, email: user.email || null, membership: Mem.NONE }).select('id,email,membership,intended_plan').single().then(function (ins) {
-        if (ins.error) throw ins.error;
-        return ins.data;
+  function profileColumnMissing(err) {
+    var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
+    return /display_name|online_only|avatar_path|\b42703\b|PGRST204|schema cache/i.test(msg);
+  }
+  function withReady(row, ready) {
+    if (!row) return row;
+    var out = {};
+    Object.keys(row).forEach(function (k) { out[k] = row[k]; });
+    out.profileReady = !!ready;
+    if (!ready) return out;
+    out.display_name = out.display_name || null;
+    out.city = out.city || null;
+    out.state = out.state || null;
+    out.online_only = !!out.online_only;
+    out.bio = out.bio || null;
+    out.avatar_path = out.avatar_path || null;
+    return out;
+  }
+  function insertProfile(c, user, ready) {
+    return c.from('profiles').insert({ id: user.id, email: user.email || null, membership: Mem.NONE }).select(PROFILE_BASE).single().then(function (ins) {
+      if (ins.error) throw ins.error;
+      if (!ready) return withReady(ins.data, false);
+      return c.from('profiles').select(PROFILE_FULL).eq('id', user.id).maybeSingle().then(function (full) {
+        if (full.error || !full.data) return withReady(ins.data, false);
+        return withReady(full.data, true);
       });
     });
+  }
+  function ensureProfile(c, user) {
+    return c.from('profiles').select(PROFILE_FULL).eq('id', user.id).maybeSingle().then(function (res) {
+      if (res.error) {
+        if (!profileColumnMissing(res.error)) throw res.error;
+        return c.from('profiles').select(PROFILE_BASE).eq('id', user.id).maybeSingle().then(function (again) {
+          if (again.error) throw again.error;
+          if (again.data) return withReady(again.data, false);
+          return insertProfile(c, user, false);
+        });
+      }
+      if (res.data) return withReady(res.data, true);
+      return insertProfile(c, user, true);
+    });
+  }
+  function profileSaveError(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    if (profileColumnMissing(err) || /bucket not found|Bucket not found|avatars/i.test(msg)) {
+      return new Error('Profile details are not available yet. Apply the profile SQL in the Supabase SQL editor.');
+    }
+    if (/enter your name/i.test(msg)) return new Error('Enter your name.');
+    if (/city and state|online only/i.test(msg)) return new Error('Enter a city and state, or choose Online only.');
+    if (/150 characters/i.test(msg)) return new Error('Bio can be at most 150 characters.');
+    return new Error(msg || 'Could not save your profile.');
   }
 
   function decodePart(s) {
@@ -240,6 +284,57 @@
           return ensureProfile(c, user);
         });
       });
+    },
+    saveProfile: function (fields) {
+      fields = fields || {};
+      var row = {
+        display_name: fields.display_name || null,
+        city: fields.city || null,
+        state: fields.state || null,
+        online_only: !!fields.online_only,
+        bio: fields.bio || null
+      };
+      if (fields.avatar_path) row.avatar_path = fields.avatar_path;
+      return db().then(function (c) {
+        return c.auth.getSession().then(function (res) {
+          if (res.error) throw res.error;
+          var user = userOf(res.data.session);
+          if (!user) throw new Error('Sign in first.');
+          return c.from('profiles').update(row).eq('id', user.id).select(PROFILE_FULL).single();
+        });
+      }).then(function (res) {
+        if (res.error) throw profileSaveError(res.error);
+        return withReady(res.data, true);
+      }, function (err) { throw profileSaveError(err); });
+    },
+    uploadAvatar: function (blob) {
+      if (!blob) return Promise.reject(new Error('Choose a photo.'));
+      return db().then(function (c) {
+        return c.auth.getSession().then(function (res) {
+          if (res.error) throw res.error;
+          var user = userOf(res.data.session);
+          if (!user) throw new Error('Sign in first.');
+          var path = user.id + '/avatar.jpg';
+          return c.storage.from('avatars').upload(path, blob, {
+            upsert: true,
+            contentType: 'image/jpeg',
+            cacheControl: '3600'
+          }).then(function (up) {
+            if (up.error) throw up.error;
+            return path;
+          });
+        });
+      }).then(function (path) { return path; }, function (err) { throw profileSaveError(err); });
+    },
+    avatarUrl: function (path) {
+      path = String(path || '');
+      if (!path) return Promise.resolve('');
+      return db().then(function (c) {
+        return c.storage.from('avatars').createSignedUrl(path, 60 * 60);
+      }).then(function (res) {
+        if (!res || res.error || !res.data) return '';
+        return res.data.signedUrl || res.data.signedURL || '';
+      }, function () { return ''; });
     },
     saveIntended: function (planId) {
       if (!Mem.canSelectIntended(planId)) throw new Error('A trainer invite is required for Free Client.');

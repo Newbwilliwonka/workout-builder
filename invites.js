@@ -188,7 +188,7 @@
       var now = clock();
       var clients = activeLinks(ownedLinks()).map(function (l) {
         var person = state.users[l.client_id] || {};
-        return { id: l.client_id, email: person.email || '', plan: l.plan || clientLabel(person) };
+        return { id: l.client_id, email: person.email || '', name: person.display_name || '', avatarPath: person.avatar_path || '', plan: l.plan || clientLabel(person) };
       });
       var invites = ownedInvites().filter(function (inv) { return isOpen(inv, now); }).map(function (inv) {
         return { code: inv.code, expiresAt: inv.expires_at };
@@ -232,7 +232,7 @@
       var link = activeLinks(state.links).filter(function (l) { return l.client_id === state.me; })[0];
       if (!link) return Promise.resolve(null);
       var trainer = state.users[link.trainer_id] || {};
-      return Promise.resolve({ trainerId: link.trainer_id, trainerEmail: trainer.email || '' });
+      return Promise.resolve({ trainerId: link.trainer_id, trainerEmail: trainer.email || '', trainerName: trainer.display_name || '', avatarPath: trainer.avatar_path || '' });
     }
     function redeemInvite(code, share) {
       var norm = normalizeCode(code);

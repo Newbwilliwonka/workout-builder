@@ -38,6 +38,8 @@
       enthusiast: row.enthusiast,
       linked: row.linked,
       email: row.email || '',
+      name: row.name || '',
+      avatarPath: row.avatarPath || row.avatar_path || '',
       plan: row.plan || ''
     };
   }
