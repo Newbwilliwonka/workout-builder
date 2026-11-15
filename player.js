@@ -371,10 +371,55 @@
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged, ownWork: !S.w.sourceTrainerId };
     if (S.programId) sess.programId = S.programId;
-    S.saved = M.SAVE_SESSIONS && logged.length > 0;
-    if (S.saved) { S.data.sessions.push(sess); S.persist(); }
+    S.remoteSaved = null;
+    if (M.SAVE_SESSIONS && logged.length) { S.data.sessions.push(sess); S.persist(); }
+    S.saved = false;
     S.done = sess; if (wake) wake.release().catch(function () {});
     renderSummary();
+    if (logged.length) rememberRemote(sess);
+  }
+  function saveNoteText() {
+    if (!S || !S.done || !S.done.results.length) return 'Nothing was logged.';
+    if (window.WBTracking && WBTracking.note) return WBTracking.note(S.done, S.remoteSaved);
+    if (S.remoteSaved === true) return 'Session saved.';
+    if (S.remoteSaved === false) return 'Session not saved.';
+    return '';
+  }
+  function paintSaveNote() {
+    if (!S || !S.root) return;
+    var el = S.root.querySelector('[data-save-note]');
+    if (el) el.textContent = saveNoteText();
+  }
+  function rememberRemote(sess) {
+    var id = sess.id;
+    function fail() {
+      if (!S || !S.done || S.done.id !== id) return;
+      S.remoteSaved = false;
+      S.saved = false;
+      paintSaveNote();
+    }
+    if (!window.WBTracking || !WBTracking.save) return fail();
+    var pending;
+    try {
+      pending = WBTracking.save({
+        track: true,
+        id: sess.id,
+        workout: S.w,
+        queue: S.queue,
+        results: S.results,
+        startedAt: sess.startedAt,
+        endedAt: sess.endedAt,
+        programId: sess.programId || null,
+        ownWork: sess.ownWork
+      });
+    } catch (e) { return fail(); }
+    if (!pending || !pending.then) return fail();
+    pending.then(function (res) {
+      if (!S || !S.done || S.done.id !== id) return;
+      S.remoteSaved = !!(res && res.ok);
+      S.saved = S.remoteSaved;
+      paintSaveNote();
+    }, fail);
   }
   function resultLine(r) {
     var p = [];
@@ -406,7 +451,8 @@
     var s = S.done, mins = Math.round((s.endedAt - s.startedAt) / 1000);
     var h = '<div class="pl-done"><div class="pl-check">✓</div><h2>Workout complete</h2><p class="mute">' + esc(s.workoutName) + ' · ' + M.fmtTime(mins) + ' total · ' +
       loggedLine() + '</p><div class="card pl-sum">';
-    if (!S.saved) h += '<p class="mute">' + (s.results.length ? 'Session not saved (history is off for now).' : 'Nothing was logged.') + '</p>';
+    if (!s.results.length) h += '<p class="mute">Nothing was logged.</p>';
+    else h += '<p class="mute" data-save-note></p>';
     s.results.forEach(function (r) {
       h += '<div class="pl-row"><div class="grow"><b>' + esc(r.name) + '</b> <span class="mute">' + (r.mode === 'stopwatch' ? 'attempt ' : 'set ') + r.set + '/' + r.of + '</span><div class="mute">' + esc(resultLine(r)) + '</div>' +
         (r.laps && r.laps.length ? '<div class="pl-laps sm">' + r.laps.map(function (l, k) { return '<span>L' + (k + 1) + ' ' + M.formatStopwatch(l.lapMs) + '</span>'; }).join('') + '</div>' : '') +
@@ -414,6 +460,7 @@
     });
     h += '</div><button class="pri" style="width:100%" data-p="exit">Done</button></div>';
     S.root.innerHTML = h;
+    paintSaveNote();
   }
 
   // ---------- rendering ----------

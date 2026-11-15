@@ -451,6 +451,15 @@
       if (typeof on !== 'boolean') return Promise.reject(new Error('Choose on or off.'));
       return shareRpc('share_set', { p_on: on });
     },
+    saveTrackedSession: function (payload) {
+      if (!payload || !payload.session || !Array.isArray(payload.sets)) return Promise.resolve({ ok: false });
+      return db().then(function (c) {
+        return c.rpc('tracking_save_session', { p_session: payload.session, p_sets: payload.sets });
+      }).then(function (res) {
+        if (!res || res.error) return { ok: false };
+        return { ok: true, id: res.data || null };
+      }, function () { return { ok: false }; });
+    },
     pushOwn: function (workouts, sessions) {
       if (!Array.isArray(workouts) || !Array.isArray(sessions)) {
         return Promise.reject(new Error('Could not read workouts to share.'));
