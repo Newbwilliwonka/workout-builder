@@ -211,6 +211,7 @@
   }
   var routeToken = 0;
   var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0, profileLookup = 0;
+  var profileGateOn = false, profileSheetRequired = false, profilePhotoBlob = null, profileObjectUrl = '', profileKeyBound = false;
   var shareState = window.WBSharing ? WBSharing.initialState() : null;
   var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, linkShareChoice = true;
   var shareLookup = null, shareSessionFlight = false, shareRetryTimer = null, shareRetryWait = 1000;
@@ -235,7 +236,7 @@
   }
   function copyNote(w) {
     if (!w || !w.sourceTrainerId) return '';
-    return '<span class="tag">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span>' +
+    return '<span class="tag">From ' + esc(trainerFrom(w) || 'your trainer') + '</span>' +
       '<p class="mute" id="copy-note">Copy from your trainer. Edits stay on this copy and do not change their workout.</p>';
   }
   function ensureProfile() {
@@ -1187,6 +1188,10 @@
       if (token !== routeToken || location.hash !== requested) return;
       var profile = gate.profile;
       if (gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
+      if (window.WBProfile && WBProfile.needsName(profile)) return showProfileGate(profile);
+      profileGateOn = false;
+      closeProfileSheet(true);
+      syncHeaderSignOut();
       levelNoteOn = false;
       if (programsRequested()) return openPrograms();
       if (page === 'account') return renderSimpleAccount();
@@ -1294,7 +1299,7 @@
     var h = '<div class="card" id="redeem">';
     var linked = !!(conn && conn.trainerId);
     if (linked) {
-      h += '<div class="name">Your trainer</div><p class="mute">' + esc(conn.trainerEmail || 'Connected') + '</p>';
+      h += '<div class="name">Your trainer</div><p class="mute">' + esc(personLabel({ name: conn.trainerName, email: conn.trainerEmail }) || 'Connected') + '</p>';
       h += '<button class="danger" data-invite="end-self" style="width:100%">End connection</button>';
     }
     h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
@@ -1560,7 +1565,7 @@
     h += '<div class="name">Clients</div>';
     if (!roster.clients.length) h += '<p class="mute">No clients yet.</p>';
     roster.clients.forEach(function (c) {
-      h += '<div class="row"><div class="grow"><b>' + esc(c.email || 'Client') + '</b><div class="mute">' + esc(c.plan) + '</div></div>';
+      h += '<div class="row"><div class="grow"><b>' + esc(personLabel(c) || 'Client') + '</b><div class="mute">' + esc(c.plan) + '</div></div>';
       h += '<button class="sm" type="button" data-client-view="' + esc(c.id) + '">View</button>';
       h += '<button class="sm danger" data-invite="end" data-client="' + esc(c.id) + '">End connection</button></div>';
     });
@@ -1619,6 +1624,243 @@
     }
     return false;
   }
+  function personLabel(row) {
+    if (window.WBProfile) return WBProfile.label(row);
+    if (!row) return '';
+    return row.name || row.display_name || row.email || row.trainerEmail || '';
+  }
+  function trainerFrom(w) {
+    if (window.WBProfile) return WBProfile.fromTrainer(w);
+    return (w && w.sourceTrainerEmail) || '';
+  }
+  function syncHeaderSignOut() {
+    var link = document.getElementById('account-signout');
+    if (!link) return;
+    link.hidden = !(hashPage() === 'account' || profileGateOn);
+  }
+  function signOutFromAccount() {
+    var from = hashPage();
+    WBAuth.signOut().then(function () {
+      cachedProfile = null;
+      copyStamp = {};
+      removedCopies = [];
+      shareUser = '';
+      resetShareLookup();
+      pushPending = false;
+      stopPushRetry();
+      resetLibraryMemory();
+      profileGateOn = false;
+      closeProfileSheet(true);
+      if (window.WBSharing) shareState = WBSharing.initialState();
+      syncHeaderSignOut();
+      if (hashPage() !== from) return;
+      go('#/signin');
+    }).catch(function (err) {
+      if (hashPage() !== from) return;
+      app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
+    });
+  }
+  var accountSignOut = document.getElementById('account-signout');
+  if (accountSignOut) accountSignOut.onclick = function (e) {
+    e.preventDefault();
+    signOutFromAccount();
+  };
+  function paintAccountAvatar(profile) {
+    var el = document.getElementById('profile-open');
+    if (!el) return;
+    var direct = profile && profile.avatarUrl;
+    if (direct) {
+      el.innerHTML = '<img alt="" src="' + esc(direct) + '">';
+      return;
+    }
+    var path = profile && profile.avatar_path;
+    if (!path || !WBAuth.avatarUrl) return;
+    WBAuth.avatarUrl(path).then(function (url) {
+      if (!url || !el.isConnected) return;
+      el.innerHTML = '<img alt="" src="' + esc(url) + '">';
+    }).catch(function () {});
+  }
+  function onProfileKey(e) {
+    if (e.key !== 'Escape' || profileSheetRequired) return;
+    if (!document.getElementById('profile-sheet')) return;
+    closeProfileSheet(true);
+  }
+  function closeProfileSheet(force) {
+    var el = document.getElementById('profile-sheet');
+    if (!el) return;
+    if (!force && el.getAttribute('data-required') === '1') return;
+    el.remove();
+    profileSheetRequired = false;
+    profilePhotoBlob = null;
+    if (profileObjectUrl) {
+      try { URL.revokeObjectURL(profileObjectUrl); } catch (err) {}
+      profileObjectUrl = '';
+    }
+  }
+  function showProfileGate(profile) {
+    profileGateOn = true;
+    titleEl.textContent = 'Account';
+    backBtn.hidden = true;
+    syncHeaderSignOut();
+    var open = document.getElementById('profile-sheet');
+    if (open && open.getAttribute('data-required') === '1') return;
+    openProfileSheet(profile, { required: true });
+  }
+  function openProfileSheet(profile, opts) {
+    opts = opts || {};
+    if (!window.WBProfile) return;
+    profile = profile || cachedProfile || {};
+    profileSheetRequired = !!opts.required;
+    if (profileSheetRequired) profileGateOn = true;
+    profilePhotoBlob = null;
+    if (profileObjectUrl) {
+      try { URL.revokeObjectURL(profileObjectUrl); } catch (err) {}
+      profileObjectUrl = '';
+    }
+    var existing = document.getElementById('profile-sheet');
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML('beforeend', WBProfile.sheetHtml({
+      required: !!opts.required,
+      unavailable: profile.profileReady !== true,
+      display_name: profile.display_name || '',
+      city: profile.city || '',
+      state: profile.state || '',
+      online_only: !!profile.online_only,
+      bio: profile.bio || '',
+      photoUrl: profile.avatarUrl || ''
+    }));
+    if (!profileKeyBound) {
+      profileKeyBound = true;
+      document.addEventListener('keydown', onProfileKey);
+    }
+    var nameEl = document.getElementById('profile-name');
+    var cityEl = document.getElementById('profile-city');
+    var stateEl = document.getElementById('profile-state');
+    var onlineEl = document.getElementById('profile-online');
+    var bioEl = document.getElementById('profile-bio');
+    var countEl = document.getElementById('profile-count');
+    var errEl = document.getElementById('profile-error');
+    var fileEl = document.getElementById('profile-file');
+    var sheet = document.getElementById('profile-sheet');
+    function showErr(msg) {
+      if (!errEl) return;
+      if (!msg) { errEl.hidden = true; errEl.textContent = ''; return; }
+      errEl.hidden = false;
+      errEl.textContent = msg;
+    }
+    function mark(empty) {
+      [['profile-name', 'name'], ['profile-city', 'city'], ['profile-state', 'state']].forEach(function (pair) {
+        var field = document.getElementById(pair[0]);
+        if (!field) return;
+        if (empty && empty[pair[1]]) {
+          field.classList.add('is-empty');
+          field.setAttribute('aria-invalid', 'true');
+        } else {
+          field.classList.remove('is-empty');
+          field.removeAttribute('aria-invalid');
+        }
+      });
+    }
+    function readFields() {
+      return WBProfile.validate({
+        display_name: nameEl ? nameEl.value : '',
+        city: cityEl ? cityEl.value : '',
+        state: stateEl ? stateEl.value : '',
+        online_only: !!(onlineEl && onlineEl.checked),
+        bio: bioEl ? bioEl.value : '',
+        membership: profile.membership,
+        intended_plan: profile.intended_plan
+      });
+    }
+    function watch(el, key) {
+      if (!el) return;
+      el.addEventListener('input', function () {
+        if (!readFields().empty[key]) {
+          el.classList.remove('is-empty');
+          el.removeAttribute('aria-invalid');
+        }
+      });
+    }
+    watch(nameEl, 'name');
+    watch(cityEl, 'city');
+    watch(stateEl, 'state');
+    if (bioEl && countEl) bioEl.addEventListener('input', function () {
+      countEl.textContent = bioEl.value.length + '/' + WBProfile.BIO_MAX;
+    });
+    if (onlineEl) onlineEl.addEventListener('change', function () {
+      var result = readFields();
+      mark(result.empty);
+      if (result.ok) showErr('');
+    });
+    if (fileEl) fileEl.addEventListener('change', function () {
+      var file = fileEl.files && fileEl.files[0];
+      if (!file) return;
+      WBProfile.preparePhoto(file).then(function (blob) {
+        if (!document.getElementById('profile-sheet')) return;
+        profilePhotoBlob = blob;
+        if (profileObjectUrl) {
+          try { URL.revokeObjectURL(profileObjectUrl); } catch (err) {}
+        }
+        profileObjectUrl = URL.createObjectURL(blob);
+        var photoEl = document.getElementById('profile-photo');
+        if (photoEl) photoEl.innerHTML = '<img alt="" src="' + esc(profileObjectUrl) + '">';
+        showErr('');
+      }, function (err) {
+        profilePhotoBlob = null;
+        showErr((err && err.message) || 'Choose a photo.');
+      });
+    });
+    if (sheet) sheet.addEventListener('click', function (e) {
+      if (e.target && e.target.id === 'profile-sheet' && !profileSheetRequired) closeProfileSheet(true);
+      if (e.target && e.target.closest && e.target.closest('#profile-cancel')) closeProfileSheet(true);
+      if (e.target && e.target.closest && e.target.closest('#profile-save')) saveProfileFromSheet(profile, readFields, mark, showErr);
+    });
+    if (!profile.avatarUrl && profile.avatar_path && WBAuth.avatarUrl) {
+      WBAuth.avatarUrl(profile.avatar_path).then(function (url) {
+        var photoEl = document.getElementById('profile-photo');
+        if (url && photoEl && photoEl.isConnected && !profilePhotoBlob) photoEl.innerHTML = '<img alt="" src="' + esc(url) + '">';
+      }).catch(function () {});
+    }
+    if (nameEl && opts.required) {
+      try { nameEl.focus(); } catch (err) {}
+    }
+    syncHeaderSignOut();
+  }
+  function saveProfileFromSheet(profile, readFields, mark, showErr) {
+    var result = readFields();
+    mark(result.empty);
+    if (!result.ok) {
+      showErr(result.message || (window.WBProfile ? WBProfile.EMPTY : 'Fill in the highlighted fields.'));
+      return;
+    }
+    if (!profile.profileReady || !WBAuth.saveProfile) {
+      showErr('Profile details are not available yet. Apply the profile SQL in the Supabase SQL editor.');
+      return;
+    }
+    if (profilePhotoBlob && !WBAuth.uploadAvatar) {
+      showErr('Photos are not available yet. Apply the profile SQL in the Supabase SQL editor.');
+      return;
+    }
+    var btn = document.getElementById('profile-save');
+    if (btn) btn.disabled = true;
+    var fields = result.fields;
+    var pending = profilePhotoBlob
+      ? WBAuth.uploadAvatar(profilePhotoBlob).then(function (path) { fields.avatar_path = path; })
+      : Promise.resolve();
+    pending.then(function () { return WBAuth.saveProfile(fields); }).then(function (saved) {
+      if (!saved || typeof saved !== 'object') saved = Object.assign({}, fields, { profileReady: true });
+      cachedProfile = Object.assign({}, profile, saved);
+      var wasRequired = profileSheetRequired;
+      profileGateOn = false;
+      closeProfileSheet(true);
+      syncHeaderSignOut();
+      if (wasRequired) return route();
+      if (hashPage() === 'account') return renderSimpleAccount();
+    }, function (err) {
+      if (btn) btn.disabled = false;
+      showErr((err && err.message) || 'Could not save your profile.');
+    });
+  }
   function renderSubscriptions(message, isError) {
     titleEl.textContent = 'Subscriptions'; backBtn.hidden = false;
     app.innerHTML = '<p class="mute">Loading…</p>';
@@ -1629,6 +1871,10 @@
         if (hashPage() !== 'subscriptions') return;
         if (profile) cachedProfile = profile;
         var shown = profile || cachedProfile;
+        if (window.WBProfile && WBMembership.hasDesignated(shown) && WBProfile.needsName(shown)) {
+          showProfileGate(shown);
+          return;
+        }
         var locked = !WBMembership.hasDesignated(shown);
         backBtn.hidden = locked;
         var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null);
@@ -1744,9 +1990,12 @@
     var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
     var h = '<div class="gate">';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
-    h += '<div class="card"><div class="name">' + esc(session.user.email || 'Signed in') + '</div>' +
-      '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p>' +
-      '<button data-auth="out" style="width:100%">Sign out</button></div>';
+    var who = personLabel({ display_name: profile && profile.display_name, email: session.user && session.user.email }) || 'Signed in';
+    h += '<div class="card" id="account-card"><div class="account-id">' +
+      '<button type="button" class="avatar" id="profile-open" aria-label="Profile">' +
+      (window.WBProfile ? WBProfile.personIcon() : '') + '</button>' +
+      '<div class="grow"><div class="name" id="account-label">' + esc(who) + '</div>' +
+      '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p></div></div></div>';
     var trainerNav = window.WBInvites && WBInvites.trainerRole(profile);
     h += '<div class="row" id="account-nav" style="margin-bottom:12px">' +
       '<button id="messages-nav" class="grow" type="button" data-go="messages">Messages</button>' +
@@ -1760,6 +2009,8 @@
     h += trainerSection(roster);
     h += '</div>';
     app.innerHTML = h;
+    paintAccountAvatar(profile);
+    syncHeaderSignOut();
     if (shareHere) loadShare();
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
@@ -1768,25 +2019,9 @@
       if (nav && nav.dataset.go === 'received') return go('#/received');
       var viewBtn = e.target.closest('[data-client-view]');
       if (viewBtn) return go('#/client/' + viewBtn.getAttribute('data-client-view'));
+      if (e.target.closest('#profile-open')) return openProfileSheet(profile, { required: false });
       if (e.target.closest('#share-account')) { toggleShare(); return; }
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
-      var b = e.target.closest('[data-auth]'); if (!b) return;
-      WBAuth.signOut().then(function () {
-        cachedProfile = null;
-        copyStamp = {};
-        removedCopies = [];
-        shareUser = '';
-        resetShareLookup();
-        pushPending = false;
-        stopPushRetry();
-        resetLibraryMemory();
-        if (window.WBSharing) shareState = WBSharing.initialState();
-        if (hashPage() !== 'account') return;
-        go('#/signin');
-      }).catch(function (err) {
-        if (hashPage() !== 'account') return;
-        app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
-      });
     };
   }
   function showBuilder() {
@@ -2012,7 +2247,7 @@
         if (token !== routeToken || location.hash !== requested) return;
         var status = WBSharing.parseStatus(row);
         if (!status.ok) return showError('Could not load this client.');
-        titleEl.textContent = status.email || 'Client';
+        titleEl.textContent = personLabel(status) || 'Client';
         if (!status.shared) {
           app.innerHTML = WBSharing.clientHtml(status, null, null);
           attachClientTools(id, token, requested);
@@ -2119,6 +2354,11 @@
     if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
     // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
     // Invite links and email confirmation land on this flow. Every other page waits for a session.
+    if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') {
+      profileGateOn = false;
+      closeProfileSheet(true);
+    } else closeProfileSheet(false);
+    syncHeaderSignOut();
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');
     if (page === 'forgot') return renderForgot();
@@ -2179,7 +2419,7 @@
       var n = Array.isArray(w.items) ? w.items.length : 0, nW = data.workouts.length;
       var locked = copyLocked(w);
       h += '<div class="card">';
-      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + esc(w.sourceTrainerEmail || 'your trainer') + '</span>';
+      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + esc(trainerFrom(w) || 'your trainer') + '</span>';
       h += '<div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
         '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') +
         (w.sourceTrainerId ? (locked ? ' · You can run it' : ' · You can edit it') : '') + '</div><div class="actions">';

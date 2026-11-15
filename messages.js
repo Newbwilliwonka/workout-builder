@@ -59,10 +59,12 @@
     return { id: makeId(), body: text };
   }
   function initials(name) {
-    var local = String(name || '').split('@')[0].replace(/[^a-z0-9]/gi, '');
+    var raw = String(name || '').trim();
+    var bits = raw.split(/\s+/).filter(Boolean);
+    if (bits.length >= 2 && raw.indexOf('@') === -1) return (bits[0].charAt(0) + bits[1].charAt(0)).toUpperCase();
+    var local = raw.split('@')[0].replace(/[^a-z0-9]/gi, '');
     if (local.length >= 2) return local.slice(0, 2).toUpperCase();
-    var bits = String(name || '').split(' ').filter(Boolean);
-    return ((bits[0] || '?').charAt(0) + (bits[1] ? bits[1].charAt(0) : '')).toUpperCase();
+    return (raw.charAt(0) || '?').toUpperCase();
   }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -191,7 +193,7 @@
   function personRow(p) {
     var unread = Number(p.unread) || 0;
     return '<button type="button" class="person" data-thread="' + esc(p.id) + '">' +
-      '<span class="ava" aria-hidden="true">' + esc(initials(p.name)) + '</span>' +
+      '<span class="ava" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(p.name)) + '</span>' +
       '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + esc(p.name) + '</span>' +
       '<span class="mute" style="margin-left:auto">' + esc(whenLabel(p.at)) + '</span></span>' +
       '<span class="preview">' + esc(p.preview || 'No messages yet') + '</span>' +
@@ -251,6 +253,7 @@
     }
     ctx.app.innerHTML = h;
     ctx.app.onclick = onClick;
+    if (root.WBProfile) WBProfile.fillAvatars(ctx.app);
   }
   function showThread(id, data) {
     if (!ctx) return;
