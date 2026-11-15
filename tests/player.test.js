@@ -205,7 +205,14 @@ const data = M.emptyData(); data.workouts.push(w);
   await adv(10000); await click('.pl-endw'); await wait(100); // End during rest keeps the already-logged set
   assert.ok((await p.content()).includes('Workout complete'));
   const saved = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), M.STORAGE_KEY);
-  assert.strictEqual(saved.sessions.length, 0); assert.strictEqual(saved.workouts.length, 1); // SAVE_SESSIONS=false
+  assert.strictEqual(saved.sessions.length, 1); assert.strictEqual(saved.workouts.length, 1);
+  assert.strictEqual(saved.sessions[0].workoutId, saved.workouts[0].id);
+  assert.ok(saved.sessions[0].results.length > 0 && saved.sessions[0].results.every(function (row) { return row.logged; }));
+  await p.waitForFunction(function () {
+    var note = document.querySelector('[data-save-note]');
+    return note && note.textContent === 'Session not saved.';
+  });
+  assert.ok(!(await p.content()).includes('history is off'));
   const r = await p.evaluate(() => window.__wbPlayer.done.results);
   assert.strictEqual(r.length, 10); assert.strictEqual(r[0].reps, 11); assert.strictEqual(r[0].weight, 140); assert.strictEqual(r[8].laps.length, 3); assert.strictEqual(r[9].reps, 13);
   console.log('session results:', r.map(x => x.name + '#' + x.set).join(', '));

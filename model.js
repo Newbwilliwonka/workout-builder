@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   var SCHEMA_VERSION = 4;
-  var SAVE_SESSIONS = false; // set true to store finished workout sessions in data.sessions
+  var SAVE_SESSIONS = true; // store finished workout sessions in data.sessions
   var STORAGE_KEY = 'wb.data.v1';
   var MODES = ['reps', 'intervals', 'timer', 'stopwatch'];
   var REPS_TYPES = ['number', 'range', 'static'];   // timer + intervals
