@@ -9,7 +9,14 @@
    The same name with different case, spacing, or punctuation counts once.
    The spelling shown is the one used most often. A tie uses the most recent
    use (later in the list when the time is the same). The exercise being
-   edited is left out only when it is the only place that name was saved. */
+   edited is left out only when it is the only place that name was saved.
+
+   suggestEventNames is the same matching for stopwatch event names only.
+   Exercise names are not a source. A suggestion is omitted when that saved
+   spelling is already exactly what was typed, aside from extra spaces. A
+   different case or punctuation still appears so the saved spelling can
+   replace it. The exercise being edited is not left out: a new exercise and
+   an edit read the same saved events. */
 (function (root) {
   'use strict';
 
@@ -125,7 +132,77 @@
     return ranked.slice(0, limit).map(function (row) { return row.name; });
   }
 
-  var api = { suggestNames: suggestNames };
+  // Stopwatch event names already saved on the user's own workouts.
+  // Same match, de-dupe, and spelling choice as suggestNames. No starter list.
+  function suggestEventNames(workouts, query, options) {
+    var trimmed = String(query == null ? '' : query).trim();
+    if (trimmed.length < 2 || compactName(trimmed).length < 2) return [];
+    options = options || {};
+    var limit = options.limit == null ? 6 : Number(options.limit);
+    if (!isFinite(limit) || limit < 1) return [];
+    limit = Math.floor(limit);
+    var typed = displayName(trimmed);
+    var groups = Object.create(null);
+    var seq = 0;
+    var list = Array.isArray(workouts) ? workouts : [];
+    list.forEach(function (w) {
+      if (!ownWorkout(w)) return;
+      var at = usedAt(w);
+      var items = Array.isArray(w.items) ? w.items : [];
+      items.forEach(function (it) {
+        if (!it || it.mode !== 'stopwatch') return;
+        var cfg = it.modeConfig || {};
+        if (cfg.lapsEnabled === false) return;
+        var events = Array.isArray(cfg.events) ? cfg.events : [];
+        events.forEach(function (ev) {
+          seq += 1;
+          if (!ev) return;
+          var shown = displayName(ev.name);
+          var key = compactName(shown);
+          if (!key) return;
+          var group = groups[key];
+          if (!group) group = groups[key] = { spellings: Object.create(null), count: 0, at: at, seq: seq };
+          group.count += 1;
+          if (at > group.at || (at === group.at && seq >= group.seq)) {
+            group.at = at;
+            group.seq = seq;
+          }
+          var spelling = group.spellings[shown];
+          if (!spelling) spelling = group.spellings[shown] = { count: 0, at: -1, seq: -1 };
+          spelling.count += 1;
+          if (at > spelling.at || (at === spelling.at && seq >= spelling.seq)) {
+            spelling.at = at;
+            spelling.seq = seq;
+          }
+        });
+      });
+    });
+    var ranked = [];
+    Object.keys(groups).forEach(function (key) {
+      var group = groups[key];
+      var tier = 0;
+      Object.keys(group.spellings).forEach(function (name) {
+        var next = matchTier(trimmed, name);
+        if (next > tier) tier = next;
+      });
+      if (!tier) return;
+      var name = canonicalSpelling(group.spellings);
+      if (name === typed) return;
+      ranked.push({
+        name: name,
+        tier: tier,
+        at: group.at,
+        seq: group.seq,
+        count: group.count
+      });
+    });
+    ranked.sort(function (a, b) {
+      return (b.tier - a.tier) || (b.at - a.at) || (b.count - a.count) || (b.seq - a.seq) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    });
+    return ranked.slice(0, limit).map(function (row) { return row.name; });
+  }
+
+  var api = { suggestNames: suggestNames, suggestEventNames: suggestEventNames };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBNames = api;
 })(this);
