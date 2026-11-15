@@ -74,6 +74,7 @@
       sourceTrainerId: remote.sourceTrainerId,
       sourceTrainerEmail: remote.sourceTrainerEmail || '',
       sourceTrainerName: remote.sourceTrainerName || '',
+      sourceTrainerVerified: !!remote.sourceTrainerVerified,
       sourceWorkoutId: remote.sourceWorkoutId || '',
       createdAt: stamp(remote.createdAt || remote.updatedAt),
       updatedAt: stamp(remote.updatedAt)
@@ -102,8 +103,11 @@
       }
       seen[String(w.id)] = 1;
       var copy = asCopy(row);
-      if (canEdit && (w.updatedAt || 0) > copy.updatedAt) next.push(w);
-      else next.push(copy);
+      if (canEdit && (w.updatedAt || 0) > copy.updatedAt) {
+        if (copy.sourceTrainerVerified) w.sourceTrainerVerified = true;
+        else delete w.sourceTrainerVerified;
+        next.push(w);
+      } else next.push(copy);
     });
     (remote || []).forEach(function (row) {
       if (!row || !row.id || seen[String(row.id)] || gone[String(row.id)]) return;
@@ -170,7 +174,7 @@
     try { return decodeURIComponent(parts[1]); } catch (e) { return parts[1]; }
   }
   function lockedHtml(w) {
-    var h = '<span class="tag">From ' + esc((root.WBProfile ? WBProfile.fromTrainer(w) : w.sourceTrainerEmail) || 'your trainer') + '</span>';
+    var h = '<span class="tag">From ' + (root.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(w.sourceTrainerEmail || 'your trainer')) + '</span>';
     h += '<p class="mute" id="copy-note">You can run this copy. Only an Enthusiast can edit it. Your trainer\'s workout stays as it is.</p>';
     (w.items || []).forEach(function (it) {
       var line = '';
@@ -379,7 +383,7 @@
       var edit = canEditCopy(profile, w);
       var n = (w.items || []).length;
       h += '<div class="card" data-copy="' + esc(w.id) + '"><div class="row"><div class="name grow">' + esc(w.name) + '</div>' +
-        '<span class="tag">From ' + esc((root.WBProfile ? WBProfile.fromTrainer(w) : w.sourceTrainerEmail) || 'your trainer') + '</span></div>';
+        '<span class="tag">From ' + (root.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(w.sourceTrainerEmail || 'your trainer')) + '</span></div>';
       h += '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + ' · ' + (edit ? 'You can edit it' : 'You can run it') + '</div>';
       h += '<div class="actions"><button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Open</button>';
       if (n) h += '<button type="button" class="sm" data-run-copy="' + esc(w.id) + '">Run</button>';

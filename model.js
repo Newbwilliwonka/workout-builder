@@ -261,7 +261,7 @@
   function duplicateWorkout(w) {
     var c = clone(w), map = {}, copies = [], seen = {};
     c.id = uid('wo'); c.name = w.name + ' (copy)'; c.createdAt = c.updatedAt = Date.now();
-    delete c.sourceTrainerId; delete c.sourceTrainerEmail; delete c.sourceWorkoutId;
+    delete c.sourceTrainerId; delete c.sourceTrainerEmail; delete c.sourceTrainerName; delete c.sourceTrainerVerified; delete c.sourceWorkoutId;
     c.items.forEach(function (it) {
       it.id = uid('ex');
       if (it.groupId) { map[it.groupId] = map[it.groupId] || uid('grp'); it.groupId = map[it.groupId]; }

@@ -99,6 +99,7 @@
     if (page === 'send') return go('#/');
     if (page === 'received') return go(hashBody().split('/')[1] ? '#/received' : '#/account');
     if (page === 'client') return go('#/account');
+    if (page === 'admin') return go('#/account');
     if (page === 'w') {
       var segs = hashBody().split('/');
       if (segs.length > 2) return go('#/w/' + segs[1]);
@@ -286,7 +287,7 @@
   }
   function copyNote(w) {
     if (!w || !w.sourceTrainerId) return '';
-    return '<span class="tag">From ' + esc(trainerFrom(w) || 'your trainer') + '</span>' +
+    return '<span class="tag">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'your trainer')) + '</span>' +
       '<p class="mute" id="copy-note">Copy from your trainer. Edits stay on this copy and do not change their workout.</p>';
   }
   function ensureProfile() {
@@ -303,7 +304,7 @@
   function listSig(list) {
     return (list || []).map(function (w) {
       if (!w) return '';
-      return [w.id, w.name, w.updatedAt || 0, w.sourceTrainerId || '', w.items ? w.items.length : 0].join('~');
+      return [w.id, w.name, w.updatedAt || 0, w.sourceTrainerId || '', w.items ? w.items.length : 0, w.sourceTrainerVerified ? 1 : 0].join('~');
     }).join('|');
   }
   function applyCopies(list) {
@@ -1234,6 +1235,7 @@
     }
   }
   function openSignedIn(token, requested, page) {
+    if (page === 'admin') return renderVerifications();
     loadGateProfile().then(function (gate) {
       if (token !== routeToken || location.hash !== requested) return;
       var profile = gate.profile;
@@ -1349,7 +1351,8 @@
     var h = '<div class="card" id="redeem">';
     var linked = !!(conn && conn.trainerId);
     if (linked) {
-      h += '<div class="name">Your trainer</div><p class="mute">' + esc(personLabel({ name: conn.trainerName, email: conn.trainerEmail }) || 'Connected') + '</p>';
+      var trainerName = personLabel({ name: conn.trainerName, email: conn.trainerEmail }) || 'Connected';
+      h += '<div class="name">Your trainer</div><p class="mute">' + (window.WBProfile ? WBProfile.nameHtml(trainerName, !!conn.verified) : esc(trainerName)) + '</p>';
       h += '<button class="danger" data-invite="end-self" style="width:100%">End connection</button>';
     }
     h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
@@ -1775,9 +1778,14 @@
     }
     var existing = document.getElementById('profile-sheet');
     if (existing) existing.remove();
+    var master = profile.membership === 'master_trainer';
+    var nameVerified = window.WBProfile && WBProfile.isVerified(profile.verified_until, WBProfile.todayISO());
     document.body.insertAdjacentHTML('beforeend', WBProfile.sheetHtml({
       required: !!opts.required,
       unavailable: profile.profileReady !== true,
+      master: master,
+      verified: nameVerified,
+      verified_until: profile.verified_until || '',
       display_name: profile.display_name || '',
       city: profile.city || '',
       state: profile.state || '',
@@ -1870,7 +1878,10 @@
       if (e.target && e.target.id === 'profile-sheet' && !profileSheetRequired) closeProfileSheet(true);
       if (e.target && e.target.closest && e.target.closest('#profile-cancel')) closeProfileSheet(true);
       if (e.target && e.target.closest && e.target.closest('#profile-save')) saveProfileFromSheet(profile, readFields, mark, showErr);
+      if (e.target && e.target.closest && e.target.closest('#verify-open')) openVerifyForm();
+      if (e.target && e.target.closest && e.target.closest('#verify-submit')) submitVerification(profile);
     });
+    if (master && !nameVerified) loadVerification(profile);
     if (!profile.avatarUrl && profile.avatar_path && WBAuth.avatarUrl) {
       WBAuth.avatarUrl(profile.avatar_path).then(function (url) {
         var photoEl = document.getElementById('profile-photo');
@@ -1881,6 +1892,98 @@
       try { nameEl.focus(); } catch (err) {}
     }
     syncHeaderSignOut();
+  }
+  function paintVerification(profile, extra) {
+    var slot = document.getElementById('verify-slot');
+    if (!slot || !window.WBProfile) return;
+    var view = WBProfile.verificationView({
+      membership: profile.membership,
+      verifiedUntil: profile.verified_until,
+      requests: profile.verificationRequests || [],
+      today: WBProfile.todayISO()
+    });
+    if (extra && extra.unavailable) view = { show: true, verified: false, mode: 'open', note: view.note, link: false, unavailable: extra.unavailable };
+    slot.innerHTML = WBProfile.verifyAreaHtml(view);
+  }
+  function openVerifyForm() {
+    var form = document.getElementById('verify-form');
+    var link = document.getElementById('verify-open');
+    if (link) link.hidden = true;
+    if (!form) return;
+    form.hidden = false;
+    var first = document.getElementById('verify-body');
+    if (first) { try { first.focus(); } catch (err) {} }
+  }
+  function markVerify(empty) {
+    [['verify-body', 'body'], ['verify-number', 'number'], ['verify-expires', 'expires']].forEach(function (pair) {
+      var field = document.getElementById(pair[0]);
+      if (!field) return;
+      if (empty && empty[pair[1]]) {
+        field.classList.add('is-empty');
+        field.setAttribute('aria-invalid', 'true');
+      } else {
+        field.classList.remove('is-empty');
+        field.removeAttribute('aria-invalid');
+      }
+    });
+  }
+  function showVerifyErr(msg) {
+    var errEl = document.getElementById('verify-error');
+    if (!errEl) return;
+    if (!msg) { errEl.hidden = true; errEl.textContent = ''; return; }
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  }
+  function loadVerification(profile) {
+    if (!WBAuth.myVerifications) {
+      paintVerification(profile, { unavailable: 'Verification is not available yet. Apply the verification SQL in the Supabase SQL editor.' });
+      return;
+    }
+    var token = routeToken;
+    WBAuth.myVerifications().then(function (rows) {
+      if (token !== routeToken || !document.getElementById('verify-slot')) return;
+      profile.verificationRequests = Array.isArray(rows) ? rows : [];
+      if (cachedProfile && cachedProfile.id === profile.id) cachedProfile.verificationRequests = profile.verificationRequests;
+      paintVerification(profile);
+    }, function (err) {
+      if (token !== routeToken || !document.getElementById('verify-slot')) return;
+      var unavailable = err && /not available yet/i.test(err.message || '');
+      if (unavailable) {
+        paintVerification(profile, { unavailable: err.message });
+        return;
+      }
+      paintVerification(profile);
+    });
+  }
+  function submitVerification(profile) {
+    if (!window.WBProfile) return;
+    var bodyEl = document.getElementById('verify-body');
+    var numberEl = document.getElementById('verify-number');
+    var expEl = document.getElementById('verify-expires');
+    var result = WBProfile.validateVerification({
+      cert_body: bodyEl ? bodyEl.value : '',
+      cert_number: numberEl ? numberEl.value : '',
+      expires_on: expEl ? expEl.value : ''
+    }, WBProfile.todayISO());
+    markVerify(result.empty);
+    if (!result.ok) {
+      showVerifyErr(result.message);
+      return;
+    }
+    if (!WBAuth.submitVerification) {
+      showVerifyErr('Verification is not available yet. Apply the verification SQL in the Supabase SQL editor.');
+      return;
+    }
+    var btn = document.getElementById('verify-submit');
+    if (btn) btn.disabled = true;
+    WBAuth.submitVerification(result.fields).then(function (row) {
+      profile.verificationRequests = [row || { status: 'pending' }].concat(profile.verificationRequests || []);
+      if (cachedProfile && cachedProfile.id === profile.id) cachedProfile.verificationRequests = profile.verificationRequests;
+      paintVerification(profile);
+    }, function (err) {
+      if (btn) btn.disabled = false;
+      showVerifyErr((err && err.message) || 'Could not save verification.');
+    });
   }
   function saveProfileFromSheet(profile, readFields, mark, showErr) {
     var result = readFields();
@@ -2064,10 +2167,12 @@
     var h = '<div class="gate">';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     var who = personLabel({ display_name: profile && profile.display_name, email: session.user && session.user.email }) || 'Signed in';
+    var verifiedName = window.WBProfile && WBProfile.isVerified(profile && profile.verified_until, WBProfile.todayISO());
+    var whoHtml = window.WBProfile ? WBProfile.nameHtml(who, verifiedName) : esc(who);
     h += '<div class="card" id="account-card"><div class="account-id">' +
       '<button type="button" class="avatar" id="profile-open" aria-label="Profile">' +
       (window.WBProfile ? WBProfile.personIcon() : '') + '</button>' +
-      '<div class="grow"><div class="name" id="account-label">' + esc(who) + '</div>' +
+      '<div class="grow"><div class="name" id="account-label">' + whoHtml + '</div>' +
       '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p></div></div></div>';
     var trainerNav = window.WBInvites && WBInvites.trainerRole(profile);
     h += '<div class="row" id="account-nav" style="margin-bottom:12px">' +
@@ -2076,6 +2181,9 @@
         ? '<button id="send-nav" class="grow" type="button" data-go="send">Send workout</button>'
         : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>') +
       '</div>';
+    if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) {
+      h += '<p class="admin-link"><a id="admin-verifications" href="#/admin/verifications">Verification requests</a></p>';
+    }
     if (conn && conn.trainerId) h += redeemCard(conn, profile);
     var shareHere = !!(window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile) && conn && conn.trainerId);
     if (shareHere) h += '<div id="share-slot"></div>';
@@ -2096,6 +2204,104 @@
       if (e.target.closest('#share-account')) { toggleShare(); return; }
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
     };
+  }
+  function renderVerifications() {
+    titleEl.textContent = 'Verifications';
+    backBtn.hidden = false;
+    app.innerHTML = '<p class="mute">Loading…</p>';
+    app.onclick = null;
+    var requested = location.hash;
+    WBAuth.session().then(function (session) {
+      if (hashPage() !== 'admin' || location.hash !== requested) return;
+      if (!session) return go('#/signin');
+      var email = session.user && session.user.email;
+      if (!window.WBProfile || !WBProfile.isAdminEmail(email)) {
+        app.innerHTML = '<div class="card" id="verify-admin-denied"><div class="name">Only the admin can open this page</div></div>';
+        return;
+      }
+      if (!WBAuth.verificationQueue) {
+        app.innerHTML = '<div class="card" id="verify-wait"><div class="name">Not available yet</div><p class="mute">Verification is not available yet. Apply the verification SQL in the Supabase SQL editor.</p></div>';
+        return;
+      }
+      WBAuth.verificationQueue().then(function (rows) {
+        if (hashPage() !== 'admin' || location.hash !== requested) return;
+        drawVerificationQueue(Array.isArray(rows) ? rows : []);
+      }, function (err) {
+        if (hashPage() !== 'admin' || location.hash !== requested) return;
+        app.innerHTML = '<div class="errs" id="verify-admin-error">' + esc((err && err.message) || 'Could not load verification requests.') + '</div>';
+      });
+    }).catch(function () {
+      if (hashPage() === 'admin') go('#/signin');
+    });
+  }
+  function drawVerificationQueue(rows) {
+    var h = '<div id="verify-queue">';
+    if (!rows.length) h += '<div class="empty" id="verify-empty">No pending requests.</div>';
+    rows.forEach(function (row) {
+      var id = row.id;
+      var name = row.display_name || row.name || 'Trainer';
+      h += '<article class="card" data-request="' + esc(id) + '">';
+      h += '<div class="name">' + esc(name) + '</div>';
+      h += '<p class="mute">' + esc(row.email || '') + '</p>';
+      h += '<p class="verify-meta">Certifying organization<br><b>' + esc(row.cert_body || '') + '</b></p>';
+      h += '<p class="verify-meta">Certification number<br><b>' + esc(row.cert_number || '') + '</b></p>';
+      h += '<p class="verify-meta">Expiration date<br><b>' + esc(window.WBProfile ? WBProfile.formatDay(row.expires_on) : (row.expires_on || '')) + '</b></p>';
+      h += '<p class="verify-meta">Submitted<br><b>' + esc(window.WBProfile ? WBProfile.formatDay(row.created_at) : '') + '</b></p>';
+      h += '<div class="actions"><button type="button" class="pri" data-verify="approve" data-id="' + esc(id) + '">Approve</button>';
+      h += '<button type="button" data-verify="decline" data-id="' + esc(id) + '">Decline</button></div>';
+      h += '<div class="decline-box" id="decline-' + esc(id) + '" hidden>';
+      h += '<label for="note-' + esc(id) + '">Note</label>';
+      h += '<textarea id="note-' + esc(id) + '" maxlength="280" placeholder="Short note for the trainer"></textarea>';
+      h += '<p class="errs" id="note-err-' + esc(id) + '" hidden>Enter a note.</p>';
+      h += '<button type="button" class="danger" data-verify="confirm-decline" data-id="' + esc(id) + '" style="width:100%;margin-top:8px">Decline request</button>';
+      h += '</div></article>';
+    });
+    h += '</div>';
+    app.innerHTML = h;
+    app.onclick = function (e) {
+      var btn = e.target.closest('[data-verify]');
+      if (!btn || btn.disabled) return;
+      var id = btn.getAttribute('data-id');
+      var action = btn.getAttribute('data-verify');
+      if (action === 'decline') {
+        var box = document.getElementById('decline-' + id);
+        if (box) box.hidden = false;
+        var note = document.getElementById('note-' + id);
+        if (note) { try { note.focus(); } catch (err) {} }
+        return;
+      }
+      if (action === 'approve') return reviewVerification(id, 'approved', '');
+      if (action === 'confirm-decline') {
+        var text = document.getElementById('note-' + id);
+        var result = window.WBProfile ? WBProfile.validateDecline(text ? text.value : '') : { ok: false, message: 'Enter a note.' };
+        var errEl = document.getElementById('note-err-' + id);
+        if (!result.ok) {
+          if (errEl) { errEl.hidden = false; errEl.textContent = result.message || 'Enter a note.'; }
+          if (text) { text.classList.add('is-empty'); text.setAttribute('aria-invalid', 'true'); }
+          return;
+        }
+        if (text) { text.classList.remove('is-empty'); text.removeAttribute('aria-invalid'); }
+        if (errEl) errEl.hidden = true;
+        return reviewVerification(id, 'declined', result.note);
+      }
+    };
+  }
+  function reviewVerification(id, status, note) {
+    if (!WBAuth.reviewVerification) return;
+    var buttons = app.querySelectorAll('[data-verify]');
+    Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
+    WBAuth.reviewVerification(id, status, note).then(function () {
+      renderVerifications();
+    }, function (err) {
+      Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; });
+      var errEl = document.getElementById('note-err-' + id);
+      if (status === 'declined' && errEl) {
+        errEl.hidden = false;
+        errEl.textContent = (err && err.message) || 'Could not decline that request.';
+        return;
+      }
+      app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not review that request.') + '</div>');
+    });
   }
   function showBuilder() {
     ensureShare();
@@ -2500,7 +2706,7 @@
       var n = Array.isArray(w.items) ? w.items.length : 0, nW = data.workouts.length;
       var locked = copyLocked(w);
       h += '<div class="card">';
-      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + esc(trainerFrom(w) || 'your trainer') + '</span>';
+      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'your trainer')) + '</span>';
       h += '<div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
         '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') +
         (w.sourceTrainerId ? (locked ? ' · You can run it' : ' · You can edit it') : '') + '</div><div class="actions">';

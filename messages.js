@@ -194,7 +194,7 @@
     var unread = Number(p.unread) || 0;
     return '<button type="button" class="person" data-thread="' + esc(p.id) + '">' +
       '<span class="ava" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(p.name)) + '</span>' +
-      '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + esc(p.name) + '</span>' +
+      '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + (root.WBProfile ? WBProfile.nameHtml(p.name, !!p.verified) : esc(p.name)) + '</span>' +
       '<span class="mute" style="margin-left:auto">' + esc(whenLabel(p.at)) + '</span></span>' +
       '<span class="preview">' + esc(p.preview || 'No messages yet') + '</span>' +
       '<span class="mute">' + esc(p.plan || '') + '</span></span>' +
@@ -266,7 +266,8 @@
       return;
     }
     openId = id;
-    ctx.titleEl.textContent = person.name || 'Messages';
+    if (root.WBProfile && person.verified) ctx.titleEl.innerHTML = WBProfile.nameHtml(person.name || 'Messages', true);
+    else ctx.titleEl.textContent = person.name || 'Messages';
     ctx.backBtn.hidden = false;
     var plan = person.plan || '';
     var sub = plan ? plan + (plan !== 'Trainer' ? ' · linked client' : '') : '';
