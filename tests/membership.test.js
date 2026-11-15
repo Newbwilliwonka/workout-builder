@@ -101,10 +101,10 @@ assert.strictEqual(byId.master_trainer.value, 'Coach a larger roster.');
 assert.strictEqual(byId.master_trainer.cta, 'Choose Master Trainer');
 assert.deepStrictEqual(byId.master_trainer.available, [
   'Everything in Trainer, plus:',
-  'Invite up to 30 clients and enthusiasts'
+  'Invite up to 30 clients and enthusiasts',
+  'Show a verified certification on your profile'
 ]);
 assert.deepStrictEqual(byId.master_trainer.comingSoon, [
-  'Show a verified certification on your profile',
   'Team Training and Team Drills with tracking'
 ]);
 assert.strictEqual(byId.master_trainer.highlight, 'Get found in the Trainer Hub by clients who already train with a coach or pay for training');

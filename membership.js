@@ -110,10 +110,10 @@
       value: 'Coach a larger roster.',
       available: [
         'Everything in Trainer, plus:',
-        'Invite up to 30 clients and enthusiasts'
+        'Invite up to 30 clients and enthusiasts',
+        'Show a verified certification on your profile'
       ],
       comingSoon: [
-        'Show a verified certification on your profile',
         'Team Training and Team Drills with tracking'
       ],
       highlight: 'Get found in the Trainer Hub by clients who already train with a coach or pay for training',
