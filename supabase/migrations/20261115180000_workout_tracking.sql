@@ -21,6 +21,8 @@
 --     A stable id per person for an exercise they typed in. Renaming it
 --     updates the name and keeps the id, so older sets stay on the same
 --     exercise. A library exercise stores the library id instead.
+--     A set may use only that client's personal exercise. Removing the
+--     exercise does not remove its sets. Removing the account still does.
 --
 -- Who can see a row (row level security):
 --   The client can read and insert their own sessions and sets, and can
@@ -184,7 +186,8 @@ create table if not exists public.personal_exercises (
   constraint personal_exercises_key_len check (char_length(stable_key) between 1 and 80),
   constraint personal_exercises_key_shape check (stable_key ~ '^[A-Za-z0-9_-]{1,80}$'),
   constraint personal_exercises_name_len check (char_length(btrim(name)) between 1 and 200),
-  constraint personal_exercises_user_key unique (user_id, stable_key)
+  constraint personal_exercises_user_key unique (user_id, stable_key),
+  constraint personal_exercises_id_user unique (id, user_id)
 );
 
 create table if not exists public.workout_sessions (
@@ -227,7 +230,7 @@ create table if not exists public.workout_sets (
   client_id uuid not null references public.profiles (id) on delete cascade,
   step integer not null,
   library_exercise_id text,
-  personal_exercise_id uuid references public.personal_exercises (id) on delete cascade,
+  personal_exercise_id uuid,
   exercise_name text not null,
   mode text not null,
   set_number integer not null,
@@ -276,6 +279,9 @@ create table if not exists public.workout_sets (
     (library_exercise_id is not null and personal_exercise_id is null)
     or (library_exercise_id is null and personal_exercise_id is not null)
   ),
+  constraint workout_sets_personal_owner
+    foreign key (personal_exercise_id, client_id)
+    references public.personal_exercises (id, user_id),
   constraint workout_sets_planned_bw check (planned_bodyweight = false or planned_weight_kg is null),
   constraint workout_sets_actual_bw check (actual_bodyweight = false or actual_weight_kg is null),
   constraint workout_sets_weight_nonneg check (
@@ -432,6 +438,16 @@ declare
   uid uuid := auth.uid();
   st text;
 begin
+  if tg_op <> 'DELETE'
+     and new.personal_exercise_id is not null
+     and not exists (
+       select 1
+       from public.personal_exercises p
+       where p.id = new.personal_exercise_id
+         and p.user_id = new.client_id
+     ) then
+    raise exception 'That exercise belongs to someone else.';
+  end if;
   if uid is null then
     if tg_op = 'DELETE' then return old; end if;
     return new;

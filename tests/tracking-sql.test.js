@@ -263,6 +263,48 @@ begin
   end;
 end $$;
 
+reset role;
+insert into public.trainer_clients (trainer_id, client_id) values ('${T}', '${N}');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${N}', false);
+insert into public.workout_sessions (
+  client_id, local_id, workout_id, workout_name, origin, started_at, time_zone, local_date, status
+) values (
+  '${N}', 'ses_neil', 'wo_neil', 'Neil', 'own', '2026-11-15T23:05:00Z', 'UTC', '2026-11-15', 'in_progress'
+);
+insert into public.personal_exercises (user_id, stable_key, name)
+values ('${N}', 'ex_neil', 'Neil press');
+
+select set_config('request.jwt.claim.sub', '${T}', false);
+do $$
+declare sid uuid; other uuid; own uuid; n int;
+begin
+  select id into sid from public.workout_sessions where local_id = 'ses_neil';
+  select id into other from public.personal_exercises where user_id = '${C}' and stable_key = 'ex_press';
+  select id into own from public.personal_exercises where user_id = '${N}' and stable_key = 'ex_neil';
+  begin
+    insert into public.workout_sets (
+      session_id, client_id, step, personal_exercise_id, exercise_name, mode, set_number,
+      status, logged_by, logged_by_role, display_unit
+    ) values (
+      sid, '${N}', 0, other, 'Press', 'reps', 1,
+      'completed', '${T}', 'trainer', 'kg'
+    );
+    raise exception 'trainer attached another client exercise';
+  exception when others then
+    if sqlerrm not like '%belongs to someone else%' then raise; end if;
+  end;
+  insert into public.workout_sets (
+    session_id, client_id, step, personal_exercise_id, exercise_name, mode, set_number,
+    status, logged_by, logged_by_role, display_unit
+  ) values (
+    sid, '${N}', 0, own, 'Neil press', 'reps', 1,
+    'completed', '${T}', 'trainer', 'kg'
+  );
+  select count(*) into n from public.workout_sets where session_id = sid;
+  if n <> 1 then raise exception 'own exercise was not logged %', n; end if;
+end $$;
+
 select set_config('request.jwt.claim.sub', '${C}', false);
 update public.workout_sessions
   set status = 'completed', ended_at = '2026-11-15T23:20:00Z'
@@ -356,7 +398,7 @@ drop policy if exists workout_sessions_delete_test on public.workout_sessions;
 reset role;
 revoke delete on public.workout_sets from authenticated;
 revoke delete on public.workout_sessions from authenticated;
-update public.trainer_clients set ended_at = now() where trainer_id = '${T}' and client_id = '${C}';
+update public.trainer_clients set ended_at = now() where trainer_id = '${T}';
 set role authenticated;
 select set_config('request.jwt.claim.sub', '${T}', false);
 do $$
@@ -400,6 +442,33 @@ begin
   exception when others then
     if sqlerrm not like '%row-level security%' and sqlerrm not like '%performed it%' then raise; end if;
   end;
+end $$;
+
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+do $$
+declare n int; pid uuid;
+begin
+  select id into pid from public.personal_exercises where user_id = '${C}' and stable_key = 'ex_squat';
+  begin
+    delete from public.personal_exercises where id = pid;
+    raise exception 'an exercise delete was allowed';
+  exception when foreign_key_violation then
+    null;
+  end;
+  select count(*) into n from public.workout_sets where personal_exercise_id = pid;
+  if n <> 2 then raise exception 'exercise delete removed sets %', n; end if;
+end $$;
+delete from auth.users where id = '${C}';
+do $$
+declare n int;
+begin
+  select count(*) into n from public.workout_sets where client_id = '${C}';
+  if n <> 0 then raise exception 'account delete left sets %', n; end if;
+  select count(*) into n from public.personal_exercises where user_id = '${C}';
+  if n <> 0 then raise exception 'account delete left exercises %', n; end if;
+  select count(*) into n from public.workout_sessions where client_id = '${C}';
+  if n <> 0 then raise exception 'account delete left sessions %', n; end if;
 end $$;
 
 reset role;
