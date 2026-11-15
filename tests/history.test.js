@@ -1,8 +1,14 @@
-// Exercise history: own sets, newest first, records, sample data only. No database.
+// Exercise history: own sets, newest first, records. Sample rows stay in this test. No database.
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const H = require('../history.js');
+const sets = require('./history-fixture').sampleSets();
 
-const sets = H.sampleSets();
+const appSrc = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+const historySrc = fs.readFileSync(path.join(__dirname, '../history.js'), 'utf8');
+assert.ok(!/Test account|Alex Rivera|sampleSets|FARMER_PHOTO/.test(historySrc), 'the app history file has no sample account');
+assert.ok(!/historySample|sample=1|preview=history|WBHistory\.sampleSets/.test(appSrc), 'the app cannot open a sample history');
 const list = H.list(sets);
 
 assert.deepStrictEqual(list.map(function (row) { return row.name; }), [
@@ -84,18 +90,23 @@ assert.deepStrictEqual(plank.days[0].sessions[0].sets[0].badges, ['Longest hold'
 assert.strictEqual(plank.days[0].sessions[0].sets[0].planned, '1:00 hold');
 assert.strictEqual(plank.days[1].sessions[0].sets[0].actual, '0:45 hold');
 
-const html = H.listHtml(sets, { sample: true, stillBase: 'https://cdn.example.test/exercises' });
-assert.ok(html.indexOf('Test account · Alex Rivera · sample data') >= 0);
+const html = H.listHtml(sets, { stillBase: 'https://cdn.example.test/exercises' });
+assert.ok(html.indexOf('Test account') < 0);
 assert.ok(html.indexOf('https://cdn.example.test/exercises/still/0101.jpg') >= 0);
 assert.ok(html.indexOf('data-history="lib-0101"') >= 0);
 assert.ok(html.indexOf('No image') < 0);
 const sprintRow = html.slice(html.indexOf('Court sprint') - 200, html.indexOf('Court sprint'));
 assert.ok(sprintRow.indexOf('<img') < 0, 'an exercise with no picture has no thumbnail');
 
-const empty = H.emptyHtml({ sample: true });
+const empty = H.emptyHtml();
 assert.ok(empty.indexOf('No history yet') >= 0);
 assert.ok(empty.indexOf('Finish a workout and your sets will show up here.') >= 0);
-assert.ok(H.listHtml([], { sample: true }).indexOf('id="history-empty"') >= 0);
+assert.ok(empty.indexOf('Test account') < 0);
+assert.ok(H.listHtml([]).indexOf('id="history-empty"') >= 0);
+
+const remote = require('./history-fixture').remoteHistory(sets);
+assert.ok(remote.sets.every(function (row) { return row.removed === false; }));
+assert.strictEqual(H.list(H.fromRows(remote.sessions, remote.sets, remote.exercises)).length, list.length);
 
 const joined = H.fromRows(
   [

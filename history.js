@@ -1,10 +1,9 @@
 /* History for one person's own sets. No network.
    Browser: window.WBHistory. Node: require.
-   Sample rows are a test account for the preview screens. They are not saved. */
+   Rows come from that person's saved sessions. This file has no sample people. */
 (function (root) {
   'use strict';
   var LB_TO_KG = 0.45359237;
-  var FARMER_PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHAAAABwCAIAAABJgmMcAAAD8ElEQVR42u3by5LaMBAFUH1IFlllHQb8EMbjYR7JPqss8/9fEdv4IcsyMOPuVpu6VXeN0amrtjBg0sNPhDAGBAAFKEARgAL0UUGzZIcQBqAABShAEYDqAc3TJ4QwAAUoQAGKAFQPqM32CGEAClCABvPt+w/uABSgAJ2DHvNDlAiARlkXQAEK0DtBtb0gQAEKUIDeBi1sEiXz9Wt7wa8FoAAF6DzBkUcOWl/l8UGv3EM4QC95WNBhhcGHI+Sg9VXkTc3pmMqkN02WGrry9Zcb2i1VZplGjPJmQ8lBgw3dPKinabPD0vNQDtA2oqYmimaePgmA1leRNzUic3PUzFtNMdAmIdNNgl7RzBIJ0Poq8qamLDKOzO/sNxu68or3NXSy5TkWboQ089sNJQf1G5pLmPKCHu2oaR3NLNmJgO4GU+uabgs0NEAvmvtBMz3sBL5Tqq/imHZf887H6AZAC5v6o1Ncc9nU3fjqQb16uqMzS1vNRE6zM738nWA2TJlKap5POWGWtvxgKqzZDVNHM7jlCQUMrebkjjTb8lE0nSOUv+XdeioFPR2zxS2fxATtxmh4y6sEDR+Y+npmUevpbHynpJalpPSg/S1+Oj2v1vPP339LYSqpM0kVg/r7/b7peUWT3NSbpBy73lSlXZ+FkibdDE33X9akNe00Q+fQyxLWUxCDBku6UpPW9Ho99YION6V8AfRTmoSmeeCmpBK0LPLgIZSkntQlDR5F1YH2A3QCulcJuh8/zk+PTSpB+2OTVQxqF45N2kHXnJZYz0+MoC/Px/UJ35fyRC2oM0And6T1FAAFKEABSgRqk+uriqXZgNpHBJX/LC8Beq6K9WlNO9ayZy1Cv+aI+7Rp/C1qT1mOnzgbjvUUZKDznt6/PGHN/pc/gW4qBO0O+af2kB/9Kf2yZnoan9pZvaDegxLNoN4DEV2g/Ri13hhVDOoNUEuiSQzqj9FCMWjBMkAb0NeXE0nGnjrDVC3oMDorh5LEgQz0Yjr2tFQPOh2dVAjEoN6ZVDOod/bUCDovqV5QnnqygE5LalXW0zLVkx7UK2mlsqQVWz0b0LdzSZuRtZVVCNpQOsWkXT496MX0XI1VVafZ7XR6TUZQd55qAz2z1ZMLVK0ptyYjqGeqBJRbkxdUm6mAphRoa6oCtD/cMIK+vz6zppNtcSNqNo79mlnXyw46mNaJCPomoikE6rJG1JRZphxoLFNJTWlQeVNhzQigA6uMpvzSzMdbFSusmrEWFROUzzTiiiKDkrNGX4sKUCpTDQvRArqSVc8SdIF+VlbhOze/3l82kZpvE+9zM6BbCUABClCAIitAf3+cEcIAFKAABSgCUDX5D018RjLka8+LAAAAAElFTkSuQmCC';
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -485,15 +484,11 @@
     });
     return { key: key, name: name || 'Exercise', days: days };
   }
-  function sampleNote() {
-    return '<p class="note" id="history-sample">Test account · Alex Rivera · sample data</p>';
-  }
   function emptyHtml(opts) {
     opts = opts || {};
     var title = opts.unavailable ? 'History is not available yet' : 'No history yet';
     var body = opts.unavailable ? 'Saved sessions are not available yet.' : 'Finish a workout and your sets will show up here.';
-    return (opts.sample ? sampleNote() : '') +
-      '<div class="empty hx-empty" id="history-empty"><div class="name">' + esc(title) + '</div>' + esc(body) + '</div>';
+    return '<div class="empty hx-empty" id="history-empty"><div class="name">' + esc(title) + '</div>' + esc(body) + '</div>';
   }
   function rowHtml(row) {
     var thumb = '';
@@ -513,14 +508,13 @@
     opts = opts || {};
     var rows = decorate(list(sets), opts);
     if (!rows.length) return emptyHtml(opts);
-    return (opts.sample ? sampleNote() : '') +
-      '<input id="history-q" type="search" aria-label="Search exercises" placeholder="Search exercises" autocomplete="off">' +
+    return '<input id="history-q" type="search" aria-label="Search exercises" placeholder="Search exercises" autocomplete="off">' +
       '<div id="history-list">' + itemsHtml(rows) + '</div>';
   }
   function detailHtml(view, opts) {
     opts = opts || {};
     if (!view || !view.days || !view.days.length) return emptyHtml(opts);
-    var h = opts.sample ? sampleNote() : '';
+    var h = '';
     view.days.forEach(function (day) {
       h += '<h2 class="hx-date">' + esc(day.label) + '</h2>';
       day.sessions.forEach(function (session) {
@@ -555,73 +549,6 @@
     });
     return h;
   }
-  function at(y, m, d, hh, mm) { return new Date(y, m - 1, d, hh, mm).getTime(); }
-  function kg(lb) { return Math.round(lb * LB_TO_KG * 1000000) / 1000000; }
-  function lap(n, lapSec, totalSec) { return { n: n, lapSec: lapSec, totalSec: totalSec }; }
-  function sampleSets() {
-    var farmer = 'c0ffee00-0000-4000-8000-000000000001';
-    var sprint = 'c0ffee00-0000-4000-8000-000000000002';
-    var plank = 'c0ffee00-0000-4000-8000-000000000003';
-    function row(over) {
-      return Object.assign({
-        removed: false, status: 'completed', displayUnit: 'lb', workoutName: 'Workout',
-        plannedBodyweight: false, actualBodyweight: false, actualLaps: [], actualEvents: []
-      }, over);
-    }
-    return [
-      row({ sessionId: 'sq-1112', localDate: '2026-11-12', startedAt: at(2026, 11, 12, 18, 40), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 1, plannedReps: 5, plannedWeightKg: kg(205), actualReps: 3, actualWeightKg: kg(225) }),
-      row({ sessionId: 'sq-1112', localDate: '2026-11-12', startedAt: at(2026, 11, 12, 18, 40), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 2, plannedReps: 6, plannedWeightKg: kg(185), actualReps: 8, actualWeightKg: kg(185) }),
-      row({ sessionId: 'sq-1112', localDate: '2026-11-12', startedAt: at(2026, 11, 12, 18, 40), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 3, status: 'skipped', plannedReps: 5, plannedWeightKg: kg(225), actualReps: null, actualWeightKg: null }),
-      row({ sessionId: 'sq-1112', localDate: '2026-11-12', startedAt: at(2026, 11, 12, 18, 40), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 4, removed: true, plannedReps: 1, plannedWeightKg: kg(300), actualReps: 1, actualWeightKg: kg(300) }),
-      row({ sessionId: 'sq-1108', localDate: '2026-11-08', startedAt: at(2026, 11, 8, 19, 5), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 1, plannedReps: 6, plannedWeightKg: kg(185), actualReps: 6, actualWeightKg: kg(185) }),
-      row({ sessionId: 'sq-1108', localDate: '2026-11-08', startedAt: at(2026, 11, 8, 19, 5), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 2, plannedReps: 5, plannedWeightKg: kg(185), actualReps: 5, actualWeightKg: kg(205) }),
-      row({ sessionId: 'sq-1101', localDate: '2026-11-01', startedAt: at(2026, 11, 1, 8, 15), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 1, plannedReps: 5, plannedWeightKg: kg(185), actualReps: 5, actualWeightKg: kg(185) }),
-      row({ sessionId: 'sq-1101', localDate: '2026-11-01', startedAt: at(2026, 11, 1, 8, 15), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 2, plannedReps: 5, plannedWeightKg: kg(185), actualReps: 5, actualWeightKg: kg(175) }),
-      row({ sessionId: 'sq-1022', localDate: '2026-10-22', startedAt: at(2026, 10, 22, 18, 10), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 1, plannedReps: 8, plannedWeightKg: kg(135), actualReps: 8, actualWeightKg: kg(135) }),
-      row({ sessionId: 'sq-1022', localDate: '2026-10-22', startedAt: at(2026, 10, 22, 18, 10), workoutName: 'Lower strength', exerciseName: 'Barbell squat', libraryExerciseId: '0101', mode: 'reps', setNumber: 2, plannedReps: 8, plannedWeightKg: kg(135), actualReps: 8, actualWeightKg: kg(135) }),
-
-      row({
-        sessionId: 'sp-1114', localDate: '2026-11-14', startedAt: at(2026, 11, 14, 17, 15), workoutName: 'Conditioning', exerciseName: 'Court sprint', personalExerciseId: sprint, stableKey: 'ex_sprint', mode: 'stopwatch', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedLapCount: 5, actualTotalSec: 72.4,
-        actualLaps: [lap(1, 18.4, 18.4), lap(2, 17.55, 35.95), lap(3, 19.1, 55.05), lap(4, 17.35, 72.4)],
-        actualEvents: [
-          { lap: 1, name: 'First cone', result: 'pass' },
-          { lap: 2, name: 'Turn', result: 'pass' },
-          { lap: 3, name: 'Drop', result: 'fail' },
-          { lap: 4, name: 'Finish', result: 'pass' }
-        ]
-      }),
-      row({
-        sessionId: 'sp-1107', localDate: '2026-11-07', startedAt: at(2026, 11, 7, 17, 20), workoutName: 'Conditioning', exerciseName: 'Court sprint', personalExerciseId: sprint, stableKey: 'ex_sprint', mode: 'stopwatch', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedLapCount: 4, actualTotalSec: 92.3,
-        actualLaps: [lap(1, 22.1, 22.1), lap(2, 23.4, 45.5), lap(3, 24, 69.5), lap(4, 22.8, 92.3)],
-        actualEvents: [
-          { lap: 1, name: 'First cone', result: 'pass' },
-          { lap: 2, name: 'Turn', result: 'fail' },
-          { lap: 3, name: 'Drop', result: 'fail' },
-          { lap: 4, name: 'Finish', result: 'pass' }
-        ]
-      }),
-      row({
-        sessionId: 'sp-1030', localDate: '2026-10-30', startedAt: at(2026, 10, 30, 17, 5), workoutName: 'Conditioning', exerciseName: 'Court sprint', personalExerciseId: sprint, stableKey: 'ex_sprint', mode: 'stopwatch', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedLapCount: 4, actualTotalSec: 100.2,
-        actualLaps: [lap(1, 24.2, 24.2), lap(2, 25.1, 49.3), lap(3, 26.4, 75.7), lap(4, 24.5, 100.2)],
-        actualEvents: [{ lap: 4, name: 'Finish', result: 'pass' }]
-      }),
-
-      row({ sessionId: 'fa-1111', localDate: '2026-11-11', startedAt: at(2026, 11, 11, 7, 30), workoutName: 'Strongman', exerciseName: 'Farmer carry', personalExerciseId: farmer, stableKey: 'ex_farmer', imageUrl: FARMER_PHOTO, mode: 'reps', setNumber: 1, plannedReps: 16, plannedWeightKg: kg(50), actualReps: 20, actualWeightKg: kg(50) }),
-      row({ sessionId: 'fa-1104', localDate: '2026-11-04', startedAt: at(2026, 11, 4, 7, 30), workoutName: 'Strongman', exerciseName: 'Farmer carry', personalExerciseId: farmer, stableKey: 'ex_farmer', imageUrl: FARMER_PHOTO, mode: 'reps', setNumber: 1, plannedReps: 16, plannedWeightKg: kg(50), actualReps: 16, actualWeightKg: kg(50) }),
-
-      row({ sessionId: 'fp-1110', localDate: '2026-11-10', startedAt: at(2026, 11, 10, 12, 10), workoutName: 'Upper pump', exerciseName: 'Face pull', libraryExerciseId: '0201', mode: 'timer', displayUnit: 'kg', setNumber: 1, plannedWorkSec: 40, plannedRestSec: 15, plannedReps: 12, plannedWeightKg: 15, actualWorkSec: 40, actualRestSec: 20, actualReps: 12, actualWeightKg: 15 }),
-      row({ sessionId: 'fp-1103', localDate: '2026-11-03', startedAt: at(2026, 11, 3, 12, 10), workoutName: 'Upper pump', exerciseName: 'Face pull', libraryExerciseId: '0201', mode: 'timer', displayUnit: 'kg', setNumber: 1, plannedWorkSec: 40, plannedRestSec: 15, plannedReps: 12, plannedWeightKg: 15, actualWorkSec: 40, actualRestSec: 15, actualReps: 12, actualWeightKg: 15 }),
-
-      row({ sessionId: 'bu-1109', localDate: '2026-11-09', startedAt: at(2026, 11, 9, 18, 0), workoutName: 'Lower strength', exerciseName: 'Bulgarian split squat', libraryExerciseId: '1001', mode: 'reps', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedReps: 10, actualReps: 12 }),
-      row({ sessionId: 'bu-1103b', localDate: '2026-11-03', startedAt: at(2026, 11, 3, 18, 0), workoutName: 'Lower strength', exerciseName: 'Bulgarian split squat', libraryExerciseId: '1001', mode: 'reps', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedReps: 10, actualReps: 10 }),
-
-      row({ sessionId: 'cr-1106', localDate: '2026-11-06', startedAt: at(2026, 11, 6, 6, 45), workoutName: 'Core', exerciseName: 'Crunch', libraryExerciseId: '0001', mode: 'intervals', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedWorkSec: 30, plannedRounds: 10, actualWorkSec: 30, actualRounds: 8 }),
-      row({ sessionId: 'cr-1030', localDate: '2026-10-30', startedAt: at(2026, 10, 30, 6, 45), workoutName: 'Core', exerciseName: 'Crunch', libraryExerciseId: '0001', mode: 'intervals', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedWorkSec: 30, plannedRounds: 8, actualWorkSec: 30, actualRounds: 8 }),
-
-      row({ sessionId: 'pl-1105', localDate: '2026-11-05', startedAt: at(2026, 11, 5, 6, 50), workoutName: 'Core', exerciseName: 'Plank', personalExerciseId: plank, stableKey: 'ex_plank', mode: 'static_hold', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedHoldSec: 60, actualHoldSec: 75 }),
-      row({ sessionId: 'pl-1028', localDate: '2026-10-28', startedAt: at(2026, 10, 28, 6, 50), workoutName: 'Core', exerciseName: 'Plank', personalExerciseId: plank, stableKey: 'ex_plank', mode: 'static_hold', displayUnit: 'bodyweight', setNumber: 1, plannedBodyweight: true, actualBodyweight: true, plannedHoldSec: 60, actualHoldSec: 45 })
-    ];
-  }
 
   var api = {
     exerciseKey: exerciseKey,
@@ -634,7 +561,6 @@
     itemsHtml: itemsHtml,
     detailHtml: detailHtml,
     emptyHtml: emptyHtml,
-    sampleSets: sampleSets,
     stillUrl: stillUrl,
     formatDay: formatDay,
     clock: clock

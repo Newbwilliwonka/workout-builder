@@ -94,10 +94,7 @@
       return go('#/');
     }
     if (page === 'history') {
-      if (hashBody().split('/')[1]) {
-        var sample = historySample();
-        return go('#/history' + (sample ? '?sample=' + sample : ''));
-      }
+      if (hashBody().split('/')[1]) return go('#/history');
       return go('#/');
     }
     var p = location.hash.split('/');
@@ -1253,7 +1250,7 @@
       syncHeaderSignOut();
       levelNoteOn = false;
       if (programsRequested()) return openPrograms();
-      if (historyPreviewRequested() || page === 'history') return openHistory(token);
+      if (page === 'history') return renderHistory(token);
       if (page === 'account') return renderSimpleAccount();
       if (page === 'messages') return openMessages(token);
       if (page === 'client') {
@@ -2723,30 +2720,6 @@
   });
 
   // ---------- Exercise history ----------
-  function historySample() {
-    try {
-      var v = new URLSearchParams((location.hash.split('?')[1] || '')).get('sample');
-      if (v === 'empty') return 'empty';
-      if (v === '1' || v === 'list') return '1';
-    } catch (e) {}
-    return '';
-  }
-  function historyPreviewRequested() {
-    try { return new URLSearchParams(location.search).get('preview') === 'history'; }
-    catch (e2) { return false; }
-  }
-  function openHistory(token) {
-    if (historyPreviewRequested()) {
-      try {
-        var u = new URL(location.href);
-        u.searchParams.delete('preview');
-        var search = u.searchParams.toString();
-        var hash = hashPage() === 'history' && historySample() ? location.hash : '#/history?sample=1';
-        history.replaceState(null, '', u.pathname + (search ? '?' + search : '') + hash);
-      } catch (e) {}
-    }
-    renderHistory(token);
-  }
   function historyImageKey(stableKey) {
     if (!stableKey) return '';
     var found = '';
@@ -2785,16 +2758,16 @@
       });
     });
   }
-  function historyOpts(sample) {
-    return { sample: !!sample, stillBase: gifBase(), imageKey: historyImageKey };
+  function historyOpts() {
+    return { stillBase: gifBase(), imageKey: historyImageKey };
   }
-  function paintHistory(key, sets, sample, unavailable) {
+  function paintHistory(key, sets, unavailable) {
     if (!window.WBHistory) {
       titleEl.textContent = 'History';
       app.innerHTML = '<div class="empty">History is not available yet.</div>';
       return;
     }
-    var opts = historyOpts(sample);
+    var opts = historyOpts();
     if (unavailable) opts.unavailable = true;
     if (!key) {
       titleEl.textContent = 'History';
@@ -2811,8 +2784,7 @@
       app.onclick = function (e) {
         var button = e.target.closest('[data-history]');
         if (!button) return;
-        var suffix = sample ? '?sample=' + sample : '';
-        go('#/history/' + button.getAttribute('data-history') + suffix);
+        go('#/history/' + button.getAttribute('data-history'));
       };
       return;
     }
@@ -2828,14 +2800,11 @@
     app.oninput = null;
     app.onchange = null;
     var key = hashBody().split('/')[1] || '';
-    var sample = historySample();
     if (!window.WBHistory) {
       titleEl.textContent = 'History';
       app.innerHTML = '<div class="empty">History is not available yet.</div>';
       return;
     }
-    if (sample === 'empty') return paintHistory('', [], 'empty', false);
-    if (sample === '1') return paintHistory(key, WBHistory.sampleSets(), '1', false);
     titleEl.textContent = 'History';
     app.innerHTML = '<p class="mute">Loading…</p>';
     var pending;
@@ -2844,10 +2813,10 @@
     Promise.resolve(pending).then(function (res) {
       if (token !== routeToken || hashPage() !== 'history') return;
       var sets = WBHistory.fromRows(res && res.sessions, res && res.sets, res && res.exercises);
-      paintHistory(key, sets, '', !!(res && (res.unavailable || res.error) && !sets.length));
+      paintHistory(key, sets, !!(res && (res.unavailable || res.error) && !sets.length));
     }, function () {
       if (token !== routeToken || hashPage() !== 'history') return;
-      paintHistory(key, [], '', true);
+      paintHistory(key, [], true);
     });
   }
 

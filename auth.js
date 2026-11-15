@@ -550,7 +550,9 @@
       return db().then(function (c) {
         return c.auth.getSession().then(function (res) {
           var user = userOf(res && res.data && res.data.session);
-          if (!user || !user.id) return { sets: [], sessions: [], exercises: [] };
+          if (!user || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(user.id || ''))) {
+            return { sets: [], sessions: [], exercises: [] };
+          }
           var id = user.id;
           return Promise.all([
             c.from('workout_sessions').select('id,local_date,started_at,ended_at,workout_name,status').eq('client_id', id).in('status', ['completed', 'ended_early']),

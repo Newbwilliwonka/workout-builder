@@ -1,10 +1,12 @@
-// Phone screens for exercise history. Sample rows only. Does not call the database.
+// Phone screens for exercise history. The page reads a stubbed myHistory payload shaped
+// like workout_sessions / workout_sets / personal_exercises. Does not call the database.
 // node tests/history-ui.test.js [url]
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const pp = require('puppeteer-core');
 const M = require('../model.js');
+const remoteHistory = require('./history-fixture').remoteHistory;
 
 const URL = process.argv[2] || 'http://127.0.0.1:8787/';
 const OUT = process.argv[3] || '/opt/cursor/artifacts';
@@ -64,7 +66,7 @@ async function shot(page, name) {
         if (!value) return;
         value.myHistory = function () {
           window.__historyCalls = (window.__historyCalls || 0) + 1;
-          return Promise.resolve({ sets: [], sessions: [], exercises: [] });
+          return Promise.resolve(window.__wbHistoryPayload || { sets: [], sessions: [], exercises: [] });
         };
         ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
@@ -107,17 +109,23 @@ async function shot(page, name) {
   await page.click('#history-open');
   await page.waitForSelector('#history-empty');
   assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'History');
-  assert.ok(!(await page.$('#history-sample')), 'a real visit is not the test account');
+  assert.ok(!(await page.$('#history-sample')), 'a real visit has no test-account banner');
+  const emptyVisit = await page.$eval('#app', function (el) { return el.innerText; });
+  assert.ok(emptyVisit.indexOf('No history yet') >= 0);
+  assert.ok(emptyVisit.indexOf('Test account') < 0);
+  assert.ok(emptyVisit.indexOf('Alex Rivera') < 0);
   assert.strictEqual(await page.evaluate(function () { return window.__historyCalls; }), 1);
+  await shot(page, 'history-empty.png');
 
-  await page.evaluate(function () { window.__historyCalls = 0; });
-  await page.goto(URL + '#/history?sample=1', { waitUntil: 'domcontentloaded' });
+  const payload = remoteHistory();
+  await page.evaluateOnNewDocument(function (rows) { window.__wbHistoryPayload = rows; }, payload);
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#history-list');
   await page.waitForFunction(function () {
     var imgs = Array.prototype.slice.call(document.querySelectorAll('.hx-thumb img'));
-    return imgs.length >= 5 && imgs.every(function (img) { return img.complete && img.naturalWidth > 0; });
+    return imgs.length >= 4 && imgs.every(function (img) { return img.complete && img.naturalWidth > 0; });
   }, { timeout: 15000 });
-  assert.strictEqual(await page.evaluate(function () { return window.__historyCalls || 0; }), 0, 'sample history does not read the database');
+  assert.strictEqual(await page.evaluate(function () { return window.__historyCalls; }), 1, 'history reads the signed-in rows');
   const names = await page.$$eval('.hx-row .name', function (els) { return els.map(function (el) { return el.textContent; }); });
   assert.ok(names.indexOf('Court sprint') === 0);
   assert.ok(names.indexOf('Barbell squat') >= 0);
@@ -130,7 +138,10 @@ async function shot(page, name) {
   });
   assert.strictEqual(thumbs[0].thumb, '');
   assert.ok(thumbs[1].thumb.indexOf('http') === 0);
-  assert.ok(thumbs[2].thumb.indexOf('data:image') === 0);
+  assert.strictEqual(thumbs[2].thumb, '');
+  const listText = await page.$eval('#app', function (el) { return el.innerText; });
+  assert.ok(listText.indexOf('Test account') < 0);
+  assert.ok(listText.indexOf('Alex Rivera') < 0);
   await shot(page, 'history-list.png');
   await page.type('#history-q', 'squat');
   await page.waitForFunction(function () {
@@ -156,12 +167,12 @@ async function shot(page, name) {
   assert.ok(squatText.indexOf('Skipped') >= 0);
   assert.ok(squatText.indexOf('planned 5 × 205 lb') >= 0);
   assert.ok(squatText.indexOf('300') < 0);
-  assert.ok(squatText.indexOf('Test account · Alex Rivera') >= 0);
+  assert.ok(squatText.indexOf('Test account') < 0);
   await shot(page, 'history-reps.png');
 
   await page.click('#back');
   await page.waitForSelector('#history-list');
-  assert.ok(/#\/history\?sample=1$/.test(await page.evaluate(function () { return location.hash; })));
+  assert.strictEqual(await page.evaluate(function () { return location.hash; }), '#/history');
   await page.click('[data-history="own-c0ffee00-0000-4000-8000-000000000002"]');
   await page.waitForSelector('.hx-laps');
   const sprintText = await page.$eval('#app', function (el) { return el.innerText; });
@@ -175,13 +186,17 @@ async function shot(page, name) {
   assert.ok(sprintText.indexOf('planned 5 laps') >= 0);
   await shot(page, 'history-stopwatch.png');
 
-  await page.goto(URL + '#/history?sample=empty', { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('#history-empty');
-  const emptyText = await page.$eval('#history-empty', function (el) { return el.innerText; });
-  assert.ok(emptyText.indexOf('No history yet') >= 0);
-  assert.ok(emptyText.indexOf('Finish a workout and your sets will show up here.') >= 0);
-  assert.ok(await page.$('#history-sample'));
-  await shot(page, 'history-empty.png');
+  await page.evaluate(function () { window.__historyCalls = 0; });
+  await page.goto(URL + '#/history?sample=1', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#history-list');
+  const bypassText = await page.$eval('#app', function (el) { return el.innerText; });
+  assert.ok(bypassText.indexOf('Test account') < 0);
+  assert.ok(bypassText.indexOf('sample data') < 0);
+  assert.ok(!(await page.$('#history-sample')));
+  assert.ok((await page.evaluate(function () { return window.__historyCalls; })) >= 1, 'a sample query still reads the signed-in rows');
+  await page.goto(URL + '?preview=history#/history', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#history-list');
+  assert.ok((await page.$eval('#app', function (el) { return el.innerText; })).indexOf('Test account') < 0);
 
   assert.deepStrictEqual(errors, []);
   console.log('HISTORY UI OK');
