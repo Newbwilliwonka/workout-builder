@@ -38,18 +38,16 @@ assert.strictEqual(byId.enthusiast.beta, true);
 assert.strictEqual(byId.enthusiast.workoutCap, 6);
 assert.strictEqual(byId.enthusiast.clientCap, null);
 assert.strictEqual(byId.enthusiast.value, 'Build your own training, and still work with a coach if you have one.');
+assert.strictEqual(byId.enthusiast.includes, 'Everything in the Free Client subscription, plus:');
+assert.strictEqual(byId.enthusiast.available.indexOf(byId.enthusiast.includes), -1);
 assert.deepStrictEqual(byId.enthusiast.available, [
-  'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
+  'Build workouts with sets and reps, intervals, timers, stopwatch, and supersets',
   'Create your own exercises, rename them, and add a photo',
   'Search 1,300+ exercises',
   'Save up to 6 of your own workouts',
-  'Plan your week on a program calendar',
-  'Receive workouts and programs from your trainer',
+  'Plan your training on a program calendar',
   'Track solo sessions and sessions with your trainer',
   'Share your workouts and tracking with your trainer',
-  'Message your trainer',
-  'Join your trainer with an invite',
-  'Keep your workouts and history if either of you disconnects',
   'Add a bio and location to your profile'
 ]);
 assert.deepStrictEqual(byId.enthusiast.comingSoon, [
@@ -72,7 +70,7 @@ assert.strictEqual(byId.trainer.recommended, true);
 assert.strictEqual(byId.trainer.value, 'Coach your clients from the workout to the calendar.');
 assert.strictEqual(byId.trainer.cta, 'Choose Trainer');
 assert.deepStrictEqual(byId.trainer.available, [
-  'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
+  'Build workouts with sets and reps, intervals, timers, stopwatch, and supersets',
   'Create your own exercises, rename them, and add a photo',
   'Search 1,300+ exercises',
   'Send workouts and programs to clients and enthusiasts',
@@ -130,6 +128,9 @@ assert.strictEqual(Mem.canSelectIntended('master_trainer'), true);
 assert.ok(byId.master_trainer.available.indexOf('Invite up to 15 clients and enthusiasts') === -1);
 assert.strictEqual(byId.free_client.beta, undefined);
 assert.strictEqual(byId.free_client.oldPriceLabel, undefined);
+assert.strictEqual(byId.free_client.includes, undefined);
+assert.strictEqual(byId.trainer.includes, undefined);
+assert.strictEqual(byId.master_trainer.includes, undefined);
 
 assert.strictEqual(Mem.canSelectIntended('none'), false);
 assert.strictEqual(Mem.canSelectIntended(''), false);
