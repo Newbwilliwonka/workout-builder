@@ -2173,7 +2173,7 @@
       '<button type="button" class="avatar" id="profile-open" aria-label="Profile">' +
       (window.WBProfile ? WBProfile.personIcon() : '') + '</button>' +
       '<div class="grow"><div class="name" id="account-label">' + whoHtml + '</div>' +
-      '<p class="mute">' + esc(plan ? plan.name : 'Membership') + '</p></div></div></div>';
+      '<p class="mute">' + esc(plan ? plan.name : 'Membership') + ' · <button type="button" id="profile-edit">Edit profile</button></p></div></div></div>';
     var trainerNav = window.WBInvites && WBInvites.trainerRole(profile);
     h += '<div class="row" id="account-nav" style="margin-bottom:12px">' +
       '<button id="messages-nav" class="grow" type="button" data-go="messages">Messages</button>' +
@@ -2201,7 +2201,7 @@
       if (nav && nav.dataset.go === 'received') return go('#/received');
       var viewBtn = e.target.closest('[data-client-view]');
       if (viewBtn) return go('#/client/' + viewBtn.getAttribute('data-client-view'));
-      if (e.target.closest('#profile-open')) return openProfileSheet(profile, { required: false });
+      if (e.target.closest('#profile-open') || e.target.closest('#profile-edit')) return openProfileSheet(profile, { required: false });
       if (e.target.closest('#share-account')) { toggleShare(); return; }
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
     };
