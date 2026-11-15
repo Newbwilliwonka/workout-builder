@@ -75,7 +75,10 @@ const ART = '/opt/cursor/artifacts';
         window.__requests = [row].concat(window.__requests);
         return Promise.resolve(row);
       };
-      api.verificationQueue = function () { return Promise.resolve(window.__queue.slice()); };
+      api.verificationQueue = function () {
+        window.__queueReads = (window.__queueReads || 0) + 1;
+        return Promise.resolve(window.__queue.slice());
+      };
       api.reviewVerification = function (id, status, note) {
         window.__review = { id: id, status: status, note: note };
         window.__queue = window.__queue.filter(function (row) { return row.id !== id; });
@@ -328,7 +331,30 @@ const ART = '/opt/cursor/artifacts';
     }];
     location.hash = '#/account';
   });
-  await p.waitForSelector('#admin-verifications');
+  await p.waitForFunction(function () {
+    var link = document.getElementById('admin-verifications');
+    var badge = document.getElementById('admin-count');
+    return link && link.textContent === 'Verifications' && badge && !badge.hidden && badge.textContent === '1' && window.__queueReads > 0;
+  });
+  const pendingBadge = await p.evaluate(function () {
+    var badge = document.getElementById('admin-count');
+    var style = getComputedStyle(badge);
+    var box = badge.getBoundingClientRect();
+    return {
+      label: badge.getAttribute('aria-label'),
+      bg: style.backgroundColor,
+      radius: style.borderRadius,
+      round: Math.abs(box.width - box.height) < 1
+    };
+  });
+  assert.strictEqual(pendingBadge.label, '1 pending');
+  assert.strictEqual(pendingBadge.bg, 'rgb(220, 38, 38)');
+  assert.ok(pendingBadge.round, 'badge is not circular');
+  assert.ok(parseFloat(pendingBadge.radius) >= 11);
+  await p.evaluate(function () {
+    document.getElementById('admin-verifications').scrollIntoView({ block: 'center' });
+  });
+  await p.screenshot({ path: ART + '/account-admin-badge.png' });
   await p.click('#admin-verifications');
   await p.waitForSelector('[data-verify="approve"]');
   await p.click('[data-verify="approve"]');
@@ -337,8 +363,14 @@ const ART = '/opt/cursor/artifacts';
   assert.strictEqual(approved.status, 'approved');
   assert.strictEqual(approved.id, 'req-8');
 
-  await p.evaluate(function () { location.hash = '#/account'; });
-  await p.waitForSelector('#account-label');
+  await p.evaluate(function () {
+    window.__queueReads = 0;
+    location.hash = '#/account';
+  });
+  await p.waitForFunction(function () {
+    var badge = document.getElementById('admin-count');
+    return window.__queueReads > 0 && badge && badge.hidden && document.getElementById('admin-verifications');
+  });
   await p.evaluate(function () {
     window.__session.user.email = 'ada@example.com';
     location.hash = '#/admin/verifications';

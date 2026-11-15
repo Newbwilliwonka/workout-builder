@@ -2182,7 +2182,7 @@
         : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>') +
       '</div>';
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) {
-      h += '<p class="admin-link"><a id="admin-verifications" href="#/admin/verifications">Verification requests</a></p>';
+      h += '<p class="admin-link"><a id="admin-verifications" href="#/admin/verifications">Verifications</a><span class="admin-count" id="admin-count" hidden></span></p>';
     }
     if (conn && conn.trainerId) h += redeemCard(conn, profile);
     var shareHere = !!(window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile) && conn && conn.trainerId);
@@ -2192,6 +2192,7 @@
     app.innerHTML = h;
     paintAccountAvatar(profile);
     syncHeaderSignOut();
+    if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) loadPendingCount();
     if (shareHere) loadShare();
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
@@ -2204,6 +2205,34 @@
       if (e.target.closest('#share-account')) { toggleShare(); return; }
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
     };
+  }
+  function paintPendingCount(n) {
+    var badge = document.getElementById('admin-count');
+    if (!badge) return;
+    var count = Math.max(0, Number(n) || 0);
+    if (!count) {
+      badge.hidden = true;
+      badge.textContent = '';
+      badge.removeAttribute('aria-label');
+      return;
+    }
+    badge.hidden = false;
+    badge.textContent = String(count);
+    badge.setAttribute('aria-label', count === 1 ? '1 pending' : (count + ' pending'));
+  }
+  function loadPendingCount() {
+    if (!WBAuth.verificationQueue) return;
+    var token = routeToken;
+    var pending;
+    try { pending = WBAuth.verificationQueue(); }
+    catch (e) { paintPendingCount(0); return; }
+    Promise.resolve(pending).then(function (rows) {
+      if (token !== routeToken || hashPage() !== 'account') return;
+      paintPendingCount(Array.isArray(rows) ? rows.length : 0);
+    }, function () {
+      if (token !== routeToken || hashPage() !== 'account') return;
+      paintPendingCount(0);
+    });
   }
   function renderVerifications() {
     titleEl.textContent = 'Verifications';
