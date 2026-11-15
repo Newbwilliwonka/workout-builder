@@ -1983,7 +1983,9 @@
       h += '<span class="now">' + esc(t.priceLabel) + '</span>';
       if (t.priceCents) h += '<span class="per">/ month</span>';
       h += '</div>';
-      h += '<p class="value">' + esc(t.value) + '</p><ul>';
+      h += '<p class="value">' + esc(t.value) + '</p>';
+      if (t.includes) h += '<p class="includes">' + esc(t.includes) + '</p>';
+      h += '<ul>';
       t.available.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
       h += '</ul><p class="soon">Coming soon</p>';
       if (t.highlight) h += '<div class="hub"><span class="hub-badge">Trainer Hub</span><p>' + esc(t.highlight) + '</p></div>';

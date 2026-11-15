@@ -43,18 +43,15 @@
       clientCap: null,
       recommended: false,
       value: 'Build your own training, and still work with a coach if you have one.',
+      includes: 'Everything in the Free Client subscription, plus:',
       available: [
         'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
         'Create your own exercises, rename them, and add a photo',
         'Search 1,300+ exercises',
         'Save up to 6 of your own workouts',
-        'Plan your week on a program calendar',
-        'Receive workouts and programs from your trainer',
+        'Plan your training on a program calendar',
         'Track solo sessions and sessions with your trainer',
         'Share your workouts and tracking with your trainer',
-        'Message your trainer',
-        'Join your trainer with an invite',
-        'Keep your workouts and history if either of you disconnects',
         'Add a bio and location to your profile'
       ],
       comingSoon: [

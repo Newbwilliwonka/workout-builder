@@ -81,6 +81,7 @@ input.is-empty,textarea.is-empty{border-color:var(--danger);box-shadow:0 0 0 2px
 .plan .price .now{font-size:28px;font-weight:800;letter-spacing:-.03em}
 .plan .price .per{color:var(--mute);font-size:15px;font-weight:600}
 .plan .value{margin:0 0 12px}
+.plan .includes{margin:0 0 6px;font-size:13px;font-weight:600;line-height:1.35;color:var(--mute)}
 .plan ul{margin:0;padding-left:18px}
 .plan li{margin:5px 0}
 .plan .soon{margin:16px 0 6px;font-size:13px;font-weight:700;color:var(--mute)}
