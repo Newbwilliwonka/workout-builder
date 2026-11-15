@@ -142,6 +142,15 @@
     return root + '/' + (view === '360' ? '360' : '180') + '/' + id + '.gif';
   }
 
+  // Static frame for a library exercise. Same id check as exerciseGifUrl.
+  // base is the folder that contains still/. An empty base returns no URL.
+  function exerciseStillUrl(libraryId, base) {
+    var root = String(base == null ? '' : base).trim().replace(/\/+$/, '');
+    var id = String(libraryId || '').trim();
+    if (!root || !/^[A-Za-z0-9_-]{1,32}$/.test(id)) return '';
+    return root + '/still/' + id + '.jpg';
+  }
+
   // Human-readable summary line for list views.
   function summarize(ex) {
     var c = ex.modeConfig || {}, iv = ex.mode === 'intervals', p = [];
@@ -381,7 +390,7 @@
     SCHEMA_VERSION: SCHEMA_VERSION, STORAGE_KEY: STORAGE_KEY, MODES: MODES, REPS_TYPES: REPS_TYPES, UNITS: UNITS,
     SAVE_SESSIONS: SAVE_SESSIONS, REPS_MODE_TYPES: REPS_MODE_TYPES, repsText: repsText, uid: uid, clone: clone, formatStopwatch: formatStopwatch, migrate: migrate, num: num, fmtTime: fmtTime, toSec: toSec,
     defaultModeConfig: defaultModeConfig, newExercise: newExercise, newWorkout: newWorkout, emptyData: emptyData,
-    validateExercise: validateExercise, normalizeExercise: normalizeExercise, cleanMedia: cleanMedia, exerciseGifUrl: exerciseGifUrl, summarize: summarize,
+    validateExercise: validateExercise, normalizeExercise: normalizeExercise, cleanMedia: cleanMedia, exerciseGifUrl: exerciseGifUrl, exerciseStillUrl: exerciseStillUrl, summarize: summarize,
     blocks: blocks, cleanGroups: cleanGroups, upsertExercise: upsertExercise, deleteExercise: deleteExercise,
     moveExercise: moveExercise, moveGroup: moveGroup, supersetLinkSize: supersetLinkSize, linkSuperset: linkSuperset, unlinkGroup: unlinkGroup,
     unlinkExercise: unlinkExercise, duplicateWorkout: duplicateWorkout, buildPlayQueue: buildPlayQueue,

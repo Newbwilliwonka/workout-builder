@@ -37,9 +37,22 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual(await p.evaluate(() => !!document.querySelector('.pl-info').closest('.pl-screen')), false);
   assert.ok(await p.$('.pl-car .pl-chain')); // chain stays on the carousel
   assert.strictEqual(await p.$$eval('.pl-list .pl-chain', a => a.length), 0);
-  assert.strictEqual(await p.$$eval('.pl-ci', a => a[1].querySelector('b').textContent), 'Plank'); // A1 -> B1 order
+  assert.strictEqual(await p.$$eval('.pl-ci', a => a[1].getAttribute('aria-label')), 'Plank'); // A1 -> B1 order, name is the accessible label
+  assert.strictEqual(await p.$$eval('.pl-ci b', a => a.length), 0); // tiles no longer show the exercise name
   assert.strictEqual(await p.$$eval('.pl-ci', a => a.length), 10); assert.strictEqual(await p.$eval('.pl-ci', e => e.classList.contains('cur')), true);
   assert.ok(/Set 1\/2/.test(await p.$eval('.pl-ci', e => e.innerText)));
+  const tile0 = await p.$$eval('.pl-ci', a => a.map(e => ({
+    label: e.getAttribute('aria-label'),
+    set: e.querySelector('span').textContent,
+    named: e.textContent.includes(e.getAttribute('aria-label')),
+    miss: e.querySelector('.pl-miss') && e.querySelector('.pl-miss').textContent,
+    up: !!(e.querySelector('.pl-upnext'))
+  })));
+  assert.deepStrictEqual(tile0.map(t => t.label), ['Goblet squat', 'Plank', 'Goblet squat', 'Plank', 'Bike sprints', 'Bike sprints', 'Jump rope', 'Kettlebell swings', 'Cone shuttle', 'Dumbbell row']);
+  assert.deepStrictEqual(tile0.map(t => t.set), ['Set 1/2', 'Set 1/2', 'Set 2/2', 'Set 2/2', 'Interval 1/2', 'Interval 2/2', 'Interval 1/1', 'Set 1/1', 'Attempt 1/1', 'Set 1/1']);
+  assert.ok(tile0.every(t => !t.named && t.miss === 'No media available'));
+  assert.deepStrictEqual(tile0.map(t => t.up), [false, true, false, false, false, false, false, false, false, false]); // superset round: Plank is up next
+  assert.strictEqual(await p.$eval('.pl-upnext', e => e.textContent), 'Up next');
   assert.strictEqual(await p.$$eval('.pl-car .pl-notes-btn', a => a.length), 0);
   assert.strictEqual(await p.$$eval('.pl-list .pl-notes-btn', a => a.length), 7);
   assert.strictEqual(await p.$$eval('.pl-li.cur, .pl-li.fin', a => a.length), 0);
@@ -70,6 +83,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual(await p.$$eval('.pl-ctl,.pl-go', a => a.length), 0); assert.ok(await p.$('.pl-endw')); assert.strictEqual(await p.$eval('.pl-hint', e => e.textContent), 'Tap for next');
   await wait(400); await p.screenshot({ path: '/workspace/player-superset-v3.png' }); await p.screenshot({ path: '/workspace/player-superset.png' });
   await click('[data-sel="1"]'); assert.strictEqual((await st()).name, 'Plank'); // carousel tap jumps
+  assert.strictEqual(await p.$('.pl-upnext'), null); // Plank is the final exercise of the round, and this is not rest or intervals
   assert.strictEqual(await p.$$eval('.pl-info .pl-name', a => a.map(e => e.textContent).join('|')), 'Plank');
   assert.strictEqual(await p.$('.pl-ss-extra'), null);
   const stay = (await st()).idx;
@@ -90,6 +104,7 @@ const data = M.emptyData(); data.workouts.push(w);
   await adv(5100); assert.strictEqual((await st()).phase, 'work'); await adv(10000); assert.strictEqual((await st()).ro, '0:10');
   await adv(10100); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[1].logged); assert.ok(s.results[0].logged); assert.strictEqual(s.ro, '0:15');
   assert.strictEqual(await p.$('.pl-up'), null); // next exercise lives in the info frame, not a second overlay
+  assert.deepStrictEqual(await p.$$eval('.pl-ci', a => a.map(e => !!e.querySelector('.pl-upnext'))), [false, false, true, false, false, false, false, false, false, false]); // rest: the next set is up next
   assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Goblet squat');
   const restInfo = await p.$eval('.pl-info', e => e.textContent);
   assert.ok(restInfo.includes('135 lb'), restInfo); assert.ok(!/Up next|Set \d+ of/.test(restInfo), restInfo);
@@ -144,6 +159,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), 'Interval');
   await p.screenshot({ path: '/workspace/player-v2.png' });
   assert.strictEqual((await st()).ro, '0:20'); assert.strictEqual(await p.$$eval('.pl-ci', a => a[5].querySelector('span').textContent), 'Interval 2/2');
+  assert.deepStrictEqual(await p.$$eval('.pl-ci', a => a.map(e => !!e.querySelector('.pl-upnext'))), [false, false, false, false, false, true, false, false, false, false]); // next interval of this exercise
   const sched = await p.evaluate(() => WBPlayer.toneSchedule(20, 2));
   assert.deepStrictEqual(sched.map(x => x.t + x.kind[0]).join(' '), '0t 1t 2t 3t 4t 5g 22t 23t 24t 25g 42t 43t 44t 45d');
   await click('[data-st=reps][data-d="-1"]'); await click('[data-p=primary]'); s = await st();
@@ -155,19 +171,23 @@ const data = M.emptyData(); data.workouts.push(w);
   await adv(3100); s = await st(); assert.strictEqual(s.phase, 'work'); assert.strictEqual(s.idx, 4);
   await adv(10000); assert.strictEqual((await st()).ro, '0:10');
   await adv(10000); s = await st(); assert.strictEqual(s.idx, 5); assert.strictEqual(s.phase, 'work'); // auto-advanced, no tap
+  assert.strictEqual(await p.$('.pl-upnext'), null); // last interval: the following exercise is a different one, so no Up next
   assert.ok(s.results[4].logged); assert.strictEqual(s.results[4].reps, 14);
   assert.ok((await p.$eval('.pl-th', e => e.textContent)).includes('Interval 2/2'));
   assert.ok(!/Interval \d+ of/.test(await p.$eval('.pl-meta', e => e.textContent)));
   await adv(20100); s = await st(); assert.strictEqual(s.idx, 6); assert.ok(s.results[5].logged); assert.strictEqual(s.name, 'Jump rope');
   await adv(15000); s = await st(); assert.strictEqual(s.phase, 'ready'); assert.strictEqual(s.ro, '0:10'); // next interval exercise does NOT auto-start
+  assert.strictEqual(await p.$('.pl-upnext'), null); // Jump rope has a single interval, so the next tile is not its follow-on interval
   await click('[data-p=primary]'); assert.strictEqual((await st()).phase, 'standoff'); await adv(5100); await adv(10100);
   s = await st(); assert.ok(s.results[6].logged); assert.strictEqual(s.idx, 7);
   // timer: work then rest
   assert.strictEqual(s.results[7].reps, 15); await p.$eval('[data-f=reps]', e => e.value = ''); await p.type('[data-f=reps]', '11');
   await click('[data-p=primary]'); assert.strictEqual(await p.evaluate(() => window.__wbPlayer.pending.map(x => x.t + x.kind[0]).join(' ')), '0t 1t 2t 3t 4t 5g 32t 33t 34t 35g 42t 43t 44t 45d');
   await adv(5100); await wait(300); await p.screenshot({ path: '/workspace/player-media-v3.png' }); await adv(30050); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[7].logged); assert.strictEqual(s.results[7].reps, 11); assert.strictEqual(s.track, 'Kettlebell swings');
+  assert.strictEqual(await p.$eval('.pl-ci[data-sel="8"] .pl-upnext', e => e.textContent), 'Up next');
   await adv(10000); s = await st(); assert.strictEqual(s.name, 'Cone shuttle'); assert.ok(s.results[7].logged);
   assert.strictEqual(await p.$('.pl-info'), null); // stopwatch has no exercise info frame
+  assert.strictEqual(await p.$('.pl-upnext'), null); // stopwatch, not rest, not a superset round, not intervals
   assert.strictEqual(await p.$eval('.pl-chip', e => e.textContent), '3 Laps');
   // stopwatch with laps
   await click('[data-p=primary]'); await adv(3210); await click('[data-p=primary]'); await adv(2540); await click('[data-p=primary]'); await adv(1234);
@@ -180,6 +200,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual(await p.$$eval('.pl-laps span', a => a.length), 3);
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.name, 'Dumbbell row');
   await click('[data-p=primary]'); s = await st(); assert.strictEqual(s.phase, 'rest'); assert.ok(s.results[9].logged); // reps set logs when rest starts
+  assert.strictEqual(await p.$('.pl-upnext'), null); // last tile has nothing after it
   await click('[data-st=reps][data-d="1"]'); assert.strictEqual((await st()).results[9].reps, 13); assert.strictEqual((await st()).phase, 'rest');
   await adv(10000); await click('.pl-endw'); await wait(100); // End during rest keeps the already-logged set
   assert.ok((await p.content()).includes('Workout complete'));
