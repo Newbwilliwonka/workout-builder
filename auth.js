@@ -64,7 +64,18 @@
     out.online_only = !!out.online_only;
     out.bio = out.bio || null;
     out.avatar_path = out.avatar_path || null;
+    if (!Object.prototype.hasOwnProperty.call(out, 'verified_until')) out.verified_until = null;
     return out;
+  }
+  function withVerified(c, userId, row) {
+    if (!row || row.profileReady !== true || !userId) return Promise.resolve(row);
+    return c.from('profiles').select('verified_until').eq('id', userId).maybeSingle().then(function (v) {
+      row.verified_until = (!v || v.error || !v.data) ? null : (v.data.verified_until || null);
+      return row;
+    }, function () {
+      row.verified_until = null;
+      return row;
+    });
   }
   function insertProfile(c, user, ready) {
     return c.from('profiles').insert({ id: user.id, email: user.email || null, membership: Mem.NONE }).select(PROFILE_BASE).single().then(function (ins) {
@@ -281,7 +292,7 @@
           if (res.error) throw res.error;
           var user = userOf(res.data.session);
           if (!user) return null;
-          return ensureProfile(c, user);
+          return ensureProfile(c, user).then(function (row) { return withVerified(c, user.id, row); });
         });
       });
     },
@@ -300,11 +311,13 @@
           if (res.error) throw res.error;
           var user = userOf(res.data.session);
           if (!user) throw new Error('Sign in first.');
-          return c.from('profiles').update(row).eq('id', user.id).select(PROFILE_FULL).single();
+          return c.from('profiles').update(row).eq('id', user.id).select(PROFILE_FULL).single().then(function (res) {
+            if (res.error) throw res.error;
+            return withVerified(c, user.id, withReady(res.data, true));
+          });
         });
-      }).then(function (res) {
-        if (res.error) throw profileSaveError(res.error);
-        return withReady(res.data, true);
+      }).then(function (saved) {
+        return saved;
       }, function (err) { throw profileSaveError(err); });
     },
     uploadAvatar: function (blob) {
@@ -335,6 +348,62 @@
         if (!res || res.error || !res.data) return '';
         return res.data.signedUrl || res.data.signedURL || '';
       }, function () { return ''; });
+    },
+    myVerifications: function () {
+      return db().then(function (c) {
+        return c.auth.getSession().then(function (res) {
+          if (res.error) throw res.error;
+          var user = userOf(res.data.session);
+          if (!user) return [];
+          return c.from('verification_requests')
+            .select('id,cert_body,cert_number,expires_on,status,admin_note,created_at,reviewed_at')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+        });
+      }).then(function (res) {
+        if (Array.isArray(res)) return res;
+        if (res.error) throw verificationError(res.error);
+        return res.data || [];
+      }, function (err) { throw verificationError(err); });
+    },
+    submitVerification: function (fields) {
+      fields = fields || {};
+      return db().then(function (c) {
+        return c.auth.getSession().then(function (res) {
+          if (res.error) throw res.error;
+          var user = userOf(res.data.session);
+          if (!user) throw new Error('Sign in first.');
+          return c.from('verification_requests').insert({
+            user_id: user.id,
+            cert_body: fields.cert_body,
+            cert_number: fields.cert_number,
+            expires_on: fields.expires_on,
+            status: 'pending'
+          }).select('id,cert_body,cert_number,expires_on,status,admin_note,created_at,reviewed_at').single();
+        });
+      }).then(function (res) {
+        if (res.error) throw verificationError(res.error);
+        return res.data;
+      }, function (err) { throw verificationError(err); });
+    },
+    verificationQueue: function () {
+      return db().then(function (c) {
+        return c.from('verification_queue').select('id,user_id,display_name,email,cert_body,cert_number,expires_on,created_at').order('created_at', { ascending: true });
+      }).then(function (res) {
+        if (res.error) throw verificationError(res.error);
+        return res.data || [];
+      }, function (err) { throw verificationError(err); });
+    },
+    reviewVerification: function (id, status, note) {
+      var patch = { status: status };
+      if (status === 'declined') patch.admin_note = note || null;
+      if (status === 'approved') patch.admin_note = null;
+      return db().then(function (c) {
+        return c.from('verification_requests').update(patch).eq('id', id).select('id,status,admin_note,reviewed_at').single();
+      }).then(function (res) {
+        if (res.error) throw verificationError(res.error);
+        return res.data;
+      }, function (err) { throw verificationError(err); });
     },
     saveIntended: function (planId) {
       if (!Mem.canSelectIntended(planId)) throw new Error('A trainer invite is required for Free Client.');
@@ -741,6 +810,25 @@
       if (res.error) throw shareError(res.error);
       return res.data;
     });
+  }
+  function verificationError(err) {
+    var msg = (err && (err.message || err.details || err.hint || err.code)) || '';
+    msg = String(msg);
+    if (/schema cache|could not find|does not exist|PGRST205|PGRST202|42P01|verification_requests|verification_queue/i.test(msg)) {
+      return new Error('Verification is not available yet. Apply the verification SQL in the Supabase SQL editor.');
+    }
+    if (/already pending|verification_requests_one_pending|duplicate key/i.test(msg)) {
+      return new Error('A request is already pending review.');
+    }
+    if (/already verified/i.test(msg)) return new Error('You are already verified.');
+    if (/only a master trainer/i.test(msg)) return new Error('Only a Master Trainer can request verification.');
+    if (/must be in the future/i.test(msg)) return new Error('Expiration date must be in the future.');
+    if (/enter a note/i.test(msg)) return new Error('Enter a note.');
+    if (/keep the note short/i.test(msg)) return new Error('Keep the note short.');
+    if (/only the admin/i.test(msg)) return new Error('Only the admin can review a verification.');
+    if (/certification body and number|certifying organization and number/i.test(msg)) return new Error('Enter the certifying organization and number.');
+    if (/too long/i.test(msg)) return new Error('Certification details are too long.');
+    return new Error(msg || 'Could not save verification.');
   }
   function shareError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
