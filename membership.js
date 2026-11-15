@@ -45,7 +45,7 @@
       value: 'Build your own training, and still work with a coach if you have one.',
       includes: 'Everything in the Free Client subscription, plus:',
       available: [
-        'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
+        'Build workouts with sets and reps, intervals, timers, stopwatch, and supersets',
         'Create your own exercises, rename them, and add a photo',
         'Search 1,300+ exercises',
         'Save up to 6 of your own workouts',
@@ -76,7 +76,7 @@
       recommended: true,
       value: 'Coach your clients from the workout to the calendar.',
       available: [
-        'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
+        'Build workouts with sets and reps, intervals, timers, stopwatch, and supersets',
         'Create your own exercises, rename them, and add a photo',
         'Search 1,300+ exercises',
         'Send workouts and programs to clients and enthusiasts',

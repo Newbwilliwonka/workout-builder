@@ -41,7 +41,7 @@ assert.strictEqual(byId.enthusiast.value, 'Build your own training, and still wo
 assert.strictEqual(byId.enthusiast.includes, 'Everything in the Free Client subscription, plus:');
 assert.strictEqual(byId.enthusiast.available.indexOf(byId.enthusiast.includes), -1);
 assert.deepStrictEqual(byId.enthusiast.available, [
-  'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
+  'Build workouts with sets and reps, intervals, timers, stopwatch, and supersets',
   'Create your own exercises, rename them, and add a photo',
   'Search 1,300+ exercises',
   'Save up to 6 of your own workouts',
@@ -70,7 +70,7 @@ assert.strictEqual(byId.trainer.recommended, true);
 assert.strictEqual(byId.trainer.value, 'Coach your clients from the workout to the calendar.');
 assert.strictEqual(byId.trainer.cta, 'Choose Trainer');
 assert.deepStrictEqual(byId.trainer.available, [
-  'Build workouts with sets and reps, intervals, timers, a stopwatch, and supersets',
+  'Build workouts with sets and reps, intervals, timers, stopwatch, and supersets',
   'Create your own exercises, rename them, and add a photo',
   'Search 1,300+ exercises',
   'Send workouts and programs to clients and enthusiasts',
