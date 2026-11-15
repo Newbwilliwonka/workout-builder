@@ -433,7 +433,7 @@ function install(page, who) {
   });
   await signedOut.goto(URL + '#/messages');
   await signedOut.reload();
-  await signedOut.waitForFunction(function () { return location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in'; });
+  await signedOut.waitForFunction(function () { return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]'); });
 
   assert.deepStrictEqual(errs, []);
   console.log('MESSAGES UI OK');

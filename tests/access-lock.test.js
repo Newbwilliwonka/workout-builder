@@ -47,33 +47,97 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
 
   const signedOut = await open(null);
   await seed(signedOut);
-  await denied(signedOut, '#/', '#/signin');
-  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Sign in');
+  await denied(signedOut, '#/', '#/subscriptions');
+  await signedOut.waitForFunction(() => document.body.innerText.includes('Choose how you want to train') && document.getElementById('header-signin') && !document.getElementById('header-signin').hidden);
+  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Choose how you want to train');
+  assert.strictEqual(await signedOut.$eval('.sales', el => el.firstElementChild && el.firstElementChild.tagName), 'H2');
+  assert.strictEqual(await signedOut.$('#messages-nav, #workouts-nav, #redeem, #invite-code'), null);
+  assert.ok(await signedOut.$('[data-plan=enthusiast]'));
   assert.deepStrictEqual(await signedOut.$eval('#back', e => ({ hidden: e.hidden, display: getComputedStyle(e).display })), { hidden: true, display: 'none' });
-  await signedOut.screenshot({ path: '/tmp/signed-out-signin-412.png' });
+  const headerSign = await signedOut.evaluate(() => {
+    var link = document.getElementById('header-signin');
+    var out = document.getElementById('account-signout');
+    var style = getComputedStyle(link);
+    var title = document.getElementById('title').getBoundingClientRect();
+    var box = link.getBoundingClientRect();
+    var bar = document.querySelector('.bar').getBoundingClientRect();
+    var hit = document.elementFromPoint(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2));
+    return {
+      text: link.textContent,
+      tag: link.tagName,
+      href: link.getAttribute('href'),
+      hidden: link.hidden,
+      outHidden: out.hidden,
+      bg: style.backgroundColor,
+      radius: style.borderRadius,
+      decoration: style.textDecorationLine,
+      weight: style.fontWeight,
+      size: style.fontSize,
+      color: style.color,
+      sameLine: Math.abs((title.top + title.height / 2) - (box.top + box.height / 2)) < 14,
+      signRight: box.right > title.right,
+      inBar: box.top >= bar.top - 1 && box.bottom <= bar.bottom + 1,
+      hit: hit && hit.id,
+      plans: document.body.innerText
+    };
+  });
+  assert.strictEqual(headerSign.text, 'Sign in');
+  assert.strictEqual(headerSign.tag, 'A');
+  assert.strictEqual(headerSign.href, '#/signin');
+  assert.strictEqual(headerSign.hidden, false);
+  assert.strictEqual(headerSign.outHidden, true);
+  assert.ok(headerSign.bg === 'rgba(0, 0, 0, 0)' || headerSign.bg === 'transparent');
+  assert.strictEqual(headerSign.radius, '0px');
+  assert.strictEqual(headerSign.decoration, 'none');
+  assert.ok(headerSign.weight === '400' || headerSign.weight === 'normal');
+  assert.strictEqual(headerSign.size, '16px');
+  assert.strictEqual(headerSign.color, 'rgb(255, 255, 255)');
+  assert.strictEqual(headerSign.sameLine, true);
+  assert.strictEqual(headerSign.signRight, true);
+  assert.strictEqual(headerSign.inBar, true);
+  assert.strictEqual(headerSign.hit, 'header-signin');
+  assert.ok(headerSign.plans.includes('$9.99') && headerSign.plans.includes('$19.99') && headerSign.plans.includes('$29.99') && headerSign.plans.includes('Free'));
+  await signedOut.screenshot({ path: '/tmp/signed-out-subscriptions-412.png' });
   await signedOut.evaluate(() => { window.__left = 0; window.addEventListener('hashchange', function () { window.__left++; }); document.getElementById('back').click(); });
   await new Promise(r => setTimeout(r, 250));
-  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/signin');
-  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left sign-in');
-  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Sign in');
+  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/subscriptions');
+  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left subscriptions');
+  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Choose how you want to train');
   assert.strictEqual(await signedOut.evaluate(() => window.__leak), false, 'back button opened the builder');
-  await denied(signedOut, '#/w/' + w.id, '#/signin');
-  await denied(signedOut, '#/w/' + w.id + '/ex/new', '#/signin');
-  await denied(signedOut, '#/play/' + w.id, '#/signin');
+  await denied(signedOut, '#/w/' + w.id, '#/subscriptions');
+  await denied(signedOut, '#/w/' + w.id + '/ex/new', '#/subscriptions');
+  await denied(signedOut, '#/play/' + w.id, '#/subscriptions');
   await signedOut.evaluate(() => { window.__left = 0; document.getElementById('back').click(); });
   await new Promise(r => setTimeout(r, 250));
-  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/signin');
-  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left sign-in after a player link');
-  await denied(signedOut, '#/programs', '#/signin');
-  await denied(signedOut, '#/account', '#/signin');
-  await denied(signedOut, '#/messages', '#/signin');
-  await denied(signedOut, '#/client/abc', '#/signin');
-  await denied(signedOut, '#/send', '#/signin');
-  await denied(signedOut, '#/received', '#/signin');
-  await denied(signedOut, '#/preview', '#/signin');
+  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/subscriptions');
+  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left subscriptions after a player link');
+  await denied(signedOut, '#/programs', '#/subscriptions');
+  await denied(signedOut, '#/account', '#/subscriptions');
+  await denied(signedOut, '#/messages', '#/subscriptions');
+  await denied(signedOut, '#/client/abc', '#/subscriptions');
+  await denied(signedOut, '#/send', '#/subscriptions');
+  await denied(signedOut, '#/received', '#/subscriptions');
+  await denied(signedOut, '#/preview', '#/subscriptions');
+  await signedOut.click('#header-signin');
+  await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden && document.getElementById('acct-email') && document.getElementById('invite-code') && document.querySelector('[data-auth=forgot]') && document.querySelector('[data-auth=switch]'));
+  async function inviteOpensSignIn(url) {
+    await signedOut.goto(url);
+    await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden);
+    assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+    assert.strictEqual(await signedOut.evaluate(() => sessionStorage.getItem('wb.invite')), 'ABCD2345');
+    assert.strictEqual(await signedOut.evaluate(() => new URLSearchParams(location.search).get('invite')), null);
+    assert.strictEqual(await signedOut.evaluate(() => new URLSearchParams((location.hash.split('?')[1] || '')).get('invite')), null);
+    assert.strictEqual(await signedOut.$('#messages-nav, #workouts-nav, #redeem, [data-plan]'), null);
+  }
+  await inviteOpensSignIn(URL + '?invite=ABCD2345');
+  await inviteOpensSignIn(URL + '?invite=ABCD2345#/');
+  await inviteOpensSignIn(URL + '?invite=ABCD2345#/subscriptions');
+  await inviteOpensSignIn(URL + '#/messages?invite=ABCD2345');
   await signedOut.goto(URL + '?invite=ABCD2345#/signin');
   await signedOut.waitForSelector('#invite-code');
   assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  await signedOut.click('[data-auth=switch]');
+  await signedOut.waitForFunction(() => location.hash === '#/join' && document.querySelector('#invite-code') && document.querySelector('#invite-code').value === 'ABCD-2345');
   await signedOut.goto(URL + '?code=reset-code');
   await signedOut.waitForFunction(function () {
     var h = document.querySelector('h2');
@@ -103,6 +167,10 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await seed(stranger);
   await denied(stranger, '#/', '#/subscriptions');
   await stranger.waitForFunction(() => document.body.innerText.includes('Choose how you want to train'));
+  assert.strictEqual(await stranger.$eval('#header-signin', el => el.hidden), true);
+  assert.ok(await stranger.$('#redeem'));
+  assert.ok(await stranger.$('#level-lock'));
+  assert.strictEqual(await stranger.$('#messages-nav'), null);
   await denied(stranger, '#/w/' + w.id, '#/subscriptions');
   await denied(stranger, '#/play/' + w.id, '#/subscriptions');
   assert.strictEqual(await stranger.$eval('#back', function (el) { return el.hidden; }), true);
@@ -160,8 +228,15 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await other.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train'));
   await new Promise(r => setTimeout(r, 300));
   assert.strictEqual(await other.evaluate(() => location.hash), '#/subscriptions');
+  assert.strictEqual(await other.$eval('#header-signin', el => el.hidden), true);
+  assert.ok(await other.$('#messages-nav'));
+  assert.ok(await other.$('#workouts-nav'));
+  assert.ok(await other.$('#redeem'));
   await other.click('#back');
   await other.waitForSelector('[data-a=run]');
+  assert.strictEqual(await other.evaluate(() => location.hash), '#/');
+  await other.goto(URL + '?invite=ABCD2345#/');
+  await other.waitForSelector('[data-a=new]');
   assert.strictEqual(await other.evaluate(() => location.hash), '#/');
   await other.close();
 
@@ -315,6 +390,73 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
       && document.body.innerText.indexOf('Could not save that plan. Please try again.') !== -1
       && plan && !plan.disabled;
   });
+
+  const consumed = await open(null);
+  await consumed.goto(URL + '?invite=ABCD2345#/signin');
+  await consumed.waitForSelector('#invite-code');
+  assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  await consumed.evaluate(() => {
+    window.__redeemed = 0;
+    var session = { user: { id: 'used', email: 'used@example.com' } };
+    var profile = { id: 'used', email: 'used@example.com', membership: 'free_client', intended_plan: null };
+    window.WBAuth.signIn = function () { return Promise.resolve({ session: session }); };
+    window.WBAuth.session = function () { return Promise.resolve(session); };
+    window.WBAuth.profile = function () { return Promise.resolve(profile); };
+    window.WBAuth.myConnection = function () { return Promise.resolve(null); };
+    window.WBAuth.redeemInvite = function () {
+      window.__redeemed++;
+      return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.', trainerId: 't' });
+    };
+  });
+  await consumed.type('#acct-email', 'used@example.com');
+  await consumed.type('#acct-pass', 'secret12');
+  await consumed.click('[data-auth=in]');
+  await consumed.waitForFunction(() => window.__redeemed === 1 && location.hash === '#/');
+  assert.strictEqual(await consumed.evaluate(() => sessionStorage.getItem('wb.invite')), null);
+  await consumed.evaluate(() => { location.hash = '#/subscriptions'; });
+  await consumed.waitForSelector('#redeem #invite-code');
+  assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), '');
+  await consumed.evaluate(() => { location.hash = '#/subscriptions?again=1'; });
+  await consumed.waitForFunction(() => location.hash === '#/subscriptions?again=1' && document.getElementById('invite-code'));
+  assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), '');
+  assert.strictEqual(await consumed.evaluate(() => sessionStorage.getItem('wb.invite')), null);
+  await consumed.evaluate(() => {
+    var session = { user: { id: 'used', email: 'used@example.com' } };
+    window.WBAuth.session = function () { return Promise.resolve(null); };
+    window.WBAuth.signIn = function () {
+      window.WBAuth.session = function () { return Promise.resolve(session); };
+      return Promise.resolve({ session: session });
+    };
+    location.hash = '#/signin';
+  });
+  await consumed.waitForFunction(() => location.hash === '#/signin' && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
+  await consumed.type('#acct-email', 'used@example.com');
+  await consumed.type('#acct-pass', 'secret12');
+  await consumed.click('[data-auth=in]');
+  await consumed.waitForFunction(() => location.hash === '#/' && window.__redeemed === 1);
+
+  const card = await open(
+    { user: { id: 'card', email: 'card@example.com' } },
+    { id: 'card', email: 'card@example.com', membership: 'none', intended_plan: null }
+  );
+  await card.goto(URL + '?invite=ABCD2345#/subscriptions');
+  await card.waitForSelector('#redeem #invite-code');
+  assert.strictEqual(await card.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  assert.strictEqual(await card.evaluate(() => new URLSearchParams(location.search).get('invite')), null);
+  await card.evaluate(() => {
+    window.__cardRedeemed = 0;
+    window.WBAuth.myConnection = function () { return Promise.resolve(null); };
+    window.WBAuth.redeemInvite = function () {
+      window.__cardRedeemed++;
+      return Promise.resolve({ message: 'Invite applied.' });
+    };
+  });
+  await card.click('[data-invite=redeem]');
+  await card.waitForFunction(() => window.__cardRedeemed === 1 && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
+  await card.evaluate(() => { location.hash = '#/subscriptions?again=1'; });
+  await card.waitForFunction(() => location.hash === '#/subscriptions?again=1' && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
+  assert.strictEqual(await card.evaluate(() => sessionStorage.getItem('wb.invite')), null);
+  assert.strictEqual(await card.evaluate(() => window.__cardRedeemed), 1);
 
   assert.deepStrictEqual(errs, []);
   console.log('ACCESS LOCK OK');
