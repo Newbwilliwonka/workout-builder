@@ -52,6 +52,7 @@ async function openPage(browser, membership, payload) {
     profile: profile('test-' + membership, membership)
   });
   await page.evaluateOnNewDocument(function (rows) {
+    window.__wbDashboardNow = new Date(2026, 10, 16, 12, 0, 0).getTime();
     var desc = Object.getOwnPropertyDescriptor(window, 'WBAuth');
     if (!desc || !desc.set) return;
     var prev = desc.set;
@@ -64,6 +65,9 @@ async function openPage(browser, membership, payload) {
         if (!value) return;
         value.myHistory = function () {
           return Promise.resolve(window.__wbHistoryPayload || { sets: [], sessions: [], exercises: [] });
+        };
+        value.mySchedule = function () {
+          return Promise.resolve(window.__wbSchedulePayload || { entries: [] });
         };
         ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
@@ -164,7 +168,7 @@ async function openPage(browser, membership, payload) {
   await page.waitForFunction(function () {
     return location.hash === '#/tracking/dashboard' &&
       document.activeElement && document.activeElement.id === 'tracking-tab-dashboard' &&
-      document.getElementById('dashboard-soon');
+      document.getElementById('dashboard');
   });
   await page.keyboard.press('End');
   await page.waitForFunction(function () {
@@ -196,7 +200,7 @@ async function openPage(browser, membership, payload) {
     };
   });
   await page.click('#tracking-tab-dashboard');
-  await page.waitForSelector('#dashboard-soon');
+  await page.waitForSelector('#dashboard');
   await page.focus('#tracking-tab-dashboard');
   await page.keyboard.press('ArrowLeft');
   await page.waitForFunction(function () {
@@ -209,7 +213,7 @@ async function openPage(browser, membership, payload) {
     var dashboard = document.getElementById('tracking-tab-dashboard');
     var history = document.getElementById('tracking-tab-history');
     return location.hash === '#/tracking/dashboard' &&
-      document.getElementById('dashboard-soon') &&
+      document.getElementById('dashboard') &&
       !document.getElementById('history-list') &&
       dashboard && dashboard.getAttribute('aria-selected') === 'true' &&
       history && history.getAttribute('aria-selected') === 'false' &&
@@ -218,25 +222,26 @@ async function openPage(browser, membership, payload) {
   await page.keyboard.press('Enter');
   await page.waitForFunction(function () {
     return location.hash === '#/tracking/dashboard' &&
-      document.getElementById('dashboard-soon') &&
+      document.getElementById('dashboard') &&
       document.activeElement && document.activeElement.id === 'tracking-tab-dashboard';
   });
   await page.evaluate(function () { window.__historyGate.resolve(); });
   await page.waitForFunction(function () {
-    return location.hash === '#/tracking/dashboard' && document.getElementById('dashboard-soon') && !document.getElementById('history-list');
+    return location.hash === '#/tracking/dashboard' && document.getElementById('dashboard-sheet') && !document.getElementById('history-list');
   });
 
   await page.click('#tracking-tab-dashboard');
-  await page.waitForSelector('#dashboard-soon');
+  await page.waitForSelector('#dashboard-rating');
   const dash = await page.evaluate(function () {
-    var note = document.getElementById('dashboard-soon');
     var badge = document.getElementById('dashboard-count');
     var tab = document.getElementById('tracking-tab-dashboard');
     var style = getComputedStyle(tab);
+    var text = document.getElementById('app').innerText;
     return {
       title: document.getElementById('title').textContent,
       hash: location.hash,
-      note: note.innerText,
+      rating: document.getElementById('dashboard-rating').textContent,
+      plan: document.getElementById('dashboard-plan-note').textContent,
       selected: tab.getAttribute('aria-selected'),
       labelled: document.getElementById('tracking-panel').getAttribute('aria-labelledby'),
       historyGone: !document.getElementById('history-list') && !document.getElementById('history-empty'),
@@ -244,13 +249,18 @@ async function openPage(browser, membership, payload) {
       badgeText: badge.textContent,
       disabled: tab.disabled,
       opacity: style.opacity,
-      lock: !!document.querySelector('[data-lock], .lock, .is-locked')
+      lock: !!document.querySelector('[data-lock], .lock, .is-locked'),
+      passRate: text.indexOf('Stopwatch') >= 0 || text.indexOf('pass rate') >= 0,
+      example: text.indexOf('Example data') >= 0,
+      streak: !!document.getElementById('dashboard-streak'),
+      buttons: document.querySelectorAll('#dashboard button, #dashboard input').length
     };
   });
   assert.deepStrictEqual(dash, {
     title: 'Tracking',
     hash: '#/tracking/dashboard',
-    note: 'Dashboard coming soon',
+    rating: 'Keep trying',
+    plan: '11 of 17 sets met or beat the plan this month',
     selected: 'true',
     labelled: 'tracking-tab-dashboard',
     historyGone: true,
@@ -258,7 +268,11 @@ async function openPage(browser, membership, payload) {
     badgeText: '',
     disabled: false,
     opacity: '1',
-    lock: false
+    lock: false,
+    passRate: false,
+    example: false,
+    streak: false,
+    buttons: 0
   });
   assert.ok((await page.$eval('#app', function (el) { return el.innerText; })).indexOf('Your trainer can share') < 0);
   await shot(page, 'tracking-dashboard.png');
@@ -305,20 +319,52 @@ async function openPage(browser, membership, payload) {
   await page.click('#tracking-open');
   await page.waitForSelector('#tracking-tab-dashboard');
   await page.click('#tracking-tab-dashboard');
-  await page.waitForSelector('#dashboard-soon');
+  await page.waitForSelector('#dashboard-sheet');
   await page.click('#back');
   await page.waitForSelector('#tracking-open');
   assert.ok(/#\/?$/.test(await page.evaluate(function () { return location.hash; })));
 
-  for (const membership of ['free_client', 'trainer', 'master_trainer']) {
+  const free = await openPage(browser, 'free_client', { sets: [], sessions: [], exercises: [] });
+  await free.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await free.waitForSelector('#dashboard-soon');
+  const freeSeen = await free.evaluate(function () {
+    var badge = document.getElementById('dashboard-count');
+    var tab = document.getElementById('tracking-tab-dashboard');
+    return {
+      note: document.getElementById('dashboard-soon').innerText,
+      sheet: !!document.getElementById('dashboard-sheet'),
+      title: document.getElementById('title').textContent,
+      disabled: tab.disabled,
+      badgeHidden: badge.hidden,
+      badgeText: badge.textContent,
+      lock: !!document.querySelector('[data-lock], .lock, .is-locked')
+    };
+  });
+  assert.deepStrictEqual(freeSeen, {
+    note: 'Your trainer can share a dashboard with you.',
+    sheet: false,
+    title: 'Tracking',
+    disabled: false,
+    badgeHidden: true,
+    badgeText: '',
+    lock: false
+  });
+  await free.click('#tracking-tab-history');
+  await free.waitForSelector('#history-empty');
+  assert.strictEqual(await free.$eval('#title', function (el) { return el.textContent; }), 'Tracking');
+  assert.ok((await free.$eval('#app', function (el) { return el.innerText; })).indexOf('No history yet') >= 0);
+  await free.close();
+
+  for (const membership of ['trainer', 'master_trainer']) {
     const other = await openPage(browser, membership, { sets: [], sessions: [], exercises: [] });
     await other.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
-    await other.waitForSelector('#dashboard-soon');
+    await other.waitForSelector('#dashboard-empty');
     const seen = await other.evaluate(function () {
       var badge = document.getElementById('dashboard-count');
       var tab = document.getElementById('tracking-tab-dashboard');
       return {
-        note: document.getElementById('dashboard-soon').innerText,
+        note: document.getElementById('dashboard-empty').innerText,
+        soon: !!document.getElementById('dashboard-soon'),
         title: document.getElementById('title').textContent,
         disabled: tab.disabled,
         badgeHidden: badge.hidden,
@@ -327,7 +373,8 @@ async function openPage(browser, membership, payload) {
       };
     });
     assert.deepStrictEqual(seen, {
-      note: 'Dashboard coming soon',
+      note: 'Finish a workout and your dashboard will fill in.',
+      soon: false,
       title: 'Tracking',
       disabled: false,
       badgeHidden: true,

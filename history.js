@@ -119,10 +119,12 @@
       actualTotalSec: num(pick(row, 'actualTotalSec', 'actual_total_sec')),
       plannedLapCount: num(pick(row, 'plannedLapCount', 'planned_lap_count')),
       actualLaps: pick(row, 'actualLaps', 'actual_laps'),
+      plannedEvents: pick(row, 'plannedEvents', 'planned_events'),
       actualEvents: pick(row, 'actualEvents', 'actual_events')
     };
     if (set.displayUnit !== 'lb' && set.displayUnit !== 'kg' && set.displayUnit !== 'bodyweight') set.displayUnit = 'kg';
     if (!Array.isArray(set.actualLaps)) set.actualLaps = [];
+    if (!Array.isArray(set.plannedEvents)) set.plannedEvents = [];
     if (!Array.isArray(set.actualEvents)) set.actualEvents = [];
     set.key = exerciseKey(set);
     if (!set.key || !set.sessionId || !/^\d{4}-\d{2}-\d{2}$/.test(set.localDate)) return null;
@@ -601,6 +603,7 @@
   var api = {
     exerciseKey: exerciseKey,
     fromRows: fromRows,
+    records: records,
     list: list,
     filter: filter,
     decorate: decorate,
