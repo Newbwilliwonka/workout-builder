@@ -4,6 +4,7 @@ const assert = require('assert');
 const P = require('../profile.js');
 const S = require('../sends.js');
 const D = require('../dashboard.js');
+const Sh = require('../sharing.js');
 
 const people = [
   { email: 'ada@example.com', plan: 'Free Client' },
@@ -43,5 +44,14 @@ assert.ok(note.indexOf('Client') !== -1);
 const stamp = D.stampText({ asOf: '2026-11-16', trainerName: 'coach@example.com' });
 assert.strictEqual(stamp, 'As of November 16, 2026 from Trainer');
 assert.ok(D.snapshotHtml({ asOf: '2026-11-16', trainerName: 'coach@example.com', cards: [] }).indexOf('@') === -1);
+
+const status = Sh.parseStatus({
+  shared: true, enthusiast: true, linked: true,
+  email: 'fan@example.com', name: 'Fan', plan: 'Enthusiast'
+});
+assert.strictEqual(status.ok, true);
+assert.strictEqual(status.email, undefined);
+assert.strictEqual(status.name, 'Fan');
+assert.ok(JSON.stringify(status).indexOf('@') === -1);
 
 console.log('privacy names ok');

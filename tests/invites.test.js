@@ -100,6 +100,14 @@ function fill(b, n) {
   var clients = (await linkBook.api().roster()).clients;
   assert.strictEqual(clients.length, 1);
   assert.strictEqual(clients[0].plan, 'Enthusiast');
+  assert.strictEqual(clients[0].email, undefined);
+  assert.ok(JSON.stringify(clients).indexOf('@') === -1);
+  linkBook.setMe('e1');
+  var conn = await linkBook.api().myConnection();
+  assert.ok(conn && conn.trainerId);
+  assert.strictEqual(conn.trainerEmail, undefined);
+  assert.ok(JSON.stringify(conn).indexOf('@') === -1);
+  linkBook.setMe('t1');
   await linkBook.api().endConnection(clients[0].id);
   linkBook.setMe('e1');
   assert.strictEqual(await linkBook.api().myConnection(), null);

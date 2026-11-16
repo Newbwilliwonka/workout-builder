@@ -74,6 +74,19 @@ const fresh = S.mergeCopies([own], [{
   updatedAt: '2024-01-01T00:00:00.000Z'
 }], { canEdit: false });
 assert.deepStrictEqual(fresh.map(function (w) { return w.name; }), ['Saturday', 'New']);
+assert.strictEqual(fresh[1].sourceTrainerEmail, undefined);
+assert.ok(JSON.stringify(fresh[1]).indexOf('@') === -1);
+const emailName = S.mergeCopies([], [{
+  id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  name: 'Named',
+  items: [],
+  sourceTrainerId: 't',
+  sourceTrainerEmail: 'coach@example.com',
+  sourceTrainerName: 'coach@example.com',
+  updatedAt: '2024-01-01T00:00:00.000Z'
+}], { canEdit: false });
+assert.strictEqual(emailName[0].sourceTrainerEmail, undefined);
+assert.strictEqual(emailName[0].sourceTrainerName, '');
 const dropped = S.mergeCopies(fresh, [], { canEdit: true, removed: [fresh[1].id] });
 assert.deepStrictEqual(dropped.map(function (w) { return w.id; }), ['wo_own']);
 const duplicate = { id: 'wo_dup', name: 'New (copy)', items: [], sourceTrainerId: 't', updatedAt: 9 };
