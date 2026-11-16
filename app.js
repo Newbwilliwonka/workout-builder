@@ -2865,14 +2865,89 @@
       go('#/history/' + button.getAttribute('data-history'));
     };
   }
-  function renderDashboard() {
+  var FREE_DASHBOARD = '<div class="card" id="dashboard-soon"><div class="name">Your trainer can share a dashboard with you.</div></div>';
+  function dashboardCurrent(token) {
+    return token === routeToken && hashPage() === 'tracking' && hashBody().split('/')[1] === 'dashboard';
+  }
+  // Tests pin the day. A real visit uses today, so the sheet stays current.
+  function dashboardNow() {
+    var hooked = window.__wbDashboardNow;
+    if (hooked != null && isFinite(Number(hooked))) return new Date(Number(hooked));
+    return new Date();
+  }
+  function dashboardEntries(scheduleRes) {
+    var userId = cachedProfile && cachedProfile.id ? String(cachedProfile.id) : '';
+    var remote = scheduleRes && Array.isArray(scheduleRes.entries) ? scheduleRes.entries : [];
+    if (!window.WBPrograms || !userId) return remote;
+    var local = WBPrograms.forOwner(data.programs || [], userId);
+    try {
+      return WBPrograms.forOwner(WBPrograms.merge(local, remote, userId, {
+        dropped: data.programDrops || {}
+      }), userId);
+    }
+    catch (e) { return local; }
+  }
+  function paintLoadedDashboard(historyRes, scheduleRes, settle) {
+    var failed = !historyRes || historyRes.unavailable || historyRes.error;
+    var sessions = historyRes && historyRes.sessions || [];
+    var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes && historyRes.sets, historyRes && historyRes.exercises) : [];
+    if (failed && !sessions.length && !sets.length) {
+      paintTracking('dashboard', WBDashboard.unavailableHtml(), settle);
+      return;
+    }
+    var model = WBDashboard.build({
+      sets: sets,
+      sessions: sessions,
+      entries: dashboardEntries(scheduleRes),
+      now: dashboardNow()
+    });
+    paintTracking('dashboard', WBDashboard.html(model), settle);
+  }
+  function loadDashboard(token, settle) {
+    var pendingHistory;
+    var pendingSchedule;
+    try {
+      pendingHistory = WBAuth.myHistory ? WBAuth.myHistory() : Promise.resolve({ sets: [], sessions: [], exercises: [] });
+    } catch (e) {
+      pendingHistory = Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] });
+    }
+    try {
+      pendingSchedule = WBAuth.mySchedule ? WBAuth.mySchedule() : Promise.resolve({ unavailable: true, entries: [] });
+    } catch (e2) {
+      pendingSchedule = Promise.resolve({ unavailable: true, entries: [] });
+    }
+    var historyReady = Promise.resolve(pendingHistory).then(function (res) {
+      return res || { error: true, sets: [], sessions: [], exercises: [] };
+    }, function () {
+      return { error: true, sets: [], sessions: [], exercises: [] };
+    });
+    var scheduleReady = Promise.resolve(pendingSchedule).then(function (res) {
+      return res || { unavailable: true, entries: [] };
+    }, function () {
+      return { unavailable: true, entries: [] };
+    });
+    Promise.all([historyReady, scheduleReady]).then(function (pair) {
+      if (!dashboardCurrent(token)) return;
+      paintLoadedDashboard(pair[0], pair[1], settle);
+    });
+  }
+  function renderDashboard(token) {
     backBtn.hidden = false;
     app.oninput = null;
     app.onchange = null;
-    paintTracking('dashboard', '<div class="card" id="dashboard-soon"><div class="name">Dashboard coming soon</div></div>', true);
+    if (!window.WBDashboard) {
+      paintTracking('dashboard', '<div class="empty db-empty" id="dashboard-unavailable"><div class="name">Saved sessions are not available yet.</div></div>', true);
+      return;
+    }
+    if (!WBDashboard.allowed(cachedProfile)) {
+      paintTracking('dashboard', FREE_DASHBOARD, true);
+      return;
+    }
+    paintTracking('dashboard', '<div id="dashboard" aria-busy="true"><p class="mute">Loading…</p></div>', false);
+    loadDashboard(token, true);
   }
   function renderTracking(token) {
-    if (hashPage() === 'tracking' && hashBody().split('/')[1] === 'dashboard') return renderDashboard();
+    if (hashPage() === 'tracking' && hashBody().split('/')[1] === 'dashboard') return renderDashboard(token);
     return renderHistory(token);
   }
   function paintHistory(key, sets, unavailable) {

@@ -429,3 +429,47 @@ button.hx-row .name{font-size:16px}
 .hx-lap i{margin-left:auto;color:var(--mute);font-style:normal;font-size:13px}
 .hx-counts{margin-top:8px;font-weight:600;font-size:14px}
 .hx-events li{font-size:14px;padding:2px 0}
+/* Standard dashboard: one translucent sheet on the app background. */
+.db-sheet{background:rgba(30,41,59,.16);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(17,24,39,.12);border-radius:16px;overflow:hidden}
+.db-sec{padding:14px;border-bottom:1px solid rgba(17,24,39,.14)}
+.db-sec:last-child{border-bottom:0}
+.db-label{margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
+.db-plan{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+.db-plan-copy{flex:1;min-width:0}
+.db-ring{flex:none;display:block}
+.db-pct{fill:var(--ink);font-size:22px;font-weight:700;font-family:inherit}
+.db-rate{font-size:24px;font-weight:700;line-height:1.15}
+.db-note{margin:0;font-size:13px;color:var(--mute)}
+.db-legend{display:flex;flex-wrap:wrap;gap:8px 12px;list-style:none;margin:0;padding:0}
+.db-legend li{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink)}
+.db-dot{width:8px;height:8px;border-radius:999px;flex:none}
+.db-stats{display:flex;gap:8px;margin-bottom:12px}
+.db-stat{flex:1;min-width:0}
+.db-stat b{display:block;font-size:28px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.db-stat span{display:block;font-size:12px;color:var(--mute);margin-top:2px}
+#dashboard-goal{margin-bottom:6px}
+.db-bars{display:flex;gap:6px;margin-bottom:8px}
+.db-bar{flex:1;height:8px;border-radius:999px;background:rgba(17,24,39,.12)}
+.db-bar.on{background:var(--pri)}
+#dashboard-streak-note{margin-top:0}
+.db-vol{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+#dashboard-volume-note{margin:2px 0 8px}
+.db-chart{width:100%;height:auto;display:block;overflow:visible}
+.db-chart polyline{fill:none;stroke:var(--pri);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.db-chart circle{fill:var(--pri)}
+.db-chart text{fill:var(--mute);font-size:10px;font-family:inherit}
+.db-records{list-style:none;margin:0;padding:0}
+.db-rec{display:flex;align-items:baseline;gap:8px;padding:8px 0;border-top:1px solid rgba(17,24,39,.12)}
+.db-rec:first-child{border-top:0;padding-top:0}
+.db-rec-name{flex:1;min-width:0}
+.db-rec-name .name{font-size:15px}
+.db-rec-val{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.db-cal{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+.db-cal-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.db-cal-row [role="columnheader"]{text-align:center;font-size:11px;font-weight:700;color:var(--mute)}
+.db-day{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-variant-numeric:tabular-nums;background:rgba(17,24,39,.10);color:var(--mute)}
+.db-day.is-train{background:var(--pri);color:#fff;font-weight:700}
+.db-day.is-future{background:transparent;color:rgba(17,24,39,.35);border:1px solid rgba(17,24,39,.14)}
+.db-day.is-pad{background:transparent}
+.db-empty .name{color:var(--ink)}
+.db-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

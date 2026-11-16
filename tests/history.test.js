@@ -12,7 +12,8 @@ assert.ok(!/historySample|sample=1|preview=history|WBHistory\.sampleSets/.test(a
 assert.ok(/id="tracking-open"[^>]*data-a="tracking">Tracking</.test(appSrc), 'the workout list opens Tracking');
 assert.ok(!/id="history-open"|data-a="history">History</.test(appSrc), 'History is no longer a workout-list button');
 assert.ok(/id="dashboard-count"/.test(appSrc), 'Dashboard keeps a spot for a future count');
-assert.ok(/Dashboard coming soon/.test(appSrc), 'Dashboard is a coming-soon note');
+assert.ok(/Your trainer can share a dashboard with you\./.test(appSrc), 'a Free Client still sees a dashboard note');
+assert.ok(!/Dashboard coming soon/.test(appSrc), 'the coming-soon note is replaced');
 const list = H.list(sets);
 
 assert.deepStrictEqual(list.map(function (row) { return row.name; }), [
