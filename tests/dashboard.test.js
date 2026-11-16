@@ -15,6 +15,7 @@ assert.ok(!/Example data|Goblet Squat|Coach Ana|sampleSets|Alex Rivera/.test(das
 assert.ok(/Stopwatch pass rate is intentionally not rendered/.test(dashSrc));
 assert.ok(/WBDashboard\.allowed/.test(appSrc));
 assert.ok(/mySchedule/.test(appSrc));
+assert.ok(/dropped:\s*data\.programDrops/.test(appSrc), 'a workout removed on this device stays off the streak');
 assert.ok(/collectPages/.test(authSrc.slice(authSrc.indexOf('mySchedule:'))), 'schedule reads page past 1000 rows');
 assert.ok(/program_entries/.test(authSrc));
 assert.ok(/workout_id,program_id/.test(authSrc));

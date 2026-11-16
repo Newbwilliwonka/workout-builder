@@ -2880,7 +2880,11 @@
     var remote = scheduleRes && Array.isArray(scheduleRes.entries) ? scheduleRes.entries : [];
     if (!window.WBPrograms || !userId) return remote;
     var local = WBPrograms.forOwner(data.programs || [], userId);
-    try { return WBPrograms.forOwner(WBPrograms.merge(local, remote, userId, {}), userId); }
+    try {
+      return WBPrograms.forOwner(WBPrograms.merge(local, remote, userId, {
+        dropped: data.programDrops || {}
+      }), userId);
+    }
     catch (e) { return local; }
   }
   function paintLoadedDashboard(historyRes, scheduleRes, settle) {

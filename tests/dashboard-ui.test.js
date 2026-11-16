@@ -129,6 +129,7 @@ async function openPage(browser, membership, payload) {
   }, payload || { sets: [], sessions: [], exercises: [], schedule: [] });
   const data = M.emptyData();
   data.workouts.push(workout());
+  if (payload && payload.programDrops) data.programDrops = payload.programDrops;
   await page.evaluateOnNewDocument(function (key, value) {
     localStorage.setItem(key, value);
   }, M.STORAGE_KEY, JSON.stringify(data));
@@ -259,6 +260,43 @@ async function openPage(browser, membership, payload) {
     assert.deepStrictEqual(page.__errors, []);
     await page.close();
   }
+
+  const dropAt = Date.parse('2026-11-15T12:00:00Z');
+  function streakPayload(serverUpdated) {
+    return {
+      sets: [],
+      exercises: [],
+      programDrops: { 'pg-13': { at: dropAt, ownerId: 'test-enthusiast' } },
+      sessions: [
+        { id: 's14', local_date: '2026-11-14', started_at: '2026-11-14T15:00:00.000Z', workout_name: 'Day', status: 'completed', program_id: 'pg-14', workout_id: 'wo' },
+        { id: 's12', local_date: '2026-11-12', started_at: '2026-11-12T15:00:00.000Z', workout_name: 'Day', status: 'completed', program_id: 'pg-12', workout_id: 'wo' }
+      ],
+      schedule: ['2026-11-14', '2026-11-13', '2026-11-12'].map(function (day, i) {
+        return {
+          id: '00000000-0000-4000-8000-00000000001' + (i + 1),
+          local_id: day === '2026-11-13' ? 'pg-13' : (day === '2026-11-14' ? 'pg-14' : 'pg-12'),
+          owner_id: 'test-enthusiast',
+          workout_local_id: 'wo',
+          day: day,
+          presence: 'solo',
+          updated_at: day === '2026-11-13' ? serverUpdated : '2026-11-01T00:00:00.000Z'
+        };
+      })
+    };
+  }
+  const dropped = await openPage(browser, 'enthusiast', streakPayload('2026-11-01T00:00:00.000Z'));
+  await dropped.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await dropped.waitForSelector('#dashboard-streak');
+  assert.strictEqual(await dropped.$eval('#dashboard-streak b', function (el) { return el.textContent; }), '2');
+  assert.deepStrictEqual(dropped.__errors, []);
+  await dropped.close();
+
+  const revived = await openPage(browser, 'enthusiast', streakPayload('2026-11-16T00:00:00.000Z'));
+  await revived.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await revived.waitForSelector('#dashboard-streak');
+  assert.strictEqual(await revived.$eval('#dashboard-streak b', function (el) { return el.textContent; }), '1');
+  assert.deepStrictEqual(revived.__errors, []);
+  await revived.close();
 
   console.log('DASHBOARD UI OK');
   await browser.close();
