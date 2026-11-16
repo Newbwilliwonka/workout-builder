@@ -61,6 +61,10 @@ assert.ok(page.indexOf('<input') < 0);
 assert.ok(page.indexOf('Changed') < 0);
 
 const editor = D.editorHtml(live, S.standard());
+assert.ok(editor.indexOf('id="dash-share"') >= 0);
+const held = D.editorHtml(live, S.standard(), { share: false });
+assert.ok(held.indexOf('id="dash-share"') < 0);
+assert.ok(held.indexOf('This client keeps their own live dashboard.') >= 0);
 assert.ok(editor.indexOf('Schedule workouts in the program calendar.') >= 0);
 assert.ok(editor.indexOf('Stopwatch pass rate') >= 0);
 assert.ok(editor.indexOf('data-card-up="volume"') >= 0);
@@ -90,6 +94,8 @@ assert.ok(clearAt < sql.indexOf('delete from public.workout_sets'));
 assert.ok(sql.indexOf('delete from public.workout_sets') < sql.indexOf('delete from public.personal_exercises'));
 assert.ok(sql.indexOf('delete from public.personal_exercises') < sql.indexOf('delete from public.shared_dashboards'));
 assert.ok(/only with a connected client/.test(sql));
+assert.ok(/A shared dashboard goes to a free client/.test(sql));
+assert.ok(/Shared dashboards could not be loaded/.test(appSrc));
 assert.ok(/Only the client can open/.test(sql));
 
 console.log('SHARES OK');

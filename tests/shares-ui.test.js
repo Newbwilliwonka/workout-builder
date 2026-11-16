@@ -16,6 +16,7 @@ const CHROME = process.env.CHROME || (fs.existsSync('/usr/bin/google-chrome') ? 
 const TRAINER = '11111111-1111-4111-8111-111111111111';
 const ADA = '22222222-2222-4222-8222-222222222222';
 const NEIL = '55555555-5555-4555-8555-555555555555';
+const FAN = '99999999-9999-4999-8999-999999999999';
 const SHARE_NEW = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2';
 const SHARE_OLD = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
 const NOW = new Date(2026, 10, 16, 12, 0, 0);
@@ -75,6 +76,7 @@ async function openPage(browser, cfg) {
   await page.evaluateOnNewDocument(function (cfg) {
     window.__wbDashboardNow = new Date(2026, 10, 16, 12, 0, 0).getTime();
     window.__shares = cfg.shares || [];
+    window.__sharesError = !!cfg.sharesError;
     window.__clientRows = cfg.clientRows || {};
     window.__clientSchedule = cfg.clientSchedule || {};
     window.__shared = [];
@@ -94,7 +96,10 @@ async function openPage(browser, cfg) {
         value.mySchedule = function () { return Promise.resolve({ entries: cfg.schedule || [] }); };
         value.myConnection = function () { return Promise.resolve(cfg.connection || null); };
         value.roster = function () { return Promise.resolve(cfg.roster || { role: null, clients: [] }); };
-        value.myShares = function () { return Promise.resolve({ shares: window.__shares || [] }); };
+        value.myShares = function () {
+          if (window.__sharesError) return Promise.resolve({ error: true, shares: [] });
+          return Promise.resolve({ shares: window.__shares || [] });
+        };
         value.clientTracking = function (id) {
           return Promise.resolve(window.__clientRows[id] || { sets: [], sessions: [], exercises: [] });
         };
@@ -150,7 +155,8 @@ async function openPage(browser, cfg) {
       role: 'trainer',
       clients: [
         { id: ADA, name: 'Ada Client', email: 'ada@example.com', plan: 'Free Client' },
-        { id: NEIL, name: 'Neil Client', email: 'neil@example.com', plan: 'Free Client' }
+        { id: NEIL, name: 'Neil Client', email: 'neil@example.com', plan: 'Free Client' },
+        { id: FAN, name: 'Fan Enthusiast', email: 'fan@example.com', plan: 'Enthusiast' }
       ]
     },
     clientRows: { [ADA]: adaRows, [NEIL]: { sets: [], sessions: [], exercises: [] } },
@@ -165,7 +171,7 @@ async function openPage(browser, cfg) {
       pass: document.body.innerText.indexOf('Stopwatch pass rate') >= 0
     };
   });
-  assert.deepStrictEqual(picker.names, ['Your dashboard', 'Ada Client', 'Neil Client']);
+  assert.deepStrictEqual(picker.names, ['Your dashboard', 'Ada Client', 'Neil Client', 'Fan Enthusiast']);
   assert.strictEqual(picker.share, false);
   assert.strictEqual(picker.pass, false);
   await shot(trainer, 'trainer-client-picker.png');
@@ -249,6 +255,20 @@ async function openPage(browser, cfg) {
     return note && note.textContent === 'No sets logged this month.';
   });
   assert.ok((await trainer.$eval('#app', function (el) { return el.innerText; })).indexOf('Barbell squat') < 0);
+  await trainer.click('#client-pick [data-client="' + FAN + '"]');
+  await trainer.waitForSelector('#dash-share-none');
+  const held = await trainer.evaluate(function () {
+    return {
+      share: !!document.getElementById('dash-share'),
+      note: document.getElementById('dash-share-none').textContent,
+      sheet: !!document.getElementById('dashboard-sheet')
+    };
+  });
+  assert.deepStrictEqual(held, {
+    share: false,
+    note: 'This client keeps their own live dashboard.',
+    sheet: true
+  });
 
   const withTrainer = await openPage(browser, {
     id: ADA,
@@ -413,6 +433,70 @@ async function openPage(browser, cfg) {
   assert.deepStrictEqual(alone.__errors, []);
   assert.deepStrictEqual(inbox.__errors, []);
   assert.deepStrictEqual(enthusiast.__errors, []);
+
+  const broken = await openPage(browser, {
+    id: ADA,
+    email: 'ada@example.com',
+    membership: 'free_client',
+    name: 'Ada Client',
+    sharesError: true,
+    shares: []
+  });
+  await broken.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await broken.waitForSelector('#share-error');
+  const failedEmpty = await broken.evaluate(function () {
+    return {
+      error: document.getElementById('share-error').innerText,
+      soon: !!document.getElementById('dashboard-soon'),
+      hidden: document.getElementById('dashboard-count').hidden
+    };
+  });
+  assert.ok(failedEmpty.error.indexOf('Shared dashboards could not be loaded.') >= 0);
+  assert.strictEqual(failedEmpty.soon, false);
+  assert.strictEqual(failedEmpty.hidden, true);
+
+  const kept = await openPage(browser, {
+    id: ADA,
+    email: 'ada@example.com',
+    membership: 'free_client',
+    name: 'Ada Client',
+    shares: [{
+      id: SHARE_NEW,
+      trainer_name: 'Coach Lee',
+      as_of: '2026-11-16',
+      created_at: '2026-11-16T18:00:00.000Z',
+      viewed_at: null,
+      cards: [{ type: 'plan', plan: { pct: 65, hits: 11, total: 17, rating: { label: 'Keep trying' } } }]
+    }]
+  });
+  await kept.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await kept.waitForFunction(function () {
+    var badge = document.getElementById('dashboard-count');
+    return badge && badge.textContent === '1';
+  });
+  await kept.evaluate(function () { window.__sharesError = true; });
+  await kept.click('#tracking-tab-history');
+  await kept.waitForSelector('#tracking-tab-history.on');
+  await kept.click('#tracking-tab-dashboard');
+  await kept.waitForSelector('#share-stale');
+  const stillThere = await kept.evaluate(function (id) {
+    var row = document.querySelector('[data-share="' + id + '"]');
+    var badge = document.getElementById('dashboard-count');
+    return {
+      row: !!row,
+      soon: !!document.getElementById('dashboard-soon'),
+      count: badge ? badge.textContent : '',
+      stale: document.getElementById('share-stale').textContent
+    };
+  }, SHARE_NEW);
+  assert.deepStrictEqual(stillThere, {
+    row: true,
+    soon: false,
+    count: '1',
+    stale: 'The latest shares could not be loaded.'
+  });
+  assert.deepStrictEqual(broken.__errors, []);
+  assert.deepStrictEqual(kept.__errors, []);
   console.log('SHARES UI OK');
   await browser.close();
 })().catch(function (err) {

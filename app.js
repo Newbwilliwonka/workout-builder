@@ -2772,6 +2772,7 @@
   var trackingKeyFocus = '';
   var shareUnread = 0;
   var shareRows = [];
+  var shareLoadError = false;
   var trainerRoster = { clients: [] };
   var editorClient = '';
   var trainerOrder = null;
@@ -2897,25 +2898,30 @@
     if (!freeClient()) {
       shareUnread = 0;
       shareRows = [];
-      return Promise.resolve([]);
+      shareLoadError = false;
+      return Promise.resolve({ rows: [], error: false });
     }
     var pending;
     try { pending = WBAuth.myShares ? WBAuth.myShares() : Promise.resolve({ unavailable: true, shares: [] }); }
     catch (e) { pending = Promise.resolve({ unavailable: true, shares: [] }); }
     return Promise.resolve(pending).then(function (res) {
-      if (token !== routeToken || !freeClient()) return shareRows;
+      if (token !== routeToken || !freeClient()) return { rows: shareRows.slice(), error: false };
+      if (res && res.error) return shareLoadFailed(token);
+      shareLoadError = false;
       var rows = res && Array.isArray(res.shares) ? res.shares : [];
       shareRows = window.WBShares ? WBShares.byNewest(rows) : rows.slice();
       shareUnread = window.WBShares ? WBShares.unread(shareRows) : 0;
       paintDashboardCount(shareUnread);
-      return shareRows;
+      return { rows: shareRows.slice(), error: false };
     }, function () {
-      if (token !== routeToken) return [];
-      shareRows = [];
-      shareUnread = 0;
-      paintDashboardCount(0);
-      return [];
+      return shareLoadFailed(token);
     });
+  }
+  function shareLoadFailed(token) {
+    if (token !== routeToken || !freeClient()) return { rows: [], error: true };
+    shareLoadError = true;
+    paintDashboardCount(shareUnread);
+    return { rows: shareRows.slice(), error: true };
   }
   function clientChoices() {
     var out = [];
@@ -2923,9 +2929,28 @@
     rows.forEach(function (c) {
       if (!c || !window.WBShares || !WBShares.isUuid(c.id)) return;
       var name = String(c.name || '').replace(/^\s+|\s+$/g, '') || String(c.email || '').replace(/^\s+|\s+$/g, '') || 'Client';
-      out.push({ id: String(c.id), name: name });
+      out.push({
+        id: String(c.id),
+        name: name,
+        plan: c.plan || '',
+        membership: c.membership || ''
+      });
     });
     return out;
+  }
+  function clientRecord(id) {
+    var found = null;
+    clientChoices().forEach(function (c) { if (c.id === id) found = c; });
+    return found;
+  }
+  // The inbox is the free-client Dashboard tab. An Enthusiast already has the
+  // live sheet, so a share addressed to them would never appear.
+  function receivesShares(client) {
+    if (!client) return false;
+    var membership = String(client.membership || '').replace(/^\s+|\s+$/g, '');
+    if (membership === 'free_client' || membership === 'none') return true;
+    if (membership) return false;
+    return String(client.plan || '').toLowerCase().indexOf('enthusiast') < 0;
   }
   function pickerHtml(selected) {
     var clients = clientChoices();
@@ -2967,11 +2992,17 @@
   }
   function paintClientEditor() {
     if (!window.WBDashboard || !trainerModel) return;
-    var body = pickerHtml(editorClient) + WBDashboard.editorHtml(trainerModel, trainerOrder);
+    var body = pickerHtml(editorClient) + WBDashboard.editorHtml(trainerModel, trainerOrder, {
+      share: receivesShares(clientRecord(editorClient))
+    });
     paintTracking('dashboard', body, true);
   }
   function shareCurrent() {
     if (!window.WBDashboard || !trainerModel || !editorClient) return;
+    if (!receivesShares(clientRecord(editorClient))) {
+      toast('This client keeps their own live dashboard.');
+      return;
+    }
     var order = window.WBShares ? WBShares.orderOf(trainerOrder) : (trainerOrder || []);
     if (!order.length) return;
     var snap = WBDashboard.freeze(trainerModel, order, { asOf: dashboardDay(), trainerName: trainerName() });
@@ -3185,8 +3216,15 @@
       Promise.resolve(connP).then(function (row) { return row || null; }, function () { return null; })
     ]).then(function (pair) {
       if (!dashboardCurrent(token)) return;
-      var rows = pair[0] || [];
-      paintTracking('dashboard', rows.length ? shareListHtml(rows) : freeEmptyHtml(pair[1]), true);
+      var pack = pair[0] || { rows: [], error: true };
+      var rows = pack.rows || [];
+      if (pack.error && !rows.length) {
+        paintTracking('dashboard', '<div class="card" id="share-error"><div class="name">Shared dashboards could not be loaded.</div><p class="db-note">Try again in a moment.</p></div>', true);
+        return;
+      }
+      var body = rows.length ? shareListHtml(rows) : freeEmptyHtml(pair[1]);
+      if (pack.error) body = '<p class="db-note" id="share-stale">The latest shares could not be loaded.</p>' + body;
+      paintTracking('dashboard', body, true);
     });
   }
   function renderOpenedShare(token, id) {
@@ -3197,7 +3235,10 @@
       var row = null;
       shareRows.forEach(function (item) { if (item && String(item.id) === String(id)) row = item; });
       if (!row || !window.WBDashboard) {
-        paintTracking('dashboard', '<div class="card" id="share-missing"><div class="name">That dashboard is not available.</div></div>', true);
+        var missing = shareLoadError
+          ? '<div class="card" id="share-error"><div class="name">Shared dashboards could not be loaded.</div></div>'
+          : '<div class="card" id="share-missing"><div class="name">That dashboard is not available.</div></div>';
+        paintTracking('dashboard', missing, true);
         return;
       }
       paintTracking('dashboard', WBDashboard.snapshotHtml({

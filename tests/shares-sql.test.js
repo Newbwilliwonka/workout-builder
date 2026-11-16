@@ -10,6 +10,7 @@ const E = '77777777-7777-4777-8777-777777777777';
 const S = '44444444-4444-4444-8444-444444444444';
 const N = '55555555-5555-4555-8555-555555555555';
 const C2 = '66666666-6666-4666-8666-666666666666';
+const F = '88888888-8888-4888-8888-888888888888';
 
 function psql(db, sql, file) {
   const args = ['-u', 'postgres', 'psql', '-v', 'ON_ERROR_STOP=1', '-d', db];
@@ -68,7 +69,8 @@ insert into auth.users (id, email) values
   ('${E}', 'fan@example.com'),
   ('${S}', 'stranger@example.com'),
   ('${N}', 'neil@example.com'),
-  ('${C2}', 'bea@example.com');
+  ('${C2}', 'bea@example.com'),
+  ('${F}', 'fan-client@example.com');
 update public.profiles set membership = 'free_client', email = 'ada@example.com' where id = '${C}';
 update public.profiles set membership = 'trainer', email = 'coach@example.com' where id = '${T}';
 update public.profiles set membership = 'master_trainer', email = 'master@example.com' where id = '${M}';
@@ -76,8 +78,10 @@ update public.profiles set membership = 'enthusiast', email = 'fan@example.com' 
 update public.profiles set membership = 'trainer', email = 'stranger@example.com' where id = '${S}';
 update public.profiles set membership = 'free_client', email = 'neil@example.com' where id = '${N}';
 update public.profiles set membership = 'free_client', email = 'bea@example.com' where id = '${C2}';
+update public.profiles set membership = 'enthusiast', email = 'fan-client@example.com' where id = '${F}';
 insert into public.trainer_clients (trainer_id, client_id) values
   ('${T}', '${C}'),
+  ('${T}', '${F}'),
   ('${M}', '${C2}'),
   ('${E}', '${N}');
 
@@ -143,6 +147,13 @@ begin
     raise exception 'duplicate card was stored';
   exception when others then
     if sqlerrm not like '%once%' and sqlerrm not like '%row-level security%' then raise; end if;
+  end;
+  begin
+    insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
+    values ('${F}', '${T}', 'Coach Lee', '2026-11-16', '[{"type":"plan"}]'::jsonb);
+    raise exception 'trainer shared with an enthusiast';
+  exception when others then
+    if sqlerrm not like '%free client%' and sqlerrm not like '%row-level security%' then raise; end if;
   end;
   begin
     update public.shared_dashboards set trainer_name = 'Changed' where client_id = '${C}';

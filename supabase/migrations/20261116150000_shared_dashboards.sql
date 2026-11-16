@@ -14,9 +14,11 @@
 --     viewed_at stays empty until that client opens it.
 --
 -- Who can see a row (row level security):
---   A Trainer or Master Trainer can insert a row only for a client they are
---   connected to right now, and only as themselves. They can read a row they
---   shared only while that connection is still open.
+--   A Trainer or Master Trainer can insert a row only for a connected client
+--   who still uses the free-client inbox (membership free_client or none),
+--   and only as themselves. An Enthusiast, Trainer, or Master Trainer keeps
+--   their own live dashboard, so a share cannot be addressed to them. The
+--   sender can read a row they shared only while that connection is still open.
 --   The client can read their own rows and can set viewed_at once. They
 --   cannot change the cards, the date, or the trainer name.
 --   Nobody else can read or write the row. A signed-in person cannot delete
@@ -60,6 +62,27 @@ grant select, insert, update on public.shared_dashboards to authenticated;
 
 -- Inserts are trainers only, and only for a client they are linked to.
 -- Updates only let that client mark the row opened, once.
+-- The inbox check runs as the owner. A trainer cannot read the client's
+-- profiles row, so the same check inside a policy would always fail.
+create or replace function private.share_inbox(client uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where id = client
+      and membership in ('free_client', 'none')
+  );
+$$;
+
+revoke all on function private.share_inbox(uuid) from public, anon, authenticated;
+
+-- Inserts are trainers only, and only for a client they are linked to.
+-- Updates only let that client mark the row opened, once.
 create or replace function private.shared_dashboard_guard()
 returns trigger
 language plpgsql
@@ -96,6 +119,9 @@ begin
         and membership in ('trainer', 'master_trainer')
     ) then
       raise exception 'Only a trainer can share a dashboard.';
+    end if;
+    if not private.share_inbox(new.client_id) then
+      raise exception 'A shared dashboard goes to a free client.';
     end if;
     if new.viewed_at is not null then
       raise exception 'A new dashboard has not been opened.';

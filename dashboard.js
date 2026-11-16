@@ -872,7 +872,7 @@
       .replace('<section class="db-sec"', '<section class="db-sec db-edit" data-card="' + id + '" draggable="true"')
       .replace('>', '>' + toolRow(id, index, total));
   }
-  function editorHtml(model, order) {
+  function editorHtml(model, order, opts) {
     var ids = keptOrder(order);
     var sections = ids.map(function (id, index) {
       var opts = id === 'workouts' ? { scheduleNote: !model || !model.workouts || model.workouts.streak == null } : null;
@@ -888,7 +888,11 @@
       });
       add += '</div></div>';
     }
-    return '<div id="dash-editor"><button type="button" class="pri" id="dash-share"' + (ids.length ? '' : ' disabled') + '>Share</button>' + add + '</div>' +
+    var canShare = !opts || opts.share !== false;
+    var shareBtn = canShare
+      ? '<button type="button" class="pri" id="dash-share"' + (ids.length ? '' : ' disabled') + '>Share</button>'
+      : '<p class="db-note" id="dash-share-none">This client keeps their own live dashboard.</p>';
+    return '<div id="dash-editor">' + shareBtn + add + '</div>' +
       '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' + sections + '</div></div>';
   }
 
