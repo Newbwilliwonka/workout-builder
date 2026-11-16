@@ -206,6 +206,169 @@
     if (session) return { kind: 'signed-in', session: session };
     return { kind: 'none' };
   }
+  function isUuid(id) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+  }
+  function shareTableMissing(err) {
+    var msg = err && (err.message || err.code || err.details || err.hint) || '';
+    return /shared_dashboards|42P01|PGRST205|schema cache|does not exist/i.test(String(msg));
+  }
+  function mapShare(row) {
+    var cards = row && row.cards && typeof row.cards === 'object' ? row.cards : {};
+    var asOf = String(row && row.as_of || '').slice(0, 10);
+    var label = root.WBDashboard && root.WBDashboard.asOfLabel ? root.WBDashboard.asOfLabel(asOf) : asOf;
+    return {
+      id: row.id,
+      trainerName: row.trainer_name || 'Trainer',
+      asOf: asOf,
+      asOfLabel: label,
+      sharedAt: row.shared_at,
+      viewedAt: row.viewed_at || null,
+      order: Array.isArray(cards.order) ? cards.order : [],
+      blocks: cards.blocks && typeof cards.blocks === 'object' ? cards.blocks : {}
+    };
+  }
+  function historyFor(ownerId) {
+    var setCols = 'id,session_id,library_exercise_id,personal_exercise_id,exercise_name,mode,set_number,status,removed,display_unit,planned_reps,planned_reps_min,planned_reps_max,planned_weight_kg,planned_bodyweight,actual_reps,actual_weight_kg,actual_bodyweight,planned_hold_sec,actual_hold_sec,planned_work_sec,actual_work_sec,planned_rest_sec,actual_rest_sec,planned_rounds,actual_rounds,planned_total_sec,actual_total_sec,planned_lap_count,actual_laps,planned_events,actual_events';
+    var pageSize = 1000;
+    if (!isUuid(ownerId)) return Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] });
+    return db().then(function (c) {
+      return c.auth.getSession().then(function (res) {
+        var user = userOf(res && res.data && res.data.session);
+        if (!user || !isUuid(user.id)) return { sets: [], sessions: [], exercises: [] };
+        var pages = root.WBHistory && root.WBHistory.collectPages;
+        if (typeof pages !== 'function') return { error: true, sets: [], sessions: [], exercises: [] };
+        function page(table, cols, ownerCol) {
+          return function (after, size) {
+            var q = c.from(table).select(cols).eq(ownerCol, ownerId).order('id', { ascending: true }).limit(size);
+            if (table === 'workout_sessions') q = q.in('status', ['completed', 'ended_early']);
+            if (table === 'workout_sets') q = q.eq('removed', false);
+            if (after) q = q.gt('id', after);
+            return q;
+          };
+        }
+        return Promise.all([
+          pages(page('workout_sessions', 'id,local_date,started_at,ended_at,workout_name,status,workout_id,program_id', 'client_id'), pageSize),
+          pages(page('workout_sets', setCols, 'client_id'), pageSize),
+          pages(page('personal_exercises', 'id,stable_key', 'user_id'), pageSize)
+        ]).then(function (pair) {
+          var err = (pair[0] && pair[0].error) || (pair[1] && pair[1].error) || (pair[2] && pair[2].error);
+          if (err) {
+            var missing = /workout_sets|workout_sessions|personal_exercises|42P01|PGRST205|schema cache/i.test(String(err.message || err.code || err.details || ''));
+            return { unavailable: !!missing, error: true, sets: [], sessions: [], exercises: [] };
+          }
+          return { sessions: pair[0].data || [], sets: pair[1].data || [], exercises: pair[2].data || [] };
+        });
+      });
+    }).then(function (out) { return out; }, function () {
+      return { error: true, sets: [], sessions: [], exercises: [] };
+    });
+  }
+  function scheduleFor(ownerId) {
+    var pageSize = 1000;
+    if (!isUuid(ownerId)) return Promise.resolve({ unavailable: true, entries: [] });
+    return db().then(function (c) {
+      return c.auth.getSession().then(function (res) {
+        var user = userOf(res && res.data && res.data.session);
+        if (!user || !isUuid(user.id)) return { entries: [] };
+        var pages = root.WBHistory && root.WBHistory.collectPages;
+        if (typeof pages !== 'function') return { unavailable: true, entries: [] };
+        function fetchPage(after, size) {
+          var q = c.from('program_entries')
+            .select('id,local_id,owner_id,workout_local_id,day,presence,updated_at')
+            .eq('owner_id', ownerId)
+            .order('id', { ascending: true })
+            .limit(size);
+          if (after) q = q.gt('id', after);
+          return q;
+        }
+        return pages(fetchPage, pageSize).then(function (page) {
+          if (!page || page.error) {
+            var err = page && page.error;
+            var missing = /program_entries|42P01|PGRST205|schema cache/i.test(String(err && (err.message || err.code || err.details) || ''));
+            return { unavailable: !!missing || !page, entries: [] };
+          }
+          return { entries: page.data || [] };
+        });
+      });
+    }).then(function (out) { return out; }, function () {
+      return { unavailable: true, entries: [] };
+    });
+  }
+  function sharesForMe() {
+    return db().then(function (c) {
+      return c.auth.getSession().then(function (res) {
+        var user = userOf(res && res.data && res.data.session);
+        if (!user || !isUuid(user.id)) return { shares: [] };
+        return c.from('shared_dashboards')
+          .select('id,trainer_name,as_of,shared_at,viewed_at,cards')
+          .eq('client_id', user.id)
+          .order('shared_at', { ascending: false })
+          .order('id', { ascending: false });
+      });
+    }).then(function (res) {
+      if (res && Array.isArray(res.shares)) return res;
+      if (!res || res.error) {
+        if (shareTableMissing(res && res.error)) return { unavailable: true, shares: [] };
+        return { error: true, shares: [] };
+      }
+      return { shares: (res.data || []).map(mapShare) };
+    }, function (err) {
+      if (shareTableMissing(err)) return { unavailable: true, shares: [] };
+      return { error: true, shares: [] };
+    });
+  }
+  function insertShare(row) {
+    var clientId = String(row.clientId || '');
+    var asOf = String(row.asOf || '').slice(0, 10);
+    var cards = row.cards && typeof row.cards === 'object' ? row.cards : null;
+    if (!isUuid(clientId) || !/^\d{4}-\d{2}-\d{2}$/.test(asOf) || !cards) return Promise.resolve({ ok: false });
+    return db().then(function (c) {
+      return c.auth.getSession().then(function (res) {
+        var user = userOf(res && res.data && res.data.session);
+        if (!user || !isUuid(user.id)) return { ok: false };
+        var name = String(row.trainerName || 'Trainer').replace(/^\s+|\s+$/g, '').slice(0, 80) || 'Trainer';
+        return c.from('shared_dashboards').insert({
+          client_id: clientId,
+          trainer_id: user.id,
+          trainer_name: name,
+          as_of: asOf,
+          cards: cards
+        }).select('id,trainer_name,as_of,shared_at').single();
+      });
+    }).then(function (res) {
+      if (res && res.ok === false) return res;
+      if (!res || res.error) {
+        if (shareTableMissing(res && res.error)) return { ok: false, unavailable: true };
+        return { ok: false, message: (res && res.error && res.error.message) || 'Could not share that dashboard.' };
+      }
+      return { ok: true, id: res.data && res.data.id, trainerName: res.data && res.data.trainer_name };
+    }, function (err) {
+      if (shareTableMissing(err)) return { ok: false, unavailable: true };
+      return { ok: false, message: (err && err.message) || 'Could not share that dashboard.' };
+    });
+  }
+  function markShare(id) {
+    if (!isUuid(id)) return Promise.resolve({ ok: false });
+    return db().then(function (c) {
+      return c.auth.getSession().then(function (res) {
+        var user = userOf(res && res.data && res.data.session);
+        if (!user || !isUuid(user.id)) return { ok: false };
+        return c.from('shared_dashboards').update({ viewed_at: new Date().toISOString() })
+          .eq('id', id).eq('client_id', user.id).select('id,viewed_at').maybeSingle();
+      });
+    }).then(function (res) {
+      if (res && res.ok === false) return res;
+      if (!res || res.error) {
+        if (shareTableMissing(res && res.error)) return { ok: false, unavailable: true };
+        return { ok: false };
+      }
+      return { ok: true, viewedAt: res.data && res.data.viewed_at };
+    }, function (err) {
+      if (shareTableMissing(err)) return { ok: false, unavailable: true };
+      return { ok: false };
+    });
+  }
   var api = {
     session: function () {
       return db().then(function (c) { return c.auth.getSession(); }).then(function (res) {
@@ -623,6 +786,24 @@
       }).then(function (out) { return out; }, function () {
         return { unavailable: true, entries: [] };
       });
+    },
+    // A trainer's read of one connected client's finished sessions.
+    // Row level security still hides anyone they are not connected to.
+    // A missing table resolves as unavailable and does not throw.
+    clientHistory: function (clientId) {
+      return historyFor(clientId);
+    },
+    clientSchedule: function (clientId) {
+      return scheduleFor(clientId);
+    },
+    myShares: function () {
+      return sharesForMe();
+    },
+    shareDashboard: function (row) {
+      return insertShare(row || {});
+    },
+    markShareViewed: function (id) {
+      return markShare(id);
     },
     gifBase: EXERCISE_GIF_BASE,
     searchExercises: function (query, filters, limit, offset) {

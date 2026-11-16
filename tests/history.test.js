@@ -7,12 +7,16 @@ const sets = require('./history-fixture').sampleSets();
 
 const appSrc = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
 const historySrc = fs.readFileSync(path.join(__dirname, '../history.js'), 'utf8');
+const dashSrc = fs.readFileSync(path.join(__dirname, '../dashboard.js'), 'utf8');
 assert.ok(!/Test account|Alex Rivera|sampleSets|FARMER_PHOTO/.test(historySrc), 'the app history file has no sample account');
 assert.ok(!/historySample|sample=1|preview=history|WBHistory\.sampleSets/.test(appSrc), 'the app cannot open a sample history');
 assert.ok(/id="tracking-open"[^>]*data-a="tracking">Tracking</.test(appSrc), 'the workout list opens Tracking');
 assert.ok(!/id="history-open"|data-a="history">History</.test(appSrc), 'History is no longer a workout-list button');
 assert.ok(/id="dashboard-count"/.test(appSrc), 'Dashboard keeps a spot for a future count');
-assert.ok(/Your trainer can share a dashboard with you\./.test(appSrc), 'a Free Client still sees a dashboard note');
+assert.ok(/No dashboard yet/.test(dashSrc), 'a Free Client still sees a dashboard note');
+assert.ok(/Message your trainer/.test(dashSrc) && /Upgrade to Enthusiast/.test(dashSrc), 'the empty dashboard offers the trainer and the upgrade');
+assert.ok(/The Trainer Hub is coming soon\./.test(dashSrc), 'a client without a trainer hears that the hub is not here yet');
+assert.ok(!/Your trainer can share a dashboard with you\./.test(appSrc + dashSrc), 'the placeholder note is replaced');
 assert.ok(!/Dashboard coming soon/.test(appSrc), 'the coming-soon note is replaced');
 const list = H.list(sets);
 

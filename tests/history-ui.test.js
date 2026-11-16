@@ -68,7 +68,7 @@ async function shot(page, name) {
           window.__historyCalls = (window.__historyCalls || 0) + 1;
           return Promise.resolve(window.__wbHistoryPayload || { sets: [], sessions: [], exercises: [] });
         };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting'].forEach(function (name) {
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'myShares', 'clientHistory', 'clientSchedule', 'shareDashboard', 'markShareViewed'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
       }
