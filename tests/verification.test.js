@@ -112,7 +112,9 @@ assert.ok(P.nameHtml('Coach Kim', true).indexOf('Coach Kim') > 0);
 assert.ok(P.nameHtml('Coach Kim', true).indexOf('aria-label="Verified"') > 0);
 assert.strictEqual(P.nameHtml('A & B', false), 'A &amp; B');
 assert.ok(P.fromTrainerHtml({ sourceTrainerName: 'Sam', sourceTrainerVerified: true }).indexOf('aria-label="Verified"') > 0);
-assert.strictEqual(P.fromTrainerHtml({ sourceTrainerEmail: 's@example.com' }), 's@example.com');
+assert.strictEqual(P.fromTrainerHtml({ sourceTrainerEmail: 's@example.com' }), 'Trainer');
+assert.strictEqual(P.fromTrainerHtml({ sourceTrainerName: 's@example.com' }), 'Trainer');
+assert.ok(P.fromTrainerHtml({ sourceTrainerName: 'Sam', sourceTrainerEmail: 's@example.com' }).indexOf('s@example.com') === -1);
 
 const open = P.verifyAreaHtml(P.verificationView({ membership: 'master_trainer', today: TODAY }));
 assert.ok(open.indexOf('Get verified') > 0);

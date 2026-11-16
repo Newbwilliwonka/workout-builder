@@ -37,7 +37,9 @@ var freshOnly = M.applyServerList([], [
 ]);
 assert.deepStrictEqual(freshOnly.map(function (m) { return m.id; }), ['1', '2']);
 
-assert.strictEqual(M.initials('fan@example.com'), 'FA');
-assert.strictEqual(M.initials('kinisiathletics@gmail.com'), 'KI');
+assert.strictEqual(M.initials('fan@example.com'), '?');
+assert.strictEqual(M.initials('kinisiathletics@gmail.com'), '?');
+assert.strictEqual(M.initials('Ada'), 'AD');
+assert.strictEqual(M.initials('Ada Client'), 'AC');
 
 console.log('MESSAGES UNIT OK');

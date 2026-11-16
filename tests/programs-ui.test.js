@@ -156,7 +156,7 @@ async function stub(page, extra) {
   assert.ok(icon.w >= 12 && icon.w <= 16, 'icon width ' + icon.w);
   assert.ok(icon.d.indexOf('M12') === 0 || icon.d.indexOf('M9') === 0);
   assert.strictEqual(icon.tag, 'BUTTON');
-  await enthusiast.click('.pv-day .pv-day-h');
+  await enthusiast.click('.pv-day:not(.today) .pv-day-h');
   await enthusiast.waitForSelector('#pv-start-h');
   await enthusiast.waitForSelector('#pv-start-m');
   await enthusiast.waitForSelector('#pv-end-h');
@@ -630,8 +630,8 @@ async function stub(page, extra) {
       role: 'master_trainer',
       clients: [
         { id: 'ada', email: 'ada@example.com', plan: 'Free Client' },
-        { id: 'jo', email: 'jo@example.com', plan: 'Enthusiast' },
-        { id: 'sam', email: 'sam@example.com', plan: 'Enthusiast' }
+        { id: 'jo', name: 'Jo Park', email: 'jo@example.com', plan: 'Enthusiast' },
+        { id: 'sam', name: 'sam@example.com', email: 'sam@example.com', plan: 'Enthusiast' }
       ]
     },
     status: {
@@ -649,6 +649,10 @@ async function stub(page, extra) {
   assert.strictEqual(await trainer.$('.pv-handle'), null);
   assert.strictEqual(await trainer.$eval('#pv-client', function (el) { return el.value; }), '');
   assert.strictEqual(await trainer.$eval('#pv-client option:checked', function (el) { return el.textContent; }), 'My calendar');
+  assert.deepStrictEqual(await trainer.$$eval('#pv-client option', function (els) {
+    return els.map(function (el) { return el.textContent; });
+  }), ['My calendar', 'Client · Free Client', 'Jo Park · Enthusiast', 'Enthusiast · Enthusiast']);
+  assert.ok((await trainer.$eval('#pv-client', function (el) { return el.innerHTML; })).indexOf('@') === -1);
   assert.strictEqual(await trainer.$('#pv-workouts .actions'), null);
   assert.strictEqual(await trainer.$('#pv-workouts button'), null);
   assert.strictEqual(await trainer.$('[data-send]'), null);

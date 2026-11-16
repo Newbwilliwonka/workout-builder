@@ -305,13 +305,21 @@
     if (P.isTrainer(state.role) && state.clientId && canEdit()) return '<div class="card" id="pv-role-note"><p style="margin:0">You can drag and move workouts on this client’s calendar.</p></div>';
     return '';
   }
+  function clientVisible(client) {
+    var named = window.WBProfile && WBProfile.label ? WBProfile.label(client) : '';
+    if (named) return named;
+    var raw = String((client && (client.display_name || client.name)) || '').replace(/^\s+|\s+$/g, '');
+    if (raw && raw.indexOf('@') === -1) return raw;
+    if (/enthusiast/i.test(String((client && (client.plan || client.membership)) || ''))) return 'Enthusiast';
+    return 'Client';
+  }
   function clientPicker() {
     if (!P.isTrainer(state.role)) return '';
     if (!state.clients.length) return '<div class="card"><div class="name">No clients yet</div><p class="mute">Invite a client from Account, then their calendar shows up here.</p></div>';
     var h = '<label class="mute" for="pv-client">Client</label><select id="pv-client">';
     h += '<option value=""' + (state.clientId ? '' : ' selected') + '>My calendar</option>';
     state.clients.forEach(function (client) {
-      h += '<option value="' + esc(client.id) + '"' + (client.id === state.clientId ? ' selected' : '') + '>' + esc(client.email || 'Client') + ' · ' + esc(client.plan || 'Free Client') + '</option>';
+      h += '<option value="' + esc(client.id) + '"' + (client.id === state.clientId ? ' selected' : '') + '>' + esc(clientVisible(client)) + ' · ' + esc(client.plan || 'Free Client') + '</option>';
     });
     return h + '</select>';
   }

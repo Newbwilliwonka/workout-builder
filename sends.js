@@ -120,7 +120,12 @@
       var labeled = root.WBProfile.label(c);
       if (labeled) return labeled;
     }
-    return (c && (c.name || c.email)) || 'Client';
+    var raw = c && String(c.display_name || c.name || '').replace(/^\s+|\s+$/g, '');
+    if (raw && raw.indexOf('@') === -1) return raw;
+    var plan = String((c && (c.plan || c.membership)) || '');
+    if (/enthusiast/i.test(plan)) return 'Enthusiast';
+    if (/trainer/i.test(plan)) return 'Trainer';
+    return 'Client';
   }
   function nameList(list) {
     var names = list.map(personName);
@@ -150,11 +155,18 @@
   }
   function initials(name) {
     var raw = String(name || '').trim();
+    if (!raw || raw.indexOf('@') !== -1) return '?';
     var bits = raw.split(/\s+/).filter(Boolean);
-    if (bits.length >= 2 && raw.indexOf('@') === -1) return (bits[0].charAt(0) + bits[1].charAt(0)).toUpperCase();
-    var local = raw.split('@')[0].replace(/[^a-z0-9]/gi, '');
-    if (local.length >= 2) return local.slice(0, 2).toUpperCase();
+    if (bits.length >= 2) return (bits[0].charAt(0) + bits[1].charAt(0)).toUpperCase();
+    var compact = raw.replace(/[^a-z0-9]/gi, '');
+    if (compact.length >= 2) return compact.slice(0, 2).toUpperCase();
     return (raw.charAt(0) || '?').toUpperCase();
+  }
+  function trainerTag(w) {
+    if (root.WBProfile && root.WBProfile.fromTrainerHtml) return root.WBProfile.fromTrainerHtml(w);
+    var name = w && String(w.sourceTrainerName || '').replace(/^\s+|\s+$/g, '');
+    if (!name || name.indexOf('@') !== -1) name = 'Trainer';
+    return esc(name);
   }
   function newId() {
     var c = (root && root.crypto) || (typeof crypto !== 'undefined' ? crypto : null);
@@ -174,7 +186,7 @@
     try { return decodeURIComponent(parts[1]); } catch (e) { return parts[1]; }
   }
   function lockedHtml(w) {
-    var h = '<span class="tag">From ' + (root.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(w.sourceTrainerEmail || 'your trainer')) + '</span>';
+    var h = '<span class="tag">From ' + trainerTag(w) + '</span>';
     h += '<p class="mute" id="copy-note">You can run this copy. Only an Enthusiast can edit it. Your trainer\'s workout stays as it is.</p>';
     (w.items || []).forEach(function (it) {
       var line = '';
@@ -324,7 +336,9 @@
     }
     var deliveries = ids.map(function (id) { return { id: delivery.ids[id], clientId: id }; });
     var payload = { deliveries: deliveries, name: delivery.name, items: delivery.items, source: delivery.sourceWorkoutId };
-    var people = clients.map(function (c) { return { id: c.id, email: c.email, plan: c.plan }; });
+    var people = clients.map(function (c) {
+      return { id: c.id, name: c.name, display_name: c.display_name, plan: c.plan, membership: c.membership };
+    });
     drawSend();
     // The request belongs to this workout and these people. Settling it is what
     // turns the button back on. A timer must not call a slow success a failure.
@@ -383,7 +397,7 @@
       var edit = canEditCopy(profile, w);
       var n = (w.items || []).length;
       h += '<div class="card" data-copy="' + esc(w.id) + '"><div class="row"><div class="name grow">' + esc(w.name) + '</div>' +
-        '<span class="tag">From ' + (root.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(w.sourceTrainerEmail || 'your trainer')) + '</span></div>';
+        '<span class="tag">From ' + trainerTag(w) + '</span></div>';
       h += '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + ' · ' + (edit ? 'You can edit it' : 'You can run it') + '</div>';
       h += '<div class="actions"><button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Open</button>';
       if (n) h += '<button type="button" class="sm" data-run-copy="' + esc(w.id) + '">Run</button>';

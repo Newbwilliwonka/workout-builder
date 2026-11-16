@@ -205,12 +205,19 @@ function install(page, who) {
   assert.strictEqual(await trainer.$eval('[data-thread="' + E + '"] .count', function (el) { return el.textContent; }), '1');
   assert.strictEqual(await trainer.$('[data-thread="' + C + '"] .count'), null);
   assert.ok((await trainer.evaluate(function () { return document.body.innerText; })).includes('Can we move Thursday'));
+  const inbox = await trainer.$eval('#thread-list', function (el) { return el.innerText; });
+  assert.ok(inbox.indexOf('@') === -1);
+  assert.ok(inbox.indexOf('fan@') === -1);
+  assert.ok(inbox.indexOf('ada@') === -1);
+  assert.ok(inbox.indexOf('Enthusiast') !== -1);
+  assert.ok(inbox.indexOf('Free Client') !== -1);
   assert.strictEqual(await trainer.$('#sample-role, [data-role]'), null);
   await trainer.screenshot({ path: ART + '/trainer-messages-unread.png' });
 
   await trainer.click('[data-thread="' + E + '"]');
   await trainer.waitForFunction(function () { return document.body.innerText.indexOf('Can we move Thursday to Friday morning?') !== -1 && document.getElementById('msg-send'); });
   assert.strictEqual(await trainer.$eval('#with', function (el) { return el.textContent; }), 'Enthusiast · linked client');
+  assert.strictEqual(await trainer.$eval('#title', function (el) { return el.textContent; }), 'Enthusiast');
   await trainer.type('#msg-text', 'Friday at 8 works.');
   await trainer.click('#msg-send');
   await trainer.waitForFunction(function () {
@@ -260,6 +267,8 @@ function install(page, who) {
     return location.hash.indexOf(id) !== -1 && document.getElementById('with') && document.getElementById('msg-send');
   }, {}, T);
   assert.strictEqual(await client.$eval('#with', function (el) { return el.textContent; }), 'Trainer');
+  assert.strictEqual(await client.$eval('#title', function (el) { return el.textContent; }), 'Trainer');
+  assert.ok((await client.evaluate(function () { return document.getElementById('app').innerText + document.getElementById('title').innerText; })).indexOf('@') === -1);
   assert.ok(await client.$('.bubble.me'));
   assert.ok(await client.$('.bubble:not(.me)'));
   await client.screenshot({ path: ART + '/client-conversation.png' });
