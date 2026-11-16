@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/history  |  #/history/<key> */
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key> */
 (function () {
   'use strict';
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
@@ -93,8 +93,9 @@
       if (window.WBPreview && WBPreview.back()) return;
       return go('#/');
     }
+    if (page === 'tracking') return go('#/');
     if (page === 'history') {
-      if (hashBody().split('/')[1]) return go('#/history');
+      if (hashBody().split('/')[1]) return go('#/tracking');
       return go('#/');
     }
     var p = location.hash.split('/');
@@ -1250,6 +1251,7 @@
       syncHeaderSignOut();
       levelNoteOn = false;
       if (programsRequested()) return openPrograms();
+      if (page === 'tracking') return renderTracking(token);
       if (page === 'history') return renderHistory(token);
       if (page === 'account') return renderSimpleAccount();
       if (page === 'messages') return openMessages(token);
@@ -2761,18 +2763,129 @@
   function historyOpts() {
     return { stillBase: gifBase(), imageKey: historyImageKey };
   }
+  // Keyboard moves between Tracking tabs. The id is restored after the page
+  // rebuilds, including the second paint once history rows arrive.
+  var trackingKeyFocus = '';
+  function historyRouteKey() {
+    if (hashPage() !== 'history') return '';
+    return hashBody().split('/')[1] || '';
+  }
+  function showingHistoryList() {
+    if (hashPage() === 'history') return !historyRouteKey();
+    return hashPage() === 'tracking' && hashBody().split('/')[1] !== 'dashboard';
+  }
+  function historyViewCurrent(token, key) {
+    if (token !== routeToken) return false;
+    if (key) return hashPage() === 'history' && historyRouteKey() === key;
+    return showingHistoryList();
+  }
+  function trackingTabHtml(id, label, on, extra) {
+    var track = id === 'tracking-tab-dashboard' ? 'dashboard' : 'history';
+    return '<button type="button" id="' + id + '" role="tab" data-track="' + track + '"' +
+      ' aria-selected="' + (on ? 'true' : 'false') + '" aria-controls="tracking-panel" tabindex="' + (on ? '0' : '-1') + '"' +
+      (on ? ' class="on"' : '') + '>' + label + (extra || '') + '</button>';
+  }
+  function trackingTabsHtml(which) {
+    var historyOn = which !== 'dashboard';
+    // dashboard-count is the future red count of shared dashboards.
+    // Sharing does not exist yet, so the badge stays hidden and empty.
+    return '<div class="seg" id="tracking-tabs" role="tablist" aria-label="Tracking">' +
+      trackingTabHtml('tracking-tab-history', 'History', historyOn) +
+      trackingTabHtml('tracking-tab-dashboard', 'Dashboard', !historyOn, '<span class="dashboard-count" id="dashboard-count" hidden></span>') +
+      '</div>';
+  }
+  function trackingShell(which, body) {
+    var tabId = which === 'dashboard' ? 'tracking-tab-dashboard' : 'tracking-tab-history';
+    return trackingTabsHtml(which) +
+      '<div id="tracking-panel" role="tabpanel" aria-labelledby="' + tabId + '">' + body + '</div>';
+  }
+  function paintDashboardCount(n) {
+    var badge = document.getElementById('dashboard-count');
+    if (!badge) return;
+    var count = Math.max(0, Number(n) || 0);
+    if (!count) {
+      badge.hidden = true;
+      badge.textContent = '';
+      badge.removeAttribute('aria-label');
+      return;
+    }
+    badge.hidden = false;
+    badge.textContent = String(count);
+    badge.setAttribute('aria-label', count === 1 ? '1 shared dashboard' : (count + ' shared dashboards'));
+  }
+  function bindTrackingTabs(settle) {
+    var tabs = document.getElementById('tracking-tabs');
+    if (!tabs) return;
+    tabs.onkeydown = function (e) {
+      var buttons = Array.prototype.slice.call(tabs.querySelectorAll('[role="tab"]'));
+      var current = e.target && e.target.closest ? e.target.closest('[role="tab"]') : null;
+      if (!current || buttons.indexOf(current) < 0) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        trackingKeyFocus = current.id;
+        return;
+      }
+      var delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : null;
+      var index = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : null;
+      if (delta == null && index == null) return;
+      e.preventDefault();
+      var i = buttons.indexOf(current);
+      var next = index == null ? buttons[(i + delta + buttons.length) % buttons.length] : buttons[index];
+      trackingKeyFocus = next.id;
+      next.click();
+    };
+    if (!trackingKeyFocus) return;
+    var el = document.getElementById(trackingKeyFocus);
+    if (!el) return;
+    el.focus();
+    if (settle) trackingKeyFocus = '';
+  }
+  function onTrackingClick(e) {
+    var tab = e.target.closest('[data-track]');
+    if (!tab) return false;
+    var dest = tab.getAttribute('data-track') === 'dashboard' ? '#/tracking/dashboard' : '#/tracking';
+    if (location.hash === dest) trackingKeyFocus = '';
+    else go(dest);
+    return true;
+  }
+  function paintTracking(which, body, settle) {
+    titleEl.textContent = 'Tracking';
+    app.innerHTML = trackingShell(which, body);
+    bindTrackingTabs(!!settle);
+    paintDashboardCount(0);
+    app.onclick = function (e) {
+      if (onTrackingClick(e)) return;
+      if (which !== 'history') return;
+      var button = e.target.closest('[data-history]');
+      if (!button) return;
+      go('#/history/' + button.getAttribute('data-history'));
+    };
+  }
+  function renderDashboard() {
+    backBtn.hidden = false;
+    app.oninput = null;
+    app.onchange = null;
+    paintTracking('dashboard', '<div class="card" id="dashboard-soon"><div class="name">Dashboard coming soon</div></div>', true);
+  }
+  function renderTracking(token) {
+    if (hashPage() === 'tracking' && hashBody().split('/')[1] === 'dashboard') return renderDashboard();
+    return renderHistory(token);
+  }
   function paintHistory(key, sets, unavailable) {
+    if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {
-      titleEl.textContent = 'History';
-      app.innerHTML = '<div class="empty">History is not available yet.</div>';
+      if (!key) paintTracking('history', '<div class="empty">History is not available yet.</div>', true);
+      else {
+        titleEl.textContent = 'History';
+        app.innerHTML = '<div class="empty">History is not available yet.</div>';
+      }
       return;
     }
     var opts = historyOpts();
     if (unavailable) opts.unavailable = true;
     if (!key) {
-      titleEl.textContent = 'History';
       var rows = WBHistory.list(sets);
-      app.innerHTML = rows.length ? WBHistory.listHtml(sets, opts) : WBHistory.emptyHtml(opts);
+      var body = rows.length ? WBHistory.listHtml(sets, opts) : WBHistory.emptyHtml(opts);
+      paintTracking('history', body, true);
       bindHistoryImages();
       var box = document.getElementById('history-q');
       if (box) box.oninput = function () {
@@ -2780,11 +2893,6 @@
         if (!list) return;
         list.innerHTML = WBHistory.itemsHtml(WBHistory.decorate(WBHistory.filter(WBHistory.list(sets), box.value), opts));
         bindHistoryImages();
-      };
-      app.onclick = function (e) {
-        var button = e.target.closest('[data-history]');
-        if (!button) return;
-        go('#/history/' + button.getAttribute('data-history'));
       };
       return;
     }
@@ -2799,23 +2907,30 @@
     app.onclick = null;
     app.oninput = null;
     app.onchange = null;
-    var key = hashBody().split('/')[1] || '';
+    var key = historyRouteKey();
+    if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {
-      titleEl.textContent = 'History';
-      app.innerHTML = '<div class="empty">History is not available yet.</div>';
+      if (!key) paintTracking('history', '<div class="empty">History is not available yet.</div>', true);
+      else {
+        titleEl.textContent = 'History';
+        app.innerHTML = '<div class="empty">History is not available yet.</div>';
+      }
       return;
     }
-    titleEl.textContent = 'History';
-    app.innerHTML = '<p class="mute">Loading…</p>';
+    if (!key) paintTracking('history', '<p class="mute">Loading…</p>', false);
+    else {
+      titleEl.textContent = 'History';
+      app.innerHTML = '<p class="mute">Loading…</p>';
+    }
     var pending;
     try { pending = WBAuth.myHistory ? WBAuth.myHistory() : Promise.resolve({ sets: [], sessions: [], exercises: [] }); }
     catch (e) { pending = Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] }); }
     Promise.resolve(pending).then(function (res) {
-      if (token !== routeToken || hashPage() !== 'history') return;
+      if (!historyViewCurrent(token, key)) return;
       var sets = WBHistory.fromRows(res && res.sessions, res && res.sets, res && res.exercises);
       paintHistory(key, sets, !!(res && (res.unavailable || res.error) && !sets.length));
     }, function () {
-      if (token !== routeToken || hashPage() !== 'history') return;
+      if (!historyViewCurrent(token, key)) return;
       paintHistory(key, [], true);
     });
   }
@@ -2829,7 +2944,7 @@
       '<div class="row" id="home-nav" style="margin-bottom:8px">' +
       '<button class="grow" type="button" data-a="account">Account</button>' +
       '<button id="programs-open" class="grow" type="button" data-a="programs">Programs</button>' +
-      '<button id="history-open" class="grow" type="button" data-a="history">History</button></div>' +
+      '<button id="tracking-open" class="grow" type="button" data-a="tracking">Tracking</button></div>' +
       '<div class="row" style="margin-bottom:8px">' +
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
@@ -2873,7 +2988,7 @@
       var b = e.target.closest('[data-a]'); if (!b) return;
       var a = b.dataset.a, w = getW(b.dataset.id);
       if (a === 'programs' || a === 'preview') return go('#/programs');
-      if (a === 'history') return go('#/history');
+      if (a === 'tracking') return go('#/tracking');
       if (a === 'account') return openAccount();
       if (a === 'messages') return go('#/messages');
       if (a === 'send') {

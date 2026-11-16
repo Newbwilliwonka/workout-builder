@@ -9,6 +9,10 @@ const appSrc = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
 const historySrc = fs.readFileSync(path.join(__dirname, '../history.js'), 'utf8');
 assert.ok(!/Test account|Alex Rivera|sampleSets|FARMER_PHOTO/.test(historySrc), 'the app history file has no sample account');
 assert.ok(!/historySample|sample=1|preview=history|WBHistory\.sampleSets/.test(appSrc), 'the app cannot open a sample history');
+assert.ok(/id="tracking-open"[^>]*data-a="tracking">Tracking</.test(appSrc), 'the workout list opens Tracking');
+assert.ok(!/id="history-open"|data-a="history">History</.test(appSrc), 'History is no longer a workout-list button');
+assert.ok(/id="dashboard-count"/.test(appSrc), 'Dashboard keeps a spot for a future count');
+assert.ok(/Dashboard coming soon/.test(appSrc), 'Dashboard is a coming-soon note');
 const list = H.list(sets);
 
 assert.deepStrictEqual(list.map(function (row) { return row.name; }), [

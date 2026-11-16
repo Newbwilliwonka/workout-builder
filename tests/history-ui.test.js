@@ -81,9 +81,9 @@ async function shot(page, name) {
     localStorage.setItem(key, value);
   }, M.STORAGE_KEY, JSON.stringify(data));
   await page.goto(URL + '#/', { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('#history-open');
+  await page.waitForSelector('#tracking-open');
   await page.waitForFunction(function () { return document.body.innerText.indexOf('Lower strength') >= 0; });
-  const placed = await page.$eval('#history-open', function (el) {
+  const placed = await page.$eval('#tracking-open', function (el) {
     var row = el.parentElement;
     var rect = el.getBoundingClientRect();
     var programs = document.getElementById('programs-open').getBoundingClientRect();
@@ -93,22 +93,26 @@ async function shot(page, name) {
       first: row.firstElementChild.getAttribute('data-a'),
       next: row.nextElementSibling.firstElementChild.id + ' ' + row.nextElementSibling.lastElementChild.id,
       inside: rect.left >= 0 && rect.right <= window.innerWidth && rect.width > 70,
-      beside: rect.left >= programs.right - 1
+      beside: rect.left >= programs.right - 1,
+      historyButton: !!document.getElementById('history-open')
     };
   });
   assert.deepStrictEqual(placed, {
-    text: 'History',
-    action: 'history',
+    text: 'Tracking',
+    action: 'tracking',
     first: 'account',
     next: 'messages-nav send-nav',
     inside: true,
-    beside: true
+    beside: true,
+    historyButton: false
   });
   await shot(page, 'history-entry.png');
 
-  await page.click('#history-open');
+  await page.click('#tracking-open');
   await page.waitForSelector('#history-empty');
-  assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'History');
+  assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'Tracking');
+  assert.strictEqual(await page.$eval('#tracking-tab-history', function (el) { return el.getAttribute('aria-selected'); }), 'true');
+  assert.strictEqual(await page.$('#dashboard-soon'), null);
   assert.ok(!(await page.$('#history-sample')), 'a real visit has no test-account banner');
   const emptyVisit = await page.$eval('#app', function (el) { return el.innerText; });
   assert.ok(emptyVisit.indexOf('No history yet') >= 0);
@@ -158,6 +162,7 @@ async function shot(page, name) {
 
   await page.click('[data-history="lib-0101"]');
   await page.waitForSelector('.hx-set.is-skip');
+  assert.strictEqual(await page.$('#tracking-tabs'), null, 'an exercise stays on the history detail');
   assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'Barbell squat');
   const squatText = await page.$eval('#app', function (el) { return el.innerText; });
   assert.ok(squatText.indexOf('3 × 225 lb') >= 0);
@@ -172,7 +177,8 @@ async function shot(page, name) {
 
   await page.click('#back');
   await page.waitForSelector('#history-list');
-  assert.strictEqual(await page.evaluate(function () { return location.hash; }), '#/history');
+  assert.strictEqual(await page.evaluate(function () { return location.hash; }), '#/tracking');
+  assert.strictEqual(await page.$eval('#tracking-tab-history', function (el) { return el.getAttribute('aria-selected'); }), 'true');
   await page.click('[data-history="own-c0ffee00-0000-4000-8000-000000000002"]');
   await page.waitForSelector('.hx-laps');
   const sprintText = await page.$eval('#app', function (el) { return el.innerText; });
@@ -189,6 +195,8 @@ async function shot(page, name) {
   await page.evaluate(function () { window.__historyCalls = 0; });
   await page.goto(URL + '#/history?sample=1', { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#history-list');
+  assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'Tracking');
+  assert.strictEqual(await page.$eval('#tracking-tab-history', function (el) { return el.getAttribute('aria-selected'); }), 'true');
   const bypassText = await page.$eval('#app', function (el) { return el.innerText; });
   assert.ok(bypassText.indexOf('Test account') < 0);
   assert.ok(bypassText.indexOf('sample data') < 0);

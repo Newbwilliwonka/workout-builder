@@ -16,7 +16,8 @@ assert.deepStrictEqual(byId.free_client.available, [
   'Get personalized workouts and programs from your trainer',
   'Run your sessions from your program calendar, solo or with your trainer',
   'Message your trainer anytime',
-  'Keep all your data if you switch trainers'
+  'Keep all your data if you switch trainers',
+  'View your workout history'
 ]);
 assert.deepStrictEqual(byId.free_client.comingSoon, [
   'Follow custom tracking dashboards set up by your trainer',
