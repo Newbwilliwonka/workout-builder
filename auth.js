@@ -587,8 +587,10 @@
       return { error: true, sets: [], sessions: [], exercises: [] };
     });
   },
-    // The signed-in person's own program calendar, every page. A missing table
-    // hides the streak; it does not fail the rest of the dashboard.
+    // The signed-in person's own program calendar, every page. updated_at is
+    // included so a local removal loses to a newer server copy, the same way
+    // the calendar brings that day back. A missing table hides the streak; it
+    // does not fail the rest of the dashboard.
     mySchedule: function () {
       var pageSize = 1000;
       return db().then(function (c) {
@@ -602,7 +604,7 @@
           var id = user.id;
           function fetchPage(after, size) {
             var q = c.from('program_entries')
-              .select('id,local_id,owner_id,workout_local_id,day,presence')
+              .select('id,local_id,owner_id,workout_local_id,day,presence,updated_at')
               .eq('owner_id', id)
               .order('id', { ascending: true })
               .limit(size);
