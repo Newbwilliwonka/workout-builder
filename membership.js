@@ -21,10 +21,10 @@
         'Run your sessions from your program calendar, solo or with your trainer',
         'Message your trainer anytime',
         'Keep all your data if you switch trainers',
-        'View your workout history'
+        'View your workout history',
+        'Follow custom tracking dashboards set up by your trainer'
       ],
       comingSoon: [
-        'Follow custom tracking dashboards set up by your trainer',
         'Find a new trainer in the Trainer Hub'
       ],
       cta: 'Join with an invite from your trainer'
@@ -52,11 +52,12 @@
         'Save up to 6 of your own workouts',
         'Plan your training on a program calendar',
         'Track solo sessions and sessions with your trainer',
+        'See your progress on a live tracking dashboard',
         'Share your workouts and tracking with your trainer',
-        'Add a bio and location to your profile'
+        'Add a bio and location to your profile',
+        'Follow custom tracking dashboards from your trainer'
       ],
       comingSoon: [
-        'Follow custom tracking dashboards from your trainer',
         'Find a trainer in the Trainer Hub'
       ],
       cta: 'Choose Enthusiast'
@@ -83,14 +84,13 @@
         'Send workouts and programs to clients and enthusiasts',
         'Plan solo sessions and sessions you attend on a shared calendar',
         'Review the sessions an enthusiast shares with you',
+        'Build and share custom tracking dashboards for each client',
         'Message your clients',
         'Invite up to 15 clients and enthusiasts',
         'Keep your workouts if either of you ends the connection',
         'Add a bio and location to your profile'
       ],
-      comingSoon: [
-        'Build custom tracking dashboards for each client'
-      ],
+      comingSoon: [],
       highlight: 'Get found in the Trainer Hub by clients who already train with a coach or pay for training',
       cta: 'Choose Trainer'
     },

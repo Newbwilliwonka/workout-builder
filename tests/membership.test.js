@@ -17,10 +17,10 @@ assert.deepStrictEqual(byId.free_client.available, [
   'Run your sessions from your program calendar, solo or with your trainer',
   'Message your trainer anytime',
   'Keep all your data if you switch trainers',
-  'View your workout history'
+  'View your workout history',
+  'Follow custom tracking dashboards set up by your trainer'
 ]);
 assert.deepStrictEqual(byId.free_client.comingSoon, [
-  'Follow custom tracking dashboards set up by your trainer',
   'Find a new trainer in the Trainer Hub'
 ]);
 byId.free_client.available.forEach(function (line) {
@@ -48,11 +48,12 @@ assert.deepStrictEqual(byId.enthusiast.available, [
   'Save up to 6 of your own workouts',
   'Plan your training on a program calendar',
   'Track solo sessions and sessions with your trainer',
+  'See your progress on a live tracking dashboard',
   'Share your workouts and tracking with your trainer',
-  'Add a bio and location to your profile'
+  'Add a bio and location to your profile',
+  'Follow custom tracking dashboards from your trainer'
 ]);
 assert.deepStrictEqual(byId.enthusiast.comingSoon, [
-  'Follow custom tracking dashboards from your trainer',
   'Find a trainer in the Trainer Hub'
 ]);
 assert.strictEqual(byId.enthusiast.highlight, undefined);
@@ -77,14 +78,13 @@ assert.deepStrictEqual(byId.trainer.available, [
   'Send workouts and programs to clients and enthusiasts',
   'Plan solo sessions and sessions you attend on a shared calendar',
   'Review the sessions an enthusiast shares with you',
+  'Build and share custom tracking dashboards for each client',
   'Message your clients',
   'Invite up to 15 clients and enthusiasts',
   'Keep your workouts if either of you ends the connection',
   'Add a bio and location to your profile'
 ]);
-assert.deepStrictEqual(byId.trainer.comingSoon, [
-  'Build custom tracking dashboards for each client'
-]);
+assert.deepStrictEqual(byId.trainer.comingSoon, []);
 assert.strictEqual(byId.trainer.highlight, 'Get found in the Trainer Hub by clients who already train with a coach or pay for training');
 byId.trainer.comingSoon.forEach(function (line) { assert.strictEqual(byId.trainer.available.indexOf(line), -1); });
 assert.strictEqual(byId.trainer.available.indexOf(byId.trainer.highlight), -1);

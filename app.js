@@ -2101,11 +2101,14 @@
       if (t.includes) h += '<p class="includes">' + esc(t.includes) + '</p>';
       h += '<ul>';
       t.available.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
-      h += '</ul><p class="soon">Coming soon</p>';
-      if (t.highlight) h += '<div class="hub"><span class="hub-badge">Trainer Hub</span><p>' + esc(t.highlight) + '</p></div>';
-      h += '<ul>';
-      t.comingSoon.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
       h += '</ul>';
+      if (t.comingSoon.length) h += '<p class="soon">Coming soon</p>';
+      if (t.highlight) h += '<div class="hub"><span class="hub-badge">Trainer Hub</span><p>' + esc(t.highlight) + '</p></div>';
+      if (t.comingSoon.length) {
+        h += '<ul>';
+        t.comingSoon.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
+        h += '</ul>';
+      }
       if (t.inviteOnly) h += '<p class="invite">' + esc(t.cta) + '</p>';
       else h += '<button class="pri" data-plan="' + t.id + '" style="width:100%;margin-top:16px">' + esc(t.cta) + '</button>';
       h += '</article>';
