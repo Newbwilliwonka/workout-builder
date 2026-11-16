@@ -60,8 +60,10 @@ grant execute on function auth.uid() to authenticated, anon;
   'supabase/migrations/20261106150000_profiles.sql',
   'supabase/migrations/20261107160000_invites.sql',
   'supabase/migrations/20261115180000_workout_tracking.sql',
-  'supabase/migrations/20261116150000_shared_dashboards.sql'
+  'supabase/migrations/20261116150000_shared_dashboards.sql',
+  'supabase/migrations/20261116180000_share_inbox_any_client.sql'
 ].forEach(function (file) { psql('wb_shares_test', null, path.join(root, file)); });
+psql('wb_shares_test', null, path.join(root, 'supabase/migrations/20261116180000_share_inbox_any_client.sql'));
 
 const assertSql = `
 insert into auth.users (id, email) values
@@ -159,12 +161,14 @@ begin
   exception when others then
     if sqlerrm not like '%once%' and sqlerrm not like '%row-level security%' then raise; end if;
   end;
+  insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
+  values ('${F}', '${T}', 'Coach Lee', '2026-11-16', '[{"type":"plan","plan":{"pct":65}}]'::jsonb);
   begin
     insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
-    values ('${F}', '${T}', 'Coach Lee', '2026-11-16', '[{"type":"plan"}]'::jsonb);
-    raise exception 'trainer shared with an enthusiast';
+    values ('${E}', '${T}', 'Coach Lee', '2026-11-16', '[{"type":"plan"}]'::jsonb);
+    raise exception 'trainer shared with an unconnected enthusiast';
   exception when others then
-    if sqlerrm not like '%free client%' and sqlerrm not like '%row-level security%' then raise; end if;
+    if sqlerrm not like '%connected client%' and sqlerrm not like '%row-level security%' then raise; end if;
   end;
   insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
   values ('${U}', '${T}', 'Coach Lee', '2026-11-16', '[{"type":"plan"}]'::jsonb);
@@ -201,6 +205,34 @@ begin
     raise exception 'enthusiast shared a dashboard';
   exception when others then
     if sqlerrm not like '%Only a trainer%' and sqlerrm not like '%row-level security%' then raise; end if;
+  end;
+end $$;
+
+select set_config('request.jwt.claim.sub', '${F}', false);
+do $$
+declare n int; sid uuid;
+begin
+  select count(*) into n from public.shared_dashboards;
+  if n <> 1 then raise exception 'enthusiast share count %', n; end if;
+  if (select trainer_name from public.shared_dashboards) is distinct from 'Coach Lee' then
+    raise exception 'enthusiast stamp name changed';
+  end if;
+  select id into sid from public.shared_dashboards;
+  update public.shared_dashboards set viewed_at = now() where id = sid;
+  if (select viewed_at from public.shared_dashboards where id = sid) is null then
+    raise exception 'enthusiast opening did not mark viewed';
+  end if;
+  begin
+    update public.shared_dashboards set cards = '[{"type":"pass"}]'::jsonb where id = sid;
+    raise exception 'enthusiast edited the cards';
+  exception when others then
+    if sqlerrm not like '%cannot be changed%' then raise; end if;
+  end;
+  begin
+    update public.shared_dashboards set viewed_at = now() where id = sid;
+    raise exception 'enthusiast opened the same dashboard twice';
+  exception when others then
+    if sqlerrm not like '%already opened%' then raise; end if;
   end;
 end $$;
 
@@ -252,6 +284,16 @@ end $$;
 
 reset role;
 select set_config('request.jwt.claim.sub', '', false);
+do $$
+begin
+  if not private.share_inbox('${F}') then raise exception 'paid enthusiast is not an inbox client'; end if;
+  if not private.share_inbox('${C}') then raise exception 'free client is not an inbox client'; end if;
+  if not private.share_inbox('${U}') then raise exception 'unpaid enthusiast is not an inbox client'; end if;
+  if not private.share_inbox('${P}') then raise exception 'pending enthusiast is not an inbox client'; end if;
+  if private.share_inbox('00000000-0000-4000-8000-000000000000') then
+    raise exception 'missing profile is an inbox client';
+  end if;
+end $$;
 delete from auth.users where id = '${C}';
 do $$
 declare n int;

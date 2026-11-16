@@ -109,6 +109,7 @@ async function openPage(browser, cfg) {
           return Promise.resolve({ entries: window.__clientSchedule[id] || [] });
         };
         value.shareDashboard = function (input) {
+          if (window.__shareFail) return Promise.resolve({ ok: false });
           window.__shared.push(JSON.parse(JSON.stringify(input)));
           return Promise.resolve({ ok: true, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
         };
@@ -163,7 +164,7 @@ async function openPage(browser, cfg) {
         { id: KIP, name: 'Kip Pending', email: 'kip@example.com', plan: 'Enthusiast', membership: 'none' }
       ]
     },
-    clientRows: { [ADA]: adaRows, [NEIL]: { sets: [], sessions: [], exercises: [] } },
+    clientRows: { [ADA]: adaRows, [NEIL]: { sets: [], sessions: [], exercises: [] }, [FAN]: adaRows },
     clientSchedule: {}
   });
   await trainer.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
@@ -264,19 +265,63 @@ async function openPage(browser, cfg) {
   await trainer.evaluate(function (id) {
     document.querySelector('#client-pick [data-client="' + id + '"]').click();
   }, FAN);
-  await trainer.waitForSelector('#dash-share-none');
-  const held = await trainer.evaluate(function () {
+  await trainer.waitForSelector('#dash-share');
+  await trainer.waitForSelector('#dashboard-schedule-note');
+  await trainer.click('[data-card-up="volume"]');
+  await trainer.waitForFunction(function () {
+    var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
+    return titles[1] === 'Total volume';
+  });
+  await trainer.click('[data-card-add="pass"]');
+  await trainer.waitForSelector('#dashboard-pass');
+  await trainer.click('[data-card-remove="records"]');
+  await trainer.waitForFunction(function () {
+    return !document.getElementById('dashboard-records') && !!document.getElementById('dash-share');
+  });
+  const enthusiastEditor = await trainer.evaluate(function (id) {
+    var selected = document.querySelector('#client-pick [aria-selected="true"]');
     return {
+      client: selected ? selected.getAttribute('data-client') : '',
+      name: selected ? selected.textContent : '',
       share: !!document.getElementById('dash-share'),
-      note: document.getElementById('dash-share-none').textContent,
-      sheet: !!document.getElementById('dashboard-sheet')
+      heldBack: !!document.getElementById('dash-share-none'),
+      remove: !!document.querySelector('[data-card-remove="plan"]'),
+      add: !!document.querySelector('[data-card-add="records"]'),
+      pass: document.getElementById('dashboard-pass-note').textContent
     };
+  }, FAN);
+  assert.deepStrictEqual(enthusiastEditor, {
+    client: FAN,
+    name: 'Fan Enthusiast',
+    share: true,
+    heldBack: false,
+    remove: true,
+    add: true,
+    pass: '5 of 8 stopwatch events passed this month'
   });
-  assert.deepStrictEqual(held, {
-    share: false,
-    note: 'This client keeps their own live dashboard.',
-    sheet: true
+  await trainer.evaluate(function () {
+    var t = document.getElementById('toast');
+    if (!t) return;
+    t.textContent = '';
+    t.classList.remove('show');
   });
+  await shot(trainer, 'trainer-enthusiast-edit.png', true);
+  await trainer.evaluate(function () { window.__shareFail = true; });
+  await trainer.click('#dash-share');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('toast').textContent === 'Could not share that dashboard.';
+  });
+  assert.strictEqual(await trainer.evaluate(function () { return window.__shared.length; }), 1);
+  await trainer.evaluate(function () { window.__shareFail = false; });
+  await trainer.click('#dash-share');
+  await trainer.waitForFunction(function () { return window.__shared && window.__shared.length === 2; });
+  const sharedFan = await trainer.evaluate(function () { return window.__shared[1]; });
+  assert.strictEqual(sharedFan.clientId, FAN);
+  assert.strictEqual(sharedFan.asOf, '2026-11-16');
+  assert.strictEqual(sharedFan.trainerName, 'Coach Lee');
+  assert.ok(sharedFan.cards.some(function (card) { return card.type === 'pass' && card.pass.pct === 63; }));
+  assert.ok(!sharedFan.cards.some(function (card) { return card.type === 'records'; }));
+  assert.strictEqual(await trainer.$eval('#toast', function (el) { return el.textContent; }), 'Dashboard shared.');
   await trainer.evaluate(function (id) {
     document.querySelector('#client-pick [data-client="' + id + '"]').click();
   }, PAT);
@@ -379,7 +424,9 @@ async function openPage(browser, cfg) {
       order: Array.prototype.map.call(document.querySelectorAll('[data-share]'), function (el) { return el.textContent.replace(/\s+/g, ' ').trim(); }),
       count: badge.textContent,
       label: badge.getAttribute('aria-label'),
-      hidden: badge.hidden
+      hidden: badge.hidden,
+      trainerShares: !!document.getElementById('trainer-shares'),
+      live: !!document.getElementById('dashboard-sheet')
     };
   });
   assert.strictEqual(listed.count, '2');
@@ -387,6 +434,8 @@ async function openPage(browser, cfg) {
   assert.strictEqual(listed.hidden, false);
   assert.ok(listed.order[0].indexOf('As of November 16, 2026 from Coach Lee') === 0);
   assert.ok(listed.order[1].indexOf('As of November 1, 2026 from Coach Lee') === 0);
+  assert.strictEqual(listed.trainerShares, false);
+  assert.strictEqual(listed.live, false);
   await shot(inbox, 'client-tracking-badge.png');
 
   await inbox.click('[data-share="' + SHARE_NEW + '"]');
@@ -425,48 +474,157 @@ async function openPage(browser, cfg) {
   assert.ok(after.rows[0].text.indexOf('Not opened') < 0);
   assert.ok(after.rows[1].text.indexOf('Not opened') >= 0);
 
-  const enthusiast = await openPage(browser, {
-    id: 'test-enthusiast',
-    email: 'enthusiast@example.com',
+  const quiet = await openPage(browser, {
+    id: FAN,
+    email: 'fan@example.com',
     membership: 'enthusiast',
-    name: 'Test Person',
+    name: 'Fan Enthusiast',
     history: adaRows,
-    shares: [{
-      id: SHARE_NEW,
-      trainer_name: 'Coach Lee',
-      as_of: '2026-11-16',
-      created_at: '2026-11-16T18:00:00.000Z',
-      viewed_at: null,
-      cards: [{ type: 'plan', plan: { pct: 65, hits: 11, total: 17, rating: { label: 'Keep trying' } } }]
-    }]
+    shares: []
   });
-  await enthusiast.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await quiet.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await quiet.waitForSelector('#dashboard-sheet');
+  const quietDash = await quiet.evaluate(function () {
+    return {
+      title: document.getElementById('trainer-shares-title'),
+      soon: !!document.getElementById('dashboard-soon'),
+      find: !!document.getElementById('dashboard-find'),
+      list: !!document.getElementById('share-list'),
+      share: !!document.getElementById('dash-share'),
+      add: !!document.getElementById('dash-add'),
+      buttons: document.querySelectorAll('#dashboard button, #dashboard input, #dashboard [contenteditable]').length,
+      badge: document.getElementById('dashboard-count').hidden,
+      rating: document.getElementById('dashboard-rating').textContent
+    };
+  });
+  assert.deepStrictEqual(quietDash, {
+    title: null,
+    soon: false,
+    find: false,
+    list: false,
+    share: false,
+    add: false,
+    buttons: 0,
+    badge: true,
+    rating: 'Keep trying'
+  });
+
+  const enthusiast = await openPage(browser, {
+    id: FAN,
+    email: 'fan@example.com',
+    membership: 'enthusiast',
+    name: 'Fan Enthusiast',
+    history: adaRows,
+    shares: [
+      { id: SHARE_OLD, trainer_name: 'Coach Lee', as_of: '2026-11-01', cards: olderCards(), created_at: '2026-11-01T12:00:00.000Z', viewed_at: null },
+      { id: SHARE_NEW, trainer_name: 'Coach Lee', as_of: '2026-11-16', cards: cards, created_at: '2026-11-16T15:00:00.000Z', viewed_at: null }
+    ]
+  });
+  await enthusiast.goto(URL + '#/tracking', { waitUntil: 'domcontentloaded' });
+  await enthusiast.waitForFunction(function () {
+    var badge = document.getElementById('dashboard-count');
+    return badge && !badge.hidden && badge.textContent === '2';
+  });
+  await enthusiast.click('#tracking-tab-dashboard');
   await enthusiast.waitForSelector('#dashboard-sheet');
+  await enthusiast.waitForSelector('#trainer-shares');
   const own = await enthusiast.evaluate(function () {
+    var badge = document.getElementById('dashboard-count');
+    var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
     return {
       pick: !!document.getElementById('client-pick'),
       share: !!document.getElementById('dash-share'),
+      add: !!document.getElementById('dash-add'),
       pass: document.body.innerText.indexOf('pass rate') >= 0,
+      soon: !!document.getElementById('dashboard-soon'),
+      heading: document.getElementById('trainer-shares-title').textContent,
       rating: document.getElementById('dashboard-rating').textContent,
-      buttons: document.querySelectorAll('#dashboard button, #dashboard input').length,
-      list: !!document.getElementById('share-list'),
-      badge: document.getElementById('dashboard-count').hidden
+      titles: titles,
+      buttons: document.querySelectorAll('#dashboard button, #dashboard input, #dashboard [contenteditable]').length,
+      order: Array.prototype.map.call(document.querySelectorAll('#trainer-shares [data-share]'), function (el) { return el.textContent.replace(/\s+/g, ' ').trim(); }),
+      count: badge.textContent,
+      label: badge.getAttribute('aria-label'),
+      hidden: badge.hidden
     };
   });
-  assert.deepStrictEqual(own, {
-    pick: false,
-    share: false,
-    pass: false,
-    rating: 'Keep trying',
-    buttons: 0,
-    list: false,
-    badge: true
+  assert.strictEqual(own.pick, false);
+  assert.strictEqual(own.share, false);
+  assert.strictEqual(own.add, false);
+  assert.strictEqual(own.pass, false);
+  assert.strictEqual(own.soon, false);
+  assert.strictEqual(own.heading, 'Shared by your trainer');
+  assert.strictEqual(own.rating, 'Keep trying');
+  assert.deepStrictEqual(own.titles, [
+    'Hit the plan',
+    'Workouts and streak',
+    'Total volume',
+    'Recent personal records',
+    'Consistency · November 2026'
+  ]);
+  assert.strictEqual(own.buttons, 0);
+  assert.strictEqual(own.count, '2');
+  assert.strictEqual(own.label, '2 shared dashboards');
+  assert.strictEqual(own.hidden, false);
+  assert.ok(own.order[0].indexOf('As of November 16, 2026 from Coach Lee') === 0);
+  assert.ok(own.order[0].indexOf('Not opened') >= 0);
+  assert.ok(own.order[1].indexOf('As of November 1, 2026 from Coach Lee') === 0);
+  await shot(enthusiast, 'enthusiast-shared-list.png', true);
+
+  await enthusiast.click('[data-share="' + SHARE_NEW + '"]');
+  await enthusiast.waitForSelector('#dashboard-stamp');
+  await enthusiast.waitForFunction(function () {
+    var badge = document.getElementById('dashboard-count');
+    return badge && badge.textContent === '1';
   });
+  const openedFan = await enthusiast.evaluate(function () {
+    return {
+      stamp: document.getElementById('dashboard-stamp').textContent,
+      rating: document.getElementById('dashboard-rating').textContent,
+      plan: document.getElementById('dashboard-plan-note').textContent,
+      buttons: document.querySelectorAll('#dashboard button, #dashboard input, #dashboard [contenteditable]').length,
+      add: !!document.getElementById('dash-add'),
+      heading: !!document.getElementById('trainer-shares-title'),
+      titles: document.querySelectorAll('#dashboard-sheet h2').length,
+      count: document.getElementById('dashboard-count').textContent,
+      label: document.getElementById('dashboard-count').getAttribute('aria-label')
+    };
+  });
+  assert.strictEqual(openedFan.stamp, 'As of November 16, 2026 from Coach Lee');
+  assert.strictEqual(openedFan.rating, 'Keep trying');
+  assert.strictEqual(openedFan.plan, '11 of 17 sets met or beat the plan this month');
+  assert.strictEqual(openedFan.buttons, 0);
+  assert.strictEqual(openedFan.add, false);
+  assert.strictEqual(openedFan.heading, false);
+  assert.strictEqual(openedFan.titles, 5);
+  assert.strictEqual(openedFan.count, '1');
+  assert.strictEqual(openedFan.label, '1 shared dashboard');
+  await shot(enthusiast, 'enthusiast-shared-open.png', true);
+  await enthusiast.click('#back');
+  await enthusiast.waitForSelector('#trainer-shares');
+  await enthusiast.waitForSelector('#dashboard-sheet');
+  const afterFan = await enthusiast.evaluate(function (id) {
+    var rows = Array.prototype.map.call(document.querySelectorAll('#trainer-shares [data-share]'), function (el) {
+      return { id: el.getAttribute('data-share'), text: el.innerText };
+    });
+    return {
+      rows: rows,
+      count: document.getElementById('dashboard-count').textContent,
+      rating: document.getElementById('dashboard-rating').textContent,
+      soon: !!document.getElementById('dashboard-soon')
+    };
+  }, SHARE_NEW);
+  assert.strictEqual(afterFan.count, '1');
+  assert.strictEqual(afterFan.rows[0].id, SHARE_NEW);
+  assert.ok(afterFan.rows[0].text.indexOf('Not opened') < 0);
+  assert.ok(afterFan.rows[1].text.indexOf('Not opened') >= 0);
+  assert.strictEqual(afterFan.rating, 'Keep trying');
+  assert.strictEqual(afterFan.soon, false);
 
   assert.deepStrictEqual(trainer.__errors, []);
   assert.deepStrictEqual(withTrainer.__errors, []);
   assert.deepStrictEqual(alone.__errors, []);
   assert.deepStrictEqual(inbox.__errors, []);
+  assert.deepStrictEqual(quiet.__errors, []);
   assert.deepStrictEqual(enthusiast.__errors, []);
 
   const broken = await openPage(browser, {

@@ -484,6 +484,8 @@ button.hx-row .name{font-size:16px}
 .db-stamp{margin:0 0 10px;font-weight:700}
 .share-row{display:block;width:100%;text-align:left;background:#fff;color:var(--ink);font-weight:400}
 .share-row .name{font-size:16px}
+#trainer-shares{margin-top:18px}
+#trainer-shares h2{margin:0 0 10px;font-size:17px;line-height:1.3;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink)}
 .db-tools{display:flex;justify-content:flex-end;gap:6px;margin:0 0 8px}
 .db-tools button{flex:none}
 .db-edit.is-drop{box-shadow:inset 0 0 0 2px var(--pri)}
