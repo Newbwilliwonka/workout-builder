@@ -252,8 +252,8 @@ button.verify-link{display:inline-flex;width:auto;min-height:44px;padding:8px 0;
 .verify-note{margin:8px 0 0;padding:10px 12px;border-radius:12px;background:#fff7ed;color:#9a3412;font-size:14px;line-height:1.45}
 .admin-link{display:flex;align-items:center;gap:8px;margin:0 0 12px}
 .admin-link a{color:var(--pri);font-weight:700;font-size:16px;text-decoration:underline;min-height:44px;display:inline-flex;align-items:center}
-.admin-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:12px;font-weight:700;line-height:1;flex:none;box-sizing:border-box}
-.admin-count[hidden]{display:none !important}
+.admin-count,.dashboard-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:12px;font-weight:700;line-height:1;flex:none;box-sizing:border-box}
+.admin-count[hidden],.dashboard-count[hidden]{display:none !important}
 .verify-meta{margin:2px 0;font-size:14px}
 .verify-meta b{font-weight:600}
 .preview{display:block;font-size:14px;font-weight:400;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -401,6 +401,9 @@ button.pv-cell.is-out{opacity:.4}
 /* History. One list of the person's own exercises, then each exercise's sets. */
 #home-nav{flex-wrap:nowrap}
 #home-nav button{padding:0 8px;white-space:nowrap}
+#tracking-tabs{margin:0 0 12px}
+#tracking-tabs button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+#tracking-tabs button:focus-visible{outline:2px solid #111827;outline-offset:2px}
 #history-q{margin-top:2px}
 .hx-empty .name{color:var(--ink);margin-bottom:6px}
 button.hx-row{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:#fff;color:var(--ink);border-radius:14px;padding:10px 12px;margin:10px 0 0;box-shadow:0 1px 2px rgba(0,0,0,.06);font-weight:400;min-height:72px}
