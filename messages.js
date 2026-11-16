@@ -60,11 +60,26 @@
   }
   function initials(name) {
     var raw = String(name || '').trim();
+    if (!raw || raw.indexOf('@') !== -1) return '?';
     var bits = raw.split(/\s+/).filter(Boolean);
-    if (bits.length >= 2 && raw.indexOf('@') === -1) return (bits[0].charAt(0) + bits[1].charAt(0)).toUpperCase();
-    var local = raw.split('@')[0].replace(/[^a-z0-9]/gi, '');
-    if (local.length >= 2) return local.slice(0, 2).toUpperCase();
+    if (bits.length >= 2) return (bits[0].charAt(0) + bits[1].charAt(0)).toUpperCase();
+    var compact = raw.replace(/[^a-z0-9]/gi, '');
+    if (compact.length >= 2) return compact.slice(0, 2).toUpperCase();
     return (raw.charAt(0) || '?').toUpperCase();
+  }
+  // The server may put an email in the name field when no display name is saved.
+  function personTitle(p) {
+    p = p || {};
+    if (root.WBProfile && root.WBProfile.label) {
+      var labeled = root.WBProfile.label(p);
+      if (labeled) return labeled;
+    }
+    var raw = String(p.display_name || p.name || '').replace(/^\s+|\s+$/g, '');
+    if (raw && raw.indexOf('@') === -1) return raw;
+    var plan = String(p.plan || p.membership || '');
+    if (/enthusiast/i.test(plan)) return 'Enthusiast';
+    if (/trainer/i.test(plan)) return 'Trainer';
+    return 'Client';
   }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -192,9 +207,10 @@
   }
   function personRow(p) {
     var unread = Number(p.unread) || 0;
+    var title = personTitle(p);
     return '<button type="button" class="person" data-thread="' + esc(p.id) + '">' +
-      '<span class="ava" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(p.name)) + '</span>' +
-      '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + (root.WBProfile ? WBProfile.nameHtml(p.name, !!p.verified) : esc(p.name)) + '</span>' +
+      '<span class="ava" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(title)) + '</span>' +
+      '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + (root.WBProfile ? WBProfile.nameHtml(title, !!p.verified) : esc(title)) + '</span>' +
       '<span class="mute" style="margin-left:auto">' + esc(whenLabel(p.at)) + '</span></span>' +
       '<span class="preview">' + esc(p.preview || 'No messages yet') + '</span>' +
       '<span class="mute">' + esc(p.plan || '') + '</span></span>' +
@@ -266,8 +282,9 @@
       return;
     }
     openId = id;
-    if (root.WBProfile && person.verified) ctx.titleEl.innerHTML = WBProfile.nameHtml(person.name || 'Messages', true);
-    else ctx.titleEl.textContent = person.name || 'Messages';
+    var title = personTitle(person);
+    if (root.WBProfile && person.verified) ctx.titleEl.innerHTML = WBProfile.nameHtml(title, true);
+    else ctx.titleEl.textContent = title;
     ctx.backBtn.hidden = false;
     var plan = person.plan || '';
     var sub = plan ? plan + (plan !== 'Trainer' ? ' · linked client' : '') : '';

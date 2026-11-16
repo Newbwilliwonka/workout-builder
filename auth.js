@@ -676,7 +676,8 @@
       if (!isUuid(input.clientId)) return Promise.resolve({ ok: false });
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.asOf || ''))) return Promise.resolve({ ok: false });
       if (!Array.isArray(input.cards) || !input.cards.length || input.cards.length > 6) return Promise.resolve({ ok: false });
-      var name = String(input.trainerName || '').replace(/^\s+|\s+$/g, '').slice(0, 80) || 'Trainer';
+      var name = String(input.trainerName || '').replace(/^\s+|\s+$/g, '').slice(0, 80);
+      if (!name || name.indexOf('@') !== -1) name = 'Trainer';
       return signedUser().then(function (ctx) {
         if (!ctx.user || ctx.user.id === input.clientId) return { ok: false };
         return ctx.c.from('shared_dashboards').insert({

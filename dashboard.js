@@ -789,10 +789,16 @@
     });
   }
   // Frozen card values. Later workouts do not change a snapshot built from this.
+  // A saved "from" line may be an email from an older share. Show the name, or Trainer.
+  function trainerLabel(name) {
+    var n = String(name || '').replace(/^\s+|\s+$/g, '').slice(0, 80);
+    if (!n || n.indexOf('@') !== -1) return 'Trainer';
+    return n;
+  }
   function freeze(model, order, meta) {
     model = model || {};
     meta = meta || {};
-    var name = String(meta.trainerName || '').replace(/^\s+|\s+$/g, '').slice(0, 80) || 'Trainer';
+    var name = trainerLabel(meta.trainerName);
     var asOf = String(meta.asOf || '').slice(0, 10);
     var cards = [];
     keptOrder(order).forEach(function (id) {
@@ -828,7 +834,7 @@
   function stampText(snap) {
     snap = snap || {};
     var day = longDate(snap.asOf || snap.as_of);
-    var name = String(snap.trainerName || snap.trainer_name || '').replace(/^\s+|\s+$/g, '') || 'Trainer';
+    var name = trainerLabel(snap.trainerName || snap.trainer_name);
     if (!day) return 'From ' + name;
     return 'As of ' + day + ' from ' + name;
   }

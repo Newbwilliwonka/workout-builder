@@ -82,10 +82,19 @@ assert.strictEqual(still.length, 1);
 assert.strictEqual(still[0].id, 'wo_dup');
 
 const text = S.confirmation(
-  [{ email: 'fan@example.com', plan: 'Enthusiast' }, { email: 'ada@example.com', plan: 'Free Client' }],
+  [{ email: 'fan@example.com', plan: 'Enthusiast' }, { name: 'Ada', email: 'ada@example.com', plan: 'Free Client' }],
   'Friday full body'
 );
-assert.strictEqual(text, 'fan@example.com gets an editable copy of Friday full body. ada@example.com gets a copy of Friday full body they can run. Your workout was not changed.');
+assert.strictEqual(text, 'Enthusiast gets an editable copy of Friday full body. Ada gets a copy of Friday full body they can run. Your workout was not changed.');
+assert.ok(text.indexOf('@') === -1);
+const unnamed = S.confirmation([{ email: 'ada@example.com', plan: 'Free Client' }], 'Friday full body');
+assert.strictEqual(unnamed, 'Client gets a copy of Friday full body they can run. Your workout was not changed.');
+const locked = S.lockedHtml({ name: 'Friday', sourceTrainerEmail: 'coach@example.com', items: [] });
+assert.ok(locked.indexOf('From Trainer') !== -1);
+assert.ok(locked.indexOf('@') === -1);
+const namedFrom = S.lockedHtml({ name: 'Friday', sourceTrainerName: 'Sam', sourceTrainerEmail: 'coach@example.com', items: [] });
+assert.ok(namedFrom.indexOf('From Sam') !== -1);
+assert.ok(namedFrom.indexOf('@') === -1);
 
 const received = M.newWorkout('From coach');
 received.sourceTrainerId = 't1';

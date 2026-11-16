@@ -296,7 +296,7 @@
   }
   function copyNote(w) {
     if (!w || !w.sourceTrainerId) return '';
-    return '<span class="tag">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'your trainer')) + '</span>' +
+    return '<span class="tag">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'Trainer')) + '</span>' +
       '<p class="mute" id="copy-note">Copy from your trainer. Edits stay on this copy and do not change their workout.</p>';
   }
   function ensureProfile() {
@@ -1362,7 +1362,7 @@
     var h = '<div class="card" id="redeem">';
     var linked = !!(conn && conn.trainerId);
     if (linked) {
-      var trainerName = personLabel({ name: conn.trainerName, email: conn.trainerEmail }) || 'Connected';
+      var trainerName = personLabel({ name: conn.trainerName, display_name: conn.trainerName, plan: 'Trainer' }) || 'Trainer';
       h += '<div class="name">Your trainer</div><p class="mute">' + (window.WBProfile ? WBProfile.nameHtml(trainerName, !!conn.verified) : esc(trainerName)) + '</p>';
       h += '<button class="danger" data-invite="end-self" style="width:100%">End connection</button>';
     }
@@ -1691,11 +1691,22 @@
   function personLabel(row) {
     if (window.WBProfile) return WBProfile.label(row);
     if (!row) return '';
-    return row.name || row.display_name || row.email || row.trainerEmail || '';
+    var name = String(row.display_name || row.trainerName || row.name || '').replace(/^\s+|\s+$/g, '');
+    if (name && name.indexOf('@') === -1) return name;
+    return '';
   }
   function trainerFrom(w) {
     if (window.WBProfile) return WBProfile.fromTrainer(w);
-    return (w && w.sourceTrainerEmail) || '';
+    var name = w && String(w.sourceTrainerName || '').replace(/^\s+|\s+$/g, '');
+    if (name && name.indexOf('@') === -1) return name;
+    return '';
+  }
+  // The signed-in person may see their own address. Nobody else does.
+  function signedInLabel(profile, session) {
+    var named = personLabel({ display_name: profile && profile.display_name });
+    if (named) return named;
+    var email = session && session.user && String(session.user.email || '').replace(/^\s+|\s+$/g, '');
+    return email || 'Signed in';
   }
   function syncHeaderSignOut() {
     var link = document.getElementById('account-signout');
@@ -2180,7 +2191,7 @@
     var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
     var h = '<div class="gate">';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
-    var who = personLabel({ display_name: profile && profile.display_name, email: session.user && session.user.email }) || 'Signed in';
+    var who = signedInLabel(profile, session);
     var verifiedName = window.WBProfile && WBProfile.isVerified(profile && profile.verified_until, WBProfile.todayISO());
     var whoHtml = window.WBProfile ? WBProfile.nameHtml(who, verifiedName) : esc(who);
     h += '<div class="card" id="account-card"><div class="account-id">' +
@@ -2944,7 +2955,8 @@
     var rows = trainerRoster && Array.isArray(trainerRoster.clients) ? trainerRoster.clients : [];
     rows.forEach(function (c) {
       if (!c || !window.WBShares || !WBShares.isUuid(c.id)) return;
-      var name = String(c.name || '').replace(/^\s+|\s+$/g, '') || String(c.email || '').replace(/^\s+|\s+$/g, '') || 'Client';
+      var name = personLabel(c);
+      if (!name) name = /enthusiast/i.test(String(c.plan || c.membership || '')) ? 'Enthusiast' : 'Client';
       out.push({
         id: String(c.id),
         name: name,
@@ -2992,9 +3004,9 @@
   function bindPicker() {}
   function trainerName() {
     var p = cachedProfile || {};
-    var name = String(p.display_name || '').replace(/^\s+|\s+$/g, '');
-    if (!name) name = String(p.email || '').replace(/^\s+|\s+$/g, '');
-    return (name || 'Trainer').slice(0, 80);
+    var name = personLabel({ display_name: p.display_name, plan: 'Trainer' });
+    if (!name || name.indexOf('@') !== -1) name = 'Trainer';
+    return name.slice(0, 80);
   }
   function dashboardDay() {
     var d = dashboardNow();
@@ -3446,7 +3458,7 @@
       var n = Array.isArray(w.items) ? w.items.length : 0, nW = data.workouts.length;
       var locked = copyLocked(w);
       h += '<div class="card">';
-      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'your trainer')) + '</span>';
+      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'Trainer')) + '</span>';
       h += '<div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
         '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') +
         (w.sourceTrainerId ? (locked ? ' · You can run it' : ' · You can edit it') : '') + '</div><div class="actions">';

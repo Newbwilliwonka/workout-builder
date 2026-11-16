@@ -51,6 +51,12 @@ assert.strictEqual(frozen.cards[0].plan.rating.label, 'Keep trying');
 assert.strictEqual(frozen.cards[5].pass.pct, 63);
 assert.strictEqual(frozen.cards[1].scheduleNote, true);
 assert.strictEqual(D.stampText(frozen), 'As of November 16, 2026 from Coach Lee');
+assert.strictEqual(D.stampText({ asOf: '2026-11-16', trainerName: 'coach@example.com' }), 'As of November 16, 2026 from Trainer');
+assert.strictEqual(D.stampText({ trainerName: 'ada@example.com' }), 'From Trainer');
+const leaked = D.freeze(live, ['plan'], { asOf: '2026-11-16', trainerName: 'coach@example.com' });
+assert.strictEqual(leaked.trainerName, 'Trainer');
+assert.ok(D.snapshotHtml(leaked).indexOf('@') < 0);
+assert.ok(D.snapshotHtml({ asOf: '2026-11-16', trainerName: 'sam@example.com', cards: [] }).indexOf('sam@') < 0);
 
 const page = D.snapshotHtml(frozen);
 assert.ok(page.indexOf('As of November 16, 2026 from Coach Lee') >= 0);

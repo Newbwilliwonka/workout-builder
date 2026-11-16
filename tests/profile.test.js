@@ -48,10 +48,20 @@ assert.strictEqual(partial.empty.city, undefined);
 assert.strictEqual(partial.empty.state, true);
 
 assert.strictEqual(P.label({ name: 'Ada', email: 'ada@example.com' }), 'Ada');
-assert.strictEqual(P.label({ email: 'ada@example.com' }), 'ada@example.com');
+assert.strictEqual(P.label({ email: 'ada@example.com' }), '');
+assert.strictEqual(P.label({ email: 'ada@example.com', plan: 'Free Client' }), 'Client');
+assert.strictEqual(P.label({ name: 'ada@example.com', plan: 'Free Client' }), 'Client');
+assert.strictEqual(P.label({ email: 'fan@example.com', plan: 'Enthusiast' }), 'Enthusiast');
+assert.strictEqual(P.label({ name: 'fan', email: 'fan@example.com', plan: 'Enthusiast' }), 'fan');
 assert.strictEqual(P.label({ trainerName: 'Sam', trainerEmail: 's@example.com' }), 'Sam');
+assert.strictEqual(P.label({ trainerEmail: 's@example.com', plan: 'Trainer' }), 'Trainer');
 assert.strictEqual(P.fromTrainer({ name: 'Friday', sourceTrainerName: 'Sam', sourceTrainerEmail: 's@example.com' }), 'Sam');
-assert.strictEqual(P.fromTrainer({ name: 'Friday', sourceTrainerEmail: 's@example.com' }), 's@example.com');
+assert.strictEqual(P.fromTrainer({ name: 'Friday', sourceTrainerEmail: 's@example.com' }), '');
+assert.strictEqual(P.fromTrainer({ sourceTrainerName: 'coach@example.com', sourceTrainerEmail: 'coach@example.com' }), '');
+assert.strictEqual(P.isEmailAddress('ada@example.com'), true);
+assert.strictEqual(P.isEmailAddress('Ada'), false);
+assert.strictEqual(P.safeName('ada'), 'ada');
+assert.strictEqual(P.safeName('ada@example.com'), '');
 
 const sheet = P.sheetHtml({ required: true, display_name: '', bio: 'hi' });
 assert.ok(sheet.indexOf(P.PROMPT) > 0);

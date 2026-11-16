@@ -62,19 +62,41 @@
       }
     };
   }
-  // Person records use name. Workout records use a different helper so a
-  // workout title is not shown as a person's name.
+  // An address, or a display string that is an address. The part before @
+  // is still the address, so it is not a name either.
+  function isEmailAddress(value) {
+    return clean(value).indexOf('@') !== -1;
+  }
+  function safeName(value) {
+    var name = clean(value);
+    if (!name || isEmailAddress(name)) return '';
+    return name;
+  }
+  // Client, Trainer, or Enthusiast. Used only when there is no display name.
+  function roleLabel(row) {
+    if (!row || typeof row !== 'object') return '';
+    var blob = [
+      row.plan,
+      row.membership,
+      row.intended_plan,
+      row.intendedPlan
+    ].map(function (part) { return clean(part).toLowerCase(); }).join(' ');
+    if (blob.indexOf('enthusiast') !== -1) return 'Enthusiast';
+    if (blob.indexOf('trainer') !== -1) return 'Trainer';
+    if (blob.indexOf('client') !== -1) return 'Client';
+    return '';
+  }
+  // Another person's label. Display name when they have one. Otherwise the
+  // role. Never their email, and never the part before @.
   function label(row) {
     if (!row || typeof row !== 'object') return '';
-    var name = clean(row.display_name || row.trainerName || row.name || '');
+    var name = safeName(row.display_name) || safeName(row.trainerName) || safeName(row.name);
     if (name) return name;
-    return clean(row.email || row.trainerEmail || '');
+    return roleLabel(row);
   }
   function fromTrainer(workout) {
     if (!workout) return '';
-    var name = clean(workout.sourceTrainerName || '');
-    if (name) return name;
-    return clean(workout.sourceTrainerEmail || '');
+    return safeName(workout.sourceTrainerName);
   }
   function personIcon() {
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.2" r="3.4" fill="currentColor"></circle><path fill="currentColor" d="M4.8 19.2c.8-3.2 3.3-4.8 7.2-4.8s6.4 1.6 7.2 4.8c.2.6-.3 1.1-.9 1.1H5.7c-.6 0-1.1-.5-.9-1.1z"></path></svg>';
@@ -198,7 +220,7 @@
     return '<span class="person-name"><span class="nm">' + text + '</span>' + sealHtml() + '</span>';
   }
   function fromTrainerHtml(workout) {
-    var name = fromTrainer(workout) || 'your trainer';
+    var name = fromTrainer(workout) || 'Trainer';
     return nameHtml(name, !!(workout && workout.sourceTrainerVerified));
   }
   function verifyAreaHtml(view) {
@@ -347,6 +369,9 @@
     verificationView: verificationView,
     sealHtml: sealHtml,
     nameHtml: nameHtml,
+    isEmailAddress: isEmailAddress,
+    safeName: safeName,
+    roleLabel: roleLabel,
     label: label,
     fromTrainer: fromTrainer,
     fromTrainerHtml: fromTrainerHtml,
