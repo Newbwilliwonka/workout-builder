@@ -2943,14 +2943,15 @@
     clientChoices().forEach(function (c) { if (c.id === id) found = c; });
     return found;
   }
-  // The inbox is the free-client Dashboard tab. An Enthusiast already has the
-  // live sheet, so a share addressed to them would never appear.
+  // The inbox follows membership. A paid Enthusiast already has the live sheet.
+  // Choosing Enthusiast without paying leaves membership at none, and that
+  // person still opens shared copies. The roster plan label does not decide.
   function receivesShares(client) {
     if (!client) return false;
     var membership = String(client.membership || '').replace(/^\s+|\s+$/g, '');
     if (membership === 'free_client' || membership === 'none') return true;
-    if (membership) return false;
-    return String(client.plan || '').toLowerCase().indexOf('enthusiast') < 0;
+    if (membership === 'enthusiast' || membership === 'trainer' || membership === 'master_trainer') return false;
+    return true;
   }
   function pickerHtml(selected) {
     var clients = clientChoices();

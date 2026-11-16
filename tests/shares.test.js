@@ -95,6 +95,7 @@ assert.ok(sql.indexOf('delete from public.workout_sets') < sql.indexOf('delete f
 assert.ok(sql.indexOf('delete from public.personal_exercises') < sql.indexOf('delete from public.shared_dashboards'));
 assert.ok(/only with a connected client/.test(sql));
 assert.ok(/A shared dashboard goes to a free client/.test(sql));
+assert.ok(/'membership', p\.membership/.test(sql));
 assert.ok(/Shared dashboards could not be loaded/.test(appSrc));
 assert.ok(/Only the client can open/.test(sql));
 

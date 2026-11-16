@@ -17,6 +17,8 @@ const TRAINER = '11111111-1111-4111-8111-111111111111';
 const ADA = '22222222-2222-4222-8222-222222222222';
 const NEIL = '55555555-5555-4555-8555-555555555555';
 const FAN = '99999999-9999-4999-8999-999999999999';
+const PAT = '12121212-1212-4212-8212-121212121212';
+const KIP = '13131313-1313-4313-8313-131313131313';
 const SHARE_NEW = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2';
 const SHARE_OLD = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
 const NOW = new Date(2026, 10, 16, 12, 0, 0);
@@ -156,7 +158,9 @@ async function openPage(browser, cfg) {
       clients: [
         { id: ADA, name: 'Ada Client', email: 'ada@example.com', plan: 'Free Client' },
         { id: NEIL, name: 'Neil Client', email: 'neil@example.com', plan: 'Free Client' },
-        { id: FAN, name: 'Fan Enthusiast', email: 'fan@example.com', plan: 'Enthusiast' }
+        { id: FAN, name: 'Fan Enthusiast', email: 'fan@example.com', plan: 'Enthusiast', membership: 'enthusiast' },
+        { id: PAT, name: 'Pat Chooser', email: 'pat@example.com', plan: 'Enthusiast', membership: 'free_client' },
+        { id: KIP, name: 'Kip Pending', email: 'kip@example.com', plan: 'Enthusiast', membership: 'none' }
       ]
     },
     clientRows: { [ADA]: adaRows, [NEIL]: { sets: [], sessions: [], exercises: [] } },
@@ -171,7 +175,7 @@ async function openPage(browser, cfg) {
       pass: document.body.innerText.indexOf('Stopwatch pass rate') >= 0
     };
   });
-  assert.deepStrictEqual(picker.names, ['Your dashboard', 'Ada Client', 'Neil Client', 'Fan Enthusiast']);
+  assert.deepStrictEqual(picker.names, ['Your dashboard', 'Ada Client', 'Neil Client', 'Fan Enthusiast', 'Pat Chooser', 'Kip Pending']);
   assert.strictEqual(picker.share, false);
   assert.strictEqual(picker.pass, false);
   await shot(trainer, 'trainer-client-picker.png');
@@ -249,13 +253,17 @@ async function openPage(browser, cfg) {
   assert.ok(JSON.stringify(shared).indexOf('session_id') < 0);
   const toast = await trainer.$eval('#toast', function (el) { return el.textContent; });
   assert.strictEqual(toast, 'Dashboard shared.');
-  await trainer.click('#client-pick [data-client="' + NEIL + '"]');
+  await trainer.evaluate(function (id) {
+    document.querySelector('#client-pick [data-client="' + id + '"]').click();
+  }, NEIL);
   await trainer.waitForFunction(function () {
     var note = document.getElementById('dashboard-plan-note');
     return note && note.textContent === 'No sets logged this month.';
   });
   assert.ok((await trainer.$eval('#app', function (el) { return el.innerText; })).indexOf('Barbell squat') < 0);
-  await trainer.click('#client-pick [data-client="' + FAN + '"]');
+  await trainer.evaluate(function (id) {
+    document.querySelector('#client-pick [data-client="' + id + '"]').click();
+  }, FAN);
   await trainer.waitForSelector('#dash-share-none');
   const held = await trainer.evaluate(function () {
     return {
@@ -269,6 +277,21 @@ async function openPage(browser, cfg) {
     note: 'This client keeps their own live dashboard.',
     sheet: true
   });
+  await trainer.evaluate(function (id) {
+    document.querySelector('#client-pick [data-client="' + id + '"]').click();
+  }, PAT);
+  await trainer.waitForSelector('#dash-share');
+  await trainer.evaluate(function (id) {
+    document.querySelector('#client-pick [data-client="' + id + '"]').click();
+  }, KIP);
+  await trainer.waitForSelector('#dash-share');
+  const chooser = await trainer.evaluate(function () {
+    return {
+      share: !!document.getElementById('dash-share'),
+      heldBack: !!document.getElementById('dash-share-none')
+    };
+  });
+  assert.deepStrictEqual(chooser, { share: true, heldBack: false });
 
   const withTrainer = await openPage(browser, {
     id: ADA,

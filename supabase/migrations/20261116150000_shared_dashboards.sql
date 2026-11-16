@@ -16,9 +16,10 @@
 -- Who can see a row (row level security):
 --   A Trainer or Master Trainer can insert a row only for a connected client
 --   who still uses the free-client inbox (membership free_client or none),
---   and only as themselves. An Enthusiast, Trainer, or Master Trainer keeps
---   their own live dashboard, so a share cannot be addressed to them. The
---   sender can read a row they shared only while that connection is still open.
+--   and only as themselves. A paid Enthusiast keeps their own live dashboard,
+--   so a share cannot be addressed to them. Choosing Enthusiast without
+--   paying leaves membership at none, and that person still uses the inbox.
+--   The sender can read a row they shared only while that connection is still open.
 --   The client can read their own rows and can set viewed_at once. They
 --   cannot change the cards, the date, or the trainer name.
 --   Nobody else can read or write the row. A signed-in person cannot delete
@@ -243,3 +244,56 @@ create policy shared_dashboards_update
   to authenticated
   using (client_id = (select auth.uid()))
   with check (client_id = (select auth.uid()));
+
+-- The roster label "Enthusiast" also covers someone who only chose that plan.
+-- Membership is what decides the inbox, so the trainer's client list includes it.
+-- This is the same roster as 20261115002700_profile_details.sql, plus membership.
+create or replace function public.invite_roster()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  me public.profiles;
+  role text;
+  cap int;
+  client_count int;
+  open_count int;
+begin
+  if uid is null then raise exception 'Sign in first.'; end if;
+  select * into me from public.profiles where id = uid;
+  if not found then raise exception 'Sign in first.'; end if;
+  role := public.invite_role(me);
+  if role is null then return jsonb_build_object('role', null); end if;
+  cap := public.invite_cap(role);
+  select count(*) into client_count from public.trainer_clients where trainer_id = uid and ended_at is null;
+  select count(*) into open_count from public.invites
+    where trainer_id = uid and used_at is null and canceled_at is null and expires_at > now();
+  return jsonb_build_object(
+    'role', role,
+    'cap', cap,
+    'clientCount', client_count,
+    'canCreate', (client_count + open_count) < cap,
+    'clients', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', c.client_id,
+        'email', p.email,
+        'name', nullif(btrim(p.display_name), ''),
+        'avatarPath', p.avatar_path,
+        'membership', p.membership,
+        'plan', case when p.membership = 'enthusiast' or p.intended_plan = 'enthusiast' then 'Enthusiast' else 'Free Client' end
+      ) order by coalesce(nullif(btrim(p.display_name), ''), p.email))
+      from public.trainer_clients c
+      join public.profiles p on p.id = c.client_id
+      where c.trainer_id = uid and c.ended_at is null
+    ), '[]'::jsonb),
+    'invites', coalesce((
+      select jsonb_agg(jsonb_build_object('code', i.code, 'expiresAt', i.expires_at) order by i.expires_at)
+      from public.invites i
+      where i.trainer_id = uid and i.used_at is null and i.canceled_at is null and i.expires_at > now()
+    ), '[]'::jsonb)
+  );
+end;
+$$;

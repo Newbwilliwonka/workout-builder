@@ -11,6 +11,8 @@ const S = '44444444-4444-4444-8444-444444444444';
 const N = '55555555-5555-4555-8555-555555555555';
 const C2 = '66666666-6666-4666-8666-666666666666';
 const F = '88888888-8888-4888-8888-888888888888';
+const U = '99999999-9999-4999-8999-999999999991';
+const P = '99999999-9999-4999-8999-999999999992';
 
 function psql(db, sql, file) {
   const args = ['-u', 'postgres', 'psql', '-v', 'ON_ERROR_STOP=1', '-d', db];
@@ -70,7 +72,9 @@ insert into auth.users (id, email) values
   ('${S}', 'stranger@example.com'),
   ('${N}', 'neil@example.com'),
   ('${C2}', 'bea@example.com'),
-  ('${F}', 'fan-client@example.com');
+  ('${F}', 'fan-client@example.com'),
+  ('${U}', 'unpaid@example.com'),
+  ('${P}', 'pending@example.com');
 update public.profiles set membership = 'free_client', email = 'ada@example.com' where id = '${C}';
 update public.profiles set membership = 'trainer', email = 'coach@example.com' where id = '${T}';
 update public.profiles set membership = 'master_trainer', email = 'master@example.com' where id = '${M}';
@@ -79,9 +83,15 @@ update public.profiles set membership = 'trainer', email = 'stranger@example.com
 update public.profiles set membership = 'free_client', email = 'neil@example.com' where id = '${N}';
 update public.profiles set membership = 'free_client', email = 'bea@example.com' where id = '${C2}';
 update public.profiles set membership = 'enthusiast', email = 'fan-client@example.com' where id = '${F}';
+update public.profiles set membership = 'free_client', intended_plan = 'enthusiast', email = 'unpaid@example.com' where id = '${U}';
+update public.profiles set membership = 'none', intended_plan = 'enthusiast', email = 'pending@example.com' where id = '${P}';
+alter table public.profiles add column if not exists display_name text;
+alter table public.profiles add column if not exists avatar_path text;
 insert into public.trainer_clients (trainer_id, client_id) values
   ('${T}', '${C}'),
   ('${T}', '${F}'),
+  ('${T}', '${U}'),
+  ('${T}', '${P}'),
   ('${M}', '${C2}'),
   ('${E}', '${N}');
 
@@ -130,6 +140,7 @@ values (
 
 select set_config('request.jwt.claim.sub', '${T}', false);
 do $$
+declare mem text; labeled text;
 begin
   begin
     insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
@@ -155,6 +166,26 @@ begin
   exception when others then
     if sqlerrm not like '%free client%' and sqlerrm not like '%row-level security%' then raise; end if;
   end;
+  insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
+  values ('${U}', '${T}', 'Coach Lee', '2026-11-16', '[{"type":"plan"}]'::jsonb);
+  insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
+  values ('${P}', '${T}', 'Coach Lee', '2026-11-16', '[{"type":"plan"}]'::jsonb);
+  select elem->>'membership', elem->>'plan' into mem, labeled
+      from jsonb_array_elements(public.invite_roster()->'clients') elem
+      where elem->>'id' = '${U}';
+    if mem is distinct from 'free_client' or labeled is distinct from 'Enthusiast' then
+      raise exception 'unpaid enthusiast roster % %', mem, labeled;
+    end if;
+    select elem->>'membership', elem->>'plan' into mem, labeled
+      from jsonb_array_elements(public.invite_roster()->'clients') elem
+      where elem->>'id' = '${P}';
+    if mem is distinct from 'none' or labeled is distinct from 'Enthusiast' then
+      raise exception 'pending enthusiast roster % %', mem, labeled;
+    end if;
+    select elem->>'membership' into mem
+      from jsonb_array_elements(public.invite_roster()->'clients') elem
+      where elem->>'id' = '${F}';
+    if mem is distinct from 'enthusiast' then raise exception 'paid enthusiast roster %', mem; end if;
   begin
     update public.shared_dashboards set trainer_name = 'Changed' where client_id = '${C}';
     if found then raise exception 'trainer edited a shared dashboard'; end if;
