@@ -67,13 +67,14 @@
   function asCopy(remote) {
     var items = [];
     try { items = JSON.parse(JSON.stringify(remote && remote.items || [])); } catch (e) { items = []; }
+    var trainerName = remote.sourceTrainerName || '';
+    if (String(trainerName).indexOf('@') !== -1) trainerName = '';
     return {
       id: String(remote.id),
       name: remote.name || 'Workout',
       items: items,
       sourceTrainerId: remote.sourceTrainerId,
-      sourceTrainerEmail: remote.sourceTrainerEmail || '',
-      sourceTrainerName: remote.sourceTrainerName || '',
+      sourceTrainerName: trainerName,
       sourceTrainerVerified: !!remote.sourceTrainerVerified,
       sourceWorkoutId: remote.sourceWorkoutId || '',
       createdAt: stamp(remote.createdAt || remote.updatedAt),
@@ -104,6 +105,8 @@
       seen[String(w.id)] = 1;
       var copy = asCopy(row);
       if (canEdit && (w.updatedAt || 0) > copy.updatedAt) {
+        delete w.sourceTrainerEmail;
+        if (w.sourceTrainerName && String(w.sourceTrainerName).indexOf('@') !== -1) delete w.sourceTrainerName;
         if (copy.sourceTrainerVerified) w.sourceTrainerVerified = true;
         else delete w.sourceTrainerVerified;
         next.push(w);
