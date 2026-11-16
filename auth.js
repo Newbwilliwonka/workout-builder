@@ -206,6 +206,74 @@
     if (session) return { kind: 'signed-in', session: session };
     return { kind: 'none' };
   }
+  function isUuid(id) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+  }
+  function shareTableMissing(err) {
+    var msg = String((err && (err.message || err.code || err.details || err.hint)) || '');
+    return /shared_dashboards|42P01|PGRST205|schema cache|does not exist/i.test(msg);
+  }
+  var TRACK_SET_COLS = 'id,session_id,library_exercise_id,personal_exercise_id,exercise_name,mode,set_number,status,removed,display_unit,planned_reps,planned_reps_min,planned_reps_max,planned_weight_kg,planned_bodyweight,actual_reps,actual_weight_kg,actual_bodyweight,planned_hold_sec,actual_hold_sec,planned_work_sec,actual_work_sec,planned_rest_sec,actual_rest_sec,planned_rounds,actual_rounds,planned_total_sec,actual_total_sec,planned_lap_count,actual_laps,planned_events,actual_events';
+  function loadTracking(c, id) {
+    var pageSize = 1000;
+    var pages = root.WBHistory && root.WBHistory.collectPages;
+    if (typeof pages !== 'function') return Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] });
+    function page(table, cols, ownerCol) {
+      return function (after, size) {
+        var q = c.from(table).select(cols).eq(ownerCol, id).order('id', { ascending: true }).limit(size);
+        if (table === 'workout_sessions') q = q.in('status', ['completed', 'ended_early']);
+        if (table === 'workout_sets') q = q.eq('removed', false);
+        if (after) q = q.gt('id', after);
+        return q;
+      };
+    }
+    return Promise.all([
+      pages(page('workout_sessions', 'id,local_date,started_at,ended_at,workout_name,status,workout_id,program_id', 'client_id'), pageSize),
+      pages(page('workout_sets', TRACK_SET_COLS, 'client_id'), pageSize),
+      pages(page('personal_exercises', 'id,stable_key', 'user_id'), pageSize)
+    ]).then(function (pair) {
+      var err = (pair[0] && pair[0].error) || (pair[1] && pair[1].error) || (pair[2] && pair[2].error);
+      if (err) {
+        var missing = /workout_sets|workout_sessions|personal_exercises|42P01|PGRST205|schema cache/i.test(String(err.message || err.code || err.details || ''));
+        return { unavailable: !!missing, error: true, sets: [], sessions: [], exercises: [] };
+      }
+      return {
+        sessions: pair[0].data || [],
+        sets: pair[1].data || [],
+        exercises: pair[2].data || []
+      };
+    });
+  }
+  function loadSchedule(c, id) {
+    var pageSize = 1000;
+    var pages = root.WBHistory && root.WBHistory.collectPages;
+    if (typeof pages !== 'function') return Promise.resolve({ unavailable: true, entries: [] });
+    function fetchPage(after, size) {
+      var q = c.from('program_entries')
+        .select('id,local_id,owner_id,workout_local_id,day,presence,updated_at')
+        .eq('owner_id', id)
+        .order('id', { ascending: true })
+        .limit(size);
+      if (after) q = q.gt('id', after);
+      return q;
+    }
+    return pages(fetchPage, pageSize).then(function (page) {
+      if (!page || page.error) {
+        var err = page && page.error;
+        var missing = /program_entries|42P01|PGRST205|schema cache/i.test(String(err && (err.message || err.code || err.details) || ''));
+        return { unavailable: !!missing || !page, entries: [] };
+      }
+      return { entries: page.data || [] };
+    });
+  }
+  function signedUser() {
+    return db().then(function (c) {
+      return c.auth.getSession().then(function (res) {
+        var user = userOf(res && res.data && res.data.session);
+        return { c: c, user: user && isUuid(user.id) ? user : null };
+      });
+    });
+  }
   var api = {
     session: function () {
       return db().then(function (c) { return c.auth.getSession(); }).then(function (res) {
@@ -546,82 +614,107 @@
     },
     // Read-only. The signed-in person's own finished sessions. Never another client's.
     myHistory: function () {
-      var setCols = 'id,session_id,library_exercise_id,personal_exercise_id,exercise_name,mode,set_number,status,removed,display_unit,planned_reps,planned_reps_min,planned_reps_max,planned_weight_kg,planned_bodyweight,actual_reps,actual_weight_kg,actual_bodyweight,planned_hold_sec,actual_hold_sec,planned_work_sec,actual_work_sec,planned_rest_sec,actual_rest_sec,planned_rounds,actual_rounds,planned_total_sec,actual_total_sec,planned_lap_count,actual_laps,planned_events,actual_events';
-      var pageSize = 1000;
-      return db().then(function (c) {
-        return c.auth.getSession().then(function (res) {
-          var user = userOf(res && res.data && res.data.session);
-          if (!user || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(user.id || ''))) {
-            return { sets: [], sessions: [], exercises: [] };
-          }
-          var pages = root.WBHistory && root.WBHistory.collectPages;
-          if (typeof pages !== 'function') return { error: true, sets: [], sessions: [], exercises: [] };
-          var id = user.id;
-          function page(table, cols, ownerCol) {
-            return function (after, size) {
-              var q = c.from(table).select(cols).eq(ownerCol, id).order('id', { ascending: true }).limit(size);
-              if (table === 'workout_sessions') q = q.in('status', ['completed', 'ended_early']);
-              if (table === 'workout_sets') q = q.eq('removed', false);
-              if (after) q = q.gt('id', after);
-              return q;
-            };
-          }
-          return Promise.all([
-            pages(page('workout_sessions', 'id,local_date,started_at,ended_at,workout_name,status,workout_id,program_id', 'client_id'), pageSize),
-            pages(page('workout_sets', setCols, 'client_id'), pageSize),
-            pages(page('personal_exercises', 'id,stable_key', 'user_id'), pageSize)
-          ]).then(function (pair) {
-            var err = (pair[0] && pair[0].error) || (pair[1] && pair[1].error) || (pair[2] && pair[2].error);
-            if (err) {
-              var missing = /workout_sets|workout_sessions|personal_exercises|42P01|PGRST205|schema cache/i.test(String(err.message || err.code || err.details || ''));
-              return { unavailable: !!missing, error: true, sets: [], sessions: [], exercises: [] };
-            }
-            return {
-              sessions: pair[0].data || [],
-              sets: pair[1].data || [],
-              exercises: pair[2].data || []
-            };
-          });
-        });
-    }).then(function (out) { return out; }, function () {
-      return { error: true, sets: [], sessions: [], exercises: [] };
-    });
-  },
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) return { sets: [], sessions: [], exercises: [] };
+        return loadTracking(ctx.c, ctx.user.id);
+      }).then(function (out) { return out; }, function () {
+        return { error: true, sets: [], sessions: [], exercises: [] };
+      });
+    },
+    // A trainer's read of one connected client's sessions. Row level security
+    // returns nothing when the link is missing or has ended.
+    clientTracking: function (clientId) {
+      if (!isUuid(clientId)) return Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] });
+      return signedUser().then(function (ctx) {
+        if (!ctx.user || ctx.user.id === clientId) return { error: true, sets: [], sessions: [], exercises: [] };
+        return loadTracking(ctx.c, clientId);
+      }).then(function (out) { return out; }, function () {
+        return { error: true, sets: [], sessions: [], exercises: [] };
+      });
+    },
     // The signed-in person's own program calendar, every page. updated_at is
     // included so a local removal loses to a newer server copy, the same way
     // the calendar brings that day back. A missing table hides the streak; it
     // does not fail the rest of the dashboard.
     mySchedule: function () {
-      var pageSize = 1000;
-      return db().then(function (c) {
-        return c.auth.getSession().then(function (res) {
-          var user = userOf(res && res.data && res.data.session);
-          if (!user || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(user.id || ''))) {
-            return { entries: [] };
-          }
-          var pages = root.WBHistory && root.WBHistory.collectPages;
-          if (typeof pages !== 'function') return { unavailable: true, entries: [] };
-          var id = user.id;
-          function fetchPage(after, size) {
-            var q = c.from('program_entries')
-              .select('id,local_id,owner_id,workout_local_id,day,presence,updated_at')
-              .eq('owner_id', id)
-              .order('id', { ascending: true })
-              .limit(size);
-            if (after) q = q.gt('id', after);
-            return q;
-          }
-          return pages(fetchPage, pageSize).then(function (page) {
-            if (!page || page.error) {
-              var err = page && page.error;
-              var missing = /program_entries|42P01|PGRST205|schema cache/i.test(String(err && (err.message || err.code || err.details) || ''));
-              return { unavailable: !!missing || !page, entries: [] };
-            }
-            return { entries: page.data || [] };
-          });
-        });
+      // collectPages reads every program_entries page, including updated_at.
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) return { entries: [] };
+        return loadSchedule(ctx.c, ctx.user.id);
       }).then(function (out) { return out; }, function () {
         return { unavailable: true, entries: [] };
+      });
+    },
+    clientSchedule: function (clientId) {
+      if (!isUuid(clientId)) return Promise.resolve({ unavailable: true, entries: [] });
+      return signedUser().then(function (ctx) {
+        if (!ctx.user || ctx.user.id === clientId) return { unavailable: true, entries: [] };
+        return loadSchedule(ctx.c, clientId);
+      }).then(function (out) { return out; }, function () {
+        return { unavailable: true, entries: [] };
+      });
+    },
+    // Shared copies for the signed-in client. A missing table is an empty
+    // list, so Tracking still opens before the SQL is applied.
+    myShares: function () {
+      return db().then(function (c) {
+        return c.from('shared_dashboards')
+          .select('id,trainer_id,trainer_name,as_of,cards,created_at,viewed_at')
+          .order('created_at', { ascending: false });
+      }).then(function (res) {
+        if (!res || res.error) {
+          if (res && shareTableMissing(res.error)) return { unavailable: true, shares: [] };
+          return { error: true, shares: [] };
+        }
+        return { shares: res.data || [] };
+      }, function () {
+        return { error: true, shares: [] };
+      });
+    },
+    shareDashboard: function (input) {
+      input = input || {};
+      if (!isUuid(input.clientId)) return Promise.resolve({ ok: false });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.asOf || ''))) return Promise.resolve({ ok: false });
+      if (!Array.isArray(input.cards) || !input.cards.length || input.cards.length > 6) return Promise.resolve({ ok: false });
+      var name = String(input.trainerName || '').replace(/^\s+|\s+$/g, '').slice(0, 80) || 'Trainer';
+      return signedUser().then(function (ctx) {
+        if (!ctx.user || ctx.user.id === input.clientId) return { ok: false };
+        return ctx.c.from('shared_dashboards').insert({
+          client_id: input.clientId,
+          trainer_id: ctx.user.id,
+          trainer_name: name,
+          as_of: input.asOf,
+          cards: input.cards
+        }).select('id').single().then(function (ins) {
+          if (!ins || ins.error) {
+            if (ins && shareTableMissing(ins.error)) return { ok: false, unavailable: true };
+            return { ok: false };
+          }
+          return { ok: true, id: ins.data && ins.data.id };
+        });
+      }).then(function (out) { return out; }, function () {
+        return { ok: false };
+      });
+    },
+    markShareViewed: function (id) {
+      if (!isUuid(id)) return Promise.resolve({ ok: false });
+      return db().then(function (c) {
+        return c.from('shared_dashboards')
+          .update({ viewed_at: new Date().toISOString() })
+          .eq('id', id)
+          .select('id,viewed_at')
+          .maybeSingle();
+      }).then(function (res) {
+        if (!res || res.error) {
+          var msg = String(res && res.error && (res.error.message || res.error.details || res.error.code) || '');
+          if (/already opened/i.test(msg)) return { ok: true, already: true };
+          if (shareTableMissing(res && res.error)) return { ok: false, unavailable: true };
+          return { ok: false };
+        }
+        if (!res.data) return { ok: true, already: true };
+        return { ok: true, viewed_at: res.data.viewed_at };
+      }, function () {
+        return { ok: false };
       });
     },
     gifBase: EXERCISE_GIF_BASE,
