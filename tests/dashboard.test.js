@@ -308,4 +308,92 @@ assert.strictEqual(recent.records.length, 8);
 assert.strictEqual(recent.records[0].name, 'Record 8');
 assert.ok(!recent.records.some(function (row) { return row.name === 'Record 0'; }));
 
+assert.strictEqual(fixture.pass.passed, 5);
+assert.strictEqual(fixture.pass.total, 8);
+assert.strictEqual(fixture.pass.pct, 63);
+assert.strictEqual(fixture.pass.name, 'Court sprint');
+assert.ok(page.indexOf('Stopwatch') < 0, 'the standard page still leaves pass rate off');
+
+const editor = D.editorHtml(none, D.STANDARD);
+assert.ok(editor.indexOf('Move Hit the plan up') >= 0);
+assert.ok(editor.indexOf('Move Hit the plan down') >= 0);
+assert.ok(editor.indexOf('>Delete<') >= 0);
+assert.ok(editor.indexOf('data-drag="plan"') >= 0);
+assert.ok(editor.indexOf('<input') < 0);
+assert.ok(editor.indexOf('contenteditable') < 0);
+assert.ok(editor.indexOf('Schedule workouts in the program calendar first.') >= 0);
+assert.ok(D.html(none).indexOf('Schedule workouts in the program calendar first.') < 0);
+assert.ok(D.html(none).indexOf('<button') < 0);
+
+const moved = D.moveCard(D.STANDARD, 'plan', 1);
+assert.deepStrictEqual(moved, ['workouts', 'plan', 'volume', 'records', 'calendar']);
+assert.deepStrictEqual(D.moveCard(moved, 'plan', -1), D.STANDARD);
+const placed = D.placeCard(D.STANDARD, 'plan', 'calendar');
+assert.strictEqual(placed[placed.length - 1], 'plan');
+assert.deepStrictEqual(D.removeCard(D.STANDARD, 'volume'), ['plan', 'workouts', 'records', 'calendar']);
+assert.deepStrictEqual(D.addCard(D.removeCard(D.STANDARD, 'plan'), 'pass'), ['workouts', 'volume', 'records', 'calendar', 'pass']);
+assert.ok(D.addSheetHtml(['plan']).indexOf('Stopwatch pass rate') >= 0);
+assert.ok(D.addSheetHtml(['plan']).indexOf('data-add="plan"') < 0);
+
+const frozenSource = D.build({
+  sets: [set({ sessionId: 'freeze', localDate: '2026-11-16', actualReps: 5 })],
+  sessions: [session('freeze', '2026-11-16')],
+  entries: [],
+  now: NOW
+});
+const shot = D.snapshot(frozenSource, ['plan', 'workouts', 'pass'], {
+  asOf: '2026-11-16',
+  trainerName: 'Coach Ana',
+  now: NOW
+});
+frozenSource.plan.pct = 0;
+frozenSource.plan.rating = { label: 'On vacation?', color: '#DC2626' };
+const frozen = D.frozenHtml(shot);
+const frozenAgain = D.frozenHtml(shot);
+assert.strictEqual(frozen, frozenAgain);
+assert.ok(frozen.indexOf('As of Monday, Nov 16, 2026 from Coach Ana') >= 0);
+assert.ok(frozen.indexOf('View only. This copy does not change when new workouts are finished.') >= 0);
+assert.ok(frozen.indexOf('>Delete<') < 0);
+assert.ok(frozen.indexOf('<button') < 0);
+assert.ok(frozen.indexOf('100%') >= 0 || frozen.indexOf('>100%<') >= 0 || frozen.indexOf('100 percent') >= 0);
+assert.ok(shot.blocks.workouts.streakPrompt === true);
+assert.ok(frozen.indexOf('Schedule workouts in the program calendar first.') >= 0);
+assert.strictEqual(D.trainerStampName({ display_name: 'Coach Ana', email: 'coach@example.com' }), 'Coach Ana');
+assert.strictEqual(D.trainerStampName({ email: 'coach@example.com' }), 'coach');
+assert.strictEqual(D.unreadCount([
+  { id: '1', viewedAt: null },
+  { id: '2', viewedAt: '2026-11-16T00:00:00.000Z' },
+  { id: '3' }
+]), 2);
+
+const withTrainer = D.emptyClientHtml({ trainerId: '11111111-1111-4111-8111-111111111111' });
+assert.ok(withTrainer.indexOf('Message your trainer') >= 0);
+assert.ok(withTrainer.indexOf('#/messages/11111111-1111-4111-8111-111111111111') >= 0);
+assert.ok(withTrainer.indexOf('Upgrade to Enthusiast') >= 0);
+assert.ok(withTrainer.indexOf('#/subscriptions') >= 0);
+assert.ok(withTrainer.indexOf('Find a trainer') < 0);
+const noTrainer = D.emptyClientHtml({});
+assert.ok(noTrainer.indexOf('Find a trainer') >= 0);
+assert.ok(noTrainer.indexOf('The Trainer Hub is coming soon.') >= 0);
+assert.ok(noTrainer.indexOf('Message your trainer') < 0);
+assert.ok(noTrainer.indexOf('Upgrade to Enthusiast') >= 0);
+const listed = D.shareListHtml([
+  { id: 'new', asOf: '2026-11-16', trainerName: 'Coach Ana', viewedAt: null },
+  { id: 'old', asOf: '2026-11-13', trainerName: 'Coach Ana', viewedAt: '2026-11-14T00:00:00.000Z' }
+]);
+assert.ok(listed.indexOf('As of Monday, Nov 16, 2026') < listed.indexOf('As of Friday, Nov 13, 2026'));
+assert.ok(listed.indexOf('From Coach Ana') >= 0);
+assert.strictEqual((listed.match(/db-new/g) || []).length, 1);
+const picker = D.pickerHtml({ name: 'Coach Ana', role: 'Trainer' }, [
+  { id: 'maya', name: 'Maya Chen', plan: 'Free Client' }
+]);
+assert.ok(picker.indexOf('My dashboard') >= 0);
+assert.ok(picker.indexOf('Maya Chen') >= 0);
+assert.ok(picker.indexOf('data-dash-person="me"') >= 0);
+assert.ok(!/Example data/.test(dashSrc));
+assert.ok(/master_trainer/.test(appSrc));
+assert.ok(/myShares/.test(appSrc));
+assert.ok(/clientHistory/.test(authSrc));
+assert.ok(/shared_dashboards/.test(authSrc));
+
 console.log('DASHBOARD OK');

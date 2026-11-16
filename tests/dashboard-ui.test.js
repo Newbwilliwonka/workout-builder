@@ -121,7 +121,7 @@ async function openPage(browser, membership, payload) {
         value.mySchedule = function () {
           return Promise.resolve(window.__wbSchedulePayload);
         };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'programEntries'].forEach(function (name) {
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'programEntries', 'myShares', 'clientHistory', 'clientSchedule', 'shareDashboard', 'markShareViewed'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
       }
@@ -216,9 +216,13 @@ async function openPage(browser, membership, payload) {
 
   const free = await openPage(browser, 'free_client', enthusiastPayload());
   await free.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
-  await free.waitForSelector('#dashboard-soon');
-  const freeText = await free.$eval('#dashboard-soon', function (el) { return el.innerText; });
-  assert.strictEqual(freeText, 'Your trainer can share a dashboard with you.');
+  await free.waitForSelector('#dashboard-empty-client');
+  const freeText = await free.$eval('#dashboard-empty-client', function (el) { return el.innerText; });
+  assert.ok(freeText.indexOf('No dashboard yet') >= 0);
+  assert.ok(freeText.indexOf('Find a trainer') >= 0);
+  assert.ok(freeText.indexOf('The Trainer Hub is coming soon.') >= 0);
+  assert.ok(freeText.indexOf('Upgrade to Enthusiast') >= 0);
+  assert.strictEqual(await free.$eval('#dashboard-upgrade', function (el) { return el.getAttribute('href'); }), '#/subscriptions');
   assert.strictEqual(await free.$('#dashboard-sheet'), null);
   assert.strictEqual(await free.$eval('#dashboard-count', function (el) { return el.hidden; }), true);
   assert.ok((await free.$eval('#app', function (el) { return el.innerText; })).indexOf('Hit the plan') < 0);

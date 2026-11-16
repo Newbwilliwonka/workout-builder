@@ -1,8 +1,10 @@
 /* Standard tracking dashboard. No network. No sample people.
    Browser: window.WBDashboard. Node: require.
-   Numbers come from the signed-in person's saved sessions and sets.
+   Numbers come from saved sessions and sets passed in by the caller.
+   The standard page is five cards in a fixed order.
    Stopwatch pass rate is intentionally not rendered. It stays off this
-   dashboard until a trainer can choose to add it. */
+   dashboard until a trainer can choose to add it. A shared copy freezes
+   the cards that were on screen. It does not read sessions again. */
 (function (root) {
   'use strict';
   var LB_TO_KG = 0.45359237;
@@ -19,6 +21,16 @@
   var MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var DOW = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   var DOW_LETTER = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  var WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var STANDARD = ['plan', 'workouts', 'volume', 'records', 'calendar'];
+  var CARD_INFO = {
+    plan: { title: 'Hit the plan', blurb: 'How often finished sets met the plan this month' },
+    workouts: { title: 'Workouts and streak', blurb: 'Workouts this week and month, and the scheduled-day streak' },
+    volume: { title: 'Total volume', blurb: 'Kilograms lifted over the last eight weeks' },
+    records: { title: 'Recent personal records', blurb: 'The latest records across exercises' },
+    calendar: { title: 'Consistency calendar', blurb: 'Days a workout was saved this month' },
+    pass: { title: 'Stopwatch pass rate', blurb: 'How often pass or fail marks were passed this month' }
+  };
 
   function historyApi() {
     if (root.WBHistory) return root.WBHistory;
@@ -96,6 +108,19 @@
     var day = dayText(isoDay);
     if (!day) return '';
     return MONTHS[Number(day.slice(5, 7)) - 1] + ' ' + Number(day.slice(8, 10)) + ', ' + day.slice(0, 4);
+  }
+  function asOfLabel(isoDay) {
+    var d = parseDay(isoDay);
+    if (!d) return '';
+    return WEEKDAYS[d.getDay()] + ', ' + MONTHS_SHORT[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+  }
+  function trainerStampName(profile) {
+    var name = profile && (profile.display_name || profile.name || '');
+    name = String(name == null ? '' : name).replace(/^\s+|\s+$/g, '');
+    if (name) return name.slice(0, 80);
+    var email = String(profile && (profile.email || profile.trainerEmail) || '');
+    var local = email.split('@')[0].replace(/^\s+|\s+$/g, '');
+    return (local || 'Trainer').slice(0, 80);
   }
   function allowed(profile) {
     var id = profile && profile.membership;
@@ -458,6 +483,39 @@
       cells: cells
     };
   }
+  // Pass and fail marks on finished sets this month. Marks with no result
+  // are not counted. October marks stay out of a November share.
+  function passBlock(sets, now) {
+    var key = monthKey(now);
+    var passed = 0;
+    var total = 0;
+    var byName = {};
+    sets.forEach(function (set) {
+      if (set.localDate.slice(0, 7) !== key || set.status === 'skipped') return;
+      (set.actualEvents || []).forEach(function (ev) {
+        if (!ev || (ev.result !== 'pass' && ev.result !== 'fail')) return;
+        total++;
+        if (ev.result === 'pass') passed++;
+        var name = String(set.exerciseName || 'Exercise');
+        byName[name] = (byName[name] || 0) + 1;
+      });
+    });
+    if (!total) return { empty: true, pct: null, passed: 0, total: 0, name: '' };
+    var best = '';
+    var bestN = 0;
+    var names = 0;
+    Object.keys(byName).forEach(function (name) {
+      names++;
+      if (byName[name] > bestN) { best = name; bestN = byName[name]; }
+    });
+    return {
+      empty: false,
+      pct: Math.round((passed / total) * 100),
+      passed: passed,
+      total: total,
+      name: names === 1 ? best : ''
+    };
+  }
   function build(input) {
     input = input || {};
     var now = input.now instanceof Date ? new Date(input.now.getTime()) : new Date(input.now || Date.now());
@@ -499,8 +557,29 @@
       workouts: workoutBlock(sessions, entries, now),
       volume: volumeBlock(sets, now),
       records: recordBlock(sets, now),
-      calendar: calendarBlock(sessions, now)
+      calendar: calendarBlock(sessions, now),
+      pass: passBlock(sets, now)
     };
+  }
+  function sectionStart(id, titleId, title, opts) {
+    var edit = opts && opts.edit && opts.card;
+    var h = '<section class="db-sec" id="' + id + '" aria-labelledby="' + titleId + '"' +
+      (edit ? ' data-card="' + opts.card + '"' : '') + '>';
+    if (!edit) {
+      h += '<h2 class="db-label" id="' + titleId + '">' + esc(title) + '</h2>';
+      return h;
+    }
+    var label = esc(title);
+    h += '<div class="db-edit">';
+    h += '<button type="button" class="icon db-drag" data-drag="' + opts.card + '" aria-label="Drag ' + label + '">⣿</button>';
+    h += '<h2 class="db-label" id="' + titleId + '">' + label + '</h2>';
+    h += '<button type="button" class="sm db-move" data-move="up" data-card="' + opts.card + '" aria-label="Move ' + label + ' up"' +
+      (opts.first ? ' disabled' : '') + '>Up</button>';
+    h += '<button type="button" class="sm db-move" data-move="down" data-card="' + opts.card + '" aria-label="Move ' + label + ' down"' +
+      (opts.last ? ' disabled' : '') + '>Down</button>';
+    h += '<button type="button" class="sm danger" data-delete="' + opts.card + '">Delete</button>';
+    h += '</div>';
+    return h;
   }
   function ring(plan) {
     var size = 96;
@@ -525,9 +604,8 @@
     h += '</svg>';
     return h;
   }
-  function planHtml(plan) {
-    var h = '<section class="db-sec" id="dashboard-plan" aria-labelledby="dashboard-plan-title">';
-    h += '<h2 class="db-label" id="dashboard-plan-title">Hit the plan</h2>';
+  function planHtml(plan, opts) {
+    var h = sectionStart('dashboard-plan', 'dashboard-plan-title', 'Hit the plan', opts);
     h += '<div class="db-plan">' + ring(plan);
     h += '<div class="db-plan-copy">';
     if (plan && plan.rating) {
@@ -545,9 +623,9 @@
     h += '</ul></section>';
     return h;
   }
-  function workoutsHtml(block) {
-    var h = '<section class="db-sec" id="dashboard-workouts" aria-labelledby="dashboard-workouts-title">';
-    h += '<h2 class="db-label" id="dashboard-workouts-title">Workouts and streak</h2>';
+  function workoutsHtml(block, opts) {
+    block = block || { week: 0, month: 0, goal: WEEK_GOAL, streak: null };
+    var h = sectionStart('dashboard-workouts', 'dashboard-workouts-title', 'Workouts and streak', opts);
     h += '<div class="db-stats">';
     h += '<div class="db-stat"><b id="dashboard-week">' + block.week + '</b><span>This week</span></div>';
     h += '<div class="db-stat"><b id="dashboard-month">' + block.month + '</b><span>This month</span></div>';
@@ -564,6 +642,8 @@
     if (block.streak != null) {
       var days = block.streak === 1 ? '1 scheduled workout day' : block.streak + ' scheduled workout days';
       h += '<p class="db-note" id="dashboard-streak-note">' + days + ' in a row. Rest days do not break this streak.</p>';
+    } else if ((opts && opts.streakPrompt) || block.streakPrompt) {
+      h += '<p class="db-note" id="dashboard-streak-note">Schedule workouts in the program calendar first.</p>';
     }
     h += '</section>';
     return h;
@@ -606,9 +686,10 @@
     }
     return h + '</svg>';
   }
-  function volumeHtml(block) {
-    var h = '<section class="db-sec" id="dashboard-volume" aria-labelledby="dashboard-volume-title">';
-    h += '<h2 class="db-label" id="dashboard-volume-title">Total volume</h2>';
+  function volumeHtml(block, opts) {
+    block = block || { weekKg: 0, weeks: [] };
+    if (!block.weeks) block.weeks = [];
+    var h = sectionStart('dashboard-volume', 'dashboard-volume-title', 'Total volume', opts);
     h += '<div class="db-vol" id="dashboard-volume-now">' + esc(formatKg(block.weekKg)) + ' kg this week</div>';
     h += '<p class="db-note" id="dashboard-volume-note">Kilograms lifted, last eight weeks</p>';
     h += volumeSvg(block.weeks);
@@ -616,9 +697,8 @@
     h += '</section>';
     return h;
   }
-  function recordsHtml(rows) {
-    var h = '<section class="db-sec" id="dashboard-records" aria-labelledby="dashboard-records-title">';
-    h += '<h2 class="db-label" id="dashboard-records-title">Recent personal records</h2>';
+  function recordsHtml(rows, opts) {
+    var h = sectionStart('dashboard-records', 'dashboard-records-title', 'Recent personal records', opts);
     if (!rows || !rows.length) {
       h += '<p class="db-note">No records yet.</p></section>';
       return h;
@@ -632,9 +712,10 @@
     h += '</ul></section>';
     return h;
   }
-  function calendarHtml(block) {
-    var h = '<section class="db-sec" id="dashboard-calendar" aria-labelledby="dashboard-calendar-title">';
-    h += '<h2 class="db-label" id="dashboard-calendar-title">' + esc(block.title) + '</h2>';
+  function calendarHtml(block, opts) {
+    block = block || { title: 'Consistency', monthLabel: '', count: 0, cells: [] };
+    if (!block.cells) block.cells = [];
+    var h = sectionStart('dashboard-calendar', 'dashboard-calendar-title', block.title || 'Consistency', opts);
     h += '<div class="db-cal" role="grid" aria-label="Training days in ' + esc(block.monthLabel) + '">';
     h += '<div class="db-cal-row" role="row">';
     DOW.forEach(function (name, i) {
@@ -670,20 +751,250 @@
     h += '<p class="db-note" id="dashboard-calendar-note">' + countLine + '</p></section>';
     return h;
   }
+  function passHtml(block, opts) {
+    block = block || { empty: true, pct: null, passed: 0, total: 0, name: '' };
+    var h = sectionStart('dashboard-pass', 'dashboard-pass-title', 'Stopwatch pass rate', opts);
+    if (block.empty || block.pct == null) {
+      h += '<p class="db-note" id="dashboard-pass-note">No pass or fail marks this month.</p></section>';
+      return h;
+    }
+    var pct = Math.max(0, Math.min(100, Number(block.pct) || 0));
+    var detail = (block.passed || 0) + ' of ' + (block.total || 0) + ' event marks passed this month';
+    if (block.name) detail = block.name + ' · ' + detail;
+    h += '<div class="db-vol" id="dashboard-pass-pct">' + esc(block.pct) + '%</div>';
+    h += '<p class="db-note" id="dashboard-pass-note">' + esc(detail) + '</p>';
+    h += '<div class="db-pass-track" role="img" aria-label="' + esc(block.pct + ' percent of event marks passed this month') + '">';
+    h += '<span class="db-pass" style="width:' + pct + '%"></span></div></section>';
+    return h;
+  }
+  function cardHtml(id, model, opts) {
+    model = model || {};
+    if (id === 'plan') return planHtml(model.plan, opts);
+    if (id === 'workouts') return workoutsHtml(model.workouts, opts);
+    if (id === 'volume') return volumeHtml(model.volume, opts);
+    if (id === 'records') return recordsHtml(model.records, opts);
+    if (id === 'calendar') return calendarHtml(model.calendar, opts);
+    if (id === 'pass') return passHtml(model.pass, opts);
+    return '';
+  }
+  function normalizeOrder(order) {
+    var out = [];
+    var seen = {};
+    (order || []).forEach(function (id) {
+      if (!CARD_INFO[id] || seen[id]) return;
+      seen[id] = true;
+      out.push(id);
+    });
+    return out;
+  }
+  function sheet(model, order, opts) {
+    var ids = normalizeOrder(order);
+    var h = '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">';
+    if (!ids.length) {
+      h += '<p class="db-note" id="dashboard-no-cards">Add a card to build this dashboard.</p></div></div>';
+      return h;
+    }
+    ids.forEach(function (id, i) {
+      var cardOpts = {
+        edit: !!(opts && opts.edit),
+        streakPrompt: !!(opts && opts.streakPrompt),
+        card: id,
+        first: i === 0,
+        last: i === ids.length - 1
+      };
+      h += cardHtml(id, model, cardOpts);
+    });
+    return h + '</div></div>';
+  }
   function html(model) {
     if (!model || model.empty) {
       return '<div id="dashboard"><div class="empty db-empty" id="dashboard-empty"><div class="name">Finish a workout and your dashboard will fill in.</div></div></div>';
     }
-    return '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' +
-      planHtml(model.plan) +
-      workoutsHtml(model.workouts) +
-      volumeHtml(model.volume) +
-      recordsHtml(model.records) +
-      calendarHtml(model.calendar) +
-      '</div></div>';
+    return sheet(model, STANDARD, null);
+  }
+  function editorHtml(model, order) {
+    if (!model || model.empty) return html(model);
+    return sheet(model, normalizeOrder(order), { edit: true, streakPrompt: true });
   }
   function unavailableHtml() {
     return '<div id="dashboard"><div class="empty db-empty" id="dashboard-unavailable"><div class="name">Saved sessions are not available yet.</div></div></div>';
+  }
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+  function snapshot(model, order, meta) {
+    meta = meta || {};
+    var ids = normalizeOrder(order);
+    if (!ids.length) ids = STANDARD.slice();
+    var blocks = {};
+    var source = model && !model.empty ? model : {};
+    ids.forEach(function (id) {
+      if (id === 'records') {
+        blocks.records = clone(source.records || []);
+        return;
+      }
+      var block = source[id] == null ? null : clone(source[id]);
+      if (id === 'workouts' && block && block.streak == null) block.streakPrompt = true;
+      if (id === 'workouts' && !block) {
+        block = { week: 0, month: 0, goal: WEEK_GOAL, streak: null, streakPrompt: true };
+      }
+      blocks[id] = block;
+    });
+    var now = meta.now instanceof Date ? meta.now : new Date();
+    var asOf = dayText(meta.asOf) || iso(now);
+    var trainerName = String(meta.trainerName || 'Trainer').replace(/^\s+|\s+$/g, '').slice(0, 80) || 'Trainer';
+    return {
+      asOf: asOf,
+      asOfLabel: asOfLabel(asOf),
+      trainerName: trainerName,
+      order: ids,
+      blocks: blocks
+    };
+  }
+  function shareModel(share) {
+    var blocks = (share && share.blocks) || {};
+    return {
+      empty: false,
+      plan: blocks.plan,
+      workouts: blocks.workouts,
+      volume: blocks.volume,
+      records: blocks.records || [],
+      calendar: blocks.calendar,
+      pass: blocks.pass
+    };
+  }
+  function frozenHtml(share) {
+    share = share || {};
+    var order = normalizeOrder(share.order);
+    var name = String(share.trainerName || 'Trainer');
+    var label = share.asOfLabel || asOfLabel(share.asOf);
+    var h = '<div class="db-frozen" id="dashboard-as-of">';
+    h += '<div class="db-frozen-title">As of ' + esc(label) + ' from ' + esc(name) + '</div>';
+    h += '<p class="db-note">View only. This copy does not change when new workouts are finished.</p></div>';
+    h += sheet(shareModel(share), order, null);
+    return h;
+  }
+  function moveCard(order, id, dir) {
+    var ids = normalizeOrder(order);
+    var i = ids.indexOf(id);
+    var j = i + Number(dir);
+    if (i < 0 || j < 0 || j >= ids.length) return ids;
+    var tmp = ids[i];
+    ids[i] = ids[j];
+    ids[j] = tmp;
+    return ids;
+  }
+  function placeCard(order, id, targetId) {
+    var ids = normalizeOrder(order);
+    var from = ids.indexOf(id);
+    var to = ids.indexOf(targetId);
+    if (from < 0 || to < 0 || from === to) return ids;
+    var goingDown = from < to;
+    ids.splice(from, 1);
+    var dest = ids.indexOf(targetId);
+    if (goingDown) dest += 1;
+    ids.splice(dest, 0, id);
+    return ids;
+  }
+  function removeCard(order, id) {
+    return normalizeOrder(order).filter(function (item) { return item !== id; });
+  }
+  function addCard(order, id) {
+    var ids = normalizeOrder(order);
+    if (!CARD_INFO[id] || ids.indexOf(id) >= 0) return ids;
+    ids.push(id);
+    return ids;
+  }
+  function availableCards(order) {
+    var have = {};
+    normalizeOrder(order).forEach(function (id) { have[id] = true; });
+    return Object.keys(CARD_INFO).filter(function (id) { return !have[id]; });
+  }
+  function initials(name) {
+    var raw = String(name || '').replace(/^\s+|\s+$/g, '');
+    var bits = raw.split(/\s+/).filter(Boolean);
+    if (bits.length >= 2 && raw.indexOf('@') === -1) return (bits[0].charAt(0) + bits[1].charAt(0)).toUpperCase();
+    var local = raw.split('@')[0].replace(/[^a-z0-9]/gi, '');
+    if (local.length >= 2) return local.slice(0, 2).toUpperCase();
+    return (raw.charAt(0) || '?').toUpperCase();
+  }
+  function personButton(id, name, meta) {
+    return '<button type="button" class="person" data-dash-person="' + esc(id) + '">' +
+      '<span class="ava" aria-hidden="true">' + esc(initials(name === 'My dashboard' ? meta : name)) + '</span>' +
+      '<span class="grow"><span class="name">' + esc(name) + '</span><span class="mute">' + esc(meta) + '</span></span></button>';
+  }
+  function pickerHtml(me, clients) {
+    me = me || {};
+    var h = '<div id="dashboard-picker"><div class="db-pick-label">Choose whose dashboard to view</div>';
+    h += personButton('me', 'My dashboard', (me.name || 'Trainer') + ' · ' + (me.role || 'Trainer'));
+    (clients || []).forEach(function (client) {
+      if (!client || !client.id) return;
+      h += personButton(client.id, client.name || 'Client', client.plan || 'Client');
+    });
+    if (!clients || !clients.length) h += '<p class="mute" id="dashboard-no-clients">No connected clients yet.</p>';
+    return h + '</div>';
+  }
+  function addSheetHtml(order) {
+    var left = availableCards(order);
+    var h = '<div class="pl-modal" id="dashboard-add" role="dialog" aria-modal="true" aria-labelledby="dashboard-add-title">';
+    h += '<div class="card"><div class="name" id="dashboard-add-title">Add a card</div>';
+    h += '<p class="mute">Cards you remove, and extras like Stopwatch pass rate, show up here.</p>';
+    if (!left.length) h += '<p class="mute" id="dashboard-add-empty">Every card is already on this dashboard.</p>';
+    left.forEach(function (id) {
+      var info = CARD_INFO[id];
+      h += '<button type="button" class="lib-hit" data-add="' + id + '"><span class="name">' + esc(info.title) + '</span>';
+      h += '<span class="mute">' + esc(info.blurb) + '</span></button>';
+    });
+    h += '<button type="button" id="dashboard-add-cancel">Cancel</button></div></div>';
+    return h;
+  }
+  function shareConfirmHtml(clientName, stamp) {
+    var who = clientName || 'this client';
+    var h = '<div class="pl-modal" id="dashboard-share" role="dialog" aria-modal="true" aria-labelledby="dashboard-share-title">';
+    h += '<div class="card"><div class="name" id="dashboard-share-title">Share with ' + esc(who) + '?</div>';
+    h += '<p>They will get a view-only copy stamped “As of ' + esc(stamp) + '.” This copy will not change when they finish new workouts.</p>';
+    h += '<button type="button" class="pri" id="dashboard-share-go">Share dashboard</button>';
+    h += '<button type="button" id="dashboard-share-cancel">Cancel</button>';
+    h += '<p class="errs" id="dashboard-share-error" hidden></p></div></div>';
+    return h;
+  }
+  function emptyClientHtml(opts) {
+    opts = opts || {};
+    var h = '<div class="db-empty-card" id="dashboard-empty-client"><div class="name">No dashboard yet</div>';
+    if (opts.trainerId) {
+      h += '<p class="db-note">Message your trainer to ask for a tracking dashboard, or upgrade to Enthusiast to see your own live dashboard.</p>';
+      h += '<div class="db-actions">';
+      h += '<a class="pri" id="dashboard-message" href="#/messages/' + encodeURIComponent(opts.trainerId) + '">Message your trainer</a>';
+      h += '<a id="dashboard-upgrade" href="#/subscriptions">Upgrade to Enthusiast</a></div>';
+    } else {
+      h += '<p class="db-note">Find a trainer to ask for a tracking dashboard, or upgrade to Enthusiast to see your own live dashboard.</p>';
+      h += '<p class="db-note" id="dashboard-hub" tabindex="-1">The Trainer Hub is coming soon.</p>';
+      h += '<div class="db-actions">';
+      h += '<button type="button" class="pri" id="dashboard-find">Find a trainer</button>';
+      h += '<a id="dashboard-upgrade" href="#/subscriptions">Upgrade to Enthusiast</a></div>';
+    }
+    return h + '</div>';
+  }
+  function shareListHtml(shares) {
+    var h = '<div id="dashboard-shares"><div class="db-pick-label">Shared dashboards</div>';
+    (shares || []).forEach(function (row) {
+      if (!row || !row.id) return;
+      var label = row.asOfLabel || asOfLabel(row.asOf);
+      h += '<button type="button" class="person" data-share="' + esc(row.id) + '">';
+      h += '<span class="grow"><span class="name">As of ' + esc(label) + '</span>';
+      h += '<span class="mute">From ' + esc(row.trainerName || 'Trainer') + '</span></span>';
+      if (!row.viewedAt) h += '<span class="db-new">New</span>';
+      h += '</button>';
+    });
+    return h + '</div>';
+  }
+  function unreadCount(shares) {
+    var n = 0;
+    (shares || []).forEach(function (row) { if (row && !row.viewedAt) n++; });
+    return n;
+  }
+  function stampLine(asOf, trainerName) {
+    return asOfLabel(asOf) + ' from ' + (String(trainerName || 'Trainer').replace(/^\s+|\s+$/g, '') || 'Trainer');
   }
 
   var api = {
@@ -692,7 +1003,25 @@
     ratingFor: ratingFor,
     build: build,
     html: html,
+    editorHtml: editorHtml,
     unavailableHtml: unavailableHtml,
+    snapshot: snapshot,
+    frozenHtml: frozenHtml,
+    moveCard: moveCard,
+    placeCard: placeCard,
+    removeCard: removeCard,
+    addCard: addCard,
+    availableCards: availableCards,
+    pickerHtml: pickerHtml,
+    addSheetHtml: addSheetHtml,
+    shareConfirmHtml: shareConfirmHtml,
+    emptyClientHtml: emptyClientHtml,
+    shareListHtml: shareListHtml,
+    unreadCount: unreadCount,
+    asOfLabel: asOfLabel,
+    trainerStampName: trainerStampName,
+    stampLine: stampLine,
+    STANDARD: STANDARD,
     WEEK_GOAL: WEEK_GOAL,
     RATINGS: RATINGS
   };

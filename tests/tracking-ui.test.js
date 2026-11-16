@@ -1,4 +1,4 @@
-// Tracking page: History is the selected tab, Dashboard is a coming-soon note.
+// Tracking page: History is the selected tab. A Free Client dashboard is the empty share page.
 // Phone width. History rows come from the test fixture, never from the database.
 // node tests/tracking-ui.test.js [url]
 const assert = require('assert');
@@ -69,7 +69,7 @@ async function openPage(browser, membership, payload) {
         value.mySchedule = function () {
           return Promise.resolve(window.__wbSchedulePayload || { entries: [] });
         };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting'].forEach(function (name) {
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'myShares', 'clientHistory', 'clientSchedule', 'shareDashboard', 'markShareViewed'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
       }
@@ -326,12 +326,15 @@ async function openPage(browser, membership, payload) {
 
   const free = await openPage(browser, 'free_client', { sets: [], sessions: [], exercises: [] });
   await free.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
-  await free.waitForSelector('#dashboard-soon');
+  await free.waitForSelector('#dashboard-empty-client');
   const freeSeen = await free.evaluate(function () {
     var badge = document.getElementById('dashboard-count');
     var tab = document.getElementById('tracking-tab-dashboard');
     return {
-      note: document.getElementById('dashboard-soon').innerText,
+      find: document.getElementById('dashboard-find').textContent,
+      hub: document.getElementById('dashboard-hub').textContent,
+      upgrade: document.getElementById('dashboard-upgrade').getAttribute('href'),
+      message: !!document.getElementById('dashboard-message'),
       sheet: !!document.getElementById('dashboard-sheet'),
       title: document.getElementById('title').textContent,
       disabled: tab.disabled,
@@ -341,7 +344,10 @@ async function openPage(browser, membership, payload) {
     };
   });
   assert.deepStrictEqual(freeSeen, {
-    note: 'Your trainer can share a dashboard with you.',
+    find: 'Find a trainer',
+    hub: 'The Trainer Hub is coming soon.',
+    upgrade: '#/subscriptions',
+    message: false,
     sheet: false,
     title: 'Tracking',
     disabled: false,

@@ -93,7 +93,11 @@
       if (window.WBPreview && WBPreview.back()) return;
       return go('#/');
     }
-    if (page === 'tracking') return go('#/');
+    if (page === 'tracking') {
+      var trackSegs = hashBody().split('/');
+      if (trackSegs[1] === 'dashboard' && trackSegs[2]) return go('#/tracking/dashboard');
+      return go('#/');
+    }
     if (page === 'history') {
       if (hashBody().split('/')[1]) return go('#/tracking');
       return go('#/');
@@ -2766,6 +2770,12 @@
   // Keyboard moves between Tracking tabs. The id is restored after the page
   // rebuilds, including the second paint once history rows arrive.
   var trackingKeyFocus = '';
+  var dashShares = [];
+  var dashEditOrder = null;
+  var dashEditClient = '';
+  var dashModel = null;
+  var dashClientName = '';
+  var dashDragId = '';
   function historyRouteKey() {
     if (hashPage() !== 'history') return '';
     return hashBody().split('/')[1] || '';
@@ -2852,22 +2862,52 @@
     }
     return true;
   }
-  function paintTracking(which, body, settle) {
+  function paintTracking(which, body, settle, count) {
     titleEl.textContent = 'Tracking';
     app.innerHTML = trackingShell(which, body);
     bindTrackingTabs(!!settle);
-    paintDashboardCount(0);
+    if (count == null) refreshDashboardCount();
+    else paintDashboardCount(count);
     app.onclick = function (e) {
       if (onTrackingClick(e)) return;
+      if (which === 'dashboard' && onDashboardClick(e)) return;
       if (which !== 'history') return;
       var button = e.target.closest('[data-history]');
       if (!button) return;
       go('#/history/' + button.getAttribute('data-history'));
     };
+    if (which === 'dashboard') bindDashboardDrag();
   }
-  var FREE_DASHBOARD = '<div class="card" id="dashboard-soon"><div class="name">Your trainer can share a dashboard with you.</div></div>';
+  function isTrainerMember(profile) {
+    var id = profile && profile.membership;
+    return id === 'trainer' || id === 'master_trainer';
+  }
+  function refreshDashboardCount() {
+    if (!cachedProfile || !window.WBDashboard || WBDashboard.allowed(cachedProfile)) {
+      paintDashboardCount(0);
+      return;
+    }
+    var token = routeToken;
+    var pending;
+    try { pending = WBAuth.myShares ? WBAuth.myShares() : Promise.resolve(null); }
+    catch (e) { paintDashboardCount(0); return; }
+    Promise.resolve(pending).then(function (res) {
+      if (token !== routeToken || !document.getElementById('dashboard-count')) return;
+      dashShares = res && Array.isArray(res.shares) ? res.shares : [];
+      paintDashboardCount(WBDashboard.unreadCount(dashShares));
+    }, function () {
+      if (token !== routeToken) return;
+      paintDashboardCount(0);
+    });
+  }
   function dashboardCurrent(token) {
     return token === routeToken && hashPage() === 'tracking' && hashBody().split('/')[1] === 'dashboard';
+  }
+  function dashboardHash() {
+    return hashBody().split('/');
+  }
+  function sameDashboard(token, requested) {
+    return token === routeToken && location.hash === requested;
   }
   // Tests pin the day. A real visit uses today, so the sheet stays current.
   function dashboardNow() {
@@ -2904,6 +2944,7 @@
     paintTracking('dashboard', WBDashboard.html(model), settle);
   }
   function loadDashboard(token, settle) {
+    var requested = location.hash;
     var pendingHistory;
     var pendingSchedule;
     try {
@@ -2927,9 +2968,346 @@
       return { unavailable: true, entries: [] };
     });
     Promise.all([historyReady, scheduleReady]).then(function (pair) {
-      if (!dashboardCurrent(token)) return;
+      if (!sameDashboard(token, requested)) return;
       paintLoadedDashboard(pair[0], pair[1], settle);
     });
+  }
+  function trainerStamp() {
+    return window.WBDashboard ? WBDashboard.trainerStampName(cachedProfile) : 'Trainer';
+  }
+  function roleLabel(profile) {
+    var tier = window.WBMembership && WBMembership.tier(profile && profile.membership);
+    return tier && tier.name ? tier.name : 'Trainer';
+  }
+  function personInitials(name) {
+    var raw = String(name || '').replace(/^\s+|\s+$/g, '');
+    var bits = raw.split(/\s+/).filter(Boolean);
+    if (bits.length >= 2 && raw.indexOf('@') === -1) return (bits[0].charAt(0) + bits[1].charAt(0)).toUpperCase();
+    var local = raw.split('@')[0].replace(/[^a-z0-9]/gi, '');
+    if (local.length >= 2) return local.slice(0, 2).toUpperCase();
+    return (raw.charAt(0) || '?').toUpperCase();
+  }
+  function viewingBanner(name) {
+    var who = name || 'Client';
+    return '<div class="db-viewing" id="dashboard-viewing"><span class="ava" aria-hidden="true">' + esc(personInitials(who)) + '</span>' +
+      '<div class="grow"><div class="name">Viewing ' + esc(who) + '</div>' +
+      '<div class="mute">Live dashboard · updates as they train</div></div>' +
+      '<button type="button" class="ghost" id="dashboard-change">Change</button></div>';
+  }
+  function editorDock(canShare) {
+    return '<div class="dock"><div class="inner">' +
+      '<button type="button" id="dashboard-add-open">Add card</button>' +
+      '<button type="button" class="pri" id="dashboard-share-open"' + (canShare ? '' : ' disabled') + '>Share</button>' +
+      '</div></div>';
+  }
+  function paintEditor() {
+    var order = Array.isArray(dashEditOrder) ? dashEditOrder : WBDashboard.STANDARD.slice();
+    dashEditOrder = order.slice();
+    var body = viewingBanner(dashClientName) + WBDashboard.editorHtml(dashModel, order);
+    if (dashModel && !dashModel.empty) body += editorDock(order.length > 0);
+    paintTracking('dashboard', body, true, 0);
+  }
+  function bindDashboardDrag() {
+    var root = document.getElementById('dashboard-sheet');
+    if (!root || root.getAttribute('data-drag-bound')) return;
+    root.setAttribute('data-drag-bound', '1');
+    root.addEventListener('pointerdown', function (e) {
+      var handle = e.target.closest('[data-drag]');
+      if (!handle || (e.button != null && e.button !== 0)) return;
+      dashDragId = handle.getAttribute('data-drag') || '';
+      handle.classList.add('db-dragging');
+      try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    function finish(e) {
+      if (!dashDragId) return;
+      var from = dashDragId;
+      dashDragId = '';
+      var el = document.elementFromPoint(e.clientX, e.clientY);
+      var over = el && el.closest ? el.closest('[data-card]') : null;
+      var to = over && over.getAttribute('data-card');
+      if (to && to !== from) {
+        dashEditOrder = WBDashboard.placeCard(dashEditOrder, from, to);
+        paintEditor();
+      }
+    }
+    root.addEventListener('pointerup', finish);
+    root.addEventListener('pointercancel', function () { dashDragId = ''; });
+    root.addEventListener('keydown', function (e) {
+      var handle = e.target.closest('[data-drag]');
+      if (!handle) return;
+      var dir = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+      if (!dir) return;
+      e.preventDefault();
+      var id = handle.getAttribute('data-drag');
+      dashEditOrder = WBDashboard.moveCard(dashEditOrder, id, dir);
+      paintEditor();
+      var next = document.querySelector('[data-drag="' + id + '"]');
+      if (next) next.focus();
+    });
+  }
+  function onDashboardClick(e) {
+    var person = e.target.closest('[data-dash-person]');
+    if (person) {
+      var who = person.getAttribute('data-dash-person');
+      if (who === 'me') {
+        go('#/tracking/dashboard/me');
+        return true;
+      }
+      var nameEl = person.querySelector('.name');
+      dashClientName = nameEl ? nameEl.textContent : 'Client';
+      dashEditClient = who;
+      dashEditOrder = WBDashboard.STANDARD.slice();
+      go('#/tracking/dashboard/client/' + encodeURIComponent(who));
+      return true;
+    }
+    var shareBtn = e.target.closest('[data-share]');
+    if (shareBtn) {
+      go('#/tracking/dashboard/share/' + encodeURIComponent(shareBtn.getAttribute('data-share')));
+      return true;
+    }
+    if (e.target.closest('#dashboard-change')) {
+      go('#/tracking/dashboard');
+      return true;
+    }
+    if (e.target.closest('#dashboard-find')) {
+      var hub = document.getElementById('dashboard-hub');
+      if (hub) { try { hub.focus(); } catch (err) {} }
+      return true;
+    }
+    var move = e.target.closest('[data-move]');
+    if (move && !move.disabled) {
+      var dir = move.getAttribute('data-move') === 'up' ? -1 : 1;
+      dashEditOrder = WBDashboard.moveCard(dashEditOrder, move.getAttribute('data-card'), dir);
+      paintEditor();
+      return true;
+    }
+    var del = e.target.closest('[data-delete]');
+    if (del) {
+      dashEditOrder = WBDashboard.removeCard(dashEditOrder, del.getAttribute('data-delete'));
+      paintEditor();
+      return true;
+    }
+    if (e.target.closest('#dashboard-add-open')) {
+      app.insertAdjacentHTML('beforeend', WBDashboard.addSheetHtml(dashEditOrder));
+      return true;
+    }
+    if (e.target.closest('#dashboard-add-cancel') || (e.target.id === 'dashboard-add')) {
+      var add = document.getElementById('dashboard-add');
+      if (add && add.parentNode) add.parentNode.removeChild(add);
+      return true;
+    }
+    var addBtn = e.target.closest('[data-add]');
+    if (addBtn) {
+      dashEditOrder = WBDashboard.addCard(dashEditOrder, addBtn.getAttribute('data-add'));
+      var sheet = document.getElementById('dashboard-add');
+      if (sheet && sheet.parentNode) sheet.parentNode.removeChild(sheet);
+      paintEditor();
+      return true;
+    }
+    if (e.target.closest('#dashboard-share-open')) {
+      if (!dashModel || dashModel.empty || !dashEditOrder || !dashEditOrder.length) return true;
+      var stamp = WBDashboard.stampLine(isoDay(dashboardNow()), trainerStamp());
+      app.insertAdjacentHTML('beforeend', WBDashboard.shareConfirmHtml(dashClientName, stamp));
+      return true;
+    }
+    if (e.target.closest('#dashboard-share-cancel') || e.target.id === 'dashboard-share') {
+      var box = document.getElementById('dashboard-share');
+      if (box && box.parentNode) box.parentNode.removeChild(box);
+      return true;
+    }
+    if (e.target.closest('#dashboard-share-go')) {
+      sendShare();
+      return true;
+    }
+    return false;
+  }
+  function isoDay(date) {
+    var d = date instanceof Date ? date : new Date();
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  function sendShare() {
+    var goBtn = document.getElementById('dashboard-share-go');
+    var errEl = document.getElementById('dashboard-share-error');
+    if (goBtn) goBtn.disabled = true;
+    var shot = WBDashboard.snapshot(dashModel, dashEditOrder, {
+      asOf: isoDay(dashboardNow()),
+      trainerName: trainerStamp(),
+      now: dashboardNow()
+    });
+    var pending;
+    try {
+      pending = WBAuth.shareDashboard ? WBAuth.shareDashboard({
+        clientId: dashEditClient,
+        asOf: shot.asOf,
+        trainerName: shot.trainerName,
+        cards: { order: shot.order, blocks: shot.blocks }
+      }) : Promise.resolve({ ok: false, unavailable: true });
+    } catch (e) {
+      pending = Promise.resolve({ ok: false, unavailable: true });
+    }
+    Promise.resolve(pending).then(function (res) {
+      if (!goBtn || !goBtn.isConnected) return;
+      if (res && res.ok) {
+        var box = document.getElementById('dashboard-share');
+        if (box && box.parentNode) box.parentNode.removeChild(box);
+        toast('Dashboard shared.');
+        return;
+      }
+      if (goBtn) goBtn.disabled = false;
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = res && res.unavailable
+          ? 'Sharing is not available yet. Apply the shared dashboard SQL in the Supabase SQL editor.'
+          : ((res && res.message) || 'Could not share that dashboard.');
+      }
+    }, function () {
+      if (goBtn) goBtn.disabled = false;
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = 'Could not share that dashboard.';
+      }
+    });
+  }
+  function clientEntries(scheduleRes) {
+    return scheduleRes && Array.isArray(scheduleRes.entries) ? scheduleRes.entries : [];
+  }
+  function renderClientEditor(token, clientId, clientName) {
+    var requested = location.hash;
+    var rosterP;
+    try { rosterP = WBAuth.roster ? WBAuth.roster() : Promise.resolve(null); }
+    catch (e) { rosterP = Promise.resolve(null); }
+    Promise.resolve(rosterP).then(function (roster) {
+      if (!sameDashboard(token, requested)) return;
+      var found = null;
+      ((roster && roster.clients) || []).forEach(function (client) {
+        if (client && String(client.id) === String(clientId)) found = client;
+      });
+      if (roster && roster.role && !found) {
+        paintTracking('dashboard', '<div class="empty" id="dashboard-client-denied"><div class="name">That client is not connected.</div></div>', true, 0);
+        return;
+      }
+      var name = found ? (personLabel(found) || 'Client') : (clientName || 'Client');
+      openClientEditor(token, clientId, name, requested);
+    }, function () {
+      if (!sameDashboard(token, requested)) return;
+      openClientEditor(token, clientId, clientName || 'Client', requested);
+    });
+  }
+  function openClientEditor(token, clientId, clientName, requested) {
+    dashEditClient = clientId;
+    dashClientName = clientName || 'Client';
+    if (!Array.isArray(dashEditOrder)) dashEditOrder = WBDashboard.STANDARD.slice();
+    paintTracking('dashboard', viewingBanner(dashClientName) + '<div id="dashboard" aria-busy="true"><p class="mute">Loading…</p></div>', false, 0);
+    var historyP, scheduleP;
+    try { historyP = WBAuth.clientHistory ? WBAuth.clientHistory(clientId) : Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] }); }
+    catch (e) { historyP = Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] }); }
+    try { scheduleP = WBAuth.clientSchedule ? WBAuth.clientSchedule(clientId) : Promise.resolve({ unavailable: true, entries: [] }); }
+    catch (e2) { scheduleP = Promise.resolve({ unavailable: true, entries: [] }); }
+    Promise.all([
+      Promise.resolve(historyP).then(function (res) { return res || { error: true }; }, function () { return { error: true, sets: [], sessions: [], exercises: [] }; }),
+      Promise.resolve(scheduleP).then(function (res) { return res || { unavailable: true, entries: [] }; }, function () { return { unavailable: true, entries: [] }; })
+    ]).then(function (pair) {
+      if (!sameDashboard(token, requested)) return;
+      var historyRes = pair[0];
+      var sessions = historyRes && historyRes.sessions || [];
+      var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes && historyRes.sets, historyRes && historyRes.exercises) : [];
+      if ((historyRes && (historyRes.unavailable || historyRes.error)) && !sessions.length && !sets.length) {
+        dashModel = null;
+        paintTracking('dashboard', viewingBanner(dashClientName) + WBDashboard.unavailableHtml(), true, 0);
+        return;
+      }
+      dashModel = WBDashboard.build({
+        sets: sets,
+        sessions: sessions,
+        entries: clientEntries(pair[1]),
+        now: dashboardNow()
+      });
+      paintEditor();
+    });
+  }
+  function renderDashPicker(token) {
+    var requested = location.hash;
+    paintTracking('dashboard', '<p class="mute">Loading…</p>', false, 0);
+    var pending;
+    try { pending = WBAuth.roster ? WBAuth.roster() : Promise.resolve(null); }
+    catch (e) { return loadDashboard(token, true); }
+    Promise.resolve(pending).then(function (roster) {
+      if (!sameDashboard(token, requested)) return;
+      if (!roster || !roster.role) return loadDashboard(token, true);
+      var me = {
+        name: personLabel(cachedProfile) || 'Trainer',
+        role: roleLabel(cachedProfile)
+      };
+      var clients = (roster.clients || []).map(function (client) {
+        return {
+          id: client.id,
+          name: personLabel(client) || 'Client',
+          plan: client.plan || 'Client'
+        };
+      });
+      paintTracking('dashboard', WBDashboard.pickerHtml(me, clients), true, 0);
+    }, function () {
+      if (!sameDashboard(token, requested)) return;
+      loadDashboard(token, true);
+    });
+  }
+  function renderFreeDashboards(token) {
+    var requested = location.hash;
+    var parts = dashboardHash();
+    var shareId = parts[2] === 'share' ? decodeURIComponent(parts[3] || '') : '';
+    paintTracking('dashboard', '<div id="dashboard" aria-busy="true"><p class="mute">Loading…</p></div>', false);
+    var sharesP, connP;
+    try { sharesP = WBAuth.myShares ? WBAuth.myShares() : Promise.resolve(null); }
+    catch (e) { sharesP = Promise.resolve(null); }
+    try { connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null); }
+    catch (e2) { connP = Promise.resolve(null); }
+    Promise.all([
+      Promise.resolve(sharesP).then(function (res) { return res; }, function () { return null; }),
+      Promise.resolve(connP).then(function (res) { return res; }, function () { return null; })
+    ]).then(function (pair) {
+      if (!sameDashboard(token, requested)) return;
+      var res = pair[0];
+      var conn = pair[1];
+      dashShares = res && Array.isArray(res.shares) ? res.shares : [];
+      var count = window.WBDashboard ? WBDashboard.unreadCount(dashShares) : 0;
+      if (shareId) return paintOpenedShare(token, shareId, count);
+      if (!dashShares.length) {
+        var trainerId = conn && (conn.trainerId || conn.trainer_id) || '';
+        paintTracking('dashboard', WBDashboard.emptyClientHtml({ trainerId: trainerId }), true, 0);
+        return;
+      }
+      dashShares.sort(function (a, b) {
+        var ta = Date.parse(a.sharedAt || '') || 0;
+        var tb = Date.parse(b.sharedAt || '') || 0;
+        if (ta !== tb) return tb - ta;
+        return String(b.id).localeCompare(String(a.id));
+      });
+      paintTracking('dashboard', WBDashboard.shareListHtml(dashShares), true, count);
+    });
+  }
+  function paintOpenedShare(token, shareId, count) {
+    var row = null;
+    var i;
+    for (i = 0; i < dashShares.length; i++) if (String(dashShares[i].id) === String(shareId)) row = dashShares[i];
+    if (!row) {
+      paintTracking('dashboard', '<div class="empty db-empty" id="dashboard-share-missing"><div class="name">That shared dashboard is not available.</div></div>', true, count);
+      return;
+    }
+    var wasNew = !row.viewedAt;
+    paintTracking('dashboard', WBDashboard.frozenHtml(row), true, wasNew ? Math.max(0, count - 1) : count);
+    if (!wasNew) return;
+    row.viewedAt = row.viewedAt || new Date().toISOString();
+    var pending;
+    try { pending = WBAuth.markShareViewed ? WBAuth.markShareViewed(row.id) : Promise.resolve({ ok: false }); }
+    catch (e) { pending = Promise.resolve({ ok: false }); }
+    Promise.resolve(pending).then(function (res) {
+      if (token !== routeToken) return;
+      if (res && res.ok === false && !res.unavailable) row.viewedAt = null;
+      if (document.getElementById('dashboard-count')) {
+        paintDashboardCount(WBDashboard.unreadCount(dashShares));
+      }
+    }, function () {});
   }
   function renderDashboard(token) {
     backBtn.hidden = false;
@@ -2939,12 +3317,19 @@
       paintTracking('dashboard', '<div class="empty db-empty" id="dashboard-unavailable"><div class="name">Saved sessions are not available yet.</div></div>', true);
       return;
     }
-    if (!WBDashboard.allowed(cachedProfile)) {
-      paintTracking('dashboard', FREE_DASHBOARD, true);
-      return;
+    if (!WBDashboard.allowed(cachedProfile)) return renderFreeDashboards(token);
+    var parts = dashboardHash();
+    if (parts[2] === 'client' && parts[3]) {
+      var clientId = '';
+      try { clientId = decodeURIComponent(parts[3]); } catch (e) { clientId = parts[3]; }
+      if (dashEditClient !== clientId) dashEditOrder = WBDashboard.STANDARD.slice();
+      return renderClientEditor(token, clientId, dashClientName && dashEditClient === clientId ? dashClientName : 'Client');
     }
-    paintTracking('dashboard', '<div id="dashboard" aria-busy="true"><p class="mute">Loading…</p></div>', false);
-    loadDashboard(token, true);
+    if (parts[2] === 'me' || !isTrainerMember(cachedProfile)) {
+      paintTracking('dashboard', '<div id="dashboard" aria-busy="true"><p class="mute">Loading…</p></div>', false);
+      return loadDashboard(token, true);
+    }
+    return renderDashPicker(token);
   }
   function renderTracking(token) {
     if (hashPage() === 'tracking' && hashBody().split('/')[1] === 'dashboard') return renderDashboard(token);
