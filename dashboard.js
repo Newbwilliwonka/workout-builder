@@ -492,15 +492,35 @@
       seenEntry[token] = true;
       entries.push(entry);
     });
-    if (!sessions.length) return { empty: true };
+    // layout keeps the cards when a trainer is arranging a share, including a
+    // client who has not finished a workout yet. The live dashboard still
+    // uses the short empty state.
+    if (!sessions.length && !input.layout) return { empty: true };
     return {
       empty: false,
       plan: planBlock(sets, now),
       workouts: workoutBlock(sessions, entries, now),
       volume: volumeBlock(sets, now),
       records: recordBlock(sets, now),
-      calendar: calendarBlock(sessions, now)
+      calendar: calendarBlock(sessions, now),
+      pass: passBlock(sets, now)
     };
+  }
+  function passBlock(sets, now) {
+    var key = monthKey(now);
+    var passes = 0;
+    var total = 0;
+    sets.forEach(function (set) {
+      if (!set || String(set.localDate || '').slice(0, 7) !== key) return;
+      if (set.mode !== 'stopwatch' || set.status === 'skipped') return;
+      (set.actualEvents || []).forEach(function (ev) {
+        if (!ev) return;
+        if (ev.result === 'pass') { passes++; total++; }
+        else if (ev.result === 'fail') total++;
+      });
+    });
+    if (!total) return { passes: 0, total: 0, pct: null };
+    return { passes: passes, total: total, pct: Math.round((passes / total) * 100) };
   }
   function ring(plan) {
     var size = 96;
@@ -545,7 +565,7 @@
     h += '</ul></section>';
     return h;
   }
-  function workoutsHtml(block) {
+  function workoutsHtml(block, opts) {
     var h = '<section class="db-sec" id="dashboard-workouts" aria-labelledby="dashboard-workouts-title">';
     h += '<h2 class="db-label" id="dashboard-workouts-title">Workouts and streak</h2>';
     h += '<div class="db-stats">';
@@ -564,6 +584,8 @@
     if (block.streak != null) {
       var days = block.streak === 1 ? '1 scheduled workout day' : block.streak + ' scheduled workout days';
       h += '<p class="db-note" id="dashboard-streak-note">' + days + ' in a row. Rest days do not break this streak.</p>';
+    } else if (opts && opts.scheduleNote) {
+      h += '<p class="db-note" id="dashboard-schedule-note">Schedule workouts in the program calendar.</p>';
     }
     h += '</section>';
     return h;
@@ -685,6 +707,194 @@
   function unavailableHtml() {
     return '<div id="dashboard"><div class="empty db-empty" id="dashboard-unavailable"><div class="name">Saved sessions are not available yet.</div></div></div>';
   }
+  var CARD_LABEL = {
+    plan: 'Hit the plan',
+    workouts: 'Workouts and streak',
+    volume: 'Total volume',
+    records: 'Recent personal records',
+    calendar: 'Consistency',
+    pass: 'Stopwatch pass rate'
+  };
+  var STANDARD = ['plan', 'workouts', 'volume', 'records', 'calendar'];
+  var CARD_ALL = STANDARD.concat(['pass']);
+  function keptOrder(order) {
+    var seen = {};
+    var out = [];
+    (order || []).forEach(function (id) {
+      if (!CARD_LABEL[id] || seen[id]) return;
+      seen[id] = 1;
+      out.push(id);
+    });
+    return out;
+  }
+  function cardSection(id, model, opts) {
+    model = model || {};
+    if (id === 'plan') return planHtml(model.plan || { total: 0, hits: 0, pct: null, rating: null });
+    if (id === 'workouts') return workoutsHtml(model.workouts || { week: 0, month: 0, goal: WEEK_GOAL, streak: null }, opts);
+    if (id === 'volume') return volumeHtml(model.volume || { weekKg: 0, weeks: [] });
+    if (id === 'records') return recordsHtml(model.records || []);
+    if (id === 'calendar') return model.calendar && Array.isArray(model.calendar.cells) ? calendarHtml(model.calendar) : '';
+    if (id === 'pass') return passHtml(model.pass || { passes: 0, total: 0, pct: null });
+    return '';
+  }
+  function passHtml(block) {
+    block = block || { passes: 0, total: 0, pct: null };
+    var h = '<section class="db-sec" id="dashboard-pass" aria-labelledby="dashboard-pass-title">';
+    h += '<h2 class="db-label" id="dashboard-pass-title">Stopwatch pass rate</h2>';
+    if (block.pct == null) {
+      h += '<p class="db-note" id="dashboard-pass-note">No stopwatch events this month.</p></section>';
+      return h;
+    }
+    var noun = block.total === 1 ? 'event' : 'events';
+    h += '<div class="db-vol" id="dashboard-pass-pct">' + esc(String(block.pct)) + '%</div>';
+    h += '<p class="db-note" id="dashboard-pass-note">' + esc(String(block.passes)) + ' of ' + esc(String(block.total)) + ' stopwatch ' + noun + ' passed this month</p></section>';
+    return h;
+  }
+  function copyPlan(plan) {
+    plan = plan || { total: 0, hits: 0, pct: null, rating: null };
+    return {
+      total: plan.total || 0,
+      hits: plan.hits || 0,
+      pct: plan.pct == null ? null : plan.pct,
+      rating: plan.rating ? { label: plan.rating.label, color: plan.rating.color } : null
+    };
+  }
+  function copyWeeks(weeks) {
+    return (weeks || []).map(function (week) {
+      return { start: week.start, label: week.label, kg: week.kg };
+    });
+  }
+  function copyRecords(rows) {
+    return (rows || []).map(function (row) {
+      return {
+        name: row.name,
+        badge: row.badge,
+        value: row.value,
+        date: row.date,
+        dateLabel: row.dateLabel
+      };
+    });
+  }
+  function copyCells(cells) {
+    return (cells || []).map(function (cell) {
+      if (!cell) return null;
+      return {
+        day: cell.day,
+        date: cell.date,
+        trained: !!cell.trained,
+        future: !!cell.future,
+        today: !!cell.today,
+        dow: cell.dow
+      };
+    });
+  }
+  // Frozen card values. Later workouts do not change a snapshot built from this.
+  function freeze(model, order, meta) {
+    model = model || {};
+    meta = meta || {};
+    var name = String(meta.trainerName || '').replace(/^\s+|\s+$/g, '').slice(0, 80) || 'Trainer';
+    var asOf = String(meta.asOf || '').slice(0, 10);
+    var cards = [];
+    keptOrder(order).forEach(function (id) {
+      if (id === 'plan') cards.push({ type: 'plan', plan: copyPlan(model.plan) });
+      else if (id === 'workouts') {
+        var block = model.workouts || { week: 0, month: 0, goal: WEEK_GOAL, streak: null };
+        cards.push({
+          type: 'workouts',
+          scheduleNote: block.streak == null,
+          workouts: { week: block.week || 0, month: block.month || 0, goal: block.goal || WEEK_GOAL, streak: block.streak == null ? null : block.streak }
+        });
+      } else if (id === 'volume') {
+        var volume = model.volume || { weekKg: 0, weeks: [] };
+        cards.push({ type: 'volume', volume: { weekKg: volume.weekKg || 0, weeks: copyWeeks(volume.weeks) } });
+      } else if (id === 'records') cards.push({ type: 'records', records: copyRecords(model.records) });
+      else if (id === 'calendar' && model.calendar) {
+        cards.push({
+          type: 'calendar',
+          calendar: {
+            title: model.calendar.title,
+            monthLabel: model.calendar.monthLabel,
+            count: model.calendar.count || 0,
+            cells: copyCells(model.calendar.cells)
+          }
+        });
+      } else if (id === 'pass') {
+        var pass = model.pass || { passes: 0, total: 0, pct: null };
+        cards.push({ type: 'pass', pass: { passes: pass.passes || 0, total: pass.total || 0, pct: pass.pct == null ? null : pass.pct } });
+      }
+    });
+    return { asOf: asOf, trainerName: name, cards: cards };
+  }
+  function stampText(snap) {
+    snap = snap || {};
+    var day = longDate(snap.asOf || snap.as_of);
+    var name = String(snap.trainerName || snap.trainer_name || '').replace(/^\s+|\s+$/g, '') || 'Trainer';
+    if (!day) return 'From ' + name;
+    return 'As of ' + day + ' from ' + name;
+  }
+  function snapshotModel(card) {
+    var model = {};
+    if (!card) return model;
+    if (card.type === 'plan') model.plan = card.plan;
+    if (card.type === 'workouts') model.workouts = card.workouts;
+    if (card.type === 'volume') model.volume = card.volume;
+    if (card.type === 'records') model.records = card.records;
+    if (card.type === 'calendar') model.calendar = card.calendar;
+    if (card.type === 'pass') model.pass = card.pass;
+    return model;
+  }
+  function snapshotHtml(snap) {
+    snap = snap || {};
+    var cards = snap.cards;
+    if (typeof cards === 'string') {
+      try { cards = JSON.parse(cards); } catch (e) { cards = []; }
+    }
+    if (!Array.isArray(cards)) cards = [];
+    var inner = cards.map(function (card) {
+      if (!card || !CARD_LABEL[card.type]) return '';
+      var opts = card.type === 'workouts' && card.scheduleNote ? { scheduleNote: true } : null;
+      return cardSection(card.type, snapshotModel(card), opts);
+    }).join('');
+    return '<p class="db-stamp" id="dashboard-stamp">' + esc(stampText(snap)) + '</p>' +
+      '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' + inner + '</div></div>';
+  }
+  function toolRow(id, index, total) {
+    var label = CARD_LABEL[id] || 'card';
+    return '<div class="db-tools">' +
+      '<button type="button" class="sm" draggable="true" data-drag="' + id + '" aria-label="Drag ' + esc(label) + '">Drag</button>' +
+      '<button type="button" class="sm" data-card-up="' + id + '" aria-label="Move ' + esc(label) + ' up"' + (index === 0 ? ' disabled' : '') + '>▲</button>' +
+      '<button type="button" class="sm" data-card-down="' + id + '" aria-label="Move ' + esc(label) + ' down"' + (index === total - 1 ? ' disabled' : '') + '>▼</button>' +
+      '<button type="button" class="sm danger" data-card-remove="' + id + '" aria-label="Remove ' + esc(label) + '">Delete</button>' +
+      '</div>';
+  }
+  function withEdit(section, id, index, total) {
+    return section
+      .replace('<section class="db-sec"', '<section class="db-sec db-edit" data-card="' + id + '" draggable="true"')
+      .replace('>', '>' + toolRow(id, index, total));
+  }
+  function editorHtml(model, order, opts) {
+    var ids = keptOrder(order);
+    var sections = ids.map(function (id, index) {
+      var opts = id === 'workouts' ? { scheduleNote: !model || !model.workouts || model.workouts.streak == null } : null;
+      return withEdit(cardSection(id, model, opts), id, index, ids.length);
+    }).join('');
+    if (!sections) sections = '<p class="db-note" id="dashboard-no-cards">Add a card to share.</p>';
+    var missing = CARD_ALL.filter(function (id) { return ids.indexOf(id) < 0; });
+    var add = '';
+    if (missing.length) {
+      add = '<div class="card" id="dash-add"><div class="name">Add a card</div><div class="actions">';
+      missing.forEach(function (id) {
+        add += '<button type="button" data-card-add="' + id + '">' + esc(CARD_LABEL[id]) + '</button>';
+      });
+      add += '</div></div>';
+    }
+    var canShare = !opts || opts.share !== false;
+    var shareBtn = canShare
+      ? '<button type="button" class="pri" id="dash-share"' + (ids.length ? '' : ' disabled') + '>Share</button>'
+      : '<p class="db-note" id="dash-share-none">This client keeps their own live dashboard.</p>';
+    return '<div id="dash-editor">' + shareBtn + add + '</div>' +
+      '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' + sections + '</div></div>';
+  }
 
   var api = {
     allowed: allowed,
@@ -693,6 +903,13 @@
     build: build,
     html: html,
     unavailableHtml: unavailableHtml,
+    freeze: freeze,
+    snapshotHtml: snapshotHtml,
+    editorHtml: editorHtml,
+    stampText: stampText,
+    STANDARD: STANDARD,
+    CARDS: CARD_ALL,
+    CARD_LABEL: CARD_LABEL,
     WEEK_GOAL: WEEK_GOAL,
     RATINGS: RATINGS
   };

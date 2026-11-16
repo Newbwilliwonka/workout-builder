@@ -121,7 +121,7 @@ async function openPage(browser, membership, payload) {
         value.mySchedule = function () {
           return Promise.resolve(window.__wbSchedulePayload);
         };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'programEntries'].forEach(function (name) {
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'programEntries', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
       }
@@ -216,9 +216,11 @@ async function openPage(browser, membership, payload) {
 
   const free = await openPage(browser, 'free_client', enthusiastPayload());
   await free.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
-  await free.waitForSelector('#dashboard-soon');
+  await free.waitForSelector('#dashboard-find');
   const freeText = await free.$eval('#dashboard-soon', function (el) { return el.innerText; });
-  assert.strictEqual(freeText, 'Your trainer can share a dashboard with you.');
+  assert.ok(freeText.indexOf('Your trainer can share a dashboard with you.') >= 0);
+  assert.ok(freeText.indexOf('Find a trainer') >= 0);
+  assert.ok(freeText.indexOf('Upgrade to Enthusiast') >= 0);
   assert.strictEqual(await free.$('#dashboard-sheet'), null);
   assert.strictEqual(await free.$eval('#dashboard-count', function (el) { return el.hidden; }), true);
   assert.ok((await free.$eval('#app', function (el) { return el.innerText; })).indexOf('Hit the plan') < 0);

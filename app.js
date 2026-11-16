@@ -93,7 +93,11 @@
       if (window.WBPreview && WBPreview.back()) return;
       return go('#/');
     }
-    if (page === 'tracking') return go('#/');
+    if (page === 'tracking') {
+      var backTail = hashBody().split('/');
+      if (backTail[1] === 'dashboard' && backTail[2]) return go('#/tracking/dashboard');
+      return go('#/');
+    }
     if (page === 'history') {
       if (hashBody().split('/')[1]) return go('#/tracking');
       return go('#/');
@@ -2766,6 +2770,13 @@
   // Keyboard moves between Tracking tabs. The id is restored after the page
   // rebuilds, including the second paint once history rows arrive.
   var trackingKeyFocus = '';
+  var shareUnread = 0;
+  var shareRows = [];
+  var shareLoadError = false;
+  var trainerRoster = { clients: [] };
+  var editorClient = '';
+  var trainerOrder = null;
+  var trainerModel = null;
   function historyRouteKey() {
     if (hashPage() !== 'history') return '';
     return hashBody().split('/')[1] || '';
@@ -2787,8 +2798,7 @@
   }
   function trackingTabsHtml(which) {
     var historyOn = which !== 'dashboard';
-    // dashboard-count is the future red count of shared dashboards.
-    // Sharing does not exist yet, so the badge stays hidden and empty.
+    // dashboard-count is the red number of shared dashboards not yet opened.
     return '<div class="seg" id="tracking-tabs" role="tablist" aria-label="Tracking">' +
       trackingTabHtml('tracking-tab-history', 'History', historyOn) +
       trackingTabHtml('tracking-tab-dashboard', 'Dashboard', !historyOn, '<span class="dashboard-count" id="dashboard-count" hidden></span>') +
@@ -2856,18 +2866,287 @@
     titleEl.textContent = 'Tracking';
     app.innerHTML = trackingShell(which, body);
     bindTrackingTabs(!!settle);
-    paintDashboardCount(0);
+    paintDashboardCount(shareInbox() ? shareUnread : 0);
     app.onclick = function (e) {
       if (onTrackingClick(e)) return;
+      if (onDashboardClick(e)) return;
       if (which !== 'history') return;
       var button = e.target.closest('[data-history]');
       if (!button) return;
       go('#/history/' + button.getAttribute('data-history'));
     };
+    bindPicker();
+    bindCardDrag();
   }
-  var FREE_DASHBOARD = '<div class="card" id="dashboard-soon"><div class="name">Your trainer can share a dashboard with you.</div></div>';
+  function freeClient() {
+    if (!cachedProfile || !window.WBPrograms) return false;
+    return WBPrograms.roleOf(cachedProfile) === 'free_client';
+  }
+  // Paid membership keeps the live sheet. Choosing a plan without paying
+  // leaves membership at none, and that person still opens shared copies.
+  function shareInbox() {
+    return freeClient() || !!(window.WBDashboard && !WBDashboard.allowed(cachedProfile) && !trainerAccount());
+  }
+  function trainerAccount() {
+    return !!(window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile)));
+  }
+  function trackingTail() {
+    var parts = hashBody().split('/');
+    var id = parts[3] || '';
+    try { id = decodeURIComponent(id); } catch (e) {}
+    return { dashboard: parts[1] === 'dashboard', kind: parts[2] || '', id: id };
+  }
+  function onDashboard(token) {
+    return token === routeToken && hashPage() === 'tracking' && trackingTail().dashboard;
+  }
+  function refreshShareCount(token) {
+    if (!shareInbox()) {
+      shareUnread = 0;
+      shareRows = [];
+      shareLoadError = false;
+      return Promise.resolve({ rows: [], error: false });
+    }
+    var pending;
+    try { pending = WBAuth.myShares ? WBAuth.myShares() : Promise.resolve({ unavailable: true, shares: [] }); }
+    catch (e) { pending = Promise.resolve({ unavailable: true, shares: [] }); }
+    return Promise.resolve(pending).then(function (res) {
+      if (token !== routeToken || !shareInbox()) return { rows: shareRows.slice(), error: false };
+      if (res && res.error) return shareLoadFailed(token);
+      shareLoadError = false;
+      var rows = res && Array.isArray(res.shares) ? res.shares : [];
+      shareRows = window.WBShares ? WBShares.byNewest(rows) : rows.slice();
+      shareUnread = window.WBShares ? WBShares.unread(shareRows) : 0;
+      paintDashboardCount(shareUnread);
+      return { rows: shareRows.slice(), error: false };
+    }, function () {
+      return shareLoadFailed(token);
+    });
+  }
+  function shareLoadFailed(token) {
+    if (token !== routeToken || !shareInbox()) return { rows: [], error: true };
+    shareLoadError = true;
+    paintDashboardCount(shareUnread);
+    return { rows: shareRows.slice(), error: true };
+  }
+  function clientChoices() {
+    var out = [];
+    var rows = trainerRoster && Array.isArray(trainerRoster.clients) ? trainerRoster.clients : [];
+    rows.forEach(function (c) {
+      if (!c || !window.WBShares || !WBShares.isUuid(c.id)) return;
+      var name = String(c.name || '').replace(/^\s+|\s+$/g, '') || String(c.email || '').replace(/^\s+|\s+$/g, '') || 'Client';
+      out.push({
+        id: String(c.id),
+        name: name,
+        plan: c.plan || '',
+        membership: c.membership || ''
+      });
+    });
+    return out;
+  }
+  function clientRecord(id) {
+    var found = null;
+    clientChoices().forEach(function (c) { if (c.id === id) found = c; });
+    return found;
+  }
+  // The inbox follows membership. A paid Enthusiast already has the live sheet.
+  // Choosing Enthusiast without paying leaves membership at none, and that
+  // person still opens shared copies. The roster plan label does not decide.
+  function receivesShares(client) {
+    if (!client) return false;
+    var membership = String(client.membership || '').replace(/^\s+|\s+$/g, '');
+    if (membership === 'free_client' || membership === 'none') return true;
+    if (membership === 'enthusiast' || membership === 'trainer' || membership === 'master_trainer') return false;
+    return true;
+  }
+  function pickerHtml(selected) {
+    var clients = clientChoices();
+    var h = '<div id="client-pick-wrap"><div class="name" id="client-pick-label">Client</div>';
+    h += '<div id="client-pick" role="listbox" aria-labelledby="client-pick-label">';
+    function option(id, label, on) {
+      return '<button type="button" class="share-row" role="option" data-client="' + esc(id) + '" aria-selected="' + (on ? 'true' : 'false') + '">' + esc(label) + '</button>';
+    }
+    h += option('', 'Your dashboard', !selected);
+    clients.forEach(function (c) { h += option(c.id, c.name, c.id === selected); });
+    h += '</div>';
+    if (!clients.length) h += '<p class="db-note" id="client-pick-empty">No connected clients.</p>';
+    return h + '</div>';
+  }
+  function readRoster() {
+    var pending;
+    try { pending = WBAuth.roster ? WBAuth.roster() : Promise.resolve(null); }
+    catch (e) { pending = Promise.resolve(null); }
+    return Promise.resolve(pending).then(function (res) {
+      trainerRoster = res && Array.isArray(res.clients) ? res : { clients: [] };
+      return trainerRoster;
+    }, function () {
+      trainerRoster = { clients: [] };
+      return trainerRoster;
+    });
+  }
+  function bindPicker() {}
+  function trainerName() {
+    var p = cachedProfile || {};
+    var name = String(p.display_name || '').replace(/^\s+|\s+$/g, '');
+    if (!name) name = String(p.email || '').replace(/^\s+|\s+$/g, '');
+    return (name || 'Trainer').slice(0, 80);
+  }
+  function dashboardDay() {
+    var d = dashboardNow();
+    var m = d.getMonth() + 1;
+    var day = d.getDate();
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+  }
+  function paintClientEditor() {
+    if (!window.WBDashboard || !trainerModel) return;
+    var body = pickerHtml(editorClient) + WBDashboard.editorHtml(trainerModel, trainerOrder, {
+      share: receivesShares(clientRecord(editorClient))
+    });
+    paintTracking('dashboard', body, true);
+  }
+  function shareCurrent() {
+    if (!window.WBDashboard || !trainerModel || !editorClient) return;
+    if (!receivesShares(clientRecord(editorClient))) {
+      toast('This client keeps their own live dashboard.');
+      return;
+    }
+    var order = window.WBShares ? WBShares.orderOf(trainerOrder) : (trainerOrder || []);
+    if (!order.length) return;
+    var snap = WBDashboard.freeze(trainerModel, order, { asOf: dashboardDay(), trainerName: trainerName() });
+    var btn = document.getElementById('dash-share');
+    if (btn) btn.disabled = true;
+    var pending;
+    try {
+      pending = WBAuth.shareDashboard ? WBAuth.shareDashboard({
+        clientId: editorClient,
+        asOf: snap.asOf,
+        trainerName: snap.trainerName,
+        cards: snap.cards
+      }) : Promise.resolve({ ok: false, unavailable: true });
+    } catch (e) { pending = Promise.resolve({ ok: false }); }
+    Promise.resolve(pending).then(function (res) {
+      if (btn) btn.disabled = !order.length;
+      if (res && res.ok) { toast('Dashboard shared.'); return; }
+      toast(res && res.unavailable ? 'Sharing is not available yet.' : 'Could not share that dashboard.');
+    }, function () {
+      if (btn) btn.disabled = false;
+      toast('Could not share that dashboard.');
+    });
+  }
+  function bindCardDrag() {
+    var sheet = document.getElementById('dashboard-sheet');
+    if (!sheet || !sheet.querySelector('[data-card]')) return;
+    var dragId = '';
+    sheet.addEventListener('dragstart', function (e) {
+      var handle = e.target.closest ? e.target.closest('[data-drag]') : null;
+      var sec = e.target.closest ? e.target.closest('[data-card]') : null;
+      if (handle) dragId = handle.getAttribute('data-drag');
+      else if (sec && !(e.target.closest && e.target.closest('button'))) dragId = sec.getAttribute('data-card');
+      else { e.preventDefault(); return; }
+      try {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragId);
+      } catch (err) {}
+    });
+    sheet.addEventListener('dragover', function (e) {
+      if (!dragId) return;
+      var sec = e.target.closest ? e.target.closest('[data-card]') : null;
+      if (!sec) return;
+      e.preventDefault();
+      Array.prototype.forEach.call(sheet.querySelectorAll('.is-drop'), function (el) {
+        if (el !== sec) el.classList.remove('is-drop');
+      });
+      sec.classList.add('is-drop');
+    });
+    sheet.addEventListener('drop', function (e) {
+      var sec = e.target.closest ? e.target.closest('[data-card]') : null;
+      var before = sec && sec.getAttribute('data-card');
+      Array.prototype.forEach.call(sheet.querySelectorAll('.is-drop'), function (el) { el.classList.remove('is-drop'); });
+      if (!dragId || !before || before === dragId || !window.WBShares) { dragId = ''; return; }
+      e.preventDefault();
+      trainerOrder = WBShares.moveBefore(trainerOrder, dragId, before);
+      dragId = '';
+      paintClientEditor();
+    });
+  }
+  function onDashboardClick(e) {
+    if (e.target.closest('#dashboard-find')) {
+      var note = document.getElementById('dashboard-hub');
+      if (note) note.hidden = false;
+      return true;
+    }
+    var message = e.target.closest('#dashboard-message');
+    if (message) {
+      var trainerId = message.getAttribute('data-trainer');
+      if (trainerId) go('#/messages/' + encodeURIComponent(trainerId));
+      return true;
+    }
+    if (e.target.closest('#dashboard-upgrade')) { go('#/subscriptions'); return true; }
+    var picked = e.target.closest('#client-pick [data-client]');
+    if (picked) {
+      var clientId = picked.getAttribute('data-client');
+      if (!clientId) go('#/tracking/dashboard');
+      else go('#/tracking/dashboard/client/' + encodeURIComponent(clientId));
+      return true;
+    }
+    var opened = e.target.closest('[data-share]');
+    if (opened) {
+      go('#/tracking/dashboard/share/' + encodeURIComponent(opened.getAttribute('data-share')));
+      return true;
+    }
+    if (e.target.closest('#dash-share')) { shareCurrent(); return true; }
+    var add = e.target.closest('[data-card-add]');
+    if (add && window.WBShares) {
+      trainerOrder = WBShares.addCard(trainerOrder, add.getAttribute('data-card-add'));
+      paintClientEditor();
+      return true;
+    }
+    var up = e.target.closest('[data-card-up]');
+    if (up && window.WBShares) {
+      trainerOrder = WBShares.moveCard(trainerOrder, up.getAttribute('data-card-up'), -1);
+      paintClientEditor();
+      return true;
+    }
+    var down = e.target.closest('[data-card-down]');
+    if (down && window.WBShares) {
+      trainerOrder = WBShares.moveCard(trainerOrder, down.getAttribute('data-card-down'), 1);
+      paintClientEditor();
+      return true;
+    }
+    var remove = e.target.closest('[data-card-remove]');
+    if (remove && window.WBShares) {
+      trainerOrder = WBShares.removeCard(trainerOrder, remove.getAttribute('data-card-remove'));
+      paintClientEditor();
+      return true;
+    }
+    return false;
+  }
+  function freeEmptyHtml(connection) {
+    var trainerId = connection && connection.trainerId ? String(connection.trainerId) : '';
+    var linked = window.WBShares && WBShares.isUuid(trainerId);
+    var h = '<div class="card" id="dashboard-soon"><div class="name">Your trainer can share a dashboard with you.</div><div class="actions">';
+    if (linked) h += '<button type="button" class="pri" id="dashboard-message" data-trainer="' + esc(trainerId) + '">Message your trainer</button>';
+    else h += '<button type="button" id="dashboard-find">Find a trainer</button>';
+    h += '<button type="button" class="pri" id="dashboard-upgrade">Upgrade to Enthusiast</button></div>';
+    h += '<p class="db-note" id="dashboard-hub" hidden>The Trainer Hub is coming soon.</p></div>';
+    return h;
+  }
+  function shareListHtml(rows) {
+    var h = '<div id="share-list">';
+    (rows || []).forEach(function (row) {
+      if (!row || !row.id) return;
+      var stamp = window.WBDashboard ? WBDashboard.stampText({
+        asOf: row.as_of || row.asOf,
+        trainerName: row.trainer_name || row.trainerName
+      }) : '';
+      h += '<button type="button" class="card share-row" data-share="' + esc(row.id) + '"><div class="name">' + esc(stamp) + '</div>';
+      if (!(row.viewed_at || row.viewedAt)) h += '<div class="mute">Not opened</div>';
+      h += '</button>';
+    });
+    return h + '</div>';
+  }
   function dashboardCurrent(token) {
-    return token === routeToken && hashPage() === 'tracking' && hashBody().split('/')[1] === 'dashboard';
+    var tail = trackingTail();
+    return token === routeToken && hashPage() === 'tracking' && tail.dashboard && !tail.kind;
   }
   // Tests pin the day. A real visit uses today, so the sheet stays current.
   function dashboardNow() {
@@ -2887,12 +3166,13 @@
     }
     catch (e) { return local; }
   }
-  function paintLoadedDashboard(historyRes, scheduleRes, settle) {
+  function paintLoadedDashboard(historyRes, scheduleRes, settle, prefix) {
     var failed = !historyRes || historyRes.unavailable || historyRes.error;
     var sessions = historyRes && historyRes.sessions || [];
     var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes && historyRes.sets, historyRes && historyRes.exercises) : [];
+    var head = prefix || '';
     if (failed && !sessions.length && !sets.length) {
-      paintTracking('dashboard', WBDashboard.unavailableHtml(), settle);
+      paintTracking('dashboard', head + WBDashboard.unavailableHtml(), settle);
       return;
     }
     var model = WBDashboard.build({
@@ -2901,7 +3181,7 @@
       entries: dashboardEntries(scheduleRes),
       now: dashboardNow()
     });
-    paintTracking('dashboard', WBDashboard.html(model), settle);
+    paintTracking('dashboard', head + WBDashboard.html(model), settle);
   }
   function loadDashboard(token, settle) {
     var pendingHistory;
@@ -2926,24 +3206,133 @@
     }, function () {
       return { unavailable: true, entries: [] };
     });
-    Promise.all([historyReady, scheduleReady]).then(function (pair) {
+    var rosterReady = trainerAccount() ? readRoster() : Promise.resolve(null);
+    Promise.all([historyReady, scheduleReady, rosterReady]).then(function (pair) {
       if (!dashboardCurrent(token)) return;
-      paintLoadedDashboard(pair[0], pair[1], settle);
+      paintLoadedDashboard(pair[0], pair[1], settle, trainerAccount() ? pickerHtml('') : '');
+    });
+  }
+  function renderFreeDashboard(token) {
+    paintTracking('dashboard', '<p class="mute" id="dashboard-loading">Loading…</p>', false);
+    var connP;
+    try { connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null); }
+    catch (e) { connP = Promise.resolve(null); }
+    Promise.all([
+      refreshShareCount(token),
+      Promise.resolve(connP).then(function (row) { return row || null; }, function () { return null; })
+    ]).then(function (pair) {
+      if (!dashboardCurrent(token)) return;
+      var pack = pair[0] || { rows: [], error: true };
+      var rows = pack.rows || [];
+      if (pack.error && !rows.length) {
+        paintTracking('dashboard', '<div class="card" id="share-error"><div class="name">Shared dashboards could not be loaded.</div><p class="db-note">Try again in a moment.</p></div>', true);
+        return;
+      }
+      var body = rows.length ? shareListHtml(rows) : freeEmptyHtml(pair[1]);
+      if (pack.error) body = '<p class="db-note" id="share-stale">The latest shares could not be loaded.</p>' + body;
+      paintTracking('dashboard', body, true);
+    });
+  }
+  function renderOpenedShare(token, id) {
+    paintTracking('dashboard', '<p class="mute">Loading…</p>', false);
+    refreshShareCount(token).then(function () {
+      var tail = trackingTail();
+      if (!onDashboard(token) || tail.kind !== 'share' || tail.id !== id) return;
+      var row = null;
+      shareRows.forEach(function (item) { if (item && String(item.id) === String(id)) row = item; });
+      if (!row || !window.WBDashboard) {
+        var missing = shareLoadError
+          ? '<div class="card" id="share-error"><div class="name">Shared dashboards could not be loaded.</div></div>'
+          : '<div class="card" id="share-missing"><div class="name">That dashboard is not available.</div></div>';
+        paintTracking('dashboard', missing, true);
+        return;
+      }
+      paintTracking('dashboard', WBDashboard.snapshotHtml({
+        asOf: row.as_of || row.asOf,
+        trainerName: row.trainer_name || row.trainerName,
+        cards: row.cards
+      }), true);
+      if (row.viewed_at || row.viewedAt) return;
+      var mark;
+      try { mark = WBAuth.markShareViewed ? WBAuth.markShareViewed(row.id) : Promise.resolve({ ok: false }); }
+      catch (e2) { mark = Promise.resolve({ ok: false }); }
+      Promise.resolve(mark).then(function (res) {
+        if (!res || res.ok === false) return;
+        if (!onDashboard(token)) return;
+        row.viewed_at = res.viewed_at || new Date().toISOString();
+        shareUnread = window.WBShares ? WBShares.unread(shareRows) : Math.max(0, shareUnread - 1);
+        paintDashboardCount(shareUnread);
+      }, function () {});
+    });
+  }
+  function renderClientDashboard(token, clientId) {
+    if (!window.WBShares || !WBShares.isUuid(clientId)) return go('#/tracking/dashboard');
+    paintTracking('dashboard', '<p class="mute">Loading…</p>', false);
+    readRoster().then(function () {
+      if (!onDashboard(token) || trackingTail().id !== clientId) return;
+      var known = null;
+      clientChoices().forEach(function (c) { if (c.id === clientId) known = c; });
+      if (!known) {
+        editorClient = '';
+        trainerModel = null;
+        paintTracking('dashboard', pickerHtml('') + '<div class="card" id="client-missing"><div class="name">That client is not connected.</div></div>', true);
+        return;
+      }
+      if (editorClient !== clientId) {
+        editorClient = clientId;
+        trainerOrder = WBShares.standard();
+        trainerModel = null;
+      }
+      var historyP;
+      var scheduleP;
+      try { historyP = WBAuth.clientTracking ? WBAuth.clientTracking(clientId) : Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] }); }
+      catch (e) { historyP = Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] }); }
+      try { scheduleP = WBAuth.clientSchedule ? WBAuth.clientSchedule(clientId) : Promise.resolve({ unavailable: true, entries: [] }); }
+      catch (e2) { scheduleP = Promise.resolve({ unavailable: true, entries: [] }); }
+      Promise.all([
+        Promise.resolve(historyP).then(function (res) { return res || { error: true, sets: [], sessions: [], exercises: [] }; }, function () { return { error: true, sets: [], sessions: [], exercises: [] }; }),
+        Promise.resolve(scheduleP).then(function (res) { return res || { unavailable: true, entries: [] }; }, function () { return { unavailable: true, entries: [] }; })
+      ]).then(function (pair) {
+        if (!onDashboard(token) || trackingTail().id !== clientId) return;
+        var historyRes = pair[0];
+        var failed = !historyRes || historyRes.unavailable || historyRes.error;
+        var sessions = historyRes.sessions || [];
+        var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes.sets, historyRes.exercises) : [];
+        if (failed && !sessions.length && !sets.length) {
+          trainerModel = null;
+          paintTracking('dashboard', pickerHtml(clientId) + WBDashboard.unavailableHtml(), true);
+          return;
+        }
+        var entries = pair[1] && Array.isArray(pair[1].entries) ? pair[1].entries : [];
+        trainerModel = WBDashboard.build({
+          sets: sets,
+          sessions: sessions,
+          entries: entries,
+          now: dashboardNow(),
+          layout: true
+        });
+        if (!trainerOrder) trainerOrder = WBShares.standard();
+        paintClientEditor();
+      });
     });
   }
   function renderDashboard(token) {
     backBtn.hidden = false;
     app.oninput = null;
     app.onchange = null;
+    var tail = trackingTail();
+    if (shareInbox()) {
+      if (tail.kind === 'share' && tail.id) return renderOpenedShare(token, tail.id);
+      if (tail.kind) return go('#/tracking/dashboard');
+      return renderFreeDashboard(token);
+    }
     if (!window.WBDashboard) {
       paintTracking('dashboard', '<div class="empty db-empty" id="dashboard-unavailable"><div class="name">Saved sessions are not available yet.</div></div>', true);
       return;
     }
-    if (!WBDashboard.allowed(cachedProfile)) {
-      paintTracking('dashboard', FREE_DASHBOARD, true);
-      return;
-    }
-    paintTracking('dashboard', '<div id="dashboard" aria-busy="true"><p class="mute">Loading…</p></div>', false);
+    if (tail.kind === 'client' && trainerAccount()) return renderClientDashboard(token, tail.id);
+    if (tail.kind) return go('#/tracking/dashboard');
+    paintTracking('dashboard', (trainerAccount() ? '<div id="client-pick-wrap"></div>' : '') + '<div id="dashboard" aria-busy="true"><p class="mute">Loading…</p></div>', false);
     loadDashboard(token, true);
   }
   function renderTracking(token) {
@@ -2987,6 +3376,7 @@
     app.onclick = null;
     app.oninput = null;
     app.onchange = null;
+    if (shareInbox()) refreshShareCount(token);
     var key = historyRouteKey();
     if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {
