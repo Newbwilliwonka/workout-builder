@@ -2866,7 +2866,7 @@
     titleEl.textContent = 'Tracking';
     app.innerHTML = trackingShell(which, body);
     bindTrackingTabs(!!settle);
-    paintDashboardCount(shareInbox() ? shareUnread : 0);
+    paintDashboardCount(countsShares() ? shareUnread : 0);
     app.onclick = function (e) {
       if (onTrackingClick(e)) return;
       if (onDashboardClick(e)) return;
@@ -2882,10 +2882,18 @@
     if (!cachedProfile || !window.WBPrograms) return false;
     return WBPrograms.roleOf(cachedProfile) === 'free_client';
   }
-  // Paid membership keeps the live sheet. Choosing a plan without paying
-  // leaves membership at none, and that person still opens shared copies.
+  // Free clients, and anyone who chose a plan but has not paid, open shared
+  // copies instead of a live sheet. Choosing Enthusiast without paying leaves
+  // membership at none.
   function shareInbox() {
     return freeClient() || !!(window.WBDashboard && !WBDashboard.allowed(cachedProfile) && !trainerAccount());
+  }
+  // A paid Enthusiast keeps the live, view-only sheet and can also open shares.
+  function paidEnthusiast() {
+    return !!(cachedProfile && cachedProfile.membership === 'enthusiast');
+  }
+  function countsShares() {
+    return shareInbox() || paidEnthusiast();
   }
   function trainerAccount() {
     return !!(window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile)));
@@ -2900,7 +2908,7 @@
     return token === routeToken && hashPage() === 'tracking' && trackingTail().dashboard;
   }
   function refreshShareCount(token) {
-    if (!shareInbox()) {
+    if (!countsShares()) {
       shareUnread = 0;
       shareRows = [];
       shareLoadError = false;
@@ -2910,7 +2918,7 @@
     try { pending = WBAuth.myShares ? WBAuth.myShares() : Promise.resolve({ unavailable: true, shares: [] }); }
     catch (e) { pending = Promise.resolve({ unavailable: true, shares: [] }); }
     return Promise.resolve(pending).then(function (res) {
-      if (token !== routeToken || !shareInbox()) return { rows: shareRows.slice(), error: false };
+      if (token !== routeToken || !countsShares()) return { rows: shareRows.slice(), error: false };
       if (res && res.error) return shareLoadFailed(token);
       shareLoadError = false;
       var rows = res && Array.isArray(res.shares) ? res.shares : [];
@@ -2923,7 +2931,7 @@
     });
   }
   function shareLoadFailed(token) {
-    if (token !== routeToken || !shareInbox()) return { rows: [], error: true };
+    if (token !== routeToken || !countsShares()) return { rows: [], error: true };
     shareLoadError = true;
     paintDashboardCount(shareUnread);
     return { rows: shareRows.slice(), error: true };
@@ -2948,15 +2956,10 @@
     clientChoices().forEach(function (c) { if (c.id === id) found = c; });
     return found;
   }
-  // The inbox follows membership. A paid Enthusiast already has the live sheet.
-  // Choosing Enthusiast without paying leaves membership at none, and that
-  // person still opens shared copies. The roster plan label does not decide.
+  // Any connected client can receive a frozen copy, including a paid Enthusiast.
+  // Their live sheet stays in place. The roster plan label does not decide.
   function receivesShares(client) {
-    if (!client) return false;
-    var membership = String(client.membership || '').replace(/^\s+|\s+$/g, '');
-    if (membership === 'free_client' || membership === 'none') return true;
-    if (membership === 'enthusiast' || membership === 'trainer' || membership === 'master_trainer') return false;
-    return true;
+    return !!(client && client.id);
   }
   function pickerHtml(selected) {
     var clients = clientChoices();
@@ -3005,10 +3008,7 @@
   }
   function shareCurrent() {
     if (!window.WBDashboard || !trainerModel || !editorClient) return;
-    if (!receivesShares(clientRecord(editorClient))) {
-      toast('This client keeps their own live dashboard.');
-      return;
-    }
+    if (!receivesShares(clientRecord(editorClient))) return;
     var order = window.WBShares ? WBShares.orderOf(trainerOrder) : (trainerOrder || []);
     if (!order.length) return;
     var snap = WBDashboard.freeze(trainerModel, order, { asOf: dashboardDay(), trainerName: trainerName() });
@@ -3144,6 +3144,20 @@
     });
     return h + '</div>';
   }
+  // Paid Enthusiasts keep the live sheet. Shares, when they have any, sit under it.
+  // No shares means nothing extra: no empty-state nudge.
+  function enthusiastShareHtml(pack) {
+    if (!paidEnthusiast()) return '';
+    var rows = pack && Array.isArray(pack.rows) ? pack.rows : [];
+    var failed = !!(pack && pack.error);
+    if (!rows.length) {
+      if (!failed) return '';
+      return '<p class="db-note" id="share-stale">The latest shares could not be loaded.</p>';
+    }
+    var h = '<section id="trainer-shares"><h2 id="trainer-shares-title">Shared by your trainer</h2>';
+    if (failed) h += '<p class="db-note" id="share-stale">The latest shares could not be loaded.</p>';
+    return h + shareListHtml(rows) + '</section>';
+  }
   function dashboardCurrent(token) {
     var tail = trackingTail();
     return token === routeToken && hashPage() === 'tracking' && tail.dashboard && !tail.kind;
@@ -3166,13 +3180,14 @@
     }
     catch (e) { return local; }
   }
-  function paintLoadedDashboard(historyRes, scheduleRes, settle, prefix) {
+  function paintLoadedDashboard(historyRes, scheduleRes, settle, prefix, sharePack) {
     var failed = !historyRes || historyRes.unavailable || historyRes.error;
     var sessions = historyRes && historyRes.sessions || [];
     var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes && historyRes.sets, historyRes && historyRes.exercises) : [];
     var head = prefix || '';
+    var extra = enthusiastShareHtml(sharePack);
     if (failed && !sessions.length && !sets.length) {
-      paintTracking('dashboard', head + WBDashboard.unavailableHtml(), settle);
+      paintTracking('dashboard', head + WBDashboard.unavailableHtml() + extra, settle);
       return;
     }
     var model = WBDashboard.build({
@@ -3181,7 +3196,7 @@
       entries: dashboardEntries(scheduleRes),
       now: dashboardNow()
     });
-    paintTracking('dashboard', head + WBDashboard.html(model), settle);
+    paintTracking('dashboard', head + WBDashboard.html(model) + extra, settle);
   }
   function loadDashboard(token, settle) {
     var pendingHistory;
@@ -3207,9 +3222,10 @@
       return { unavailable: true, entries: [] };
     });
     var rosterReady = trainerAccount() ? readRoster() : Promise.resolve(null);
-    Promise.all([historyReady, scheduleReady, rosterReady]).then(function (pair) {
+    var shareReady = paidEnthusiast() ? refreshShareCount(token) : Promise.resolve(null);
+    Promise.all([historyReady, scheduleReady, rosterReady, shareReady]).then(function (pair) {
       if (!dashboardCurrent(token)) return;
-      paintLoadedDashboard(pair[0], pair[1], settle, trainerAccount() ? pickerHtml('') : '');
+      paintLoadedDashboard(pair[0], pair[1], settle, trainerAccount() ? pickerHtml('') : '', pair[3]);
     });
   }
   function renderFreeDashboard(token) {
@@ -3321,8 +3337,8 @@
     app.oninput = null;
     app.onchange = null;
     var tail = trackingTail();
+    if (tail.kind === 'share' && tail.id && countsShares()) return renderOpenedShare(token, tail.id);
     if (shareInbox()) {
-      if (tail.kind === 'share' && tail.id) return renderOpenedShare(token, tail.id);
       if (tail.kind) return go('#/tracking/dashboard');
       return renderFreeDashboard(token);
     }
@@ -3376,7 +3392,7 @@
     app.onclick = null;
     app.oninput = null;
     app.onchange = null;
-    if (shareInbox()) refreshShareCount(token);
+    if (countsShares()) refreshShareCount(token);
     var key = historyRouteKey();
     if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {

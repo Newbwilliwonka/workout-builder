@@ -99,4 +99,18 @@ assert.ok(/'membership', p\.membership/.test(sql));
 assert.ok(/Shared dashboards could not be loaded/.test(appSrc));
 assert.ok(/Only the client can open/.test(sql));
 
+const inboxSql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116180000_share_inbox_any_client.sql'), 'utf8');
+assert.ok(/create or replace function private\.share_inbox\(client uuid\)/.test(inboxSql));
+assert.ok(/security definer/.test(inboxSql));
+assert.ok(/set search_path = ''/.test(inboxSql));
+assert.ok(/from public\.profiles/.test(inboxSql));
+assert.ok(/where id = client/.test(inboxSql));
+assert.ok(!/free_client/.test(inboxSql));
+assert.ok(!/membership in/.test(inboxSql));
+assert.ok(/revoke all on function private\.share_inbox\(uuid\) from public, anon, authenticated/.test(inboxSql));
+assert.ok(/Shared by your trainer/.test(appSrc));
+assert.ok(/Could not share that dashboard/.test(appSrc));
+assert.ok(!/This client keeps their own live dashboard/.test(appSrc));
+assert.ok(!/membership === 'enthusiast' \|\| membership === 'trainer'/.test(appSrc));
+
 console.log('SHARES OK');
