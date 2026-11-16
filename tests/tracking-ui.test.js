@@ -186,6 +186,46 @@ async function openPage(browser, membership, payload) {
       document.activeElement && document.activeElement.id === 'tracking-tab-history';
   });
 
+  // A click while history is still loading must not leave focus on the previous tab.
+  await page.evaluate(function () {
+    window.__historyGate = {};
+    window.__historyGate.promise = new Promise(function (resolve) { window.__historyGate.resolve = resolve; });
+    var real = window.WBAuth.myHistory;
+    window.WBAuth.myHistory = function () {
+      return window.__historyGate.promise.then(function () { return real(); });
+    };
+  });
+  await page.click('#tracking-tab-dashboard');
+  await page.waitForSelector('#dashboard-soon');
+  await page.focus('#tracking-tab-dashboard');
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForFunction(function () {
+    var panel = document.getElementById('tracking-panel');
+    return location.hash === '#/tracking' && panel && panel.textContent.indexOf('Loading') >= 0 &&
+      document.activeElement && document.activeElement.id === 'tracking-tab-history';
+  });
+  await page.click('#tracking-tab-dashboard');
+  await page.waitForFunction(function () {
+    var dashboard = document.getElementById('tracking-tab-dashboard');
+    var history = document.getElementById('tracking-tab-history');
+    return location.hash === '#/tracking/dashboard' &&
+      document.getElementById('dashboard-soon') &&
+      !document.getElementById('history-list') &&
+      dashboard && dashboard.getAttribute('aria-selected') === 'true' &&
+      history && history.getAttribute('aria-selected') === 'false' &&
+      document.activeElement === dashboard;
+  });
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(function () {
+    return location.hash === '#/tracking/dashboard' &&
+      document.getElementById('dashboard-soon') &&
+      document.activeElement && document.activeElement.id === 'tracking-tab-dashboard';
+  });
+  await page.evaluate(function () { window.__historyGate.resolve(); });
+  await page.waitForFunction(function () {
+    return location.hash === '#/tracking/dashboard' && document.getElementById('dashboard-soon') && !document.getElementById('history-list');
+  });
+
   await page.click('#tracking-tab-dashboard');
   await page.waitForSelector('#dashboard-soon');
   const dash = await page.evaluate(function () {

@@ -2833,10 +2833,12 @@
       trackingKeyFocus = next.id;
       next.click();
     };
+    var selected = tabs.querySelector('[role="tab"][aria-selected="true"]');
+    // A click or arrow can land after an older tab id was saved. Follow the
+    // tab that is actually selected, including the paint while history loads.
+    if (!selected || (trackingKeyFocus && trackingKeyFocus !== selected.id)) trackingKeyFocus = selected ? selected.id : '';
     if (!trackingKeyFocus) return;
-    var el = document.getElementById(trackingKeyFocus);
-    if (!el) return;
-    el.focus();
+    selected.focus();
     if (settle) trackingKeyFocus = '';
   }
   function onTrackingClick(e) {
@@ -2844,7 +2846,10 @@
     if (!tab) return false;
     var dest = tab.getAttribute('data-track') === 'dashboard' ? '#/tracking/dashboard' : '#/tracking';
     if (location.hash === dest) trackingKeyFocus = '';
-    else go(dest);
+    else {
+      trackingKeyFocus = tab.id;
+      go(dest);
+    }
     return true;
   }
   function paintTracking(which, body, settle) {
