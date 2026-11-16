@@ -71,7 +71,7 @@ async function openPage(browser, cfg) {
       id: cfg.id,
       email: cfg.email,
       membership: cfg.membership,
-      intended_plan: cfg.membership,
+      intended_plan: cfg.intendedPlan != null ? cfg.intendedPlan : cfg.membership,
       display_name: cfg.name
     }
   });
@@ -430,7 +430,15 @@ async function openPage(browser, cfg) {
     email: 'enthusiast@example.com',
     membership: 'enthusiast',
     name: 'Test Person',
-    history: adaRows
+    history: adaRows,
+    shares: [{
+      id: SHARE_NEW,
+      trainer_name: 'Coach Lee',
+      as_of: '2026-11-16',
+      created_at: '2026-11-16T18:00:00.000Z',
+      viewed_at: null,
+      cards: [{ type: 'plan', plan: { pct: 65, hits: 11, total: 17, rating: { label: 'Keep trying' } } }]
+    }]
   });
   await enthusiast.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
   await enthusiast.waitForSelector('#dashboard-sheet');
@@ -440,7 +448,9 @@ async function openPage(browser, cfg) {
       share: !!document.getElementById('dash-share'),
       pass: document.body.innerText.indexOf('pass rate') >= 0,
       rating: document.getElementById('dashboard-rating').textContent,
-      buttons: document.querySelectorAll('#dashboard button, #dashboard input').length
+      buttons: document.querySelectorAll('#dashboard button, #dashboard input').length,
+      list: !!document.getElementById('share-list'),
+      badge: document.getElementById('dashboard-count').hidden
     };
   });
   assert.deepStrictEqual(own, {
@@ -448,7 +458,9 @@ async function openPage(browser, cfg) {
     share: false,
     pass: false,
     rating: 'Keep trying',
-    buttons: 0
+    buttons: 0,
+    list: false,
+    badge: true
   });
 
   assert.deepStrictEqual(trainer.__errors, []);
@@ -518,8 +530,43 @@ async function openPage(browser, cfg) {
     count: '1',
     stale: 'The latest shares could not be loaded.'
   });
+  const pending = await openPage(browser, {
+    id: '14141414-1414-4414-8414-141414141414',
+    email: 'pending@example.com',
+    membership: 'none',
+    intendedPlan: 'enthusiast',
+    name: 'Pending Chooser',
+    shares: [{
+      id: SHARE_NEW,
+      trainer_name: 'Coach Lee',
+      as_of: '2026-11-16',
+      created_at: '2026-11-16T18:00:00.000Z',
+      viewed_at: null,
+      cards: [{ type: 'plan', plan: { pct: 65, hits: 11, total: 17, rating: { label: 'Keep trying' } } }]
+    }]
+  });
+  await pending.goto(URL + '#/tracking', { waitUntil: 'domcontentloaded' });
+  await pending.waitForFunction(function () {
+    var badge = document.getElementById('dashboard-count');
+    return badge && badge.textContent === '1';
+  });
+  await pending.goto(URL + '#/tracking/dashboard/share/' + SHARE_NEW, { waitUntil: 'domcontentloaded' });
+  await pending.waitForSelector('#dashboard-stamp');
+  const openedPending = await pending.evaluate(function () {
+    return {
+      stamp: document.getElementById('dashboard-stamp').textContent,
+      sheet: !!document.getElementById('dashboard-sheet'),
+      soon: !!document.getElementById('dashboard-soon')
+    };
+  });
+  assert.deepStrictEqual(openedPending, {
+    stamp: 'As of November 16, 2026 from Coach Lee',
+    sheet: true,
+    soon: false
+  });
   assert.deepStrictEqual(broken.__errors, []);
   assert.deepStrictEqual(kept.__errors, []);
+  assert.deepStrictEqual(pending.__errors, []);
   console.log('SHARES UI OK');
   await browser.close();
 })().catch(function (err) {

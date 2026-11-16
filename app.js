@@ -2866,7 +2866,7 @@
     titleEl.textContent = 'Tracking';
     app.innerHTML = trackingShell(which, body);
     bindTrackingTabs(!!settle);
-    paintDashboardCount(freeClient() ? shareUnread : 0);
+    paintDashboardCount(shareInbox() ? shareUnread : 0);
     app.onclick = function (e) {
       if (onTrackingClick(e)) return;
       if (onDashboardClick(e)) return;
@@ -2882,6 +2882,11 @@
     if (!cachedProfile || !window.WBPrograms) return false;
     return WBPrograms.roleOf(cachedProfile) === 'free_client';
   }
+  // Paid membership keeps the live sheet. Choosing a plan without paying
+  // leaves membership at none, and that person still opens shared copies.
+  function shareInbox() {
+    return freeClient() || !!(window.WBDashboard && !WBDashboard.allowed(cachedProfile) && !trainerAccount());
+  }
   function trainerAccount() {
     return !!(window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile)));
   }
@@ -2895,7 +2900,7 @@
     return token === routeToken && hashPage() === 'tracking' && trackingTail().dashboard;
   }
   function refreshShareCount(token) {
-    if (!freeClient()) {
+    if (!shareInbox()) {
       shareUnread = 0;
       shareRows = [];
       shareLoadError = false;
@@ -2905,7 +2910,7 @@
     try { pending = WBAuth.myShares ? WBAuth.myShares() : Promise.resolve({ unavailable: true, shares: [] }); }
     catch (e) { pending = Promise.resolve({ unavailable: true, shares: [] }); }
     return Promise.resolve(pending).then(function (res) {
-      if (token !== routeToken || !freeClient()) return { rows: shareRows.slice(), error: false };
+      if (token !== routeToken || !shareInbox()) return { rows: shareRows.slice(), error: false };
       if (res && res.error) return shareLoadFailed(token);
       shareLoadError = false;
       var rows = res && Array.isArray(res.shares) ? res.shares : [];
@@ -2918,7 +2923,7 @@
     });
   }
   function shareLoadFailed(token) {
-    if (token !== routeToken || !freeClient()) return { rows: [], error: true };
+    if (token !== routeToken || !shareInbox()) return { rows: [], error: true };
     shareLoadError = true;
     paintDashboardCount(shareUnread);
     return { rows: shareRows.slice(), error: true };
@@ -3316,7 +3321,7 @@
     app.oninput = null;
     app.onchange = null;
     var tail = trackingTail();
-    if (freeClient() || (window.WBDashboard && !WBDashboard.allowed(cachedProfile) && !trainerAccount())) {
+    if (shareInbox()) {
       if (tail.kind === 'share' && tail.id) return renderOpenedShare(token, tail.id);
       if (tail.kind) return go('#/tracking/dashboard');
       return renderFreeDashboard(token);
@@ -3371,7 +3376,7 @@
     app.onclick = null;
     app.oninput = null;
     app.onchange = null;
-    if (freeClient()) refreshShareCount(token);
+    if (shareInbox()) refreshShareCount(token);
     var key = historyRouteKey();
     if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {
