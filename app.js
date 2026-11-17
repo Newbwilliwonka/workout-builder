@@ -3020,6 +3020,8 @@
     return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
   }
   var layoutWrite = Promise.resolve();
+  var layoutLoaded = false;
+  var layoutCanSave = false;
   function paintClientEditor() {
     if (!window.WBDashboard || !trainerModel) return;
     var self = !editorClient;
@@ -3029,13 +3031,37 @@
     });
     paintTracking('dashboard', body, true);
   }
-  function ownOrder(res) {
-    if (!window.WBShares) return [];
-    if (!res || !Array.isArray(res.cards)) return WBShares.standard();
+  // A failed read is not "never saved". Keep the last order we actually loaded,
+  // and do not write the standard layout over the stored one.
+  function adoptOwnOrder(res) {
+    if (!window.WBShares) {
+      layoutCanSave = false;
+      return Array.isArray(trainerOrder) ? trainerOrder.slice() : [];
+    }
+    if (!res || res.error) {
+      var keep = layoutLoaded && Array.isArray(trainerOrder);
+      layoutCanSave = false;
+      toast(keep ? 'Could not refresh your saved dashboard.' : 'Could not load your saved dashboard.');
+      return keep ? trainerOrder.slice() : WBShares.standard();
+    }
+    layoutLoaded = true;
+    layoutCanSave = true;
+    if (!Array.isArray(res.cards)) return WBShares.standard();
     return WBShares.orderOf(res.cards);
+  }
+  function whenLayoutWritesFinish() {
+    var seen = layoutWrite;
+    return seen.catch(function () { return null; }).then(function () {
+      if (layoutWrite !== seen) return whenLayoutWritesFinish();
+      return null;
+    });
   }
   function saveOwnLayout(order) {
     if (editorClient) return;
+    if (!layoutCanSave) {
+      toast('Could not load your saved dashboard, so this change was not saved.');
+      return;
+    }
     var cards = (order || []).slice();
     layoutWrite = layoutWrite.catch(function () { return null; }).then(function () {
       var pending;
@@ -3057,6 +3083,10 @@
   }
   function resetOwnLayout() {
     if (!window.WBShares) return;
+    if (!layoutCanSave) {
+      toast('Could not load your saved dashboard, so this change was not saved.');
+      return;
+    }
     trainerOrder = WBShares.standard();
     paintClientEditor();
     layoutWrite = layoutWrite.catch(function () { return null; }).then(function () {
@@ -3285,7 +3315,7 @@
     });
     var rosterReady = trainerAccount() ? readRoster() : Promise.resolve(null);
     var shareReady = paidEnthusiast() ? refreshShareCount(token) : Promise.resolve(null);
-    var layoutReady = trainerAccount() ? readOwnLayout() : Promise.resolve(null);
+    var layoutReady = trainerAccount() ? whenLayoutWritesFinish().then(readOwnLayout) : Promise.resolve(null);
     Promise.all([historyReady, scheduleReady, rosterReady, shareReady, layoutReady]).then(function (pair) {
       if (!dashboardCurrent(token)) return;
       if (trainerAccount()) {
@@ -3313,11 +3343,11 @@
     var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes && historyRes.sets, historyRes && historyRes.exercises) : [];
     if (failed && !sessions.length && !sets.length) {
       trainerModel = null;
-      trainerOrder = ownOrder(layoutRes);
+      trainerOrder = adoptOwnOrder(layoutRes);
       paintTracking('dashboard', pickerHtml('') + WBDashboard.unavailableHtml(), settle);
       return;
     }
-    trainerOrder = ownOrder(layoutRes);
+    trainerOrder = adoptOwnOrder(layoutRes);
     trainerModel = WBDashboard.build({
       sets: sets,
       sessions: sessions,

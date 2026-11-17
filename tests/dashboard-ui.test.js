@@ -122,13 +122,24 @@ async function openPage(browser, membership, payload) {
           return Promise.resolve(window.__wbSchedulePayload);
         };
         value.myDashboardLayout = function () {
+          window.__layoutReads = (window.__layoutReads || 0) + 1;
+          if (window.__layoutFail) return Promise.resolve({ error: true, cards: null });
           if (!window.__layoutState) return Promise.resolve({ cards: null });
           return Promise.resolve({ cards: window.__layoutState.cards });
         };
         value.saveDashboardLayout = function (cards) {
-          window.__layoutState = { cards: cards.slice() };
-          window.__layoutSaved = cards.slice();
-          return Promise.resolve({ ok: true, cards: cards });
+          var finish = function () {
+            window.__layoutState = { cards: cards.slice() };
+            window.__layoutSaved = cards.slice();
+            window.__saveCount = (window.__saveCount || 0) + 1;
+            return { ok: true, cards: cards };
+          };
+          if (window.__layoutHoldSave) {
+            return new Promise(function (resolve) {
+              window.__layoutRelease = function () { resolve(finish()); };
+            });
+          }
+          return Promise.resolve(finish());
         };
         value.resetDashboardLayout = function () {
           window.__layoutState = { cards: null };
@@ -482,6 +493,49 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(await self.evaluate(function () { return window.__layoutState.cards; }), null);
   assert.deepStrictEqual(self.__errors, []);
   await self.close();
+
+  const blocked = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
+  await blocked.evaluateOnNewDocument(function () {
+    window.__layoutState = { cards: ['volume', 'plan'] };
+    window.__layoutFail = true;
+  });
+  await blocked.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await blocked.waitForSelector('#dashboard-records');
+  await blocked.click('[data-card-remove="records"]');
+  await blocked.waitForFunction(function () {
+    return document.getElementById('toast').textContent.indexOf('so this change was not saved') !== -1;
+  });
+  assert.deepStrictEqual(await blocked.evaluate(function () { return window.__layoutState.cards; }), ['volume', 'plan']);
+  assert.strictEqual(await blocked.evaluate(function () { return window.__saveCount || 0; }), 0);
+  await blocked.click('#dash-reset');
+  assert.strictEqual(await blocked.$('#dashboard-records'), null);
+  assert.notStrictEqual(await blocked.evaluate(function () { return window.__layoutReset; }), true);
+  assert.deepStrictEqual(await blocked.evaluate(function () { return window.__layoutState.cards; }), ['volume', 'plan']);
+  assert.deepStrictEqual(blocked.__errors, []);
+  await blocked.close();
+
+  const raced = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
+  await raced.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await raced.waitForSelector('[data-card-remove="records"]');
+  await raced.evaluate(function () { window.__layoutHoldSave = true; });
+  await raced.click('[data-card-remove="records"]');
+  await raced.waitForFunction(function () { return !document.getElementById('dashboard-records'); });
+  await raced.click('#tracking-tab-history');
+  await raced.waitForSelector('#history-empty');
+  await raced.click('#tracking-tab-dashboard');
+  await raced.waitForSelector('#dashboard[aria-busy="true"]');
+  assert.strictEqual(await raced.evaluate(function () { return window.__saveCount || 0; }), 0);
+  await raced.evaluate(function () { window.__layoutRelease(); window.__layoutHoldSave = false; });
+  await raced.waitForFunction(function () {
+    return document.getElementById('dash-reset') && !document.getElementById('dashboard-records') && window.__saveCount === 1;
+  });
+  await raced.click('[data-card-remove="volume"]');
+  await raced.waitForFunction(function () {
+    var cards = window.__layoutState && window.__layoutState.cards;
+    return cards && cards.indexOf('volume') < 0 && cards.indexOf('records') < 0 && window.__saveCount === 2;
+  });
+  assert.deepStrictEqual(raced.__errors, []);
+  await raced.close();
 
   console.log('DASHBOARD UI OK');
   await browser.close();
