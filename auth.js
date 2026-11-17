@@ -7,8 +7,9 @@
   // Bunny folder that contains 180/ and 360/.
   // A library demo is this value + "/180/" + id + ".gif" (or "/360/"). Not a secret.
   var EXERCISE_GIF_BASE = 'https://kinisiexercises.b-cdn.net';
-  var LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js';
-  var client = null, loading = null, authWatchers = [];
+  // Pinned self-hosted build: vendor/supabase.js is @supabase/supabase-js 2.119.0.
+  // Loaded from this site. Do not swap it for a copy pulled from a CDN.
+  var client = null, authWatchers = [];
   var Mem = root.WBMembership;
   // Snapshot the URL before app.js routing can replace the hash. Recovery links
   // arrive as ?code= (PKCE), #access_token&type=recovery, or token_hash&type=recovery.
@@ -17,15 +18,7 @@
 
   function loadLib() {
     if (root.supabase && root.supabase.createClient) return Promise.resolve(root.supabase);
-    if (loading) return loading;
-    loading = new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.src = LIB;
-      s.onload = function () { root.supabase && root.supabase.createClient ? resolve(root.supabase) : reject(new Error('Sign-in library did not load')); };
-      s.onerror = function () { reject(new Error('Could not load sign-in')); };
-      document.head.appendChild(s);
-    });
-    return loading;
+    return Promise.reject(new Error('Could not load sign-in'));
   }
   function db() {
     return loadLib().then(function (lib) {
@@ -66,6 +59,20 @@
     out.avatar_path = out.avatar_path || null;
     if (!Object.prototype.hasOwnProperty.call(out, 'verified_until')) out.verified_until = null;
     return out;
+  }
+  function withAccess(c, userId, row) {
+    if (!row || !userId) return Promise.resolve(row);
+    return c.from('profiles').select('access_approved').eq('id', userId).maybeSingle().then(function (v) {
+      if (!v || v.error || !v.data || !Object.prototype.hasOwnProperty.call(v.data, 'access_approved')) {
+        row.access_approved = null;
+        return row;
+      }
+      row.access_approved = v.data.access_approved;
+      return row;
+    }, function () {
+      row.access_approved = null;
+      return row;
+    });
   }
   function withVerified(c, userId, row) {
     if (!row || row.profileReady !== true || !userId) return Promise.resolve(row);
@@ -375,7 +382,11 @@
           if (res.error) throw res.error;
           var user = userOf(res.data.session);
           if (!user) return null;
-          return ensureProfile(c, user).then(function (row) { return withVerified(c, user.id, row); });
+          return ensureProfile(c, user).then(function (row) {
+            return withVerified(c, user.id, row).then(function (ready) {
+              return withAccess(c, user.id, ready);
+            });
+          });
         });
       });
     },
@@ -396,7 +407,9 @@
           if (!user) throw new Error('Sign in first.');
           return c.from('profiles').update(row).eq('id', user.id).select(PROFILE_FULL).single().then(function (res) {
             if (res.error) throw res.error;
-            return withVerified(c, user.id, withReady(res.data, true));
+            return withVerified(c, user.id, withReady(res.data, true)).then(function (ready) {
+              return withAccess(c, user.id, ready);
+            });
           });
         });
       }).then(function (saved) {
@@ -476,6 +489,22 @@
         if (res.error) throw verificationError(res.error);
         return res.data || [];
       }, function (err) { throw verificationError(err); });
+    },
+    accessAccounts: function () {
+      return db().then(function (c) {
+        return c.from('access_accounts').select('id,display_name,email,approved,created_at').order('created_at', { ascending: false });
+      }).then(function (res) {
+        if (res.error) throw accessError(res.error);
+        return res.data || [];
+      }, function (err) { throw accessError(err); });
+    },
+    setAccess: function (userId, approved) {
+      return db().then(function (c) {
+        return c.rpc('access_set', { p_user: userId, p_approved: !!approved });
+      }).then(function (res) {
+        if (res.error) throw accessError(res.error);
+        return true;
+      }, function (err) { throw accessError(err); });
     },
     reviewVerification: function (id, status, note) {
       var patch = { status: status };
@@ -887,11 +916,13 @@
         return true;
       });
     },
-    calendarFeed: function (zone, preferToken) {
-      return saveCalendarFeed(zone, preferToken, false);
+    // preferToken is ignored. The database creates the token and discards
+    // any value the browser used to send.
+    calendarFeed: function (zone) {
+      return saveCalendarFeed(zone, false);
     },
     resetCalendarFeed: function (zone) {
-      return saveCalendarFeed(zone, '', true);
+      return saveCalendarFeed(zone, true);
     }
   };
   function feedZone(zone) {
@@ -899,18 +930,9 @@
     if (/^[A-Za-z0-9_+-]{1,64}(\/[A-Za-z0-9_+-]{1,64}){0,3}$/.test(z)) return z;
     return 'UTC';
   }
-  function feedToken(prefer) {
-    if (/^[0-9a-f]{64}$/.test(prefer || '')) return prefer;
-    if (root.WBCalendar && root.WBCalendar.newToken) return root.WBCalendar.newToken();
-    var bytes = new Uint8Array(32);
-    if (root.crypto && root.crypto.getRandomValues) root.crypto.getRandomValues(bytes);
-    var hex = '';
-    for (var i = 0; i < bytes.length; i++) hex += ('0' + bytes[i].toString(16)).slice(-2);
-    return hex;
-  }
   function feedMissing(err) {
     var msg = (err && (err.message || err.details || err.hint || err.code)) || '';
-    return /schema cache|could not find|does not exist|PGRST205|42P01|calendar_feeds/i.test(String(msg));
+    return /schema cache|could not find|does not exist|PGRST202|PGRST205|42P01|calendar_feeds|calendar_feed_save/i.test(String(msg));
   }
   function feedLocal(err) {
     var e = err || new Error('The calendar link is saved on this device until the calendar feed SQL is applied.');
@@ -920,7 +942,7 @@
   function feedRow(data, preview) {
     return { token: data.token, timezone: data.time_zone, preview: !!preview };
   }
-  function saveCalendarFeed(zone, preferToken, reset) {
+  function saveCalendarFeed(zone, reset) {
     var tz = feedZone(zone);
     return db().then(function (c) {
       return c.auth.getSession().then(function (res) {
@@ -931,34 +953,17 @@
           signedOut.auth = true;
           throw signedOut;
         }
-        if (!reset) {
-          return c.from('calendar_feeds').select('token,time_zone').eq('user_id', user.id).maybeSingle().then(function (row) {
-            if (row.error) throw row.error;
-            if (row.data && row.data.token) return feedRow(row.data, false);
-            return insertCalendarFeed(c, user.id, feedToken(preferToken), tz);
-          });
-        }
-        return insertCalendarFeed(c, user.id, feedToken(''), tz, true);
+        return c.rpc('calendar_feed_save', { p_zone: tz, p_reset: !!reset }).then(function (out) {
+          if (out.error) throw out.error;
+          var data = out.data || {};
+          if (!data.token) throw new Error('Could not make the calendar link.');
+          return feedRow(data, false);
+        });
       });
     }).catch(function (err) {
       if (err && (err.local || err.auth)) throw err;
       if (feedMissing(err)) throw feedLocal();
       throw new Error((err && err.message) || 'Could not make the calendar link.');
-    });
-  }
-  function insertCalendarFeed(c, userId, token, tz, reset) {
-    var write = reset
-      ? c.from('calendar_feeds').upsert({ user_id: userId, token: token, time_zone: tz }, { onConflict: 'user_id' })
-      : c.from('calendar_feeds').insert({ user_id: userId, token: token, time_zone: tz });
-    return write.select('token,time_zone').single().then(function (ins) {
-      if (!ins.error) return feedRow(ins.data, false);
-      if (!reset && (ins.error.code === '23505' || /duplicate/i.test(ins.error.message || ''))) {
-        return c.from('calendar_feeds').select('token,time_zone').eq('user_id', userId).single().then(function (again) {
-          if (again.error) throw again.error;
-          return feedRow(again.data, false);
-        });
-      }
-      throw ins.error;
     });
   }
   function timeColumnMissing(err) {
@@ -1057,6 +1062,15 @@
       if (res.error) throw shareError(res.error);
       return res.data;
     });
+  }
+  function accessError(err) {
+    var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
+    if (/schema cache|could not find|does not exist|PGRST205|PGRST202|42P01|access_accounts|access_set/i.test(msg)) {
+      return new Error('Access approval is not available yet. Apply the access SQL in the Supabase SQL editor.');
+    }
+    if (/only the admin/i.test(msg)) return new Error('Only the admin can change access.');
+    if (/waiting for approval/i.test(msg)) return new Error('Your account is waiting for approval.');
+    return new Error(msg || 'Could not update access.');
   }
   function verificationError(err) {
     var msg = (err && (err.message || err.details || err.hint || err.code)) || '';

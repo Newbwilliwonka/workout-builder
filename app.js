@@ -271,7 +271,7 @@
   }
   var routeToken = 0;
   var cachedProfile = null, applyingCopies = false, copyStamp = {}, copySaveGen = {}, removedCopies = [], pullToken = 0, profileLookup = 0;
-  var profileGateOn = false, profileSheetRequired = false, profilePhotoBlob = null, profileObjectUrl = '', profileKeyBound = false;
+  var profileGateOn = false, accessWaitOn = false, profileSheetRequired = false, profilePhotoBlob = null, profileObjectUrl = '', profileKeyBound = false;
   var shareState = window.WBSharing ? WBSharing.initialState() : null;
   var shareUser = '', shareLoadGen = 0, shareSaveGen = 0, linkShareChoice = true;
   var shareLookup = null, shareSessionFlight = false, shareRetryTimer = null, shareRetryWait = 1000;
@@ -1062,7 +1062,7 @@
       var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass'), codeEl = document.getElementById('invite-code');
       var email = emailEl ? emailEl.value.trim() : '', password = passEl ? passEl.value : '';
       rememberCode(WBInvites.normalizeCode(codeEl ? codeEl.value : ''));
-      if (!email || password.length < 6) return renderSign(create ? 'up' : 'in', 'Enter your email and a password of at least 6 characters.', true);
+      if (!email || password.length < 10) return renderSign(create ? 'up' : 'in', 'Enter your email and a password of at least 10 characters.', true);
       authBusy = true; b.disabled = true;
       var startedOn = hashPage();
       var op = b.dataset.auth === 'up' ? WBAuth.signUp(email, password) : WBAuth.signIn(email, password);
@@ -1175,7 +1175,7 @@
       if (b.dataset.auth !== 'update-pass' || authBusy || !recoveryReady) return;
       var passEl = document.getElementById('new-pass'), confirmEl = document.getElementById('confirm-pass');
       var password = passEl ? passEl.value : '', confirm = confirmEl ? confirmEl.value : '';
-      if (password.length < 6) return renderReset('Enter a password of at least 6 characters.', true, password, confirm);
+      if (password.length < 10) return renderReset('Enter a password of at least 10 characters.', true, password, confirm);
       if (password !== confirm) return renderReset('Those passwords do not match.', true, password, confirm);
       authBusy = true; b.disabled = true;
       var started = hashPage();
@@ -1243,11 +1243,35 @@
       if (location.hash !== hash) location.hash = hash;
     }
   }
+  function accessApproved(profile, session) {
+    var email = session && session.user && session.user.email;
+    if (!email && profile) email = profile.email;
+    if (window.WBProfile && WBProfile.isAdminEmail(email)) return true;
+    if (!profile || profile.access_approved == null) return true;
+    return profile.access_approved === true;
+  }
+  function renderAccessWait() {
+    accessWaitOn = true;
+    titleEl.textContent = 'Waiting for access';
+    backBtn.hidden = true;
+    showHeaderSignIn(false);
+    app.innerHTML = '<div class="gate" id="access-wait"><h2>Waiting for access</h2><p class="lede">Your account is waiting for approval.</p><button type="button" class="pri" id="access-signout" style="width:100%">Sign out</button></div>';
+    syncHeaderSignOut();
+    app.onclick = function (e) {
+      if (e.target && e.target.closest && e.target.closest('#access-signout')) signOutFromAccount();
+    };
+    app.oninput = null;
+    app.onchange = null;
+  }
   function openSignedIn(token, requested, page) {
-    if (page === 'admin') return renderVerifications();
     loadGateProfile().then(function (gate) {
+      var sessionP = WBAuth.session ? WBAuth.session() : Promise.resolve(null);
+      return Promise.resolve(sessionP).then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
+      if (!accessApproved(gate.profile, session)) return renderAccessWait();
+      accessWaitOn = false;
       var profile = gate.profile;
+      if (page === 'admin') return renderAdmin();
       if (gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
       if (window.WBProfile && WBProfile.needsName(profile)) return showProfileGate(profile);
       profileGateOn = false;
@@ -1273,6 +1297,7 @@
         if (!(opened && opened.sourceTrainerId)) return renderLevelNote(profile);
       }
       showBuilder();
+      });
     });
   }
   function beginRecovery(token) {
@@ -1711,7 +1736,7 @@
   function syncHeaderSignOut() {
     var link = document.getElementById('account-signout');
     if (!link) return;
-    link.hidden = !(hashPage() === 'account' || profileGateOn);
+    link.hidden = !(hashPage() === 'account' || profileGateOn || accessWaitOn);
   }
   // Plain header link, same treatment as Sign out. Only the signed-out Subscriptions page shows it.
   function showHeaderSignIn(show) {
@@ -2057,6 +2082,7 @@
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
         if (profile) cachedProfile = profile;
+        if (!accessApproved(profile, session)) return renderAccessWait();
         var shown = profile || cachedProfile;
         if (window.WBProfile && WBMembership.hasDesignated(shown) && WBProfile.needsName(shown)) {
           showProfileGate(shown);
@@ -2204,11 +2230,11 @@
       '<button id="messages-nav" class="grow" type="button" data-go="messages">Messages</button>' +
       (trainerNav
         ? '<button id="send-nav" class="grow" type="button" data-go="send">Send workout</button>'
-        : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>') +
-      '</div>';
+        : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>');
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) {
-      h += '<p class="admin-link"><a id="admin-verifications" href="#/admin/verifications">Verifications</a><span class="admin-count" id="admin-count" hidden></span></p>';
+      h += '<button id="admin-open" class="grow" type="button" data-go="admin">Admin<span class="admin-count" id="admin-count" hidden></span></button>';
     }
+    h += '</div>';
     if (conn && conn.trainerId) h += redeemCard(conn, profile);
     var shareHere = !!(window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile) && conn && conn.trainerId);
     if (shareHere) h += '<div id="share-slot"></div>';
@@ -2224,6 +2250,7 @@
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (nav && nav.dataset.go === 'send') return go('#/send');
       if (nav && nav.dataset.go === 'received') return go('#/received');
+      if (nav && nav.dataset.go === 'admin') return go('#/admin');
       var viewBtn = e.target.closest('[data-client-view]');
       if (viewBtn) return go('#/client/' + viewBtn.getAttribute('data-client-view'));
       if (e.target.closest('#profile-open') || e.target.closest('#profile-edit')) return openProfileSheet(profile, { required: false });
@@ -2245,22 +2272,32 @@
     badge.textContent = String(count);
     badge.setAttribute('aria-label', count === 1 ? '1 pending' : (count + ' pending'));
   }
+  function pendingTotal(queue, accounts) {
+    var n = Array.isArray(queue) ? queue.length : 0;
+    (Array.isArray(accounts) ? accounts : []).forEach(function (row) {
+      if (row && row.approved === false) n += 1;
+    });
+    return n;
+  }
   function loadPendingCount() {
-    if (!WBAuth.verificationQueue) return;
     var token = routeToken;
-    var pending;
-    try { pending = WBAuth.verificationQueue(); }
-    catch (e) { paintPendingCount(0); return; }
-    Promise.resolve(pending).then(function (rows) {
+    var queueP = WBAuth.verificationQueue ? Promise.resolve().then(function () { return WBAuth.verificationQueue(); }) : Promise.resolve([]);
+    var accessP = WBAuth.accessAccounts ? Promise.resolve().then(function () { return WBAuth.accessAccounts(); }) : Promise.resolve([]);
+    Promise.all([
+      queueP.then(function (rows) { return rows; }, function () { return []; }),
+      accessP.then(function (rows) { return rows; }, function () { return []; })
+    ]).then(function (pair) {
       if (token !== routeToken || hashPage() !== 'account') return;
-      paintPendingCount(Array.isArray(rows) ? rows.length : 0);
-    }, function () {
-      if (token !== routeToken || hashPage() !== 'account') return;
-      paintPendingCount(0);
+      paintPendingCount(pendingTotal(pair[0], pair[1]));
     });
   }
-  function renderVerifications() {
-    titleEl.textContent = 'Verifications';
+  function byNewest(rows) {
+    return (Array.isArray(rows) ? rows.slice() : []).sort(function (a, b) {
+      return String((b && b.created_at) || '').localeCompare(String((a && a.created_at) || ''));
+    });
+  }
+  function renderAdmin() {
+    titleEl.textContent = 'Admin';
     backBtn.hidden = false;
     app.innerHTML = '<p class="mute">Loading…</p>';
     app.onclick = null;
@@ -2273,22 +2310,46 @@
         app.innerHTML = '<div class="card" id="verify-admin-denied"><div class="name">Only the admin can open this page</div></div>';
         return;
       }
-      if (!WBAuth.verificationQueue) {
-        app.innerHTML = '<div class="card" id="verify-wait"><div class="name">Not available yet</div><p class="mute">Verification is not available yet. Apply the verification SQL in the Supabase SQL editor.</p></div>';
-        return;
-      }
-      WBAuth.verificationQueue().then(function (rows) {
+      var queueP = WBAuth.verificationQueue
+        ? Promise.resolve().then(function () { return WBAuth.verificationQueue(); })
+        : Promise.resolve(null);
+      var accessP = WBAuth.accessAccounts
+        ? Promise.resolve().then(function () { return WBAuth.accessAccounts(); })
+        : Promise.resolve(null);
+      Promise.all([
+        queueP.then(function (rows) { return rows; }, function (err) { return { __err: err }; }),
+        accessP.then(function (rows) { return rows; }, function (err) { return { __err: err }; })
+      ]).then(function (pair) {
         if (hashPage() !== 'admin' || location.hash !== requested) return;
-        drawVerificationQueue(Array.isArray(rows) ? rows : []);
-      }, function (err) {
-        if (hashPage() !== 'admin' || location.hash !== requested) return;
-        app.innerHTML = '<div class="errs" id="verify-admin-error">' + esc((err && err.message) || 'Could not load verification requests.') + '</div>';
+        drawAdmin(pair[0], pair[1]);
       });
     }).catch(function () {
       if (hashPage() === 'admin') go('#/signin');
     });
   }
-  function drawVerificationQueue(rows) {
+  function accessCards(rows, waiting) {
+    var list = byNewest(rows).filter(function (row) {
+      return waiting ? row && row.approved === false : row && row.approved !== false;
+    });
+    if (!list.length) {
+      return '<div class="empty" id="' + (waiting ? 'access-waiting-empty' : 'access-approved-empty') + '">' +
+        (waiting ? 'No accounts are waiting.' : 'No approved accounts.') + '</div>';
+    }
+    var h = '';
+    list.forEach(function (row) {
+      var id = row.id;
+      var name = row.display_name || 'No name yet';
+      h += '<article class="card" data-account="' + esc(id) + '">';
+      h += '<div class="name">' + esc(name) + '</div>';
+      h += '<p class="mute">' + esc(row.email || '') + '</p>';
+      h += '<div class="actions">';
+      if (waiting) h += '<button type="button" class="pri" data-access="approve" data-id="' + esc(id) + '">Approve</button>';
+      h += '<button type="button" class="danger" data-access="remove" data-id="' + esc(id) + '">Remove access</button>';
+      h += '</div></article>';
+    });
+    return h;
+  }
+  function verificationCards(rows) {
     var h = '<div id="verify-queue">';
     if (!rows.length) h += '<div class="empty" id="verify-empty">No pending requests.</div>';
     rows.forEach(function (row) {
@@ -2311,8 +2372,39 @@
       h += '</div></article>';
     });
     h += '</div>';
+    return h;
+  }
+  function drawAdmin(queue, accounts) {
+    var queueRows = Array.isArray(queue) ? queue : [];
+    var accountRows = Array.isArray(accounts) ? accounts : [];
+    var h = '<div class="admin-page">';
+    h += '<section id="access-section"><h2>Access</h2>';
+    if (accounts && accounts.__err) {
+      h += '<div class="errs" id="access-admin-error">' + esc((accounts.__err && accounts.__err.message) || 'Could not load accounts.') + '</div>';
+    } else if (accounts == null) {
+      h += '<div class="card" id="access-unavailable"><div class="name">Not available yet</div><p class="mute">Access approval is not available yet. Apply the access SQL in the Supabase SQL editor.</p></div>';
+    } else {
+      h += '<h3>Waiting for approval</h3><div id="access-waiting">' + accessCards(accountRows, true) + '</div>';
+      h += '<h3>Approved</h3><div id="access-approved">' + accessCards(accountRows, false) + '</div>';
+    }
+    h += '</section>';
+    h += '<section id="verifications-section"><h2>Verifications</h2>';
+    if (!WBAuth.verificationQueue || queue == null) {
+      h += '<div class="card" id="verify-wait"><div class="name">Not available yet</div><p class="mute">Verification is not available yet. Apply the verification SQL in the Supabase SQL editor.</p></div>';
+    } else if (queue && queue.__err) {
+      h += '<div class="errs" id="verify-admin-error">' + esc((queue.__err && queue.__err.message) || 'Could not load verification requests.') + '</div>';
+    } else {
+      h += verificationCards(queueRows);
+    }
+    h += '</section></div>';
     app.innerHTML = h;
     app.onclick = function (e) {
+      var accessBtn = e.target.closest('[data-access]');
+      if (accessBtn && !accessBtn.disabled) {
+        var accessId = accessBtn.getAttribute('data-id');
+        var turnOn = accessBtn.getAttribute('data-access') === 'approve';
+        return setAccountAccess(accessId, turnOn);
+      }
       var btn = e.target.closest('[data-verify]');
       if (!btn || btn.disabled) return;
       var id = btn.getAttribute('data-id');
@@ -2340,12 +2432,23 @@
       }
     };
   }
+  function setAccountAccess(id, approved) {
+    if (!WBAuth.setAccess || !id) return;
+    var buttons = app.querySelectorAll('[data-access]');
+    Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
+    WBAuth.setAccess(id, approved).then(function () {
+      renderAdmin();
+    }, function (err) {
+      Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; });
+      app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not update access.') + '</div>');
+    });
+  }
   function reviewVerification(id, status, note) {
     if (!WBAuth.reviewVerification) return;
     var buttons = app.querySelectorAll('[data-verify]');
     Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
     WBAuth.reviewVerification(id, status, note).then(function () {
-      renderVerifications();
+      renderAdmin();
     }, function (err) {
       Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; });
       var errEl = document.getElementById('note-err-' + id);
@@ -2668,6 +2771,7 @@
     });
   }
   function route() {
+    accessWaitOn = false;
     capturePlayedSession();
     var token = ++routeToken;
     window.WBPlayer && WBPlayer.unmount();
