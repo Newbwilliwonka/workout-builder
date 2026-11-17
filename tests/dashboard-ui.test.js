@@ -146,9 +146,12 @@ async function openPage(browser, membership, payload) {
           window.__layoutReset = true;
           return Promise.resolve({ ok: true });
         };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'programEntries', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'shareSetting', 'programEntries', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
+        value.roster = function () {
+          return Promise.resolve(window.__roster || { clients: [] });
+        };
       }
     });
   }, payload || { sets: [], sessions: [], exercises: [], schedule: [] });
@@ -536,6 +539,38 @@ async function openPage(browser, membership, payload) {
   });
   assert.deepStrictEqual(raced.__errors, []);
   await raced.close();
+
+  const switched = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
+  await switched.evaluateOnNewDocument(function () {
+    window.__layoutState = { cards: ['volume', 'plan'] };
+    window.__roster = {
+      role: 'trainer',
+      clients: [{
+        id: '00000000-0000-4000-8000-000000000201',
+        display_name: 'Ada Client',
+        membership: 'free_client',
+        plan: 'Free Client'
+      }]
+    };
+  });
+  await switched.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await switched.waitForFunction(function () {
+    var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
+    return titles[0] === 'Total volume' && titles[1] === 'Hit the plan' && !document.getElementById('dashboard-records');
+  });
+  await switched.click('#client-pick [data-client="00000000-0000-4000-8000-000000000201"]');
+  await switched.waitForSelector('#dashboard-unavailable');
+  await switched.evaluate(function () { window.__layoutFail = true; });
+  await switched.click('#client-pick [data-client=""]');
+  await switched.waitForFunction(function () {
+    var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
+    return document.getElementById('toast').textContent.indexOf('Could not refresh') !== -1 &&
+      titles[0] === 'Total volume' && titles[1] === 'Hit the plan' && !document.getElementById('dashboard-records');
+  });
+  assert.deepStrictEqual(await switched.evaluate(function () { return window.__layoutState.cards; }), ['volume', 'plan']);
+  assert.strictEqual(await switched.evaluate(function () { return window.__saveCount || 0; }), 0);
+  assert.deepStrictEqual(switched.__errors, []);
+  await switched.close();
 
   console.log('DASHBOARD UI OK');
   await browser.close();

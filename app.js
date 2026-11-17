@@ -3022,6 +3022,7 @@
   var layoutWrite = Promise.resolve();
   var layoutLoaded = false;
   var layoutCanSave = false;
+  var ownLayoutOrder = null;
   function paintClientEditor() {
     if (!window.WBDashboard || !trainerModel) return;
     var self = !editorClient;
@@ -3031,23 +3032,27 @@
     });
     paintTracking('dashboard', body, true);
   }
-  // A failed read is not "never saved". Keep the last order we actually loaded,
-  // and do not write the standard layout over the stored one.
+  function rememberOwnOrder(order) {
+    ownLayoutOrder = Array.isArray(order) ? order.slice() : null;
+  }
+  // A failed read is not "never saved". Keep the last own-dashboard order.
+  // trainerOrder is also the client editor's working list, so it is not the fallback.
   function adoptOwnOrder(res) {
     if (!window.WBShares) {
       layoutCanSave = false;
-      return Array.isArray(trainerOrder) ? trainerOrder.slice() : [];
+      return Array.isArray(ownLayoutOrder) ? ownLayoutOrder.slice() : [];
     }
     if (!res || res.error) {
-      var keep = layoutLoaded && Array.isArray(trainerOrder);
+      var keep = layoutLoaded && Array.isArray(ownLayoutOrder);
       layoutCanSave = false;
       toast(keep ? 'Could not refresh your saved dashboard.' : 'Could not load your saved dashboard.');
-      return keep ? trainerOrder.slice() : WBShares.standard();
+      return keep ? ownLayoutOrder.slice() : WBShares.standard();
     }
     layoutLoaded = true;
     layoutCanSave = true;
-    if (!Array.isArray(res.cards)) return WBShares.standard();
-    return WBShares.orderOf(res.cards);
+    var order = Array.isArray(res.cards) ? WBShares.orderOf(res.cards) : WBShares.standard();
+    rememberOwnOrder(order);
+    return order;
   }
   function whenLayoutWritesFinish() {
     var seen = layoutWrite;
@@ -3078,6 +3083,7 @@
   }
   function applyTrainerOrder(next) {
     trainerOrder = next;
+    if (!editorClient) rememberOwnOrder(trainerOrder);
     paintClientEditor();
     if (!editorClient) saveOwnLayout(trainerOrder);
   }
@@ -3088,6 +3094,7 @@
       return;
     }
     trainerOrder = WBShares.standard();
+    rememberOwnOrder(trainerOrder);
     paintClientEditor();
     layoutWrite = layoutWrite.catch(function () { return null; }).then(function () {
       var pending;
