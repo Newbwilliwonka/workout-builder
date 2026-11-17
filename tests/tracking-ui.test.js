@@ -253,7 +253,7 @@ async function openPage(browser, membership, payload) {
       disabled: tab.disabled,
       opacity: style.opacity,
       lock: !!document.querySelector('[data-lock], .lock, .is-locked'),
-      passRate: text.indexOf('Stopwatch') >= 0 || text.indexOf('pass rate') >= 0,
+      passRate: text.indexOf('pass rate') >= 0,
       example: text.indexOf('Example data') >= 0,
       streak: !!document.getElementById('dashboard-streak'),
       buttons: document.querySelectorAll('#dashboard button, #dashboard input').length

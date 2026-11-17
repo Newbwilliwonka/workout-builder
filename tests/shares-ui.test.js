@@ -201,7 +201,7 @@ async function openPage(browser, cfg) {
   await trainer.click('#dash-edit');
   await trainer.waitForSelector('[data-card-up="volume"]');
   assert.strictEqual(await trainer.$eval('[data-card-up="plan"]', function (el) { return el.disabled; }), true);
-  assert.strictEqual(await trainer.$eval('[data-card-down="calendar"]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await trainer.$eval('[data-card-down="stopwatch"]', function (el) { return el.disabled; }), true);
   assert.strictEqual(await trainer.$('[data-drag]'), null);
   await trainer.click('[data-card-up="volume"]');
   await trainer.waitForFunction(function () {
@@ -232,6 +232,8 @@ async function openPage(browser, cfg) {
     'Total volume',
     'Strength and Capacity',
     'Consistency · November 2026',
+    'Static holds',
+    'Stopwatch',
     'Stopwatch pass rate'
   ]);
   assert.strictEqual(edited.note, 'Schedule workouts in the program calendar.');
@@ -573,7 +575,9 @@ async function openPage(browser, cfg) {
     'Strength and Capacity',
     'Total volume',
     'Recent personal records',
-    'Consistency · November 2026'
+    'Consistency · November 2026',
+    'Static holds',
+    'Stopwatch'
   ]);
   assert.strictEqual(own.buttons, 0);
   assert.strictEqual(own.count, '2');
@@ -609,7 +613,7 @@ async function openPage(browser, cfg) {
   assert.strictEqual(openedFan.buttons, 0);
   assert.strictEqual(openedFan.add, false);
   assert.strictEqual(openedFan.heading, false);
-  assert.strictEqual(openedFan.titles, 6);
+  assert.strictEqual(openedFan.titles, 8);
   assert.strictEqual(openedFan.count, '1');
   assert.strictEqual(openedFan.label, '1 shared dashboard');
   await shot(enthusiast, 'enthusiast-shared-open.png', true);

@@ -218,7 +218,7 @@
     return /dashboard_layouts|42P01|PGRST205|schema cache|does not exist/i.test(msg);
   }
   function layoutList(cards) {
-    var allow = (root.WBDashboard && root.WBDashboard.CARDS) || ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'pass'];
+    var allow = (root.WBDashboard && root.WBDashboard.CARDS) || ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'holds', 'stopwatch', 'pass'];
     var seen = {};
     var out = [];
     (cards || []).forEach(function (id) {
@@ -690,7 +690,7 @@
       input = input || {};
       if (!isUuid(input.clientId)) return Promise.resolve({ ok: false });
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.asOf || ''))) return Promise.resolve({ ok: false });
-      if (!Array.isArray(input.cards) || !input.cards.length || input.cards.length > 7) return Promise.resolve({ ok: false });
+      if (!Array.isArray(input.cards) || !input.cards.length || input.cards.length > 9) return Promise.resolve({ ok: false });
       var name = String(input.trainerName || '').replace(/^\s+|\s+$/g, '').slice(0, 80);
       if (!name || name.indexOf('@') !== -1) name = 'Trainer';
       return signedUser().then(function (ctx) {

@@ -59,7 +59,8 @@ grant execute on function auth.uid() to authenticated, anon, service_role;
   'supabase/migrations/20261116150000_shared_dashboards.sql',
   'supabase/migrations/20261116180000_share_inbox_any_client.sql',
   'supabase/migrations/20261116210000_hide_other_emails.sql',
-  'supabase/migrations/20261117010000_trainer_dashboard_layout.sql'
+  'supabase/migrations/20261117010000_trainer_dashboard_layout.sql',
+  'supabase/migrations/20261117120000_dashboard_holds_stopwatch.sql'
 ].forEach(function (file) { psql('wb_layout_test', null, path.join(root, file)); });
 
 psql('wb_layout_test', `
@@ -150,6 +151,26 @@ begin
   exception when others then
     if sqlerrm not like '%Each card is listed once%' then raise; end if;
   end;
+  update public.dashboard_layouts
+    set cards = '["plan","workouts","strength","volume","records","calendar","holds","stopwatch","pass"]'::jsonb
+    where user_id = '${T}';
+  if (select cards->>6 from public.dashboard_layouts where user_id = '${T}') is distinct from 'holds' then
+    raise exception 'static holds was not saved';
+  end if;
+  if (select cards->>7 from public.dashboard_layouts where user_id = '${T}') is distinct from 'stopwatch' then
+    raise exception 'stopwatch was not saved';
+  end if;
+  if jsonb_array_length((select cards from public.dashboard_layouts where user_id = '${T}')) <> 9 then
+    raise exception 'nine layout cards did not fit';
+  end if;
+  begin
+    update public.dashboard_layouts
+      set cards = '["plan","workouts","strength","volume","records","calendar","holds","stopwatch","pass","plan"]'::jsonb
+      where user_id = '${T}';
+    raise exception 'a tenth layout card was saved';
+  exception when others then
+    if sqlerrm not like '%Choose the cards%' and sqlerrm not like '%Each card is listed once%' then raise; end if;
+  end;
 end $$;
 delete from public.dashboard_layouts where user_id = '${T}';
 do $$
@@ -168,6 +189,8 @@ insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of
     {"type":"volume"},
     {"type":"records"},
     {"type":"calendar"},
+    {"type":"holds"},
+    {"type":"stopwatch"},
     {"type":"pass"}
   ]'::jsonb
 );
@@ -179,9 +202,25 @@ begin
   if (select trainer_name from public.shared_dashboards where client_id = '${C}') is distinct from 'Coach Lee' then
     raise exception 'email trainer name was stored';
   end if;
-  if jsonb_array_length((select cards from public.shared_dashboards where client_id = '${C}')) <> 7 then
-    raise exception 'seven cards did not fit';
+  if jsonb_array_length((select cards from public.shared_dashboards where client_id = '${C}')) <> 9 then
+    raise exception 'nine cards did not fit';
   end if;
+  if not exists (
+    select 1 from public.shared_dashboards
+    where client_id = '${C}'
+      and cards @> '[{"type":"holds"},{"type":"stopwatch"}]'::jsonb
+  ) then
+    raise exception 'holds and stopwatch were not shared';
+  end if;
+  begin
+    insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards) values (
+      '${C}', '${T}', 'Coach Lee', '2026-11-18',
+      '[{"type":"plan"},{"type":"workouts"},{"type":"strength"},{"type":"volume"},{"type":"records"},{"type":"calendar"},{"type":"holds"},{"type":"stopwatch"},{"type":"pass"},{"type":"plan"}]'::jsonb
+    );
+    raise exception 'a tenth shared card was stored';
+  exception when others then
+    if sqlerrm not like '%Choose the cards%' then raise; end if;
+  end;
   begin
     insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards) values (
       '${C}', '${T}', 'Coach Lee', '2026-11-17',

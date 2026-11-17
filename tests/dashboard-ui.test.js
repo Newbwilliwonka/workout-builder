@@ -208,7 +208,7 @@ async function openPage(browser, membership, payload) {
       sheetPos: sheet.position,
       sheetZ: sheet.zIndex,
       sheetBlur: sheet.backdropFilter,
-      pass: text.indexOf('pass rate') >= 0 || text.indexOf('Stopwatch') >= 0,
+      pass: text.indexOf('pass rate') >= 0,
       example: text.indexOf('Example data') >= 0 || text.indexOf('Test Person') >= 0 || text.indexOf('300') >= 0,
       removed: text.indexOf('300') >= 0,
       buttons: document.querySelectorAll('#dashboard button, #dashboard input, #dashboard [contenteditable]').length,
@@ -232,7 +232,9 @@ async function openPage(browser, membership, payload) {
     'Strength and Capacity',
     'Total volume',
     'Recent personal records',
-    'Consistency · November 2026'
+    'Consistency · November 2026',
+    'Static holds',
+    'Stopwatch'
   ]);
   assert.ok(filled.ringLabel.indexOf('65 percent') >= 0);
   assert.ok(filled.ringLabel.indexOf('Keep trying') >= 0);
@@ -242,6 +244,18 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(filled.sheetZ, '1');
   assert.strictEqual(filled.sheetBlur, 'none');
   assert.strictEqual(filled.pass, false);
+  const holdCard = await enthusiast.$eval('#dashboard-holds', function (el) { return el.innerText; });
+  const speedCard = await enthusiast.$eval('#dashboard-stopwatch', function (el) { return el.innerText; });
+  assert.ok(holdCard.indexOf('Plank') >= 0 && holdCard.indexOf('1:15') >= 0 && holdCard.indexOf('Nov 5') >= 0, holdCard);
+  assert.ok(holdCard.indexOf('0:45') < 0, holdCard);
+  assert.ok(speedCard.indexOf('Court sprint') >= 0 && speedCard.indexOf('01:12.40') >= 0 && speedCard.indexOf('Nov 14') >= 0, speedCard);
+  assert.ok(speedCard.indexOf('01:32') < 0, speedCard);
+  await enthusiast.$eval('#dashboard-holds', function (el) { el.scrollIntoView({ block: 'center' }); });
+  await (await enthusiast.$('#dashboard-holds')).screenshot({ path: path.join(OUT, 'static-holds-card.png'), type: 'png' });
+  await enthusiast.$eval('#dashboard-stopwatch', function (el) { el.scrollIntoView({ block: 'center' }); });
+  await (await enthusiast.$('#dashboard-stopwatch')).screenshot({ path: path.join(OUT, 'stopwatch-card.png'), type: 'png' });
+  assert.ok(fs.statSync(path.join(OUT, 'static-holds-card.png')).size > 1000);
+  assert.ok(fs.statSync(path.join(OUT, 'stopwatch-card.png')).size > 1000);
   assert.strictEqual(filled.example, false);
   assert.strictEqual(filled.buttons, 0);
   assert.strictEqual(filled.badgeHidden, true);
@@ -473,7 +487,18 @@ async function openPage(browser, membership, payload) {
   await self.click('#dash-edit');
   await self.waitForSelector('[data-card-remove="records"]');
   assert.strictEqual(await self.$eval('[data-card-up="plan"]', function (el) { return el.disabled; }), true);
-  assert.strictEqual(await self.$eval('[data-card-down="calendar"]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await self.$eval('[data-card-down="stopwatch"]', function (el) { return el.disabled; }), true);
+  assert.ok(await self.$('[data-card-add="pass"]'));
+  await self.click('[data-card-remove="holds"]');
+  await self.waitForSelector('[data-card-add="holds"]');
+  assert.strictEqual(await self.$eval('[data-card-add="holds"]', function (el) { return el.textContent; }), 'Static holds');
+  assert.strictEqual(await self.$('[data-card-add="stopwatch"]'), null);
+  await self.click('[data-card-remove="stopwatch"]');
+  await self.waitForSelector('[data-card-add="stopwatch"]');
+  assert.strictEqual(await self.$eval('[data-card-add="stopwatch"]', function (el) { return el.textContent; }), 'Stopwatch');
+  await self.click('[data-card-add="holds"]');
+  await self.click('[data-card-add="stopwatch"]');
+  await self.waitForSelector('#dashboard-stopwatch');
   assert.ok(await self.$('#dash-add'));
   assert.ok(await self.$('#dash-save'));
   await self.click('[data-card-remove="records"]');
