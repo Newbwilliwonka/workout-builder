@@ -121,9 +121,37 @@ async function openPage(browser, membership, payload) {
         value.mySchedule = function () {
           return Promise.resolve(window.__wbSchedulePayload);
         };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'programEntries', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
+        value.myDashboardLayout = function () {
+          window.__layoutReads = (window.__layoutReads || 0) + 1;
+          if (window.__layoutFail) return Promise.resolve({ error: true, cards: null });
+          if (!window.__layoutState) return Promise.resolve({ cards: null });
+          return Promise.resolve({ cards: window.__layoutState.cards });
+        };
+        value.saveDashboardLayout = function (cards) {
+          var finish = function () {
+            window.__layoutState = { cards: cards.slice() };
+            window.__layoutSaved = cards.slice();
+            window.__saveCount = (window.__saveCount || 0) + 1;
+            return { ok: true, cards: cards };
+          };
+          if (window.__layoutHoldSave) {
+            return new Promise(function (resolve) {
+              window.__layoutRelease = function () { resolve(finish()); };
+            });
+          }
+          return Promise.resolve(finish());
+        };
+        value.resetDashboardLayout = function () {
+          window.__layoutState = { cards: null };
+          window.__layoutReset = true;
+          return Promise.resolve({ ok: true });
+        };
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'shareSetting', 'programEntries', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
+        value.roster = function () {
+          return Promise.resolve(window.__roster || { clients: [] });
+        };
       }
     });
   }, payload || { sets: [], sessions: [], exercises: [], schedule: [] });
@@ -161,7 +189,8 @@ async function openPage(browser, membership, payload) {
       month: document.getElementById('dashboard-month').textContent,
       streak: document.querySelector('#dashboard-streak b').textContent,
       streakNote: document.getElementById('dashboard-streak-note').textContent,
-      goal: document.getElementById('dashboard-goal').textContent,
+      goal: document.getElementById('dashboard-goal') ? document.getElementById('dashboard-goal').textContent : '',
+      goalBars: document.querySelectorAll('#dashboard-goal-bars .db-bar').length,
       volume: document.getElementById('dashboard-volume-now').textContent,
       calendar: document.getElementById('dashboard-calendar-note').textContent,
       titles: titles,
@@ -185,12 +214,14 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(filled.month, '13');
   assert.strictEqual(filled.streak, '5');
   assert.strictEqual(filled.streakNote, '5 scheduled workout days in a row. Rest days do not break this streak.');
-  assert.strictEqual(filled.goal, "This week's goal: 4 workouts");
+  assert.strictEqual(filled.goal, '');
+  assert.strictEqual(filled.goalBars, 0);
   assert.ok(/kg this week$/.test(filled.volume));
   assert.strictEqual(filled.calendar, '12 training days so far this month');
   assert.deepStrictEqual(filled.titles, [
     'Hit the plan',
     'Workouts and streak',
+    'Strength and Capacity',
     'Total volume',
     'Recent personal records',
     'Consistency · November 2026'
@@ -274,15 +305,18 @@ async function openPage(browser, membership, payload) {
     return {
       sets: [],
       exercises: [],
-      programDrops: { 'pg-13': { at: dropAt, ownerId: 'test-enthusiast' } },
+      programDrops: {
+        'pg-13': { at: dropAt, ownerId: 'test-enthusiast' },
+        'pg-17': { at: dropAt, ownerId: 'test-enthusiast' }
+      },
       sessions: [
         { id: 's14', local_date: '2026-11-14', started_at: '2026-11-14T15:00:00.000Z', workout_name: 'Day', status: 'completed', program_id: 'pg-14', workout_id: 'wo' },
         { id: 's12', local_date: '2026-11-12', started_at: '2026-11-12T15:00:00.000Z', workout_name: 'Day', status: 'completed', program_id: 'pg-12', workout_id: 'wo' }
       ],
-      schedule: ['2026-11-14', '2026-11-13', '2026-11-12'].map(function (day, i) {
+      schedule: ['2026-11-18', '2026-11-17', '2026-11-16', '2026-11-14', '2026-11-13', '2026-11-12'].map(function (day, i) {
         return {
           id: '00000000-0000-4000-8000-00000000001' + (i + 1),
-          local_id: day === '2026-11-13' ? 'pg-13' : (day === '2026-11-14' ? 'pg-14' : 'pg-12'),
+          local_id: day === '2026-11-13' ? 'pg-13' : (day === '2026-11-17' ? 'pg-17' : ('pg-' + day.slice(8))),
           owner_id: 'test-enthusiast',
           workout_local_id: 'wo',
           day: day,
@@ -296,6 +330,8 @@ async function openPage(browser, membership, payload) {
   await dropped.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
   await dropped.waitForSelector('#dashboard-streak');
   assert.strictEqual(await dropped.$eval('#dashboard-streak b', function (el) { return el.textContent; }), '2');
+  assert.strictEqual(await dropped.$eval('#dashboard-goal', function (el) { return el.textContent; }), "This week's goal: 2 workouts");
+  assert.strictEqual(await dropped.$$eval('#dashboard-goal-bars .db-bar', function (els) { return els.length; }), 2);
   assert.deepStrictEqual(dropped.__errors, []);
   await dropped.close();
 
@@ -305,6 +341,236 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(await revived.$eval('#dashboard-streak b', function (el) { return el.textContent; }), '1');
   assert.deepStrictEqual(revived.__errors, []);
   await revived.close();
+
+  const LB = 0.45359237;
+  function tracked(id, date, hour) {
+    var parts = date.split('-');
+    return {
+      id: id,
+      local_date: date,
+      started_at: new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), hour, 0, 0).toISOString(),
+      workout_name: 'Day',
+      status: 'completed'
+    };
+  }
+  function logged(sessionId, lib, name, unit, kg, reps) {
+    const row = {
+      session_id: sessionId,
+      library_exercise_id: lib,
+      exercise_name: name,
+      mode: 'reps',
+      set_number: 1,
+      status: 'completed',
+      removed: false,
+      display_unit: unit,
+      actual_reps: reps,
+      planned_reps: reps
+    };
+    if (unit === 'bodyweight') {
+      row.actual_bodyweight = true;
+      row.planned_bodyweight = true;
+      row.actual_weight_kg = null;
+    } else {
+      row.actual_weight_kg = kg;
+      row.planned_weight_kg = kg;
+    }
+    return row;
+  }
+  const phone = await openPage(browser, 'enthusiast', {
+    sessions: [
+      tracked('sq-old', '2026-10-02', 8), tracked('sq-new', '2026-11-02', 8),
+      tracked('fs-old', '2026-10-03', 8), tracked('fs-new', '2026-11-03', 8),
+      tracked('pu-old', '2026-10-09', 8), tracked('pu-new', '2026-11-09', 8),
+      tracked('now', '2026-11-16', 9)
+    ],
+    sets: [
+      logged('sq-old', 'sq', 'Back squat', 'kg', 100, 5),
+      logged('sq-new', 'sq', 'Back squat', 'kg', 110, 5),
+      logged('fs-old', 'fs', 'Front squat', 'lb', 200 * LB, 8),
+      logged('fs-new', 'fs', 'Front squat', 'lb', 220 * LB, 8),
+      logged('pu-old', 'pu', 'Push-up', 'bodyweight', null, 100),
+      logged('pu-new', 'pu', 'Push-up', 'bodyweight', null, 101)
+    ],
+    exercises: [],
+    schedule: [
+      { id: '00000000-0000-4000-8000-000000000101', local_id: 'pg-16', owner_id: 'test-enthusiast', workout_local_id: 'wo', day: '2026-11-16', presence: 'solo', updated_at: '2026-11-01T00:00:00.000Z' },
+      { id: '00000000-0000-4000-8000-000000000102', local_id: 'pg-18', owner_id: 'test-enthusiast', workout_local_id: 'wo', day: '2026-11-18', presence: 'solo', updated_at: '2026-11-01T00:00:00.000Z' },
+      { id: '00000000-0000-4000-8000-000000000103', local_id: 'pg-19', owner_id: 'test-enthusiast', workout_local_id: 'wo', day: '2026-11-19', presence: 'solo', updated_at: '2026-11-01T00:00:00.000Z' },
+      { id: '00000000-0000-4000-8000-000000000104', local_id: 'pg-20', owner_id: 'test-enthusiast', workout_local_id: 'wo', day: '2026-11-20', presence: 'solo', updated_at: '2026-11-01T00:00:00.000Z' },
+      { id: '00000000-0000-4000-8000-000000000105', local_id: 'pg-12', owner_id: 'test-enthusiast', workout_local_id: 'wo', day: '2026-11-12', presence: 'solo', updated_at: '2026-11-01T00:00:00.000Z' }
+    ],
+    programDrops: { 'pg-19': { at: Date.parse('2026-11-15T12:00:00Z'), ownerId: 'test-enthusiast' } }
+  });
+  await phone.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await phone.waitForSelector('#dashboard-strength');
+  await phone.waitForSelector('#dashboard-goal');
+  const shown = await phone.evaluate(function () {
+    var sheet = getComputedStyle(document.getElementById('dashboard-sheet'));
+    var bars = Array.prototype.map.call(document.querySelectorAll('#dashboard-strength .db-gain'), function (el) {
+      var fill = el.querySelector('.db-gain-fill');
+      return {
+        name: el.querySelector('.name').textContent,
+        rating: el.getAttribute('data-rating'),
+        text: el.querySelector('.db-gain-pct').textContent,
+        color: getComputedStyle(el.querySelector('.db-gain-pct')).color,
+        width: fill.style.width
+      };
+    });
+    return {
+      goal: document.getElementById('dashboard-goal').textContent,
+      segments: document.querySelectorAll('#dashboard-goal-bars .db-bar').length,
+      filled: document.querySelectorAll('#dashboard-goal-bars .db-bar.on').length,
+      sheetBg: sheet.backgroundColor,
+      share: !!document.getElementById('dash-share'),
+      add: !!document.getElementById('dash-add'),
+      bars: bars
+    };
+  });
+  assert.strictEqual(shown.goal, "This week's goal: 3 workouts");
+  assert.strictEqual(shown.segments, 3);
+  assert.strictEqual(shown.filled, 1);
+  const sheetCss = await phone.evaluate(function () {
+    return fetch('style.css').then(function (res) { return res.text(); });
+  });
+  assert.ok(/\.db-sheet\{[^}]*rgba\(30,41,59,\.069\)/.test(sheetCss), 'sheet fill is 0.06 * 1.15');
+  assert.strictEqual(shown.sheetBg, 'rgba(30, 41, 59, 0.07)');
+  assert.strictEqual(shown.share, false);
+  assert.strictEqual(shown.add, false);
+  assert.deepStrictEqual(shown.bars.map(function (row) { return row.name + ' ' + row.rating; }), [
+    'Back squat Elite',
+    'Front squat Elite',
+    'Push-up Good'
+  ]);
+  assert.ok(shown.bars.every(function (row) { return row.width === '50%' || row.width === '5%'; }));
+  assert.strictEqual(shown.bars[0].color, shown.bars[1].color);
+  assert.notStrictEqual(shown.bars[0].color, shown.bars[2].color);
+  assert.ok((await phone.$eval('#dashboard-strength', function (el) { return el.innerText; })).indexOf('200 lb to 220 lb') >= 0);
+  await shot(phone, 'dashboard-phone-strength.png', true);
+  assert.deepStrictEqual(phone.__errors, []);
+  await phone.close();
+
+  const self = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
+  await self.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await self.waitForSelector('#dash-reset');
+  await self.waitForSelector('#client-pick [aria-selected="true"]');
+  assert.strictEqual(await self.$eval('#client-pick [aria-selected="true"]', function (el) { return el.textContent; }), 'Me · Test Person');
+  assert.strictEqual(await self.$('#dash-share'), null);
+  await self.click('[data-card-remove="records"]');
+  await self.waitForFunction(function () {
+    return window.__layoutSaved && window.__layoutSaved.indexOf('records') < 0 && !document.getElementById('dashboard-records');
+  });
+  await self.click('[data-card-up="volume"]');
+  await self.waitForFunction(function () {
+    var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
+    return titles[2] === 'Total volume' && window.__layoutSaved && window.__layoutSaved[2] === 'volume';
+  });
+  const custom = await self.evaluate(function () {
+    return {
+      titles: Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; }),
+      saved: window.__layoutSaved,
+      share: !!document.getElementById('dash-share'),
+      reset: document.getElementById('dash-reset').textContent,
+      me: document.querySelector('#client-pick [aria-selected="true"]').textContent
+    };
+  });
+  assert.deepStrictEqual(custom.me, 'Me · Test Person');
+  assert.strictEqual(custom.share, false);
+  assert.strictEqual(custom.reset, 'Reset to standard');
+  assert.ok(custom.saved.indexOf('records') < 0);
+  assert.strictEqual(custom.saved[2], 'volume');
+  await self.evaluate(function () {
+    var bar = document.querySelector('header.bar');
+    if (bar) bar.style.position = 'static';
+  });
+  await shot(self, 'trainer-own-dashboard.png', true);
+  await self.click('#tracking-tab-history');
+  await self.waitForSelector('#history-empty');
+  await self.click('#tracking-tab-dashboard');
+  await self.waitForFunction(function () {
+    return !document.getElementById('dashboard-records') && document.getElementById('dash-reset');
+  });
+  await self.click('#dash-reset');
+  await self.waitForFunction(function () {
+    return window.__layoutReset === true && !!document.getElementById('dashboard-records');
+  });
+  assert.strictEqual(await self.evaluate(function () { return window.__layoutState.cards; }), null);
+  assert.deepStrictEqual(self.__errors, []);
+  await self.close();
+
+  const blocked = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
+  await blocked.evaluateOnNewDocument(function () {
+    window.__layoutState = { cards: ['volume', 'plan'] };
+    window.__layoutFail = true;
+  });
+  await blocked.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await blocked.waitForSelector('#dashboard-records');
+  await blocked.click('[data-card-remove="records"]');
+  await blocked.waitForFunction(function () {
+    return document.getElementById('toast').textContent.indexOf('so this change was not saved') !== -1;
+  });
+  assert.deepStrictEqual(await blocked.evaluate(function () { return window.__layoutState.cards; }), ['volume', 'plan']);
+  assert.strictEqual(await blocked.evaluate(function () { return window.__saveCount || 0; }), 0);
+  await blocked.click('#dash-reset');
+  assert.strictEqual(await blocked.$('#dashboard-records'), null);
+  assert.notStrictEqual(await blocked.evaluate(function () { return window.__layoutReset; }), true);
+  assert.deepStrictEqual(await blocked.evaluate(function () { return window.__layoutState.cards; }), ['volume', 'plan']);
+  assert.deepStrictEqual(blocked.__errors, []);
+  await blocked.close();
+
+  const raced = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
+  await raced.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await raced.waitForSelector('[data-card-remove="records"]');
+  await raced.evaluate(function () { window.__layoutHoldSave = true; });
+  await raced.click('[data-card-remove="records"]');
+  await raced.waitForFunction(function () { return !document.getElementById('dashboard-records'); });
+  await raced.click('#tracking-tab-history');
+  await raced.waitForSelector('#history-empty');
+  await raced.click('#tracking-tab-dashboard');
+  await raced.waitForSelector('#dashboard[aria-busy="true"]');
+  assert.strictEqual(await raced.evaluate(function () { return window.__saveCount || 0; }), 0);
+  await raced.evaluate(function () { window.__layoutRelease(); window.__layoutHoldSave = false; });
+  await raced.waitForFunction(function () {
+    return document.getElementById('dash-reset') && !document.getElementById('dashboard-records') && window.__saveCount === 1;
+  });
+  await raced.click('[data-card-remove="volume"]');
+  await raced.waitForFunction(function () {
+    var cards = window.__layoutState && window.__layoutState.cards;
+    return cards && cards.indexOf('volume') < 0 && cards.indexOf('records') < 0 && window.__saveCount === 2;
+  });
+  assert.deepStrictEqual(raced.__errors, []);
+  await raced.close();
+
+  const switched = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
+  await switched.evaluateOnNewDocument(function () {
+    window.__layoutState = { cards: ['volume', 'plan'] };
+    window.__roster = {
+      role: 'trainer',
+      clients: [{
+        id: '00000000-0000-4000-8000-000000000201',
+        display_name: 'Ada Client',
+        membership: 'free_client',
+        plan: 'Free Client'
+      }]
+    };
+  });
+  await switched.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await switched.waitForFunction(function () {
+    var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
+    return titles[0] === 'Total volume' && titles[1] === 'Hit the plan' && !document.getElementById('dashboard-records');
+  });
+  await switched.click('#client-pick [data-client="00000000-0000-4000-8000-000000000201"]');
+  await switched.waitForSelector('#dashboard-unavailable');
+  await switched.evaluate(function () { window.__layoutFail = true; });
+  await switched.click('#client-pick [data-client=""]');
+  await switched.waitForFunction(function () {
+    var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
+    return document.getElementById('toast').textContent.indexOf('Could not refresh') !== -1 &&
+      titles[0] === 'Total volume' && titles[1] === 'Hit the plan' && !document.getElementById('dashboard-records');
+  });
+  assert.deepStrictEqual(await switched.evaluate(function () { return window.__layoutState.cards; }), ['volume', 'plan']);
+  assert.strictEqual(await switched.evaluate(function () { return window.__saveCount || 0; }), 0);
+  assert.deepStrictEqual(switched.__errors, []);
+  await switched.close();
 
   console.log('DASHBOARD UI OK');
   await browser.close();

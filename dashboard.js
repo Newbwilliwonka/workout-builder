@@ -6,8 +6,9 @@
 (function (root) {
   'use strict';
   var LB_TO_KG = 0.45359237;
-  var WEEK_GOAL = 4;
   var RECENT_LIMIT = 8;
+  // A gain bar is full at this percent. Larger increases stay full.
+  var GAIN_FULL = 20;
   var RATINGS = [
     { min: 90, label: 'Elite', color: '#0F766E' },
     { min: 80, label: 'Excellent', color: '#16A34A' },
@@ -272,6 +273,25 @@
     var rating = ratingFor(pct);
     return { total: total, hits: hits, pct: pct, rating: rating };
   }
+  // Workouts on the same calendar the streak uses, for the Monday–Sunday
+  // week that contains now. A removed day is already absent from entries.
+  function scheduledThisWeek(entries, now) {
+    var start = weekStart(now);
+    if (!start) return 0;
+    var end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+    var startIso = iso(start);
+    var endIso = iso(end);
+    var n = 0;
+    var seen = {};
+    (entries || []).forEach(function (entry) {
+      if (!entry || !entry.date || entry.date < startIso || entry.date >= endIso) return;
+      var token = entry.id + '@' + entry.date;
+      if (seen[token]) return;
+      seen[token] = 1;
+      n++;
+    });
+    return n;
+  }
   function workoutBlock(sessions, entries, now) {
     var today = iso(now);
     var start = weekStart(now);
@@ -292,8 +312,123 @@
     return {
       week: week,
       month: monthCount,
-      goal: WEEK_GOAL,
+      goal: scheduledThisWeek(entries, now),
       streak: streakCount(entries, sessions, today)
+    };
+  }
+  // History groups a library exercise by its library id, otherwise by the
+  // typed-in exercise id. The same rule decides one exercise here.
+  function historyKey(set) {
+    if (!set) return '';
+    if (set.libraryExerciseId) return 'lib-' + set.libraryExerciseId;
+    if (set.personalExerciseId) return 'own-' + set.personalExerciseId;
+    return '';
+  }
+  function gainColor(label) {
+    var i;
+    for (i = 0; i < RATINGS.length; i++) if (RATINGS[i].label === label) return RATINGS[i].color;
+    return '#0F766E';
+  }
+  // >0 up to 1 Good, >1 up to 5 Excellent, >5 up to 10 Elite, above 10 Alien.
+  // Alien uses the Elite color. A zero or a drop is not a rating.
+  function gainRating(pct) {
+    if (!(pct > 0)) return null;
+    if (pct <= 1) return { label: 'Good', color: gainColor('Good') };
+    if (pct <= 5) return { label: 'Excellent', color: gainColor('Excellent') };
+    if (pct <= 10) return { label: 'Elite', color: gainColor('Elite') };
+    return { label: 'Alien', color: gainColor('Elite') };
+  }
+  function pctRound(pct) { return Math.round(Number(pct) * 10000) / 10000; }
+  function loggedWeight(set) {
+    if (!set || set.status !== 'completed') return null;
+    var kg = num(set.actualWeightKg);
+    return kg > 0 ? kg : null;
+  }
+  function loggedReps(set) {
+    if (!set || set.status !== 'completed') return null;
+    var reps = num(set.actualReps);
+    return reps > 0 ? reps : null;
+  }
+  function displayUnitOf(set) {
+    if (!set || set.displayUnit === 'bodyweight') return 'kg';
+    return set.displayUnit === 'lb' ? 'lb' : 'kg';
+  }
+  function bestMetric(rows, read) {
+    var best = null;
+    var named = null;
+    rows.forEach(function (set) {
+      var value = read(set);
+      if (!(value > 0)) return;
+      var better = best == null || value > best + 1e-9;
+      var tied = best != null && Math.abs(value - best) <= 1e-9;
+      var later = tied && named && (set.localDate > named.localDate || (set.localDate === named.localDate && timeOf(set) >= timeOf(named)));
+      if (better || later) {
+        best = value;
+        named = set;
+      }
+    });
+    return { value: best, set: named };
+  }
+  function weightDetail(prev, cur) {
+    var unit = displayUnitOf(cur.set);
+    var fromKg = prev.value;
+    var toKg = cur.value;
+    var from = unit === 'lb' ? fromKg / LB_TO_KG : fromKg;
+    var to = unit === 'lb' ? toKg / LB_TO_KG : toKg;
+    if (!trim(from) || !trim(to)) return '';
+    return trim(from) + ' ' + unit + ' to ' + trim(to) + ' ' + unit;
+  }
+  function repsDetail(prev, cur) {
+    return trim(prev.value) + ' reps to ' + trim(cur.value) + ' reps';
+  }
+  function leaders(sets, now, read, detailOf) {
+    var month = monthKey(now);
+    var groups = {};
+    var order = [];
+    sets.forEach(function (set) {
+      if (!set || set.mode !== 'reps' || set.status !== 'completed') return;
+      var key = historyKey(set);
+      if (!key) return;
+      if (!groups[key]) {
+        groups[key] = { month: [], prior: [] };
+        order.push(key);
+      }
+      var ym = String(set.localDate || '').slice(0, 7);
+      if (ym === month) groups[key].month.push(set);
+      else if (ym < month) groups[key].prior.push(set);
+    });
+    var rows = [];
+    order.forEach(function (key) {
+      var group = groups[key];
+      if (!group.month.length || !group.prior.length) return;
+      var cur = bestMetric(group.month, read);
+      var prev = bestMetric(group.prior, read);
+      if (!(cur.value > 0) || !(prev.value > 0) || !(cur.value > prev.value)) return;
+      var pct = pctRound(((cur.value - prev.value) / prev.value) * 100);
+      var rating = gainRating(pct);
+      if (!rating) return;
+      var named = cur.set || prev.set;
+      rows.push({
+        key: key,
+        name: named && named.exerciseName ? named.exerciseName : 'Exercise',
+        pct: pct,
+        rating: rating,
+        detail: detailOf(prev, cur)
+      });
+    });
+    if (!rows.length) return [];
+    var top = rows[0].pct;
+    rows.forEach(function (row) { if (row.pct > top) top = row.pct; });
+    return rows.filter(function (row) { return Math.abs(row.pct - top) <= 1e-6; }).sort(function (a, b) {
+      if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+      if (a.key !== b.key) return a.key < b.key ? -1 : 1;
+      return 0;
+    });
+  }
+  function strengthBlock(sets, now) {
+    return {
+      weight: leaders(sets, now, loggedWeight, weightDetail),
+      reps: leaders(sets, now, loggedReps, repsDetail)
     };
   }
   function setVolume(set) {
@@ -501,6 +636,7 @@
       plan: planBlock(sets, now),
       workouts: workoutBlock(sessions, entries, now),
       volume: volumeBlock(sets, now),
+      strength: strengthBlock(sets, now),
       records: recordBlock(sets, now),
       calendar: calendarBlock(sessions, now),
       pass: passBlock(sets, now)
@@ -575,12 +711,14 @@
       h += '<div class="db-stat" id="dashboard-streak"><b>' + block.streak + '</b><span>Scheduled streak</span></div>';
     }
     h += '</div>';
-    var done = Math.min(block.week, block.goal);
-    h += '<p class="db-note" id="dashboard-goal">This week\'s goal: ' + block.goal + ' workouts</p>';
-    h += '<div class="db-bars" role="img" aria-label="' + block.week + ' workouts this week. Goal is ' + block.goal + '.">';
-    var i;
-    for (i = 0; i < block.goal; i++) h += '<span class="db-bar' + (i < done ? ' on' : '') + '"></span>';
-    h += '</div>';
+    if (block.goal > 0) {
+      var done = Math.min(block.week, block.goal);
+      h += '<p class="db-note" id="dashboard-goal">This week\'s goal: ' + block.goal + ' workouts</p>';
+      h += '<div class="db-bars" id="dashboard-goal-bars" role="img" aria-label="' + block.week + ' workouts this week. Goal is ' + block.goal + '.">';
+      var i;
+      for (i = 0; i < block.goal; i++) h += '<span class="db-bar' + (i < done ? ' on' : '') + '"></span>';
+      h += '</div>';
+    }
     if (block.streak != null) {
       var days = block.streak === 1 ? '1 scheduled workout day' : block.streak + ' scheduled workout days';
       h += '<p class="db-note" id="dashboard-streak-note">' + days + ' in a row. Rest days do not break this streak.</p>';
@@ -627,6 +765,44 @@
       }
     }
     return h + '</svg>';
+  }
+  function pctText(pct) {
+    var rounded = Math.round(Number(pct) * 10) / 10;
+    if (!isFinite(rounded)) return '0';
+    if (Math.abs(rounded - Math.round(rounded)) < 0.001) return String(Math.round(rounded));
+    return rounded.toFixed(1);
+  }
+  function barWidth(pct) {
+    var w = (Math.min(Math.max(Number(pct) || 0, 0), GAIN_FULL) / GAIN_FULL) * 100;
+    return Math.round(w * 10) / 10;
+  }
+  function gainRows(rows, section) {
+    if (!rows || !rows.length) {
+      return '<p class="db-note" id="dashboard-' + section + '-empty">No gains yet this month</p>';
+    }
+    var h = '<ul class="db-gains" id="dashboard-' + section + '-list">';
+    rows.forEach(function (row) {
+      var rating = row.rating || gainRating(row.pct) || { label: '', color: '#6b7280' };
+      var width = barWidth(row.pct);
+      var label = row.name + ', ' + pctText(row.pct) + ' percent, ' + (rating.label || '');
+      h += '<li class="db-gain" data-rating="' + esc(rating.label) + '" data-pct="' + esc(pctText(row.pct)) + '">';
+      h += '<div class="db-gain-top"><span class="name">' + esc(row.name) + '</span>';
+      h += '<span class="db-gain-pct" style="color:' + esc(rating.color) + '">' + esc(pctText(row.pct)) + '% · ' + esc(rating.label) + '</span></div>';
+      if (row.detail) h += '<p class="db-gain-meta">' + esc(row.detail) + '</p>';
+      h += '<div class="db-gain-track" role="img" aria-label="' + esc(label) + '">';
+      h += '<span class="db-gain-fill" style="width:' + width + '%;background:' + esc(rating.color) + '"></span></div></li>';
+    });
+    return h + '</ul>';
+  }
+  function strengthHtml(block) {
+    block = block || { weight: [], reps: [] };
+    var h = '<section class="db-sec" id="dashboard-strength" aria-labelledby="dashboard-strength-title">';
+    h += '<h2 class="db-label" id="dashboard-strength-title">Strength and Capacity</h2>';
+    h += '<h3 class="db-sub" id="dashboard-strength-weight-title">Strength</h3>';
+    h += gainRows(block.weight, 'strength-weight');
+    h += '<h3 class="db-sub" id="dashboard-strength-reps-title">Capacity</h3>';
+    h += gainRows(block.reps, 'strength-reps');
+    return h + '</section>';
   }
   function volumeHtml(block) {
     var h = '<section class="db-sec" id="dashboard-volume" aria-labelledby="dashboard-volume-title">';
@@ -699,6 +875,7 @@
     return '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' +
       planHtml(model.plan) +
       workoutsHtml(model.workouts) +
+      strengthHtml(model.strength) +
       volumeHtml(model.volume) +
       recordsHtml(model.records) +
       calendarHtml(model.calendar) +
@@ -710,12 +887,13 @@
   var CARD_LABEL = {
     plan: 'Hit the plan',
     workouts: 'Workouts and streak',
+    strength: 'Strength and Capacity',
     volume: 'Total volume',
     records: 'Recent personal records',
     calendar: 'Consistency',
     pass: 'Stopwatch pass rate'
   };
-  var STANDARD = ['plan', 'workouts', 'volume', 'records', 'calendar'];
+  var STANDARD = ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar'];
   var CARD_ALL = STANDARD.concat(['pass']);
   function keptOrder(order) {
     var seen = {};
@@ -730,7 +908,8 @@
   function cardSection(id, model, opts) {
     model = model || {};
     if (id === 'plan') return planHtml(model.plan || { total: 0, hits: 0, pct: null, rating: null });
-    if (id === 'workouts') return workoutsHtml(model.workouts || { week: 0, month: 0, goal: WEEK_GOAL, streak: null }, opts);
+    if (id === 'workouts') return workoutsHtml(model.workouts || { week: 0, month: 0, goal: 0, streak: null }, opts);
+    if (id === 'strength') return strengthHtml(model.strength || { weight: [], reps: [] });
     if (id === 'volume') return volumeHtml(model.volume || { weekKg: 0, weeks: [] });
     if (id === 'records') return recordsHtml(model.records || []);
     if (id === 'calendar') return model.calendar && Array.isArray(model.calendar.cells) ? calendarHtml(model.calendar) : '';
@@ -762,6 +941,16 @@
   function copyWeeks(weeks) {
     return (weeks || []).map(function (week) {
       return { start: week.start, label: week.label, kg: week.kg };
+    });
+  }
+  function copyGains(rows) {
+    return (rows || []).map(function (row) {
+      return {
+        name: row.name,
+        pct: row.pct,
+        rating: row.rating ? { label: row.rating.label, color: row.rating.color } : null,
+        detail: row.detail || ''
+      };
     });
   }
   function copyRecords(rows) {
@@ -804,12 +993,20 @@
     keptOrder(order).forEach(function (id) {
       if (id === 'plan') cards.push({ type: 'plan', plan: copyPlan(model.plan) });
       else if (id === 'workouts') {
-        var block = model.workouts || { week: 0, month: 0, goal: WEEK_GOAL, streak: null };
+        var block = model.workouts || { week: 0, month: 0, goal: 0, streak: null };
         cards.push({
           type: 'workouts',
           scheduleNote: block.streak == null,
-          workouts: { week: block.week || 0, month: block.month || 0, goal: block.goal || WEEK_GOAL, streak: block.streak == null ? null : block.streak }
+          workouts: {
+            week: block.week || 0,
+            month: block.month || 0,
+            goal: block.goal > 0 ? block.goal : 0,
+            streak: block.streak == null ? null : block.streak
+          }
         });
+      } else if (id === 'strength') {
+        var gained = model.strength || { weight: [], reps: [] };
+        cards.push({ type: 'strength', strength: { weight: copyGains(gained.weight), reps: copyGains(gained.reps) } });
       } else if (id === 'volume') {
         var volume = model.volume || { weekKg: 0, weeks: [] };
         cards.push({ type: 'volume', volume: { weekKg: volume.weekKg || 0, weeks: copyWeeks(volume.weeks) } });
@@ -843,6 +1040,7 @@
     if (!card) return model;
     if (card.type === 'plan') model.plan = card.plan;
     if (card.type === 'workouts') model.workouts = card.workouts;
+    if (card.type === 'strength') model.strength = card.strength;
     if (card.type === 'volume') model.volume = card.volume;
     if (card.type === 'records') model.records = card.records;
     if (card.type === 'calendar') model.calendar = card.calendar;
@@ -884,7 +1082,8 @@
       var opts = id === 'workouts' ? { scheduleNote: !model || !model.workouts || model.workouts.streak == null } : null;
       return withEdit(cardSection(id, model, opts), id, index, ids.length);
     }).join('');
-    if (!sections) sections = '<p class="db-note" id="dashboard-no-cards">Add a card to share.</p>';
+    var self = !!(opts && opts.self);
+    if (!sections) sections = '<p class="db-note" id="dashboard-no-cards">' + (self ? 'Add a card.' : 'Add a card to share.') + '</p>';
     var missing = CARD_ALL.filter(function (id) { return ids.indexOf(id) < 0; });
     var add = '';
     if (missing.length) {
@@ -894,10 +1093,12 @@
       });
       add += '</div></div>';
     }
-    var canShare = !opts || opts.share !== false;
-    var shareBtn = canShare
-      ? '<button type="button" class="pri" id="dash-share"' + (ids.length ? '' : ' disabled') + '>Share</button>'
-      : '<p class="db-note" id="dash-share-none">This client keeps their own live dashboard.</p>';
+    var canShare = !self && (!opts || opts.share !== false);
+    var shareBtn = self
+      ? '<button type="button" id="dash-reset">Reset to standard</button>'
+      : (canShare
+        ? '<button type="button" class="pri" id="dash-share"' + (ids.length ? '' : ' disabled') + '>Share</button>'
+        : '<p class="db-note" id="dash-share-none">This client keeps their own live dashboard.</p>');
     return '<div id="dash-editor">' + shareBtn + add + '</div>' +
       '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' + sections + '</div></div>';
   }
@@ -906,6 +1107,7 @@
     allowed: allowed,
     hitPlan: hitPlan,
     ratingFor: ratingFor,
+    gainRating: gainRating,
     build: build,
     html: html,
     unavailableHtml: unavailableHtml,
@@ -916,7 +1118,6 @@
     STANDARD: STANDARD,
     CARDS: CARD_ALL,
     CARD_LABEL: CARD_LABEL,
-    WEEK_GOAL: WEEK_GOAL,
     RATINGS: RATINGS
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
