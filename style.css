@@ -429,8 +429,8 @@ button.hx-row .name{font-size:16px}
 .hx-lap i{margin-left:auto;color:var(--mute);font-style:normal;font-size:13px}
 .hx-counts{margin-top:8px;font-weight:600;font-size:14px}
 .hx-events li{font-size:14px;padding:2px 0}
-/* Standard dashboard: one translucent sheet on the app background. */
-.db-sheet{background:rgba(30,41,59,.16);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(17,24,39,.12);border-radius:16px;overflow:hidden}
+/* Sheet sits above the fixed app background (body::before is z-index -1). A light slate tint only: no blur veil and no pseudo-element over the cards. */
+.db-sheet{position:relative;z-index:1;background:rgba(30,41,59,.06);border:1px solid rgba(17,24,39,.12);border-radius:16px;overflow:hidden}
 .db-sec{padding:14px;border-bottom:1px solid rgba(17,24,39,.14)}
 .db-sec:last-child{border-bottom:0}
 .db-label{margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}

@@ -168,6 +168,9 @@ async function openPage(browser, membership, payload) {
       ringLabel: ring.getAttribute('aria-label'),
       chartRows: document.querySelectorAll('#dashboard-volume-table tbody tr').length,
       sheetBg: sheet.backgroundColor,
+      sheetPos: sheet.position,
+      sheetZ: sheet.zIndex,
+      sheetBlur: sheet.backdropFilter,
       pass: text.indexOf('pass rate') >= 0 || text.indexOf('Stopwatch') >= 0,
       example: text.indexOf('Example data') >= 0 || text.indexOf('Test Person') >= 0 || text.indexOf('300') >= 0,
       removed: text.indexOf('300') >= 0,
@@ -196,6 +199,9 @@ async function openPage(browser, membership, payload) {
   assert.ok(filled.ringLabel.indexOf('Keep trying') >= 0);
   assert.strictEqual(filled.chartRows, 8);
   assert.ok(filled.sheetBg.indexOf('rgba(30, 41, 59') === 0, filled.sheetBg);
+  assert.strictEqual(filled.sheetPos, 'relative');
+  assert.strictEqual(filled.sheetZ, '1');
+  assert.strictEqual(filled.sheetBlur, 'none');
   assert.strictEqual(filled.pass, false);
   assert.strictEqual(filled.example, false);
   assert.strictEqual(filled.buttons, 0);
