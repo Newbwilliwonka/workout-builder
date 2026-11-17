@@ -229,12 +229,10 @@ async function openPage(browser, membership, payload) {
   assert.deepStrictEqual(filled.titles, [
     'Hit the plan',
     'Workouts and streak',
-    'Strength and Capacity',
     'Total volume',
-    'Recent personal records',
+    'Strength and Capacity',
     'Consistency · November 2026',
-    'Static holds',
-    'Stopwatch'
+    'Static holds'
   ]);
   assert.ok(filled.ringLabel.indexOf('65 percent') >= 0);
   assert.ok(filled.ringLabel.indexOf('Keep trying') >= 0);
@@ -245,20 +243,21 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(filled.sheetBlur, 'none');
   assert.strictEqual(filled.pass, false);
   const holdCard = await enthusiast.$eval('#dashboard-holds', function (el) { return el.innerText; });
-  const speedCard = await enthusiast.$eval('#dashboard-stopwatch', function (el) { return el.innerText; });
+  assert.strictEqual(await enthusiast.$('#dashboard-stopwatch'), null);
+  assert.strictEqual(await enthusiast.$('#dashboard-records'), null);
+  assert.strictEqual(await enthusiast.$('#dashboard-pass'), null);
   assert.ok(holdCard.indexOf('Plank') >= 0 && holdCard.indexOf('1:15') >= 0 && holdCard.indexOf('Nov 5') >= 0, holdCard);
   assert.ok(holdCard.indexOf('0:45') < 0, holdCard);
-  assert.ok(speedCard.indexOf('Court sprint') >= 0 && speedCard.indexOf('01:12.40') >= 0 && speedCard.indexOf('Nov 14') >= 0, speedCard);
-  assert.ok(speedCard.indexOf('01:32') < 0, speedCard);
   await enthusiast.$eval('#dashboard-holds', function (el) { el.scrollIntoView({ block: 'center' }); });
   await (await enthusiast.$('#dashboard-holds')).screenshot({ path: path.join(OUT, 'static-holds-card.png'), type: 'png' });
-  await enthusiast.$eval('#dashboard-stopwatch', function (el) { el.scrollIntoView({ block: 'center' }); });
-  await (await enthusiast.$('#dashboard-stopwatch')).screenshot({ path: path.join(OUT, 'stopwatch-card.png'), type: 'png' });
   assert.ok(fs.statSync(path.join(OUT, 'static-holds-card.png')).size > 1000);
-  assert.ok(fs.statSync(path.join(OUT, 'stopwatch-card.png')).size > 1000);
   assert.strictEqual(filled.example, false);
   assert.strictEqual(filled.buttons, 0);
   assert.strictEqual(filled.badgeHidden, true);
+  await enthusiast.evaluate(function () {
+    var bar = document.querySelector('header.bar');
+    if (bar) bar.style.position = 'static';
+  });
   await shot(enthusiast, 'dashboard-enthusiast.png', true);
   assert.deepStrictEqual(enthusiast.__errors, []);
   await enthusiast.close();
@@ -484,19 +483,21 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(await self.$('#dash-add'), null);
   assert.strictEqual(await self.$('[data-card-remove]'), null);
   assert.strictEqual(await self.$('[data-drag]'), null);
+  assert.strictEqual(await self.$('#dashboard-records'), null);
+  assert.strictEqual(await self.$('#dashboard-stopwatch'), null);
+  assert.strictEqual(await self.$('#dashboard-pass'), null);
   await self.click('#dash-edit');
-  await self.waitForSelector('[data-card-remove="records"]');
+  await self.waitForSelector('[data-card-add="records"]');
   assert.strictEqual(await self.$eval('[data-card-up="plan"]', function (el) { return el.disabled; }), true);
-  assert.strictEqual(await self.$eval('[data-card-down="stopwatch"]', function (el) { return el.disabled; }), true);
-  assert.ok(await self.$('[data-card-add="pass"]'));
+  assert.strictEqual(await self.$eval('[data-card-down="holds"]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await self.$eval('[data-card-add="records"]', function (el) { return el.textContent; }), 'Recent personal records');
+  assert.strictEqual(await self.$eval('[data-card-add="stopwatch"]', function (el) { return el.textContent; }), 'Stopwatch');
+  assert.strictEqual(await self.$eval('[data-card-add="pass"]', function (el) { return el.textContent; }), 'Stopwatch pass rate');
   await self.click('[data-card-remove="holds"]');
   await self.waitForSelector('[data-card-add="holds"]');
   assert.strictEqual(await self.$eval('[data-card-add="holds"]', function (el) { return el.textContent; }), 'Static holds');
-  assert.strictEqual(await self.$('[data-card-add="stopwatch"]'), null);
-  await self.click('[data-card-remove="stopwatch"]');
-  await self.waitForSelector('[data-card-add="stopwatch"]');
-  assert.strictEqual(await self.$eval('[data-card-add="stopwatch"]', function (el) { return el.textContent; }), 'Stopwatch');
   await self.click('[data-card-add="holds"]');
+  await self.click('[data-card-add="records"]');
   await self.click('[data-card-add="stopwatch"]');
   await self.waitForSelector('#dashboard-stopwatch');
   assert.ok(await self.$('#dash-add'));
@@ -515,11 +516,11 @@ async function openPage(browser, membership, payload) {
   await self.click('[data-card-up="volume"]');
   await self.waitForFunction(function () {
     var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
-    return titles[2] === 'Total volume' && window.__layoutSaved && window.__layoutSaved[2] !== 'volume';
+    return titles[1] === 'Total volume' && window.__layoutSaved && window.__layoutSaved[1] !== 'volume';
   });
   await self.click('#dash-save');
   await self.waitForFunction(function () {
-    return window.__layoutSaved && window.__layoutSaved[2] === 'volume' && !document.getElementById('dash-save');
+    return window.__layoutSaved && window.__layoutSaved[1] === 'volume' && !document.getElementById('dash-save');
   });
   const custom = await self.evaluate(function () {
     return {
@@ -538,7 +539,8 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(custom.edit, 'Edit');
   assert.strictEqual(custom.tools, false);
   assert.ok(custom.saved.indexOf('records') < 0);
-  assert.strictEqual(custom.saved[2], 'volume');
+  assert.ok(custom.saved.indexOf('stopwatch') >= 0);
+  assert.strictEqual(custom.saved[1], 'volume');
   await self.evaluate(function () {
     var bar = document.querySelector('header.bar');
     if (bar) bar.style.position = 'static';
@@ -548,15 +550,52 @@ async function openPage(browser, membership, payload) {
   await self.waitForSelector('#history-empty');
   await self.click('#tracking-tab-dashboard');
   await self.waitForFunction(function () {
-    return !document.getElementById('dashboard-records') && document.getElementById('dash-reset');
+    return !document.getElementById('dashboard-records') &&
+      !!document.getElementById('dashboard-stopwatch') &&
+      document.getElementById('dash-reset');
   });
   await self.click('#dash-reset');
   await self.waitForFunction(function () {
-    return window.__layoutReset === true && !!document.getElementById('dashboard-records');
+    return window.__layoutReset === true &&
+      !document.getElementById('dashboard-records') &&
+      !document.getElementById('dashboard-stopwatch') &&
+      !document.getElementById('dashboard-pass') &&
+      !!document.getElementById('dashboard-holds') &&
+      !!document.getElementById('dashboard-volume');
   });
   assert.strictEqual(await self.evaluate(function () { return window.__layoutState.cards; }), null);
+  const resetTitles = await self.evaluate(function () {
+    return Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
+  });
+  assert.deepStrictEqual(resetTitles, [
+    'Hit the plan',
+    'Workouts and streak',
+    'Total volume',
+    'Strength and Capacity',
+    'Consistency · November 2026',
+    'Static holds'
+  ]);
   assert.deepStrictEqual(self.__errors, []);
   await self.close();
+
+  const kept = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
+  await kept.evaluateOnNewDocument(function () {
+    window.__layoutState = { cards: ['records', 'stopwatch', 'pass', 'holds'] };
+  });
+  await kept.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await kept.waitForSelector('#dashboard-pass');
+  const keptTitles = await kept.evaluate(function () {
+    return Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
+  });
+  assert.deepStrictEqual(keptTitles, [
+    'Recent personal records',
+    'Stopwatch',
+    'Stopwatch pass rate',
+    'Static holds'
+  ]);
+  assert.strictEqual(await kept.$('#dashboard-plan'), null);
+  assert.deepStrictEqual(kept.__errors, []);
+  await kept.close();
 
   const blocked = await openPage(browser, 'trainer', { sets: [], sessions: [], exercises: [], schedule: [] });
   await blocked.evaluateOnNewDocument(function () {
@@ -564,10 +603,11 @@ async function openPage(browser, membership, payload) {
     window.__layoutFail = true;
   });
   await blocked.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
-  await blocked.waitForSelector('#dashboard-records');
+  await blocked.waitForSelector('#dashboard-holds');
+  assert.strictEqual(await blocked.$('#dashboard-records'), null);
   await blocked.click('#dash-edit');
-  await blocked.waitForSelector('[data-card-remove="records"]');
-  await blocked.click('[data-card-remove="records"]');
+  await blocked.waitForSelector('[data-card-remove="holds"]');
+  await blocked.click('[data-card-remove="holds"]');
   await blocked.click('#dash-save');
   await blocked.waitForFunction(function () {
     return document.getElementById('toast').textContent.indexOf('so this change was not saved') !== -1;
@@ -575,7 +615,7 @@ async function openPage(browser, membership, payload) {
   assert.deepStrictEqual(await blocked.evaluate(function () { return window.__layoutState.cards; }), ['volume', 'plan']);
   assert.strictEqual(await blocked.evaluate(function () { return window.__saveCount || 0; }), 0);
   await blocked.click('#dash-reset');
-  assert.strictEqual(await blocked.$('#dashboard-records'), null);
+  assert.strictEqual(await blocked.$('#dashboard-holds'), null);
   assert.notStrictEqual(await blocked.evaluate(function () { return window.__layoutReset; }), true);
   assert.deepStrictEqual(await blocked.evaluate(function () { return window.__layoutState.cards; }), ['volume', 'plan']);
   assert.deepStrictEqual(blocked.__errors, []);
@@ -585,10 +625,10 @@ async function openPage(browser, membership, payload) {
   await raced.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
   await raced.waitForSelector('#dash-edit');
   await raced.click('#dash-edit');
-  await raced.waitForSelector('[data-card-remove="records"]');
+  await raced.waitForSelector('[data-card-remove="holds"]');
   await raced.evaluate(function () { window.__layoutHoldSave = true; });
-  await raced.click('[data-card-remove="records"]');
-  await raced.waitForFunction(function () { return !document.getElementById('dashboard-records') && !window.__saveCount; });
+  await raced.click('[data-card-remove="holds"]');
+  await raced.waitForFunction(function () { return !document.getElementById('dashboard-holds') && !window.__saveCount; });
   await raced.click('#dash-save');
   await raced.click('#tracking-tab-history');
   await raced.waitForSelector('#history-empty');
@@ -597,7 +637,7 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(await raced.evaluate(function () { return window.__saveCount || 0; }), 0);
   await raced.evaluate(function () { window.__layoutRelease(); window.__layoutHoldSave = false; });
   await raced.waitForFunction(function () {
-    return document.getElementById('dash-reset') && !document.getElementById('dashboard-records') && window.__saveCount === 1;
+    return document.getElementById('dash-reset') && !document.getElementById('dashboard-holds') && window.__saveCount === 1;
   });
   await raced.click('#dash-edit');
   await raced.waitForSelector('[data-card-remove="volume"]');
@@ -605,7 +645,7 @@ async function openPage(browser, membership, payload) {
   await raced.click('#dash-save');
   await raced.waitForFunction(function () {
     var cards = window.__layoutState && window.__layoutState.cards;
-    return cards && cards.indexOf('volume') < 0 && cards.indexOf('records') < 0 && window.__saveCount === 2;
+    return cards && cards.indexOf('volume') < 0 && cards.indexOf('holds') < 0 && window.__saveCount === 2;
   });
   assert.deepStrictEqual(raced.__errors, []);
   await raced.close();

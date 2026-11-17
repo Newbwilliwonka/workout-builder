@@ -230,12 +230,15 @@ const page = D.html(rest);
 assert.ok(page.indexOf('pass rate') < 0);
 assert.ok(page.indexOf('id="dashboard-pass"') < 0);
 assert.ok(page.indexOf('No holds yet.') >= 0);
-assert.ok(page.indexOf('No times yet.') >= 0);
+assert.ok(page.indexOf('No times yet.') < 0);
+assert.ok(page.indexOf('Recent personal records') < 0);
+assert.ok(page.indexOf('id="dashboard-stopwatch"') < 0);
+assert.ok(page.indexOf('id="dashboard-records"') < 0);
 assert.ok(page.indexOf('Example data') < 0);
 assert.ok(page.indexOf('<button') < 0);
 assert.ok(page.indexOf('<input') < 0);
 assert.ok(page.indexOf('id="dashboard-sheet"') >= 0);
-var order = ['Hit the plan', 'Workouts and streak', 'Strength and Capacity', 'Total volume', 'Recent personal records', 'Consistency · November 2026', 'Static holds', 'Stopwatch'].map(function (label) {
+var order = ['Hit the plan', 'Workouts and streak', 'Total volume', 'Strength and Capacity', 'Consistency · November 2026', 'Static holds'].map(function (label) {
   return page.indexOf(label);
 });
 assert.ok(order.every(function (at) { return at >= 0; }));
@@ -479,9 +482,13 @@ const editorHtml = D.editorHtml({ strength: stored.cards[0].strength, workouts: 
 assert.deepStrictEqual(fillWidths(editorHtml), ['50', '100', '100']);
 assert.ok(editorHtml.indexOf('>15% · Alien<') >= 0);
 
-assert.deepStrictEqual(D.STANDARD.slice(-2), ['holds', 'stopwatch']);
-assert.deepStrictEqual(D.CARDS, D.STANDARD.concat(['pass']));
+assert.deepStrictEqual(D.STANDARD, ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds']);
+assert.deepStrictEqual(D.CARDS, ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass']);
 assert.strictEqual(D.CARDS.length, 9);
+['records', 'stopwatch', 'pass'].forEach(function (id) {
+  assert.ok(D.CARDS.indexOf(id) >= 0);
+  assert.ok(D.STANDARD.indexOf(id) < 0);
+});
 
 function hold(over) {
   return set(Object.assign({
@@ -531,14 +538,21 @@ assert.ok(!bests.stopwatch.some(function (row) { return row.name === 'Skipped sp
 const bestsHtml = D.html(bests);
 assert.ok(bestsHtml.indexOf('No holds yet.') < 0);
 assert.ok(bestsHtml.indexOf('No times yet.') < 0);
+assert.ok(bestsHtml.indexOf('id="dashboard-stopwatch"') < 0);
+assert.ok(bestsHtml.indexOf('id="dashboard-records"') < 0);
 assert.ok(bestsHtml.indexOf('id="dashboard-calendar"') < bestsHtml.indexOf('id="dashboard-holds"'));
-assert.ok(bestsHtml.indexOf('id="dashboard-holds"') < bestsHtml.indexOf('id="dashboard-stopwatch"'));
 assert.ok(bestsHtml.indexOf('pass rate') < 0);
+const pickedTimes = D.editorHtml(bests, ['holds', 'stopwatch', 'records', 'pass'], { self: true });
+assert.ok(pickedTimes.indexOf('No times yet.') < 0);
+assert.ok(pickedTimes.indexOf('id="dashboard-holds"') < pickedTimes.indexOf('id="dashboard-stopwatch"'));
+assert.ok(pickedTimes.indexOf('id="dashboard-records"') >= 0);
+assert.ok(pickedTimes.indexOf('id="dashboard-pass"') >= 0);
 const quietTimes = model([set()], [session('s1', '2026-11-10')]);
 assert.deepStrictEqual(quietTimes.holds, []);
 assert.deepStrictEqual(quietTimes.stopwatch, []);
 assert.strictEqual((D.html(quietTimes).match(/No holds yet\./g) || []).length, 1);
-assert.strictEqual((D.html(quietTimes).match(/No times yet\./g) || []).length, 1);
+assert.strictEqual((D.html(quietTimes).match(/No times yet\./g) || []).length, 0);
+assert.strictEqual((D.editorHtml(quietTimes, ['stopwatch'], { self: true }).match(/No times yet\./g) || []).length, 1);
 assert.deepStrictEqual(fixture.holds.map(function (row) { return [row.name, row.value, row.dateLabel]; }), [['Plank', '1:15', 'Nov 5']]);
 assert.deepStrictEqual(fixture.stopwatch.map(function (row) { return [row.name, row.value, row.dateLabel]; }), [['Court sprint', '01:12.40', 'Nov 14']]);
 const frozenBests = D.freeze(bests, ['holds', 'stopwatch'], { asOf: '2026-11-16', trainerName: 'coach@example.com' });
