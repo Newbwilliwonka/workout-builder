@@ -233,15 +233,16 @@ assert.ok(page.indexOf('Example data') < 0);
 assert.ok(page.indexOf('<button') < 0);
 assert.ok(page.indexOf('<input') < 0);
 assert.ok(page.indexOf('id="dashboard-sheet"') >= 0);
-var order = ['Hit the plan', 'Workouts and streak', 'Total volume', 'Recent personal records', 'Consistency · November 2026'].map(function (label) {
+var order = ['Hit the plan', 'Workouts and streak', 'Strength and Capacity', 'Total volume', 'Recent personal records', 'Consistency · November 2026'].map(function (label) {
   return page.indexOf(label);
 });
 assert.ok(order.every(function (at) { return at >= 0; }));
 assert.deepStrictEqual(order, order.slice().sort(function (a, b) { return a - b; }));
 assert.ok(page.indexOf('id="dashboard-streak"') >= 0);
 assert.ok(page.indexOf('Rest days do not break this streak.') >= 0);
-assert.ok(page.indexOf('This week\'s goal: 4 workouts') >= 0);
-assert.ok(page.indexOf('aria-label="0 workouts this week. Goal is 4."') >= 0);
+assert.strictEqual(rest.workouts.goal, 0, 'last week\'s calendar days are not this week\'s goal');
+assert.ok(page.indexOf('id="dashboard-goal"') < 0);
+assert.ok(page.indexOf('db-bar') < 0);
 assert.ok(page.indexOf('Kilograms lifted, last eight weeks') >= 0);
 assert.ok(page.indexOf('Kilograms lifted by week, last eight weeks') >= 0);
 const hidden = D.html(none);
@@ -307,5 +308,138 @@ const recent = model(nine, nineSessions);
 assert.strictEqual(recent.records.length, 8);
 assert.strictEqual(recent.records[0].name, 'Record 8');
 assert.ok(!recent.records.some(function (row) { return row.name === 'Record 0'; }));
+
+const LB = 0.45359237;
+const weekGoal = model(
+  [set({ sessionId: 'd16', localDate: '2026-11-16' })],
+  [session('d16', '2026-11-16')],
+  [
+    { id: 'a', date: '2026-11-16', workoutId: 'wo' },
+    { id: 'b', date: '2026-11-18', workoutId: 'wo' },
+    { id: 'c', date: '2026-11-18', workoutId: 'wo2' },
+    { id: 'old', date: '2026-11-12', workoutId: 'wo' },
+    { id: 'next', date: '2026-11-23', workoutId: 'wo' },
+    { id: 'a', date: '2026-11-16', workoutId: 'wo' }
+  ]
+);
+assert.strictEqual(weekGoal.workouts.goal, 3, 'two on Wednesday count, a duplicate and other weeks do not');
+assert.strictEqual(weekGoal.workouts.week, 1);
+const goalHtml = D.html(weekGoal);
+assert.ok(goalHtml.indexOf("This week's goal: 3 workouts") >= 0);
+assert.strictEqual((goalHtml.match(/class="db-bar(?: on)?"/g) || []).length, 3);
+assert.strictEqual((goalHtml.match(/class="db-bar on"/g) || []).length, 1);
+const droppedGoal = model(
+  [set({ sessionId: 'd16', localDate: '2026-11-16' })],
+  [session('d16', '2026-11-16')],
+  [
+    { id: 'keep', date: '2026-11-16', workoutId: 'wo' },
+    { id: 'keep2', date: '2026-11-19', workoutId: 'wo' }
+  ]
+);
+assert.strictEqual(droppedGoal.workouts.goal, 2, 'a removed calendar day is not in the entries the streak uses');
+const frozenGoal = D.freeze(weekGoal, ['workouts'], { asOf: '2026-11-16', trainerName: 'Coach Lee' });
+weekGoal.workouts.goal = 9;
+assert.strictEqual(frozenGoal.cards[0].workouts.goal, 3);
+assert.ok(D.snapshotHtml(frozenGoal).indexOf("This week's goal: 3 workouts") >= 0);
+const hiddenGoal = D.freeze(rest, ['workouts'], { asOf: '2026-11-16', trainerName: 'Coach Lee' });
+assert.strictEqual(hiddenGoal.cards[0].workouts.goal, 0);
+assert.ok(D.snapshotHtml(hiddenGoal).indexOf('id="dashboard-goal"') < 0);
+
+assert.strictEqual(D.gainRating(0.1).label, 'Good');
+assert.strictEqual(D.gainRating(1).label, 'Good');
+assert.strictEqual(D.gainRating(1).color, '#2563EB');
+assert.strictEqual(D.gainRating(1.0001).label, 'Excellent');
+assert.strictEqual(D.gainRating(5).label, 'Excellent');
+assert.strictEqual(D.gainRating(5).color, '#16A34A');
+assert.strictEqual(D.gainRating(5.0001).label, 'Elite');
+assert.strictEqual(D.gainRating(10).label, 'Elite');
+assert.strictEqual(D.gainRating(10).color, '#0F766E');
+assert.strictEqual(D.gainRating(10.0001).label, 'Alien');
+assert.strictEqual(D.gainRating(10.0001).color, D.gainRating(10).color);
+assert.strictEqual(D.gainRating(0), null);
+assert.strictEqual(D.gainRating(-3), null);
+
+function reps(over) {
+  return set(Object.assign({ mode: 'reps', status: 'completed', actualReps: 5, actualWeightKg: 100 }, over));
+}
+const movers = model([
+  reps({ sessionId: 'sq-old', localDate: '2026-10-02', libraryExerciseId: 'sq', exerciseName: 'Back squat', actualWeightKg: 100, actualReps: 5 }),
+  reps({ sessionId: 'sq-new', localDate: '2026-11-02', libraryExerciseId: 'sq', exerciseName: 'Back squat', actualWeightKg: 110, actualReps: 5 }),
+  reps({ sessionId: 'fs-old', localDate: '2026-10-03', libraryExerciseId: 'fs', exerciseName: 'Front squat', displayUnit: 'lb', actualWeightKg: 200 * LB, actualReps: 8 }),
+  reps({ sessionId: 'fs-new', localDate: '2026-11-03', libraryExerciseId: 'fs', exerciseName: 'Front squat', displayUnit: 'lb', actualWeightKg: 220 * LB, actualReps: 8 }),
+  reps({ sessionId: 'row-old', localDate: '2026-10-04', libraryExerciseId: 'row', exerciseName: 'Row', actualWeightKg: 50, actualReps: 10 }),
+  reps({ sessionId: 'row-new', localDate: '2026-11-04', libraryExerciseId: 'row', exerciseName: 'Row', actualWeightKg: 51, actualReps: 10 }),
+  reps({ sessionId: 'dl-old', localDate: '2026-10-05', libraryExerciseId: 'dl', exerciseName: 'Deadlift', actualWeightKg: 140, actualReps: 3 }),
+  reps({ sessionId: 'dl-new', localDate: '2026-11-05', libraryExerciseId: 'dl', exerciseName: 'Deadlift', actualWeightKg: 130, actualReps: 3 }),
+  reps({ sessionId: 'lu-new', localDate: '2026-11-06', libraryExerciseId: 'lu', exerciseName: 'Lunge', actualWeightKg: 40, actualReps: 12 }),
+  reps({ sessionId: 'zero-old', localDate: '2026-10-07', libraryExerciseId: 'zero', exerciseName: 'Zero', actualWeightKg: 0, actualReps: 5 }),
+  reps({ sessionId: 'zero-new', localDate: '2026-11-07', libraryExerciseId: 'zero', exerciseName: 'Zero', actualWeightKg: 40, actualReps: 5 }),
+  reps({ sessionId: 'tm-old', localDate: '2026-10-08', libraryExerciseId: 'tm', exerciseName: 'Timer press', mode: 'timer', actualWeightKg: 10, actualReps: 10 }),
+  reps({ sessionId: 'tm-new', localDate: '2026-11-08', libraryExerciseId: 'tm', exerciseName: 'Timer press', mode: 'timer', actualWeightKg: 80, actualReps: 40 }),
+  reps({ sessionId: 'iv-old', localDate: '2026-10-08', libraryExerciseId: 'iv', exerciseName: 'Intervals', mode: 'intervals', actualWeightKg: 10, actualReps: 10 }),
+  reps({ sessionId: 'iv-new', localDate: '2026-11-08', libraryExerciseId: 'iv', exerciseName: 'Intervals', mode: 'intervals', actualWeightKg: 80, actualReps: 40 }),
+  reps({ sessionId: 'sw-old', localDate: '2026-10-08', libraryExerciseId: 'sw', exerciseName: 'Sprint', mode: 'stopwatch', actualWeightKg: null, actualReps: null }),
+  reps({ sessionId: 'sw-new', localDate: '2026-11-08', libraryExerciseId: 'sw', exerciseName: 'Sprint', mode: 'stopwatch', actualWeightKg: null, actualReps: 30 }),
+  reps({
+    sessionId: 'pu-old', localDate: '2026-10-09', libraryExerciseId: 'pu', exerciseName: 'Push-up',
+    displayUnit: 'bodyweight', plannedBodyweight: true, actualBodyweight: true, actualWeightKg: null, actualReps: 100
+  }),
+  reps({
+    sessionId: 'pu-new', localDate: '2026-11-09', libraryExerciseId: 'pu', exerciseName: 'Push-up',
+    displayUnit: 'bodyweight', plannedBodyweight: true, actualBodyweight: true, actualWeightKg: null, actualReps: 101
+  }),
+  reps({ sessionId: 'nm-old', localDate: '2026-10-01', libraryExerciseId: 'same', exerciseName: 'Old name', actualWeightKg: 80, actualReps: 6 }),
+  reps({ sessionId: 'nm-new', localDate: '2026-11-01', libraryExerciseId: 'same', exerciseName: 'New name', actualWeightKg: 80, actualReps: 6 }),
+  reps({ sessionId: 'cap-old', localDate: '2026-10-11', libraryExerciseId: 'cap', exerciseName: 'Curl', actualWeightKg: 20, actualReps: 8 }),
+  reps({ sessionId: 'cap-new', localDate: '2026-11-11', libraryExerciseId: 'cap', exerciseName: 'Curl', actualWeightKg: 20, actualReps: 12 })
+], [session('movers', '2026-11-11')]);
+assert.deepStrictEqual(movers.strength.weight.map(function (row) { return row.name; }), ['Back squat', 'Front squat']);
+assert.ok(movers.strength.weight.every(function (row) { return row.pct === 10 && row.rating.label === 'Elite'; }));
+assert.ok(movers.strength.weight.some(function (row) { return row.detail === '100 kg to 110 kg'; }));
+assert.ok(movers.strength.weight.some(function (row) { return row.detail === '200 lb to 220 lb'; }));
+assert.ok(!movers.strength.weight.some(function (row) { return row.name === 'Row' || row.name === 'Deadlift' || row.name === 'Lunge' || row.name === 'Zero' || row.name === 'Push-up' || row.name === 'Timer press'; }));
+assert.deepStrictEqual(movers.strength.reps.map(function (row) { return [row.name, row.pct, row.rating.label]; }), [['Curl', 50, 'Alien']]);
+assert.strictEqual(movers.strength.reps[0].rating.color, '#0F766E');
+assert.ok(movers.strength.reps[0].detail.indexOf('8 reps to 12 reps') >= 0);
+const moveHtml = D.html(movers);
+assert.ok(moveHtml.indexOf('width:50%') >= 0, '10% is half of the 20% bar');
+assert.ok(moveHtml.indexOf('width:100%') >= 0, 'a gain past 20% fills the bar');
+assert.ok(moveHtml.indexOf('>10% · Elite<') >= 0);
+assert.ok(moveHtml.indexOf('>50% · Alien<') >= 0);
+assert.ok(moveHtml.indexOf('No gains yet this month') < 0);
+const quietGains = model([
+  reps({ sessionId: 'flat-old', localDate: '2026-10-02', libraryExerciseId: 'flat', actualWeightKg: 40, actualReps: 8 }),
+  reps({ sessionId: 'flat-new', localDate: '2026-11-02', libraryExerciseId: 'flat', actualWeightKg: 40, actualReps: 8 })
+], [session('flat', '2026-11-02')]);
+const quietHtml = D.html(quietGains);
+assert.ok(quietHtml.indexOf('id="dashboard-strength-weight-empty"') >= 0);
+assert.ok(quietHtml.indexOf('id="dashboard-strength-reps-empty"') >= 0);
+assert.strictEqual((quietHtml.match(/No gains yet this month/g) || []).length, 2);
+const onePct = model([
+  reps({ sessionId: 'g-old', localDate: '2026-10-01', libraryExerciseId: 'g', exerciseName: 'Good lift', actualWeightKg: 100, actualReps: 100 }),
+  reps({ sessionId: 'g-new', localDate: '2026-11-01', libraryExerciseId: 'g', exerciseName: 'Good lift', actualWeightKg: 101, actualReps: 101 })
+], [session('g', '2026-11-01')]);
+assert.strictEqual(onePct.strength.weight[0].pct, 1);
+assert.strictEqual(onePct.strength.weight[0].rating.label, 'Good');
+assert.strictEqual(onePct.strength.reps[0].rating.label, 'Good');
+assert.ok(D.html(onePct).indexOf('width:5%') >= 0);
+const fivePct = model([
+  reps({ sessionId: 'e-old', localDate: '2026-10-01', libraryExerciseId: 'e', exerciseName: 'Excellent lift', actualWeightKg: 200, actualReps: 20 }),
+  reps({ sessionId: 'e-new', localDate: '2026-11-01', libraryExerciseId: 'e', exerciseName: 'Excellent lift', actualWeightKg: 210, actualReps: 21 })
+], [session('e', '2026-11-01')]);
+assert.strictEqual(fivePct.strength.weight[0].pct, 5);
+assert.strictEqual(fivePct.strength.weight[0].rating.label, 'Excellent');
+assert.strictEqual(fivePct.strength.reps[0].rating.label, 'Excellent');
+const ownKey = model([
+  reps({ sessionId: 'p-old', localDate: '2026-10-01', personalExerciseId: 'pex', exerciseName: 'My row', actualWeightKg: 40, actualReps: 10, libraryExerciseId: '' }),
+  reps({ sessionId: 'p-new', localDate: '2026-11-01', personalExerciseId: 'pex', exerciseName: 'My row', actualWeightKg: 44, actualReps: 10, libraryExerciseId: '' })
+], [session('p', '2026-11-01')]);
+assert.strictEqual(ownKey.strength.weight[0].name, 'My row');
+assert.strictEqual(ownKey.strength.weight[0].pct, 10);
+const frozenMoves = D.freeze(movers, ['strength'], { asOf: '2026-11-16', trainerName: 'Coach Lee' });
+movers.strength.weight = [];
+assert.strictEqual(frozenMoves.cards[0].strength.weight.length, 2);
+assert.ok(D.snapshotHtml(frozenMoves).indexOf('Front squat') >= 0);
+assert.ok(D.snapshotHtml(frozenMoves).indexOf('200 lb to 220 lb') >= 0);
 
 console.log('DASHBOARD OK');

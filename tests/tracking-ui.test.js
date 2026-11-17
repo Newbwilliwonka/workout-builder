@@ -69,6 +69,9 @@ async function openPage(browser, membership, payload) {
         value.mySchedule = function () {
           return Promise.resolve(window.__wbSchedulePayload || { entries: [] });
         };
+        value.myDashboardLayout = function () { return Promise.resolve({ cards: null }); };
+        value.saveDashboardLayout = function () { return Promise.resolve({ ok: true }); };
+        value.resetDashboardLayout = function () { return Promise.resolve({ ok: true }); };
         ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
@@ -365,13 +368,18 @@ async function openPage(browser, membership, payload) {
   for (const membership of ['trainer', 'master_trainer']) {
     const other = await openPage(browser, membership, { sets: [], sessions: [], exercises: [] });
     await other.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
-    await other.waitForSelector('#dashboard-empty');
+    await other.waitForSelector('#dash-reset');
     const seen = await other.evaluate(function () {
       var badge = document.getElementById('dashboard-count');
       var tab = document.getElementById('tracking-tab-dashboard');
       return {
-        note: document.getElementById('dashboard-empty').innerText,
+        me: document.querySelector('#client-pick [aria-selected="true"]').textContent,
+        sheet: !!document.getElementById('dashboard-sheet'),
+        strength: !!document.getElementById('dashboard-strength'),
+        share: !!document.getElementById('dash-share'),
+        reset: document.getElementById('dash-reset').textContent,
         soon: !!document.getElementById('dashboard-soon'),
+        empty: !!document.getElementById('dashboard-empty'),
         title: document.getElementById('title').textContent,
         disabled: tab.disabled,
         badgeHidden: badge.hidden,
@@ -380,8 +388,13 @@ async function openPage(browser, membership, payload) {
       };
     });
     assert.deepStrictEqual(seen, {
-      note: 'Finish a workout and your dashboard will fill in.',
+      me: 'Me · Test Person',
+      sheet: true,
+      strength: true,
+      share: false,
+      reset: 'Reset to standard',
       soon: false,
+      empty: false,
       title: 'Tracking',
       disabled: false,
       badgeHidden: true,

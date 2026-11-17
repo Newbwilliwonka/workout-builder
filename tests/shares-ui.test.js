@@ -127,7 +127,7 @@ async function openPage(browser, cfg) {
         };
         value.watchMessages = function () { return Promise.resolve(function () {}); };
         value.markRead = function () { return Promise.resolve(null); };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'shareSetting', 'programEntries'].forEach(function (name) {
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'shareSetting', 'programEntries', 'myDashboardLayout', 'saveDashboardLayout', 'resetDashboardLayout'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
       }
@@ -173,11 +173,13 @@ async function openPage(browser, cfg) {
     return {
       names: Array.prototype.map.call(document.querySelectorAll('#client-pick [role="option"]'), function (el) { return el.textContent; }),
       share: !!document.getElementById('dash-share'),
-      pass: document.body.innerText.indexOf('Stopwatch pass rate') >= 0
+      reset: !!document.getElementById('dash-reset'),
+      pass: !!document.getElementById('dashboard-pass')
     };
   });
-  assert.deepStrictEqual(picker.names, ['Your dashboard', 'Ada Client', 'Neil Client', 'Fan Enthusiast', 'Pat Chooser', 'Kip Pending']);
+  assert.deepStrictEqual(picker.names, ['Me · Coach Lee', 'Ada Client', 'Neil Client', 'Fan Enthusiast', 'Pat Chooser', 'Kip Pending']);
   assert.strictEqual(picker.share, false);
+  assert.strictEqual(picker.reset, true);
   assert.strictEqual(picker.pass, false);
   await shot(trainer, 'trainer-client-picker.png');
 
@@ -187,7 +189,7 @@ async function openPage(browser, cfg) {
   await trainer.click('[data-card-up="volume"]');
   await trainer.waitForFunction(function () {
     var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
-    return titles[1] === 'Total volume';
+    return titles[2] === 'Total volume';
   });
   await trainer.click('[data-card-add="pass"]');
   await trainer.waitForSelector('#dashboard-pass');
@@ -209,8 +211,9 @@ async function openPage(browser, cfg) {
   });
   assert.deepStrictEqual(edited.titles, [
     'Hit the plan',
-    'Total volume',
     'Workouts and streak',
+    'Total volume',
+    'Strength and Capacity',
     'Consistency · November 2026',
     'Stopwatch pass rate'
   ]);
@@ -222,10 +225,10 @@ async function openPage(browser, cfg) {
   await trainer.focus('[data-card-down="plan"]');
   await trainer.keyboard.press('Enter');
   await trainer.waitForFunction(function () {
-    return document.querySelector('#dashboard-sheet h2').textContent === 'Total volume';
+    return document.querySelector('#dashboard-sheet h2').textContent === 'Workouts and streak';
   });
   const dragFrom = await trainer.$('[data-drag="calendar"]');
-  const dragTo = await trainer.$('[data-card="volume"]');
+  const dragTo = await trainer.$('[data-card="workouts"]');
   const fromBox = await dragFrom.boundingBox();
   const toBox = await dragTo.boundingBox();
   await trainer.mouse.move(fromBox.x + fromBox.width / 2, fromBox.y + fromBox.height / 2);
@@ -270,7 +273,7 @@ async function openPage(browser, cfg) {
   await trainer.click('[data-card-up="volume"]');
   await trainer.waitForFunction(function () {
     var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
-    return titles[1] === 'Total volume';
+    return titles[2] === 'Total volume';
   });
   await trainer.click('[data-card-add="pass"]');
   await trainer.waitForSelector('#dashboard-pass');
@@ -557,6 +560,7 @@ async function openPage(browser, cfg) {
   assert.deepStrictEqual(own.titles, [
     'Hit the plan',
     'Workouts and streak',
+    'Strength and Capacity',
     'Total volume',
     'Recent personal records',
     'Consistency · November 2026'
@@ -595,7 +599,7 @@ async function openPage(browser, cfg) {
   assert.strictEqual(openedFan.buttons, 0);
   assert.strictEqual(openedFan.add, false);
   assert.strictEqual(openedFan.heading, false);
-  assert.strictEqual(openedFan.titles, 5);
+  assert.strictEqual(openedFan.titles, 6);
   assert.strictEqual(openedFan.count, '1');
   assert.strictEqual(openedFan.label, '1 shared dashboard');
   await shot(enthusiast, 'enthusiast-shared-open.png', true);

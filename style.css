@@ -429,11 +429,21 @@ button.hx-row .name{font-size:16px}
 .hx-lap i{margin-left:auto;color:var(--mute);font-style:normal;font-size:13px}
 .hx-counts{margin-top:8px;font-weight:600;font-size:14px}
 .hx-events li{font-size:14px;padding:2px 0}
-/* Sheet sits above the fixed app background (body::before is z-index -1). A light slate tint only: no blur veil and no pseudo-element over the cards. */
-.db-sheet{position:relative;z-index:1;background:rgba(30,41,59,.06);border:1px solid rgba(17,24,39,.12);border-radius:16px;overflow:hidden}
+/* Sheet sits above the fixed app background (body::before is z-index -1). A light slate tint only: no blur veil and no pseudo-element over the cards.
+   Fill alpha is 15% more opaque than 0.06 (0.06 * 1.15 = 0.069). Text stays the dark ink color. */
+.db-sheet{position:relative;z-index:1;background:rgba(30,41,59,.069);border:1px solid rgba(17,24,39,.12);border-radius:16px;overflow:hidden}
 .db-sec{padding:14px;border-bottom:1px solid rgba(17,24,39,.14)}
 .db-sec:last-child{border-bottom:0}
 .db-label{margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
+.db-sub{margin:12px 0 8px;font-size:15px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink)}
+.db-gains{list-style:none;margin:0;padding:0}
+.db-gain{margin:0 0 10px}
+.db-gain-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.db-gain-top .name{font-size:15px}
+.db-gain-pct{font-size:13px;font-weight:700;white-space:nowrap}
+.db-gain-meta{margin:1px 0 4px;font-size:12px;color:var(--mute)}
+.db-gain-track{height:8px;border-radius:999px;background:rgba(17,24,39,.12);overflow:hidden}
+.db-gain-fill{display:block;height:100%;border-radius:999px;min-width:2px}
 .db-plan{display:flex;align-items:center;gap:14px;margin-bottom:12px}
 .db-plan-copy{flex:1;min-width:0}
 .db-ring{flex:none;display:block}

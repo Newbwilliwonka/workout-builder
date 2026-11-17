@@ -2983,7 +2983,7 @@
     function option(id, label, on) {
       return '<button type="button" class="share-row" role="option" data-client="' + esc(id) + '" aria-selected="' + (on ? 'true' : 'false') + '">' + esc(label) + '</button>';
     }
-    h += option('', 'Your dashboard', !selected);
+    h += option('', selfOptionLabel(), !selected);
     clients.forEach(function (c) { h += option(c.id, c.name, c.id === selected); });
     h += '</div>';
     if (!clients.length) h += '<p class="db-note" id="client-pick-empty">No connected clients.</p>';
@@ -3002,6 +3002,11 @@
     });
   }
   function bindPicker() {}
+  function selfOptionLabel() {
+    var name = personLabel(cachedProfile || {});
+    if (!name || name.indexOf('@') !== -1) return 'Me';
+    return 'Me · ' + name;
+  }
   function trainerName() {
     var p = cachedProfile || {};
     var name = personLabel({ display_name: p.display_name, plan: 'Trainer' });
@@ -3014,12 +3019,58 @@
     var day = d.getDate();
     return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
   }
+  var layoutWrite = Promise.resolve();
   function paintClientEditor() {
     if (!window.WBDashboard || !trainerModel) return;
+    var self = !editorClient;
     var body = pickerHtml(editorClient) + WBDashboard.editorHtml(trainerModel, trainerOrder, {
-      share: receivesShares(clientRecord(editorClient))
+      self: self,
+      share: !self && receivesShares(clientRecord(editorClient))
     });
     paintTracking('dashboard', body, true);
+  }
+  function ownOrder(res) {
+    if (!window.WBShares) return [];
+    if (!res || !Array.isArray(res.cards)) return WBShares.standard();
+    return WBShares.orderOf(res.cards);
+  }
+  function saveOwnLayout(order) {
+    if (editorClient) return;
+    var cards = (order || []).slice();
+    layoutWrite = layoutWrite.catch(function () { return null; }).then(function () {
+      var pending;
+      try {
+        pending = WBAuth.saveDashboardLayout ? WBAuth.saveDashboardLayout(cards) : Promise.resolve({ ok: false, unavailable: true });
+      } catch (e) { pending = Promise.resolve({ ok: false }); }
+      return Promise.resolve(pending).then(function (res) {
+        if (res && res.ok) return;
+        toast(res && res.unavailable ? 'Saving your layout is not available yet.' : 'Could not save your dashboard.');
+      }, function () {
+        toast('Could not save your dashboard.');
+      });
+    });
+  }
+  function applyTrainerOrder(next) {
+    trainerOrder = next;
+    paintClientEditor();
+    if (!editorClient) saveOwnLayout(trainerOrder);
+  }
+  function resetOwnLayout() {
+    if (!window.WBShares) return;
+    trainerOrder = WBShares.standard();
+    paintClientEditor();
+    layoutWrite = layoutWrite.catch(function () { return null; }).then(function () {
+      var pending;
+      try {
+        pending = WBAuth.resetDashboardLayout ? WBAuth.resetDashboardLayout() : Promise.resolve({ ok: false, unavailable: true });
+      } catch (e) { pending = Promise.resolve({ ok: false }); }
+      return Promise.resolve(pending).then(function (res) {
+        if (res && res.ok) { toast('Dashboard reset.'); return; }
+        toast(res && res.unavailable ? 'Saving your layout is not available yet.' : 'Could not reset your dashboard.');
+      }, function () {
+        toast('Could not reset your dashboard.');
+      });
+    });
   }
   function shareCurrent() {
     if (!window.WBDashboard || !trainerModel || !editorClient) return;
@@ -3078,9 +3129,8 @@
       Array.prototype.forEach.call(sheet.querySelectorAll('.is-drop'), function (el) { el.classList.remove('is-drop'); });
       if (!dragId || !before || before === dragId || !window.WBShares) { dragId = ''; return; }
       e.preventDefault();
-      trainerOrder = WBShares.moveBefore(trainerOrder, dragId, before);
+      applyTrainerOrder(WBShares.moveBefore(trainerOrder, dragId, before));
       dragId = '';
-      paintClientEditor();
     });
   }
   function onDashboardClick(e) {
@@ -3109,28 +3159,25 @@
       return true;
     }
     if (e.target.closest('#dash-share')) { shareCurrent(); return true; }
+    if (e.target.closest('#dash-reset')) { resetOwnLayout(); return true; }
     var add = e.target.closest('[data-card-add]');
     if (add && window.WBShares) {
-      trainerOrder = WBShares.addCard(trainerOrder, add.getAttribute('data-card-add'));
-      paintClientEditor();
+      applyTrainerOrder(WBShares.addCard(trainerOrder, add.getAttribute('data-card-add')));
       return true;
     }
     var up = e.target.closest('[data-card-up]');
     if (up && window.WBShares) {
-      trainerOrder = WBShares.moveCard(trainerOrder, up.getAttribute('data-card-up'), -1);
-      paintClientEditor();
+      applyTrainerOrder(WBShares.moveCard(trainerOrder, up.getAttribute('data-card-up'), -1));
       return true;
     }
     var down = e.target.closest('[data-card-down]');
     if (down && window.WBShares) {
-      trainerOrder = WBShares.moveCard(trainerOrder, down.getAttribute('data-card-down'), 1);
-      paintClientEditor();
+      applyTrainerOrder(WBShares.moveCard(trainerOrder, down.getAttribute('data-card-down'), 1));
       return true;
     }
     var remove = e.target.closest('[data-card-remove]');
     if (remove && window.WBShares) {
-      trainerOrder = WBShares.removeCard(trainerOrder, remove.getAttribute('data-card-remove'));
-      paintClientEditor();
+      applyTrainerOrder(WBShares.removeCard(trainerOrder, remove.getAttribute('data-card-remove')));
       return true;
     }
     return false;
@@ -3238,10 +3285,47 @@
     });
     var rosterReady = trainerAccount() ? readRoster() : Promise.resolve(null);
     var shareReady = paidEnthusiast() ? refreshShareCount(token) : Promise.resolve(null);
-    Promise.all([historyReady, scheduleReady, rosterReady, shareReady]).then(function (pair) {
+    var layoutReady = trainerAccount() ? readOwnLayout() : Promise.resolve(null);
+    Promise.all([historyReady, scheduleReady, rosterReady, shareReady, layoutReady]).then(function (pair) {
       if (!dashboardCurrent(token)) return;
-      paintLoadedDashboard(pair[0], pair[1], settle, trainerAccount() ? pickerHtml('') : '', pair[3]);
+      if (trainerAccount()) {
+        paintTrainerOwn(pair[0], pair[1], pair[4], settle);
+        return;
+      }
+      paintLoadedDashboard(pair[0], pair[1], settle, '', pair[3]);
     });
+  }
+  function readOwnLayout() {
+    var pending;
+    try {
+      pending = WBAuth.myDashboardLayout ? WBAuth.myDashboardLayout() : Promise.resolve({ unavailable: true, cards: null });
+    } catch (e) { pending = Promise.resolve({ unavailable: true, cards: null }); }
+    return Promise.resolve(pending).then(function (res) {
+      return res || { error: true, cards: null };
+    }, function () {
+      return { error: true, cards: null };
+    });
+  }
+  function paintTrainerOwn(historyRes, scheduleRes, layoutRes, settle) {
+    editorClient = '';
+    var failed = !historyRes || historyRes.unavailable || historyRes.error;
+    var sessions = historyRes && historyRes.sessions || [];
+    var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes && historyRes.sets, historyRes && historyRes.exercises) : [];
+    if (failed && !sessions.length && !sets.length) {
+      trainerModel = null;
+      trainerOrder = ownOrder(layoutRes);
+      paintTracking('dashboard', pickerHtml('') + WBDashboard.unavailableHtml(), settle);
+      return;
+    }
+    trainerOrder = ownOrder(layoutRes);
+    trainerModel = WBDashboard.build({
+      sets: sets,
+      sessions: sessions,
+      entries: dashboardEntries(scheduleRes),
+      now: dashboardNow(),
+      layout: true
+    });
+    paintClientEditor();
   }
   function renderFreeDashboard(token) {
     paintTracking('dashboard', '<p class="mute" id="dashboard-loading">Loading…</p>', false);

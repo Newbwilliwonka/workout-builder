@@ -213,6 +213,21 @@
     var msg = String((err && (err.message || err.code || err.details || err.hint)) || '');
     return /shared_dashboards|42P01|PGRST205|schema cache|does not exist/i.test(msg);
   }
+  function layoutTableMissing(err) {
+    var msg = String((err && (err.message || err.code || err.details || err.hint)) || '');
+    return /dashboard_layouts|42P01|PGRST205|schema cache|does not exist/i.test(msg);
+  }
+  function layoutList(cards) {
+    var allow = (root.WBDashboard && root.WBDashboard.CARDS) || ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'pass'];
+    var seen = {};
+    var out = [];
+    (cards || []).forEach(function (id) {
+      if (allow.indexOf(id) < 0 || seen[id]) return;
+      seen[id] = 1;
+      out.push(id);
+    });
+    return out.slice(0, allow.length);
+  }
   var TRACK_SET_COLS = 'id,session_id,library_exercise_id,personal_exercise_id,exercise_name,mode,set_number,status,removed,display_unit,planned_reps,planned_reps_min,planned_reps_max,planned_weight_kg,planned_bodyweight,actual_reps,actual_weight_kg,actual_bodyweight,planned_hold_sec,actual_hold_sec,planned_work_sec,actual_work_sec,planned_rest_sec,actual_rest_sec,planned_rounds,actual_rounds,planned_total_sec,actual_total_sec,planned_lap_count,actual_laps,planned_events,actual_events';
   function loadTracking(c, id) {
     var pageSize = 1000;
@@ -675,7 +690,7 @@
       input = input || {};
       if (!isUuid(input.clientId)) return Promise.resolve({ ok: false });
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.asOf || ''))) return Promise.resolve({ ok: false });
-      if (!Array.isArray(input.cards) || !input.cards.length || input.cards.length > 6) return Promise.resolve({ ok: false });
+      if (!Array.isArray(input.cards) || !input.cards.length || input.cards.length > 7) return Promise.resolve({ ok: false });
       var name = String(input.trainerName || '').replace(/^\s+|\s+$/g, '').slice(0, 80);
       if (!name || name.indexOf('@') !== -1) name = 'Trainer';
       return signedUser().then(function (ctx) {
@@ -692,6 +707,55 @@
             return { ok: false };
           }
           return { ok: true, id: ins.data && ins.data.id };
+        });
+      }).then(function (out) { return out; }, function () {
+        return { ok: false };
+      });
+    },
+    // The signed-in trainer's own card order. Null means they have never saved one.
+    // The workout numbers stay live; this row is only the order.
+    myDashboardLayout: function () {
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) return { cards: null };
+        return ctx.c.from('dashboard_layouts').select('cards').eq('user_id', ctx.user.id).maybeSingle().then(function (res) {
+          if (!res || res.error) {
+            if (res && layoutTableMissing(res.error)) return { unavailable: true, cards: null };
+            return { error: true, cards: null };
+          }
+          var cards = res.data && res.data.cards;
+          return { cards: Array.isArray(cards) ? cards : null };
+        });
+      }).then(function (out) { return out; }, function () {
+        return { error: true, cards: null };
+      });
+    },
+    saveDashboardLayout: function (cards) {
+      var list = layoutList(cards);
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) return { ok: false };
+        return ctx.c.from('dashboard_layouts').upsert({
+          user_id: ctx.user.id,
+          cards: list
+        }, { onConflict: 'user_id' }).then(function (res) {
+          if (!res || res.error) {
+            if (res && layoutTableMissing(res.error)) return { ok: false, unavailable: true };
+            return { ok: false };
+          }
+          return { ok: true, cards: list };
+        });
+      }).then(function (out) { return out; }, function () {
+        return { ok: false };
+      });
+    },
+    resetDashboardLayout: function () {
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) return { ok: false };
+        return ctx.c.from('dashboard_layouts').delete().eq('user_id', ctx.user.id).then(function (res) {
+          if (!res || res.error) {
+            if (res && layoutTableMissing(res.error)) return { ok: false, unavailable: true };
+            return { ok: false };
+          }
+          return { ok: true };
         });
       }).then(function (out) { return out; }, function () {
         return { ok: false };
