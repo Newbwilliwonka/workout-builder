@@ -37,15 +37,50 @@ const ART = '/opt/cursor/artifacts';
       if (!api || api.__accessStub) return api;
       api.__accessStub = true;
       api.session = function () {
-        if (window.__mode === 'waiting') return Promise.resolve({ user: { id: 'pat', email: 'pat@example.com' } });
+        if (window.__mode === 'out') return Promise.resolve(null);
+        if (window.__mode === 'waiting' || window.__mode === 'held' || window.__mode === 'held-ok' || window.__mode === 'held-done') {
+          return Promise.resolve({ user: { id: 'pat', email: 'pat@example.com' } });
+        }
         if (window.__mode === 'member') return Promise.resolve({ user: { id: 'member', email: 'member@example.com' } });
         return Promise.resolve({ user: { id: 'admin', email: 'kinisiathletics@gmail.com' } });
       };
       api.freshSession = function () { return api.session(); };
+      api.signIn = function (email, password) {
+        window.__signIn = password;
+        return Promise.resolve({ session: { user: { id: 'pat', email: email } } });
+      };
+      api.signUp = function (email, password) {
+        window.__signUp = password;
+        if (window.__holdInvite) {
+          window.__mode = 'held';
+          return Promise.resolve({ session: { user: { id: 'pat', email: 'pat@example.com' } }, needsConfirmation: false });
+        }
+        return Promise.resolve({ needsConfirmation: true });
+      };
+      api.redeemInvite = function (code) {
+        window.__redeemed = (window.__redeemed || 0) + 1;
+        window.__redeemCode = code;
+        if (window.__mode === 'held') return Promise.reject(new Error('Your account is waiting for approval.'));
+        window.__mode = 'held-done';
+        return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.' });
+      };
       api.profile = function () {
-        if (window.__mode === 'waiting') {
+        if (window.__mode === 'out') return Promise.resolve(null);
+        if (window.__mode === 'waiting' || window.__mode === 'held') {
           return Promise.resolve({
             id: 'pat', email: 'pat@example.com', membership: 'none', access_approved: false,
+            display_name: 'Pat Lee', profileReady: true
+          });
+        }
+        if (window.__mode === 'held-ok') {
+          return Promise.resolve({
+            id: 'pat', email: 'pat@example.com', membership: 'none', access_approved: true,
+            display_name: 'Pat Lee', profileReady: true
+          });
+        }
+        if (window.__mode === 'held-done') {
+          return Promise.resolve({
+            id: 'pat', email: 'pat@example.com', membership: 'free_client', access_approved: true,
             display_name: 'Pat Lee', profileReady: true
           });
         }
@@ -198,6 +233,60 @@ const ART = '/opt/cursor/artifacts';
   assert.strictEqual(await p.$('#admin-open'), null);
   await p.evaluate(function () { location.hash = '#/'; });
   await p.waitForFunction(function () { return !document.getElementById('access-wait') && document.getElementById('title').textContent !== 'Waiting for access'; });
+
+  await p.evaluate(function () {
+    window.__mode = 'out';
+    window.__signIn = '';
+    window.__signUp = '';
+    location.hash = '#/signin';
+  });
+  await p.waitForSelector('#acct-pass');
+  await p.evaluate(function () {
+    document.getElementById('acct-email').value = '';
+    document.getElementById('acct-pass').value = '';
+  });
+  await p.type('#acct-email', 'pat@example.com');
+  await p.type('#acct-pass', 'secret12');
+  await p.click('[data-auth=in]');
+  await p.waitForFunction(function () { return window.__signIn === 'secret12'; });
+
+  await p.evaluate(function () {
+    window.__signUp = '';
+    location.hash = '#/join';
+  });
+  await p.waitForSelector('[data-auth=up]');
+  await p.type('#acct-email', 'pat@example.com');
+  await p.type('#acct-pass', 'secret12');
+  await p.click('[data-auth=up]');
+  await p.waitForFunction(function () { return document.body.innerText.indexOf('at least 10 characters') !== -1; });
+  assert.strictEqual(await p.evaluate(function () { return window.__signUp; }), '');
+
+  await p.evaluate(function () {
+    window.__holdInvite = true;
+    window.__redeemed = 0;
+    window.__mode = 'out';
+    location.hash = '#/join';
+  });
+  await p.waitForSelector('[data-auth=up]');
+  await p.evaluate(function () {
+    document.getElementById('acct-email').value = '';
+    document.getElementById('acct-pass').value = '';
+  });
+  await p.type('#acct-email', 'pat@example.com');
+  await p.type('#acct-pass', 'secret1234');
+  await p.type('#invite-code', 'ABCD2345');
+  await p.click('[data-auth=up]');
+  await p.waitForSelector('#access-wait');
+  assert.strictEqual(await p.evaluate(function () { return window.__redeemed; }), 1);
+  assert.strictEqual(await p.evaluate(function () { return sessionStorage.getItem('wb.invite'); }), 'ABCD2345');
+  await p.evaluate(function () {
+    window.__mode = 'held-ok';
+    location.hash = '#/';
+  });
+  await p.waitForFunction(function () {
+    return window.__redeemed === 2 && location.hash === '#/' && !document.getElementById('access-wait') && sessionStorage.getItem('wb.invite') == null;
+  });
+  assert.strictEqual(await p.evaluate(function () { return window.__redeemCode; }), 'ABCD2345');
 
   assert.deepStrictEqual(errs, []);
   await b.close();

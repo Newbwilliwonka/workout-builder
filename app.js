@@ -185,6 +185,36 @@
   }
   function signedOutHome() { return (linkInviteCode() || inviteArrival) ? '#/signin' : '#/subscriptions'; }
   function takeInviteNotice() { var n = pendingInviteNotice; pendingInviteNotice = null; return n; }
+  function inviteWaiting(err) {
+    return /waiting for approval/i.test(String(err && err.message || ''));
+  }
+  function noteRedeemedInvite(code, res) {
+    releaseInvite(code);
+    pendingInviteNotice = { text: (res && res.message) || 'Invite applied.', isError: false };
+    if (res && res.membership && WBMembership.tier(res.membership)) {
+      cachedProfile = Object.assign({}, cachedProfile || {}, { membership: res.membership });
+    }
+  }
+  var inviteRedeemFlight = null;
+  function redeemStoredInvite() {
+    var code = pendingCode();
+    if (!code || !WBAuth.redeemInvite) return Promise.resolve();
+    if (inviteRedeemFlight) return inviteRedeemFlight;
+    var flight;
+    flight = Promise.resolve().then(function () {
+      return WBAuth.redeemInvite(code);
+    }).then(function (res) {
+      if (pendingCode() === code) noteRedeemedInvite(code, res);
+    }, function (err) {
+      if (inviteWaiting(err)) return;
+      if (pendingCode() === code) releaseInvite(code);
+      pendingInviteNotice = { text: (err && err.message) || 'Could not use that invite.', isError: true };
+    }).then(function () {
+      if (inviteRedeemFlight === flight) inviteRedeemFlight = null;
+    });
+    inviteRedeemFlight = flight;
+    return flight;
+  }
   function rememberTrainer(trainerId, clientId) {
     try {
       if (trainerId && clientId) localStorage.setItem(TRAINER_KEY, JSON.stringify({ trainerId: trainerId, clientId: clientId }));
@@ -1008,15 +1038,17 @@
       }
       WBAuth.redeemInvite(code).then(function (res) {
         if (!onAuthPage()) return;
-        releaseInvite(code);
-        pendingInviteNotice = { text: (res && res.message) || 'Invite applied.', isError: false };
-        if (res && res.membership && WBMembership.tier(res.membership)) {
-          cachedProfile = Object.assign({}, cachedProfile || {}, { membership: res.membership });
-          return go('#/');
-        }
+        noteRedeemedInvite(code, res);
+        if (res && res.membership && WBMembership.tier(res.membership)) return go('#/');
         loadGateProfile().then(land, function () { if (onAuthPage()) go('#/subscriptions'); });
       }).catch(function (err) {
         if (!onAuthPage()) return;
+        // A new account cannot redeem until it is approved. Keep the code
+        // and try again once the admin lets them in.
+        if (inviteWaiting(err)) {
+          return loadGateProfile().then(land, function () { if (onAuthPage()) go('#/subscriptions'); });
+        }
+        releaseInvite(code);
         pendingInviteNotice = { text: (err && err.message) || 'Could not use that invite.', isError: true };
         loadGateProfile().then(land, function () { if (onAuthPage()) go('#/subscriptions'); });
       });
@@ -1062,7 +1094,13 @@
       var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass'), codeEl = document.getElementById('invite-code');
       var email = emailEl ? emailEl.value.trim() : '', password = passEl ? passEl.value : '';
       rememberCode(WBInvites.normalizeCode(codeEl ? codeEl.value : ''));
-      if (!email || password.length < 10) return renderSign(create ? 'up' : 'in', 'Enter your email and a password of at least 10 characters.', true);
+      // New passwords must be at least 10 characters. Signing in still allows
+      // a shorter password that was already saved, so those accounts are not locked out.
+      if (!email || password.length < (create ? 10 : 6)) {
+        return renderSign(create ? 'up' : 'in', create
+          ? 'Enter your email and a password of at least 10 characters.'
+          : 'Enter your email and a password of at least 6 characters.', true);
+      }
       authBusy = true; b.disabled = true;
       var startedOn = hashPage();
       var op = b.dataset.auth === 'up' ? WBAuth.signUp(email, password) : WBAuth.signIn(email, password);
@@ -1270,7 +1308,9 @@
       if (token !== routeToken || location.hash !== requested) return;
       if (!accessApproved(gate.profile, session)) return renderAccessWait();
       accessWaitOn = false;
-      var profile = gate.profile;
+      return redeemStoredInvite().then(function () {
+      if (token !== routeToken || location.hash !== requested) return;
+      var profile = cachedProfile || gate.profile;
       if (page === 'admin') return renderAdmin();
       if (gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
       if (window.WBProfile && WBProfile.needsName(profile)) return showProfileGate(profile);
@@ -1297,6 +1337,7 @@
         if (!(opened && opened.sourceTrainerId)) return renderLevelNote(profile);
       }
       showBuilder();
+      });
       });
     });
   }
