@@ -7,8 +7,8 @@
   'use strict';
   var LB_TO_KG = 0.45359237;
   var RECENT_LIMIT = 8;
-  // A gain bar is full at this percent. Larger increases stay full.
-  var GAIN_FULL = 20;
+  // A 10% increase fills the bar. Anything larger stays full.
+  var GAIN_FULL = 10;
   var RATINGS = [
     { min: 90, label: 'Elite', color: '#0F766E' },
     { min: 80, label: 'Excellent', color: '#16A34A' },
