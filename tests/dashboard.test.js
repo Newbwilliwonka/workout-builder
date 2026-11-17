@@ -227,13 +227,15 @@ assert.ok(emptyHtml.indexOf('Hit the plan') < 0);
 assert.ok(emptyHtml.indexOf('Example data') < 0);
 
 const page = D.html(rest);
-assert.ok(page.indexOf('Stopwatch') < 0);
 assert.ok(page.indexOf('pass rate') < 0);
+assert.ok(page.indexOf('id="dashboard-pass"') < 0);
+assert.ok(page.indexOf('No holds yet.') >= 0);
+assert.ok(page.indexOf('No times yet.') >= 0);
 assert.ok(page.indexOf('Example data') < 0);
 assert.ok(page.indexOf('<button') < 0);
 assert.ok(page.indexOf('<input') < 0);
 assert.ok(page.indexOf('id="dashboard-sheet"') >= 0);
-var order = ['Hit the plan', 'Workouts and streak', 'Strength and Capacity', 'Total volume', 'Recent personal records', 'Consistency · November 2026'].map(function (label) {
+var order = ['Hit the plan', 'Workouts and streak', 'Strength and Capacity', 'Total volume', 'Recent personal records', 'Consistency · November 2026', 'Static holds', 'Stopwatch'].map(function (label) {
   return page.indexOf(label);
 });
 assert.ok(order.every(function (at) { return at >= 0; }));
@@ -476,5 +478,99 @@ assert.strictEqual((storedHtml.match(/background:#0F766E/g) || []).length, 2);
 const editorHtml = D.editorHtml({ strength: stored.cards[0].strength, workouts: { streak: 1 } }, ['strength'], { self: true });
 assert.deepStrictEqual(fillWidths(editorHtml), ['50', '100', '100']);
 assert.ok(editorHtml.indexOf('>15% · Alien<') >= 0);
+
+assert.deepStrictEqual(D.STANDARD.slice(-2), ['holds', 'stopwatch']);
+assert.deepStrictEqual(D.CARDS, D.STANDARD.concat(['pass']));
+assert.strictEqual(D.CARDS.length, 9);
+
+function hold(over) {
+  return set(Object.assign({
+    mode: 'static_hold', exerciseName: 'Plank', libraryExerciseId: 'plank',
+    plannedReps: null, plannedWeightKg: null, actualReps: null, actualWeightKg: null,
+    plannedBodyweight: true, actualBodyweight: true, displayUnit: 'bodyweight',
+    plannedHoldSec: 30, actualHoldSec: 30
+  }, over));
+}
+function watch(over) {
+  return set(Object.assign({
+    mode: 'stopwatch', exerciseName: 'Sprint', libraryExerciseId: 'sprint',
+    plannedReps: null, plannedWeightKg: null, actualReps: null, actualWeightKg: null,
+    plannedBodyweight: true, actualBodyweight: true, displayUnit: 'bodyweight',
+    actualTotalSec: 90, actualLaps: [{ n: 1, lapSec: 10, totalSec: 10 }]
+  }, over));
+}
+const bests = model([
+  hold({ sessionId: 'h1', localDate: '2026-11-02', actualHoldSec: 40, startedAt: 1 }),
+  hold({ sessionId: 'h2', localDate: '2026-11-05', actualHoldSec: 75, startedAt: 2 }),
+  hold({ sessionId: 'h3', localDate: '2026-11-10', actualHoldSec: 75, startedAt: 3 }),
+  hold({ sessionId: 'h4', localDate: '2026-10-28', actualHoldSec: 90, libraryExerciseId: 'wall', exerciseName: 'Wall sit', startedAt: 4 }),
+  hold({ sessionId: 'h5', localDate: '2025-11-01', actualHoldSec: 20, libraryExerciseId: 'dead', exerciseName: 'Dead hang', startedAt: 5 }),
+  hold({ sessionId: 'skip', localDate: '2026-11-12', actualHoldSec: 200, status: 'skipped', libraryExerciseId: 'skip', exerciseName: 'Skipped hold' }),
+  hold({ sessionId: 'zero', localDate: '2026-11-12', actualHoldSec: 0, libraryExerciseId: 'zero-hold', exerciseName: 'Zero hold' }),
+  hold({ sessionId: 'gone', removed: true, actualHoldSec: 500, libraryExerciseId: 'gone', exerciseName: 'Removed hold' }),
+  set({ sessionId: 'reps', actualReps: 10 }),
+  watch({ sessionId: 's1', localDate: '2026-11-01', actualTotalSec: 90, startedAt: 10 }),
+  watch({ sessionId: 's2', localDate: '2026-11-14', actualTotalSec: 72.4, startedAt: 11 }),
+  watch({ sessionId: 's3', localDate: '2026-11-07', actualTotalSec: 72.4, startedAt: 9, setNumber: 2 }),
+  watch({ sessionId: 's4', localDate: '2026-11-14', actualTotalSec: 80, startedAt: 12, setNumber: 2 }),
+  watch({ sessionId: 'lap', localDate: '2026-11-15', libraryExerciseId: 'lap', exerciseName: 'Shuttle', actualTotalSec: 40, startedAt: 13, actualLaps: [{ n: 1, lapSec: 5, totalSec: 5 }] }),
+  watch({ sessionId: 'slow', status: 'skipped', actualTotalSec: 1, libraryExerciseId: 'slow', exerciseName: 'Skipped sprint' }),
+  watch({ sessionId: 'none', actualTotalSec: 0, libraryExerciseId: 'none', exerciseName: 'Zero sprint' })
+], [session('bests', '2026-11-14')]);
+assert.deepStrictEqual(bests.holds.map(function (row) { return [row.name, row.value, row.date, row.dateLabel]; }), [
+  ['Plank', '1:15', '2026-11-05', 'Nov 5'],
+  ['Wall sit', '1:30', '2026-10-28', 'Oct 28'],
+  ['Dead hang', '0:20', '2025-11-01', 'Nov 1, 2025']
+]);
+assert.deepStrictEqual(bests.stopwatch.map(function (row) { return [row.name, row.value, row.date, row.dateLabel]; }), [
+  ['Shuttle', '00:40.00', '2026-11-15', 'Nov 15'],
+  ['Sprint', '01:12.40', '2026-11-07', 'Nov 7']
+]);
+assert.ok(!bests.holds.some(function (row) { return row.name === 'Skipped hold' || row.name === 'Zero hold' || row.name === 'Removed hold' || row.name === 'Squat'; }));
+assert.ok(!bests.stopwatch.some(function (row) { return row.name === 'Skipped sprint' || row.name === 'Zero sprint' || row.value === '00:05.00'; }));
+const bestsHtml = D.html(bests);
+assert.ok(bestsHtml.indexOf('No holds yet.') < 0);
+assert.ok(bestsHtml.indexOf('No times yet.') < 0);
+assert.ok(bestsHtml.indexOf('id="dashboard-calendar"') < bestsHtml.indexOf('id="dashboard-holds"'));
+assert.ok(bestsHtml.indexOf('id="dashboard-holds"') < bestsHtml.indexOf('id="dashboard-stopwatch"'));
+assert.ok(bestsHtml.indexOf('pass rate') < 0);
+const quietTimes = model([set()], [session('s1', '2026-11-10')]);
+assert.deepStrictEqual(quietTimes.holds, []);
+assert.deepStrictEqual(quietTimes.stopwatch, []);
+assert.strictEqual((D.html(quietTimes).match(/No holds yet\./g) || []).length, 1);
+assert.strictEqual((D.html(quietTimes).match(/No times yet\./g) || []).length, 1);
+assert.deepStrictEqual(fixture.holds.map(function (row) { return [row.name, row.value, row.dateLabel]; }), [['Plank', '1:15', 'Nov 5']]);
+assert.deepStrictEqual(fixture.stopwatch.map(function (row) { return [row.name, row.value, row.dateLabel]; }), [['Court sprint', '01:12.40', 'Nov 14']]);
+const frozenBests = D.freeze(bests, ['holds', 'stopwatch'], { asOf: '2026-11-16', trainerName: 'coach@example.com' });
+bests.holds = [];
+bests.stopwatch = [];
+assert.strictEqual(frozenBests.trainerName, 'Trainer');
+assert.strictEqual(frozenBests.cards[0].holds[0].value, '1:15');
+assert.strictEqual(frozenBests.cards[0].holds[0].date, '2026-11-05');
+assert.strictEqual(frozenBests.cards[1].stopwatch[0].name, 'Shuttle');
+assert.ok(!Object.prototype.hasOwnProperty.call(frozenBests.cards[0].holds[0], 'startedAt'));
+const frozenBestHtml = D.snapshotHtml(frozenBests);
+assert.ok(frozenBestHtml.indexOf('Wall sit') >= 0);
+assert.ok(frozenBestHtml.indexOf('01:12.40') >= 0);
+assert.ok(frozenBestHtml.indexOf('Nov 1, 2025') >= 0);
+assert.ok(frozenBestHtml.indexOf('@') < 0);
+const addTimes = D.editorHtml(bests, ['plan'], { self: true, editing: true });
+assert.ok(addTimes.indexOf('data-card-add="holds"') >= 0);
+assert.ok(addTimes.indexOf('data-card-add="stopwatch"') >= 0);
+assert.ok(addTimes.indexOf('>Static holds<') >= 0);
+assert.ok(addTimes.indexOf('>Stopwatch<') >= 0);
+const migration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261117120000_dashboard_holds_stopwatch.sql'), 'utf8');
+assert.ok(/jsonb_array_length\(cards\) <= 9/.test(migration));
+assert.ok(/jsonb_array_length\(cards\) between 1 and 9/.test(migration));
+assert.ok(/jsonb_array_length\(new\.cards\) > 9/.test(migration));
+assert.ok(/'holds', 'stopwatch'/.test(migration));
+assert.ok(/private\.shown_name/.test(migration));
+assert.ok(/position\('@' in new\.trainer_name\)/.test(migration));
+assert.ok(/drop constraint if exists dashboard_layouts_cards_array/.test(migration));
+assert.ok(/drop constraint if exists shared_dashboards_cards_array/.test(migration));
+assert.ok(!/create policy/i.test(migration));
+assert.ok(!/enable row level security/i.test(migration));
+assert.ok(/input\.cards\.length > 9/.test(authSrc));
+assert.ok(!/cards\.length > 7/.test(authSrc));
 
 console.log('DASHBOARD OK');

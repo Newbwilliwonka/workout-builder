@@ -1,6 +1,7 @@
 /* Standard tracking dashboard. No network. No sample people.
    Browser: window.WBDashboard. Node: require.
    Numbers come from the signed-in person's saved sessions and sets.
+   Static holds and stopwatch bests are on this dashboard.
    Stopwatch pass rate is intentionally not rendered. It stays off this
    dashboard until a trainer can choose to add it. */
 (function (root) {
@@ -556,6 +557,65 @@
     });
     return rows.slice(0, RECENT_LIMIT);
   }
+  // A tie keeps the earlier set: that is the day the best time was first set.
+  function newerSet(a, b) {
+    if ((a.localDate || '') !== (b.localDate || '')) return (a.localDate || '') > (b.localDate || '');
+    var at = timeOf(a), bt = timeOf(b);
+    if (at !== bt) return at > bt;
+    return Number(a.setNumber || 0) > Number(b.setNumber || 0);
+  }
+  function bestRows(sets, now, mode, read, better, format) {
+    var groups = {};
+    var order = [];
+    sets.forEach(function (set) {
+      if (!set || set.status !== 'completed' || set.mode !== mode) return;
+      if (read(set) == null) return;
+      if (!groups[set.key]) { groups[set.key] = []; order.push(set.key); }
+      groups[set.key].push(set);
+    });
+    var rows = [];
+    order.forEach(function (key) {
+      var best = null;
+      groups[key].forEach(function (set) {
+        var value = read(set);
+        if (value == null) return;
+        var ahead = best && better(value, best.value);
+        var tied = best && !better(value, best.value) && !better(best.value, value);
+        if (!best || ahead || (tied && !newerSet(set, best.set))) best = { value: value, set: set };
+      });
+      if (!best) return;
+      rows.push({
+        name: best.set.exerciseName || 'Exercise',
+        value: format(best.value),
+        date: best.set.localDate,
+        dateLabel: shortDate(best.set.localDate, now),
+        startedAt: timeOf(best.set)
+      });
+    });
+    rows.sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+      if (a.startedAt !== b.startedAt) return a.startedAt < b.startedAt ? 1 : -1;
+      if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+      return 0;
+    });
+    return rows;
+  }
+  function holdSeconds(set) {
+    var n = num(set.actualHoldSec);
+    return n != null && n > 0 ? n : null;
+  }
+  function speedSeconds(set) {
+    var n = num(set.actualTotalSec);
+    return n != null && n > 0 ? n : null;
+  }
+  function longer(a, b) { return a > b + 1e-9; }
+  function faster(a, b) { return a < b - 1e-9; }
+  function holdsBlock(sets, now) {
+    return bestRows(sets, now, 'static_hold', holdSeconds, longer, function (sec) { return fmtTime(sec); });
+  }
+  function stopwatchBlock(sets, now) {
+    return bestRows(sets, now, 'stopwatch', speedSeconds, faster, function (sec) { return formatStopwatch(sec * 1000); });
+  }
   function calendarBlock(sessions, now) {
     var year = now.getFullYear();
     var month = now.getMonth();
@@ -639,6 +699,8 @@
       strength: strengthBlock(sets, now),
       records: recordBlock(sets, now),
       calendar: calendarBlock(sessions, now),
+      holds: holdsBlock(sets, now),
+      stopwatch: stopwatchBlock(sets, now),
       pass: passBlock(sets, now)
     };
   }
@@ -830,6 +892,28 @@
     h += '</ul></section>';
     return h;
   }
+  function bestHtml(id, title, rows, empty) {
+    var h = '<section class="db-sec" id="dashboard-' + id + '" aria-labelledby="dashboard-' + id + '-title">';
+    h += '<h2 class="db-label" id="dashboard-' + id + '-title">' + esc(title) + '</h2>';
+    if (!rows || !rows.length) {
+      h += '<p class="db-note" id="dashboard-' + id + '-empty">' + esc(empty) + '</p></section>';
+      return h;
+    }
+    h += '<ul class="db-records">';
+    rows.forEach(function (row) {
+      h += '<li class="db-rec"><div class="db-rec-name"><div class="name">' + esc(row.name) + '</div>';
+      h += '<div class="db-note">' + esc(row.dateLabel) + '</div></div>';
+      h += '<div class="db-rec-val">' + esc(row.value) + '</div></li>';
+    });
+    h += '</ul></section>';
+    return h;
+  }
+  function holdsHtml(rows) {
+    return bestHtml('holds', 'Static holds', rows, 'No holds yet.');
+  }
+  function stopwatchHtml(rows) {
+    return bestHtml('stopwatch', 'Stopwatch', rows, 'No times yet.');
+  }
   function calendarHtml(block) {
     var h = '<section class="db-sec" id="dashboard-calendar" aria-labelledby="dashboard-calendar-title">';
     h += '<h2 class="db-label" id="dashboard-calendar-title">' + esc(block.title) + '</h2>';
@@ -879,6 +963,8 @@
       volumeHtml(model.volume) +
       recordsHtml(model.records) +
       calendarHtml(model.calendar) +
+      holdsHtml(model.holds) +
+      stopwatchHtml(model.stopwatch) +
       '</div></div>';
   }
   function unavailableHtml() {
@@ -891,9 +977,11 @@
     volume: 'Total volume',
     records: 'Recent personal records',
     calendar: 'Consistency',
+    holds: 'Static holds',
+    stopwatch: 'Stopwatch',
     pass: 'Stopwatch pass rate'
   };
-  var STANDARD = ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar'];
+  var STANDARD = ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'holds', 'stopwatch'];
   var CARD_ALL = STANDARD.concat(['pass']);
   function keptOrder(order) {
     var seen = {};
@@ -913,6 +1001,8 @@
     if (id === 'volume') return volumeHtml(model.volume || { weekKg: 0, weeks: [] });
     if (id === 'records') return recordsHtml(model.records || []);
     if (id === 'calendar') return model.calendar && Array.isArray(model.calendar.cells) ? calendarHtml(model.calendar) : '';
+    if (id === 'holds') return holdsHtml(model.holds || []);
+    if (id === 'stopwatch') return stopwatchHtml(model.stopwatch || []);
     if (id === 'pass') return passHtml(model.pass || { passes: 0, total: 0, pct: null });
     return '';
   }
@@ -950,6 +1040,16 @@
         pct: row.pct,
         rating: row.rating ? { label: row.rating.label, color: row.rating.color } : null,
         detail: row.detail || ''
+      };
+    });
+  }
+  function copyBests(rows) {
+    return (rows || []).map(function (row) {
+      return {
+        name: row.name,
+        value: row.value,
+        date: row.date,
+        dateLabel: row.dateLabel
       };
     });
   }
@@ -1011,6 +1111,8 @@
         var volume = model.volume || { weekKg: 0, weeks: [] };
         cards.push({ type: 'volume', volume: { weekKg: volume.weekKg || 0, weeks: copyWeeks(volume.weeks) } });
       } else if (id === 'records') cards.push({ type: 'records', records: copyRecords(model.records) });
+      else if (id === 'holds') cards.push({ type: 'holds', holds: copyBests(model.holds) });
+      else if (id === 'stopwatch') cards.push({ type: 'stopwatch', stopwatch: copyBests(model.stopwatch) });
       else if (id === 'calendar' && model.calendar) {
         cards.push({
           type: 'calendar',
@@ -1043,6 +1145,8 @@
     if (card.type === 'strength') model.strength = card.strength;
     if (card.type === 'volume') model.volume = card.volume;
     if (card.type === 'records') model.records = card.records;
+    if (card.type === 'holds') model.holds = card.holds;
+    if (card.type === 'stopwatch') model.stopwatch = card.stopwatch;
     if (card.type === 'calendar') model.calendar = card.calendar;
     if (card.type === 'pass') model.pass = card.pass;
     return model;

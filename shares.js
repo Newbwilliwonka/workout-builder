@@ -9,12 +9,12 @@
   function known() {
     var dash = root.WBDashboard;
     if (dash && Array.isArray(dash.CARDS) && dash.CARDS.length) return dash.CARDS;
-    return ['plan', 'workouts', 'volume', 'records', 'calendar', 'pass'];
+    return ['plan', 'workouts', 'volume', 'records', 'calendar', 'holds', 'stopwatch', 'pass'];
   }
   function standard() {
     var dash = root.WBDashboard;
     if (dash && Array.isArray(dash.STANDARD) && dash.STANDARD.length) return dash.STANDARD.slice();
-    return ['plan', 'workouts', 'volume', 'records', 'calendar'];
+    return ['plan', 'workouts', 'volume', 'records', 'calendar', 'holds', 'stopwatch'];
   }
   function orderOf(list) {
     var allow = known();
