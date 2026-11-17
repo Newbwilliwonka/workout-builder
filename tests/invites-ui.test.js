@@ -93,7 +93,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.waitForSelector('#invite-code');
   assert.strictEqual(await p.$eval('#invite-code', e => e.value.replace(/-/g, '')), code);
   await p.type('#acct-email', 'new@example.com');
-  await p.type('#acct-pass', 'secret12');
+  await p.type('#acct-pass', 'secret1234');
   await p.click('[data-auth=in]');
   await p.waitForFunction(() => location.hash === '#/' && document.body.innerText.includes('You are connected as a Free Client') && document.querySelector('[data-a=new]'));
   await p.screenshot({ path: '/tmp/invite-redeem-412.png' });

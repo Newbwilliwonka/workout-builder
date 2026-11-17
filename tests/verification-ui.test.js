@@ -122,7 +122,7 @@ const ART = '/opt/cursor/artifacts';
       size: size,
       box: box.height,
       link: !!document.getElementById('verify-open'),
-      admin: !!document.getElementById('admin-verifications')
+      admin: !!document.getElementById('admin-open')
     };
   });
   assert.strictEqual(accountSeal.text, 'Coach Kim');
@@ -286,7 +286,7 @@ const ART = '/opt/cursor/artifacts';
       decline: !!card.querySelector('[data-verify="decline"]')
     };
   });
-  assert.strictEqual(queue.title, 'Verifications');
+  assert.strictEqual(queue.title, 'Admin');
   assert.ok(queue.text.indexOf('Certifying organization') !== -1);
   assert.strictEqual(queue.text.indexOf('Certification body'), -1);
   assert.ok(queue.text.indexOf('Coach Kim') !== -1);
@@ -332,9 +332,9 @@ const ART = '/opt/cursor/artifacts';
     location.hash = '#/account';
   });
   await p.waitForFunction(function () {
-    var link = document.getElementById('admin-verifications');
+    var btn = document.getElementById('admin-open');
     var badge = document.getElementById('admin-count');
-    return link && link.textContent === 'Verifications' && badge && !badge.hidden && badge.textContent === '1' && window.__queueReads > 0;
+    return btn && btn.textContent.indexOf('Admin') === 0 && badge && !badge.hidden && badge.textContent === '1' && window.__queueReads > 0;
   });
   const pendingBadge = await p.evaluate(function () {
     var badge = document.getElementById('admin-count');
@@ -352,10 +352,10 @@ const ART = '/opt/cursor/artifacts';
   assert.ok(pendingBadge.round, 'badge is not circular');
   assert.ok(parseFloat(pendingBadge.radius) >= 11);
   await p.evaluate(function () {
-    document.getElementById('admin-verifications').scrollIntoView({ block: 'center' });
+    document.getElementById('admin-open').scrollIntoView({ block: 'center' });
   });
   await p.screenshot({ path: ART + '/account-admin-badge.png' });
-  await p.click('#admin-verifications');
+  await p.click('#admin-open');
   await p.waitForSelector('[data-verify="approve"]');
   await p.click('[data-verify="approve"]');
   await p.waitForSelector('#verify-empty');
@@ -369,7 +369,7 @@ const ART = '/opt/cursor/artifacts';
   });
   await p.waitForFunction(function () {
     var badge = document.getElementById('admin-count');
-    return window.__queueReads > 0 && badge && badge.hidden && document.getElementById('admin-verifications');
+    return window.__queueReads > 0 && badge && badge.hidden && document.getElementById('admin-open');
   });
   await p.evaluate(function () {
     window.__session.user.email = 'ada@example.com';
@@ -379,7 +379,7 @@ const ART = '/opt/cursor/artifacts';
   assert.strictEqual(await p.$('#verify-queue'), null);
   await p.evaluate(function () { location.hash = '#/account'; });
   await p.waitForSelector('#account-label');
-  assert.strictEqual(await p.$('#admin-verifications'), null);
+  assert.strictEqual(await p.$('#admin-open'), null);
 
   assert.deepStrictEqual(errs, []);
   await b.close();

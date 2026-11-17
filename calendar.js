@@ -1,6 +1,9 @@
 /* Private program-calendar link. Browser: window.WBCalendar. Node: require.
    The feed itself is built by the calendar-feed Edge Function. This file only
-   makes the link the Programs page shows. */
+   makes the link the Programs page shows.
+   The real token is created in the database with gen_random_bytes. newToken
+   is only a stand-in on this device when that table is not available yet.
+   The server ignores any token the browser sends. */
 (function (root) {
   'use strict';
 

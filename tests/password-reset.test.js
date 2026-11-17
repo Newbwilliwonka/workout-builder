@@ -49,6 +49,14 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
             try { reads = Number(sessionStorage.getItem('wb.sessionReads') || '0') || 0; } catch (e) {}
             reads += 1;
             try { sessionStorage.setItem('wb.sessionReads', String(reads)); } catch (e) {}
+            // A background workout sync also reads the session, so a fixed
+            // read number is not the reload. The test marks the next read.
+            try {
+              if (sessionStorage.getItem('wb.failNext') === '1') {
+                sessionStorage.removeItem('wb.failNext');
+                return Promise.reject(new Error('Failed to fetch'));
+              }
+            } catch (e) {}
             if (cfg.failSessionRead && reads === cfg.failSessionRead) return Promise.reject(new Error('Failed to fetch'));
             return Promise.resolve(cfg.session || null);
           };
@@ -163,12 +171,12 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   }
   await fill('short', 'short');
   await setPass.click('[data-auth=update-pass]');
-  await setPass.waitForFunction(() => document.body.innerText.indexOf('at least 6 characters') !== -1);
+  await setPass.waitForFunction(() => document.body.innerText.indexOf('at least 10 characters') !== -1);
   assert.strictEqual(await setPass.evaluate(() => window.__updated || ''), '');
-  await fill('secret12', 'secret99');
+  await fill('secret1234', 'secret99');
   await setPass.click('[data-auth=update-pass]');
   await setPass.waitForFunction(() => document.body.innerText.indexOf('do not match') !== -1);
-  await fill('secret12', 'secret12');
+  await fill('secret1234', 'secret1234');
   await setPass.evaluate(() => {
     window.__sawUpdated = false;
     new MutationObserver(function () {
@@ -177,7 +185,7 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   });
   await setPass.click('[data-auth=update-pass]');
   await setPass.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]'));
-  assert.strictEqual(await setPass.evaluate(() => window.__updated), 'secret12');
+  assert.strictEqual(await setPass.evaluate(() => window.__updated), 'secret1234');
   assert.strictEqual(await setPass.evaluate(() => window.__sawUpdated), true);
   await setPass.screenshot({ path: '/opt/cursor/artifacts/password_updated_subscriptions.png' });
 
@@ -188,8 +196,8 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   });
   await home.goto(URL + '#access_token=abc&refresh_token=def&type=recovery');
   await home.waitForSelector('#new-pass');
-  await home.type('#new-pass', 'secret12');
-  await home.type('#confirm-pass', 'secret12');
+  await home.type('#new-pass', 'secret1234');
+  await home.type('#confirm-pass', 'secret1234');
   await home.click('[data-auth=update-pass]');
   await home.waitForSelector('[data-a=new]');
   assert.ok(['', '#', '#/'].indexOf(await home.evaluate(() => location.hash)) !== -1);
@@ -211,8 +219,8 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   });
   await weak.goto(URL + '#type=recovery');
   await weak.waitForSelector('#new-pass');
-  await weak.type('#new-pass', 'secret12');
-  await weak.type('#confirm-pass', 'secret12');
+  await weak.type('#new-pass', 'secret1234');
+  await weak.type('#confirm-pass', 'secret1234');
   await weak.click('[data-auth=update-pass]');
   await weak.waitForFunction(() => document.body.innerText.indexOf('at least 8 characters') !== -1 && document.querySelector('#new-pass'));
 
@@ -250,11 +258,11 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   const flaky = await open({
     session: { user: { id: 'u', email: 'ada@example.com' } },
     profile: none,
-    clearHash: true,
-    failSessionRead: 2
+    clearHash: true
   });
   await flaky.goto(URL + '#type=recovery');
   await flaky.waitForSelector('#new-pass');
+  await flaky.evaluate(function () { sessionStorage.setItem('wb.failNext', '1'); });
   await flaky.reload();
   await flaky.waitForFunction((msg) => document.body.innerText.indexOf(msg) !== -1 && !document.querySelector('#new-pass') && !document.querySelector('[data-a=new]'), {}, UNREAD);
   assert.strictEqual(await flaky.evaluate(() => localStorage.getItem('wb.recovery')), '1');
