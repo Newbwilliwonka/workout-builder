@@ -105,6 +105,7 @@ async function openPage(browser, membership, payload) {
     window.__wbDashboardNow = new Date(2026, 10, 16, 12, 0, 0).getTime();
     window.__wbHistoryPayload = { sets: rows.sets, sessions: rows.sessions, exercises: rows.exercises || [] };
     window.__wbSchedulePayload = { entries: rows.schedule || [] };
+    window.__wbShares = rows.shares || null;
     var desc = Object.getOwnPropertyDescriptor(window, 'WBAuth');
     if (!desc || !desc.set) return;
     var prev = desc.set;
@@ -149,6 +150,13 @@ async function openPage(browser, membership, payload) {
         ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'shareSetting', 'programEntries', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
+        value.myShares = function () {
+          if (!window.__wbShares) return Promise.resolve(null);
+          return Promise.resolve({ shares: window.__wbShares });
+        };
+        value.markShareViewed = function () {
+          return Promise.resolve({ ok: true, viewed_at: '2026-11-16T18:00:00.000Z' });
+        };
         value.roster = function () {
           return Promise.resolve(window.__roster || { clients: [] });
         };
@@ -413,7 +421,8 @@ async function openPage(browser, membership, payload) {
         rating: el.getAttribute('data-rating'),
         text: el.querySelector('.db-gain-pct').textContent,
         color: getComputedStyle(el.querySelector('.db-gain-pct')).color,
-        width: fill.style.width
+        width: fill.style.width,
+        ratio: fill.getBoundingClientRect().width / el.querySelector('.db-gain-track').getBoundingClientRect().width
       };
     });
     return {
@@ -441,7 +450,9 @@ async function openPage(browser, membership, payload) {
     'Front squat Elite',
     'Push-up Good'
   ]);
-  assert.ok(shown.bars.every(function (row) { return row.width === '50%' || row.width === '5%'; }));
+  assert.deepStrictEqual(shown.bars.map(function (row) { return row.width; }), ['100%', '100%', '10%']);
+  assert.ok(shown.bars[0].ratio > 0.96 && shown.bars[1].ratio > 0.96, 'a 10% gain fills the track');
+  assert.ok(shown.bars[2].ratio > 0.08 && shown.bars[2].ratio < 0.14, 'a 1% gain is about one tenth of the track');
   assert.strictEqual(shown.bars[0].color, shown.bars[1].color);
   assert.notStrictEqual(shown.bars[0].color, shown.bars[2].color);
   assert.ok((await phone.$eval('#dashboard-strength', function (el) { return el.innerText; })).indexOf('200 lb to 220 lb') >= 0);
@@ -571,6 +582,135 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(await switched.evaluate(function () { return window.__saveCount || 0; }), 0);
   assert.deepStrictEqual(switched.__errors, []);
   await switched.close();
+
+  const half = await openPage(browser, 'enthusiast', {
+    sessions: [tracked('bn-old', '2026-10-04', 8), tracked('bn-new', '2026-11-04', 8)],
+    sets: [
+      logged('bn-old', 'bn', 'Bench press', 'kg', 100, 8),
+      logged('bn-new', 'bn', 'Bench press', 'kg', 105, 8)
+    ],
+    exercises: [],
+    schedule: []
+  });
+  await half.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await half.waitForSelector('#dashboard-strength .db-gain-fill');
+  const halfBar = await half.evaluate(function () {
+    var row = document.querySelector('#dashboard-strength .db-gain');
+    var fill = row.querySelector('.db-gain-fill');
+    var track = row.querySelector('.db-gain-track');
+    return {
+      text: row.querySelector('.db-gain-pct').textContent,
+      width: fill.style.width,
+      ratio: fill.getBoundingClientRect().width / track.getBoundingClientRect().width
+    };
+  });
+  assert.strictEqual(halfBar.text, '5% · Excellent');
+  assert.strictEqual(halfBar.width, '50%');
+  assert.ok(halfBar.ratio > 0.46 && halfBar.ratio < 0.54, 'a 5% gain fills half the track');
+  assert.deepStrictEqual(half.__errors, []);
+  await half.close();
+
+  const trainerBars = await openPage(browser, 'trainer', {
+    sessions: [
+      tracked('sq-old', '2026-10-02', 8), tracked('sq-new', '2026-11-02', 8),
+      tracked('pu-old', '2026-10-09', 8), tracked('pu-new', '2026-11-09', 8)
+    ],
+    sets: [
+      logged('sq-old', 'sq', 'Back squat', 'kg', 100, 5),
+      logged('sq-new', 'sq', 'Back squat', 'kg', 110, 5),
+      logged('pu-old', 'pu', 'Push-up', 'bodyweight', null, 100),
+      logged('pu-new', 'pu', 'Push-up', 'bodyweight', null, 101)
+    ],
+    exercises: [],
+    schedule: []
+  });
+  await trainerBars.goto(URL + '#/tracking/dashboard', { waitUntil: 'domcontentloaded' });
+  await trainerBars.waitForSelector('#dash-reset');
+  await trainerBars.waitForSelector('#dashboard-strength .db-gain-fill');
+  const edited = await trainerBars.evaluate(function () {
+    return Array.prototype.map.call(document.querySelectorAll('#dashboard-strength .db-gain'), function (el) {
+      var fill = el.querySelector('.db-gain-fill');
+      return {
+        text: el.querySelector('.db-gain-pct').textContent,
+        width: fill.style.width,
+        ratio: fill.getBoundingClientRect().width / el.querySelector('.db-gain-track').getBoundingClientRect().width,
+        editor: !!el.closest('.db-edit')
+      };
+    });
+  });
+  assert.deepStrictEqual(edited.map(function (row) { return row.text + ' ' + row.width; }), [
+    '10% · Elite 100%',
+    '1% · Good 10%'
+  ]);
+  assert.ok(edited.every(function (row) { return row.editor; }));
+  assert.ok(edited[0].ratio > 0.96);
+  assert.ok(edited[1].ratio > 0.08 && edited[1].ratio < 0.14);
+  assert.deepStrictEqual(trainerBars.__errors, []);
+  await trainerBars.close();
+
+  const shareId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa10';
+  const frozen = await openPage(browser, 'enthusiast', {
+    sets: [],
+    sessions: [],
+    exercises: [],
+    schedule: [],
+    shares: [{
+      id: shareId,
+      trainer_name: 'Coach Lee',
+      as_of: '2026-11-16',
+      created_at: '2026-11-16T15:00:00.000Z',
+      viewed_at: '2026-11-16T16:00:00.000Z',
+      cards: [{
+        type: 'strength',
+        strength: {
+          weight: [
+            { name: 'Bench press', pct: 5, rating: { label: 'Excellent', color: '#16A34A' }, detail: '100 kg to 105 kg' },
+            { name: 'Back squat', pct: 10, rating: { label: 'Elite', color: '#0F766E' }, detail: '100 kg to 110 kg' },
+            { name: 'Deadlift', pct: 15, rating: { label: 'Alien', color: '#0F766E' }, detail: '100 kg to 115 kg' }
+          ],
+          reps: []
+        }
+      }]
+    }]
+  });
+  await frozen.goto(URL + '#/tracking/dashboard/share/' + shareId, { waitUntil: 'domcontentloaded' });
+  await frozen.waitForSelector('#dashboard-stamp');
+  await frozen.waitForSelector('#dashboard-strength .db-gain-fill');
+  const frozenBars = await frozen.evaluate(function () {
+    return {
+      stamp: document.getElementById('dashboard-stamp').textContent,
+      bars: Array.prototype.map.call(document.querySelectorAll('#dashboard-strength .db-gain'), function (el) {
+        var fill = el.querySelector('.db-gain-fill');
+        var pct = el.querySelector('.db-gain-pct');
+        return {
+          name: el.querySelector('.name').textContent,
+          rating: el.getAttribute('data-rating'),
+          text: pct.textContent,
+          width: fill.style.width,
+          color: getComputedStyle(pct).color,
+          fill: fill.style.backgroundColor,
+          ratio: fill.getBoundingClientRect().width / el.querySelector('.db-gain-track').getBoundingClientRect().width
+        };
+      })
+    };
+  });
+  assert.strictEqual(frozenBars.stamp, 'As of November 16, 2026 from Coach Lee');
+  assert.deepStrictEqual(frozenBars.bars.map(function (row) { return row.text + ' ' + row.width; }), [
+    '5% · Excellent 50%',
+    '10% · Elite 100%',
+    '15% · Alien 100%'
+  ]);
+  assert.ok(frozenBars.bars[0].ratio > 0.46 && frozenBars.bars[0].ratio < 0.54);
+  assert.ok(frozenBars.bars[1].ratio > 0.96 && frozenBars.bars[2].ratio > 0.96);
+  assert.strictEqual(frozenBars.bars[2].color, frozenBars.bars[1].color);
+  assert.strictEqual(frozenBars.bars[2].fill, frozenBars.bars[1].fill);
+  assert.notStrictEqual(frozenBars.bars[0].color, frozenBars.bars[1].color);
+  const cardShot = path.join(OUT, 'strength-bar-scale.png');
+  await frozen.$eval('#dashboard-strength', function (el) { el.scrollIntoView({ block: 'center' }); });
+  await (await frozen.$('#dashboard-strength')).screenshot({ path: cardShot, type: 'png' });
+  assert.ok(fs.statSync(cardShot).size > 1000);
+  assert.deepStrictEqual(frozen.__errors, []);
+  await frozen.close();
 
   console.log('DASHBOARD UI OK');
   await browser.close();

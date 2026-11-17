@@ -362,6 +362,13 @@ assert.strictEqual(D.gainRating(-3), null);
 function reps(over) {
   return set(Object.assign({ mode: 'reps', status: 'completed', actualReps: 5, actualWeightKg: 100 }, over));
 }
+function fillWidths(html) {
+  var out = [];
+  var re = /class="db-gain-fill" style="width:([0-9.]+)%/g;
+  var match;
+  while ((match = re.exec(html))) out.push(match[1]);
+  return out;
+}
 const movers = model([
   reps({ sessionId: 'sq-old', localDate: '2026-10-02', libraryExerciseId: 'sq', exerciseName: 'Back squat', actualWeightKg: 100, actualReps: 5 }),
   reps({ sessionId: 'sq-new', localDate: '2026-11-02', libraryExerciseId: 'sq', exerciseName: 'Back squat', actualWeightKg: 110, actualReps: 5 }),
@@ -402,8 +409,8 @@ assert.deepStrictEqual(movers.strength.reps.map(function (row) { return [row.nam
 assert.strictEqual(movers.strength.reps[0].rating.color, '#0F766E');
 assert.ok(movers.strength.reps[0].detail.indexOf('8 reps to 12 reps') >= 0);
 const moveHtml = D.html(movers);
-assert.ok(moveHtml.indexOf('width:50%') >= 0, '10% is half of the 20% bar');
-assert.ok(moveHtml.indexOf('width:100%') >= 0, 'a gain past 20% fills the bar');
+assert.deepStrictEqual(fillWidths(moveHtml), ['100', '100', '100'], '10% fills the bar, and a gain past 10% stays full');
+assert.ok(moveHtml.indexOf('width:50%') < 0);
 assert.ok(moveHtml.indexOf('>10% · Elite<') >= 0);
 assert.ok(moveHtml.indexOf('>50% · Alien<') >= 0);
 assert.ok(moveHtml.indexOf('No gains yet this month') < 0);
@@ -422,7 +429,7 @@ const onePct = model([
 assert.strictEqual(onePct.strength.weight[0].pct, 1);
 assert.strictEqual(onePct.strength.weight[0].rating.label, 'Good');
 assert.strictEqual(onePct.strength.reps[0].rating.label, 'Good');
-assert.ok(D.html(onePct).indexOf('width:5%') >= 0);
+assert.deepStrictEqual(fillWidths(D.html(onePct)), ['10', '10'], '1% is one tenth of the bar');
 const fivePct = model([
   reps({ sessionId: 'e-old', localDate: '2026-10-01', libraryExerciseId: 'e', exerciseName: 'Excellent lift', actualWeightKg: 200, actualReps: 20 }),
   reps({ sessionId: 'e-new', localDate: '2026-11-01', libraryExerciseId: 'e', exerciseName: 'Excellent lift', actualWeightKg: 210, actualReps: 21 })
@@ -430,6 +437,7 @@ const fivePct = model([
 assert.strictEqual(fivePct.strength.weight[0].pct, 5);
 assert.strictEqual(fivePct.strength.weight[0].rating.label, 'Excellent');
 assert.strictEqual(fivePct.strength.reps[0].rating.label, 'Excellent');
+assert.deepStrictEqual(fillWidths(D.html(fivePct)), ['50', '50'], '5% is half the bar');
 const ownKey = model([
   reps({ sessionId: 'p-old', localDate: '2026-10-01', personalExerciseId: 'pex', exerciseName: 'My row', actualWeightKg: 40, actualReps: 10, libraryExerciseId: '' }),
   reps({ sessionId: 'p-new', localDate: '2026-11-01', personalExerciseId: 'pex', exerciseName: 'My row', actualWeightKg: 44, actualReps: 10, libraryExerciseId: '' })
@@ -439,7 +447,34 @@ assert.strictEqual(ownKey.strength.weight[0].pct, 10);
 const frozenMoves = D.freeze(movers, ['strength'], { asOf: '2026-11-16', trainerName: 'Coach Lee' });
 movers.strength.weight = [];
 assert.strictEqual(frozenMoves.cards[0].strength.weight.length, 2);
-assert.ok(D.snapshotHtml(frozenMoves).indexOf('Front squat') >= 0);
-assert.ok(D.snapshotHtml(frozenMoves).indexOf('200 lb to 220 lb') >= 0);
+const frozenMoveHtml = D.snapshotHtml(frozenMoves);
+assert.ok(frozenMoveHtml.indexOf('Front squat') >= 0);
+assert.ok(frozenMoveHtml.indexOf('200 lb to 220 lb') >= 0);
+assert.deepStrictEqual(fillWidths(frozenMoveHtml), ['100', '100', '100'], 'a saved snapshot scales its bars when it is drawn');
+assert.ok(frozenMoveHtml.indexOf('>50% · Alien<') >= 0);
+const stored = {
+  asOf: '2026-11-16',
+  trainerName: 'Coach Lee',
+  cards: [{
+    type: 'strength',
+    strength: {
+      weight: [
+        { name: 'Bench press', pct: 5, rating: { label: 'Excellent', color: '#16A34A' }, detail: '100 kg to 105 kg' },
+        { name: 'Back squat', pct: 10, rating: { label: 'Elite', color: '#0F766E' }, detail: '100 kg to 110 kg' },
+        { name: 'Deadlift', pct: 15, rating: { label: 'Alien', color: '#0F766E' }, detail: '100 kg to 115 kg' }
+      ],
+      reps: []
+    }
+  }]
+};
+const storedHtml = D.snapshotHtml(stored);
+assert.deepStrictEqual(fillWidths(storedHtml), ['50', '100', '100']);
+assert.ok(storedHtml.indexOf('>5% · Excellent<') >= 0);
+assert.ok(storedHtml.indexOf('>10% · Elite<') >= 0);
+assert.ok(storedHtml.indexOf('>15% · Alien<') >= 0);
+assert.strictEqual((storedHtml.match(/background:#0F766E/g) || []).length, 2);
+const editorHtml = D.editorHtml({ strength: stored.cards[0].strength, workouts: { streak: 1 } }, ['strength'], { self: true });
+assert.deepStrictEqual(fillWidths(editorHtml), ['50', '100', '100']);
+assert.ok(editorHtml.indexOf('>15% · Alien<') >= 0);
 
 console.log('DASHBOARD OK');
