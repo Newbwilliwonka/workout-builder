@@ -179,7 +179,7 @@ with (security_barrier = true, security_invoker = false) as
 select
   p.id,
   nullif(btrim(p.display_name), '') as display_name,
-  u.email,
+  u.email::text as email,
   private.is_approved(p.id) as approved,
   p.created_at
 from public.profiles p
@@ -212,13 +212,15 @@ end;
 $fn$;
 
 -- The admin queue shows the sign-in email from auth.users, not profiles.email.
+-- auth.users.email is varchar(255). The live view's email column is text,
+-- so the cast keeps that type. Replacing a view cannot change a column's type.
 create or replace view public.verification_queue
 with (security_barrier = true, security_invoker = false) as
 select
   r.id,
   r.user_id,
   nullif(btrim(p.display_name), '') as display_name,
-  u.email,
+  u.email::text as email,
   r.cert_body,
   r.cert_number,
   r.expires_on,
