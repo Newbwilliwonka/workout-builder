@@ -1,9 +1,12 @@
 /* Standard tracking dashboard. No network. No sample people.
    Browser: window.WBDashboard. Node: require.
    Numbers come from the signed-in person's saved sessions and sets.
-   Static holds and stopwatch bests are on this dashboard.
+   The standard set, and what Reset restores, is Hit the plan, Workouts
+   and streak, Total volume, Strength and Capacity, Consistency, and
+   Static holds. Recent personal records and Stopwatch stay off that set.
    Stopwatch pass rate is intentionally not rendered. It stays off this
-   dashboard until a trainer can choose to add it. */
+   dashboard until a trainer can choose to add it. A saved layout or a
+   frozen share keeps whatever cards it already stored. */
 (function (root) {
   'use strict';
   var LB_TO_KG = 0.45359237;
@@ -956,16 +959,8 @@
     if (!model || model.empty) {
       return '<div id="dashboard"><div class="empty db-empty" id="dashboard-empty"><div class="name">Finish a workout and your dashboard will fill in.</div></div></div>';
     }
-    return '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' +
-      planHtml(model.plan) +
-      workoutsHtml(model.workouts) +
-      strengthHtml(model.strength) +
-      volumeHtml(model.volume) +
-      recordsHtml(model.records) +
-      calendarHtml(model.calendar) +
-      holdsHtml(model.holds) +
-      stopwatchHtml(model.stopwatch) +
-      '</div></div>';
+    var sections = STANDARD.map(function (id) { return cardSection(id, model); }).join('');
+    return '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' + sections + '</div></div>';
   }
   function unavailableHtml() {
     return '<div id="dashboard"><div class="empty db-empty" id="dashboard-unavailable"><div class="name">Saved sessions are not available yet.</div></div></div>';
@@ -981,8 +976,8 @@
     stopwatch: 'Stopwatch',
     pass: 'Stopwatch pass rate'
   };
-  var STANDARD = ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'holds', 'stopwatch'];
-  var CARD_ALL = STANDARD.concat(['pass']);
+  var STANDARD = ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds'];
+  var CARD_ALL = ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass'];
   function keptOrder(order) {
     var seen = {};
     var out = [];

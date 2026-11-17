@@ -201,16 +201,20 @@ async function openPage(browser, cfg) {
   await trainer.click('#dash-edit');
   await trainer.waitForSelector('[data-card-up="volume"]');
   assert.strictEqual(await trainer.$eval('[data-card-up="plan"]', function (el) { return el.disabled; }), true);
-  assert.strictEqual(await trainer.$eval('[data-card-down="stopwatch"]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await trainer.$eval('[data-card-down="holds"]', function (el) { return el.disabled; }), true);
   assert.strictEqual(await trainer.$('[data-drag]'), null);
-  await trainer.click('[data-card-up="volume"]');
+  assert.ok(await trainer.$('[data-card-add="records"]'));
+  assert.ok(await trainer.$('[data-card-add="stopwatch"]'));
+  assert.ok(await trainer.$('[data-card-add="pass"]'));
+  await trainer.click('[data-card-up="strength"]');
   await trainer.waitForFunction(function () {
     var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
-    return titles[2] === 'Total volume';
+    return titles[2] === 'Strength and Capacity';
   });
+  await trainer.click('[data-card-add="stopwatch"]');
+  await trainer.waitForSelector('#dashboard-stopwatch');
   await trainer.click('[data-card-add="pass"]');
   await trainer.waitForSelector('#dashboard-pass');
-  await trainer.click('[data-card-remove="records"]');
   await trainer.waitForFunction(function () {
     return !document.getElementById('dashboard-records') && document.getElementById('dashboard-pass');
   });
@@ -229,8 +233,8 @@ async function openPage(browser, cfg) {
   assert.deepStrictEqual(edited.titles, [
     'Hit the plan',
     'Workouts and streak',
-    'Total volume',
     'Strength and Capacity',
+    'Total volume',
     'Consistency · November 2026',
     'Static holds',
     'Stopwatch',
@@ -283,16 +287,15 @@ async function openPage(browser, cfg) {
   assert.strictEqual(await trainer.$('[data-card-up]'), null);
   await trainer.click('#dash-edit');
   await trainer.waitForSelector('[data-card-up="volume"]');
-  await trainer.click('[data-card-up="volume"]');
+  await trainer.click('[data-card-up="strength"]');
   await trainer.waitForFunction(function () {
     var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
-    return titles[2] === 'Total volume';
+    return titles[2] === 'Strength and Capacity';
   });
   await trainer.click('[data-card-add="pass"]');
   await trainer.waitForSelector('#dashboard-pass');
-  await trainer.click('[data-card-remove="records"]');
   await trainer.waitForFunction(function () {
-    return !document.getElementById('dashboard-records') && !!document.getElementById('dash-share');
+    return !document.getElementById('dashboard-records') && !!document.getElementById('dash-share') && !!document.querySelector('[data-card-add="records"]');
   });
   const enthusiastEditor = await trainer.evaluate(function () {
     var sel = document.getElementById('client-pick');
@@ -572,12 +575,10 @@ async function openPage(browser, cfg) {
   assert.deepStrictEqual(own.titles, [
     'Hit the plan',
     'Workouts and streak',
-    'Strength and Capacity',
     'Total volume',
-    'Recent personal records',
+    'Strength and Capacity',
     'Consistency · November 2026',
-    'Static holds',
-    'Stopwatch'
+    'Static holds'
   ]);
   assert.strictEqual(own.buttons, 0);
   assert.strictEqual(own.count, '2');
@@ -613,7 +614,7 @@ async function openPage(browser, cfg) {
   assert.strictEqual(openedFan.buttons, 0);
   assert.strictEqual(openedFan.add, false);
   assert.strictEqual(openedFan.heading, false);
-  assert.strictEqual(openedFan.titles, 8);
+  assert.strictEqual(openedFan.titles, 6);
   assert.strictEqual(openedFan.count, '1');
   assert.strictEqual(openedFan.label, '1 shared dashboard');
   await shot(enthusiast, 'enthusiast-shared-open.png', true);
