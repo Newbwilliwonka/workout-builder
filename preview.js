@@ -313,15 +313,26 @@
     if (/enthusiast/i.test(String((client && (client.plan || client.membership)) || ''))) return 'Enthusiast';
     return 'Client';
   }
+  // Labeled client menu shared with the Tracking dashboard. First option is the caller’s own view.
+  function clientSelectHtml(spec) {
+    spec = spec || {};
+    var id = String(spec.id || 'client-pick');
+    var selected = spec.selected == null ? '' : String(spec.selected);
+    var h = '<label class="mute" for="' + esc(id) + '">' + esc(spec.label || 'Client') + '</label><select id="' + esc(id) + '">';
+    (spec.options || []).forEach(function (opt) {
+      var value = opt && opt.value != null ? String(opt.value) : '';
+      h += '<option value="' + esc(value) + '"' + (value === selected ? ' selected' : '') + '>' + esc(opt && opt.label || '') + '</option>';
+    });
+    return h + '</select>';
+  }
   function clientPicker() {
     if (!P.isTrainer(state.role)) return '';
     if (!state.clients.length) return '<div class="card"><div class="name">No clients yet</div><p class="mute">Invite a client from Account, then their calendar shows up here.</p></div>';
-    var h = '<label class="mute" for="pv-client">Client</label><select id="pv-client">';
-    h += '<option value=""' + (state.clientId ? '' : ' selected') + '>My calendar</option>';
+    var options = [{ value: '', label: 'My calendar' }];
     state.clients.forEach(function (client) {
-      h += '<option value="' + esc(client.id) + '"' + (client.id === state.clientId ? ' selected' : '') + '>' + esc(clientVisible(client)) + ' · ' + esc(client.plan || 'Free Client') + '</option>';
+      options.push({ value: client.id, label: clientVisible(client) + ' · ' + (client.plan || 'Free Client') });
     });
-    return h + '</select>';
+    return clientSelectHtml({ id: 'pv-client', label: 'Client', selected: state.clientId, options: options });
   }
   function homeHtml() {
     var hidden = state.ready && !canSee();
@@ -1459,5 +1470,5 @@
     state = null;
     options = null;
   }
-  window.WBPreview = { mount: mount, unmount: unmount, back: back, calendarOnPhone: calendarOnPhone };
+  window.WBPreview = { mount: mount, unmount: unmount, back: back, calendarOnPhone: calendarOnPhone, clientSelectHtml: clientSelectHtml };
 })();

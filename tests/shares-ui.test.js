@@ -171,21 +171,38 @@ async function openPage(browser, cfg) {
   await trainer.waitForSelector('#client-pick');
   const picker = await trainer.evaluate(function () {
     return {
-      names: Array.prototype.map.call(document.querySelectorAll('#client-pick [role="option"]'), function (el) { return el.textContent; }),
+      names: Array.prototype.map.call(document.querySelectorAll('#client-pick option'), function (el) { return el.textContent; }),
+      tag: document.getElementById('client-pick').tagName,
       share: !!document.getElementById('dash-share'),
-      reset: !!document.getElementById('dash-reset'),
-      pass: !!document.getElementById('dashboard-pass')
+      reset: document.getElementById('dash-reset') ? document.getElementById('dash-reset').textContent : '',
+      edit: document.getElementById('dash-edit') ? document.getElementById('dash-edit').textContent : '',
+      add: !!document.getElementById('dash-add'),
+      tools: !!document.querySelector('[data-card-remove]'),
+      pass: !!document.getElementById('dashboard-pass'),
+      email: document.getElementById('client-pick').innerHTML.indexOf('@') >= 0
     };
   });
   assert.deepStrictEqual(picker.names, ['Me · Coach Lee', 'Ada Client', 'Neil Client', 'Fan Enthusiast', 'Pat Chooser', 'Kip Pending']);
+  assert.strictEqual(picker.tag, 'SELECT');
   assert.strictEqual(picker.share, false);
-  assert.strictEqual(picker.reset, true);
+  assert.strictEqual(picker.reset, 'Reset');
+  assert.strictEqual(picker.edit, 'Edit');
+  assert.strictEqual(picker.add, false);
+  assert.strictEqual(picker.tools, false);
   assert.strictEqual(picker.pass, false);
+  assert.strictEqual(picker.email, false);
   await shot(trainer, 'trainer-client-picker.png');
 
-  await trainer.click('#client-pick [data-client="' + ADA + '"]');
+  await trainer.select('#client-pick', ADA);
   await trainer.waitForSelector('#dash-share');
   await trainer.waitForSelector('#dashboard-schedule-note');
+  assert.strictEqual(await trainer.$('#dash-add'), null);
+  assert.strictEqual(await trainer.$('[data-drag]'), null);
+  await trainer.click('#dash-edit');
+  await trainer.waitForSelector('[data-card-up="volume"]');
+  assert.strictEqual(await trainer.$eval('[data-card-up="plan"]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await trainer.$eval('[data-card-down="calendar"]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await trainer.$('[data-drag]'), null);
   await trainer.click('[data-card-up="volume"]');
   await trainer.waitForFunction(function () {
     var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
@@ -227,18 +244,13 @@ async function openPage(browser, cfg) {
   await trainer.waitForFunction(function () {
     return document.querySelector('#dashboard-sheet h2').textContent === 'Workouts and streak';
   });
-  const dragFrom = await trainer.$('[data-drag="calendar"]');
-  const dragTo = await trainer.$('[data-card="workouts"]');
-  const fromBox = await dragFrom.boundingBox();
-  const toBox = await dragTo.boundingBox();
-  await trainer.mouse.move(fromBox.x + fromBox.width / 2, fromBox.y + fromBox.height / 2);
-  await trainer.mouse.down();
-  await trainer.mouse.move(toBox.x + 20, toBox.y + 20, { steps: 12 });
-  await trainer.mouse.up();
+  for (let step = 0; step < 4; step++) await trainer.click('[data-card-up="calendar"]');
   await trainer.waitForFunction(function () {
     var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
-    return titles[0] === 'Consistency · November 2026';
-  }, { timeout: 4000 }).catch(function () {});
+    var last = document.querySelector('[data-card-down="pass"]');
+    return titles[0] === 'Consistency · November 2026' && last && last.disabled;
+  });
+  assert.strictEqual(await trainer.$eval('[data-card-up="calendar"]', function (el) { return el.disabled; }), true);
   await shot(trainer, 'trainer-dashboard-edit.png', true);
 
   await trainer.evaluate(function () {
@@ -257,19 +269,18 @@ async function openPage(browser, cfg) {
   assert.ok(JSON.stringify(shared).indexOf('session_id') < 0);
   const toast = await trainer.$eval('#toast', function (el) { return el.textContent; });
   assert.strictEqual(toast, 'Dashboard shared.');
-  await trainer.evaluate(function (id) {
-    document.querySelector('#client-pick [data-client="' + id + '"]').click();
-  }, NEIL);
+  await trainer.select('#client-pick', NEIL);
   await trainer.waitForFunction(function () {
     var note = document.getElementById('dashboard-plan-note');
     return note && note.textContent === 'No sets logged this month.';
   });
   assert.ok((await trainer.$eval('#app', function (el) { return el.innerText; })).indexOf('Barbell squat') < 0);
-  await trainer.evaluate(function (id) {
-    document.querySelector('#client-pick [data-client="' + id + '"]').click();
-  }, FAN);
+  await trainer.select('#client-pick', FAN);
   await trainer.waitForSelector('#dash-share');
   await trainer.waitForSelector('#dashboard-schedule-note');
+  assert.strictEqual(await trainer.$('[data-card-up]'), null);
+  await trainer.click('#dash-edit');
+  await trainer.waitForSelector('[data-card-up="volume"]');
   await trainer.click('[data-card-up="volume"]');
   await trainer.waitForFunction(function () {
     var titles = Array.prototype.map.call(document.querySelectorAll('#dashboard-sheet h2'), function (el) { return el.textContent; });
@@ -281,22 +292,25 @@ async function openPage(browser, cfg) {
   await trainer.waitForFunction(function () {
     return !document.getElementById('dashboard-records') && !!document.getElementById('dash-share');
   });
-  const enthusiastEditor = await trainer.evaluate(function (id) {
-    var selected = document.querySelector('#client-pick [aria-selected="true"]');
+  const enthusiastEditor = await trainer.evaluate(function () {
+    var sel = document.getElementById('client-pick');
+    var selected = sel && sel.selectedOptions[0];
     return {
-      client: selected ? selected.getAttribute('data-client') : '',
+      client: sel ? sel.value : '',
       name: selected ? selected.textContent : '',
       share: !!document.getElementById('dash-share'),
+      reset: document.getElementById('dash-reset') ? document.getElementById('dash-reset').textContent : '',
       heldBack: !!document.getElementById('dash-share-none'),
       remove: !!document.querySelector('[data-card-remove="plan"]'),
       add: !!document.querySelector('[data-card-add="records"]'),
       pass: document.getElementById('dashboard-pass-note').textContent
     };
-  }, FAN);
+  });
   assert.deepStrictEqual(enthusiastEditor, {
     client: FAN,
     name: 'Fan Enthusiast',
     share: true,
+    reset: 'Reset',
     heldBack: false,
     remove: true,
     add: true,
@@ -325,13 +339,9 @@ async function openPage(browser, cfg) {
   assert.ok(sharedFan.cards.some(function (card) { return card.type === 'pass' && card.pass.pct === 63; }));
   assert.ok(!sharedFan.cards.some(function (card) { return card.type === 'records'; }));
   assert.strictEqual(await trainer.$eval('#toast', function (el) { return el.textContent; }), 'Dashboard shared.');
-  await trainer.evaluate(function (id) {
-    document.querySelector('#client-pick [data-client="' + id + '"]').click();
-  }, PAT);
+  await trainer.select('#client-pick', PAT);
   await trainer.waitForSelector('#dash-share');
-  await trainer.evaluate(function (id) {
-    document.querySelector('#client-pick [data-client="' + id + '"]').click();
-  }, KIP);
+  await trainer.select('#client-pick', KIP);
   await trainer.waitForSelector('#dash-share');
   const chooser = await trainer.evaluate(function () {
     return {

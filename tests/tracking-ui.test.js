@@ -373,11 +373,14 @@ async function openPage(browser, membership, payload) {
       var badge = document.getElementById('dashboard-count');
       var tab = document.getElementById('tracking-tab-dashboard');
       return {
-        me: document.querySelector('#client-pick [aria-selected="true"]').textContent,
+        me: document.querySelector('#client-pick option:checked').textContent,
         sheet: !!document.getElementById('dashboard-sheet'),
         strength: !!document.getElementById('dashboard-strength'),
         share: !!document.getElementById('dash-share'),
         reset: document.getElementById('dash-reset').textContent,
+        edit: document.getElementById('dash-edit').textContent,
+        add: !!document.getElementById('dash-add'),
+        tools: !!document.querySelector('[data-card-remove]'),
         soon: !!document.getElementById('dashboard-soon'),
         empty: !!document.getElementById('dashboard-empty'),
         title: document.getElementById('title').textContent,
@@ -392,7 +395,10 @@ async function openPage(browser, membership, payload) {
       sheet: true,
       strength: true,
       share: false,
-      reset: 'Reset to standard',
+      reset: 'Reset',
+      edit: 'Edit',
+      add: false,
+      tools: false,
       soon: false,
       empty: false,
       title: 'Tracking',
