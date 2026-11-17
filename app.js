@@ -2791,6 +2791,8 @@
   var editorClient = '';
   var trainerOrder = null;
   var trainerModel = null;
+  var dashboardEditing = false;
+  var editDraft = null;
   function historyRouteKey() {
     if (hashPage() !== 'history') return '';
     return hashBody().split('/')[1] || '';
@@ -2890,7 +2892,6 @@
       go('#/history/' + button.getAttribute('data-history'));
     };
     bindPicker();
-    bindCardDrag();
   }
   function freeClient() {
     if (!cachedProfile || !window.WBPrograms) return false;
@@ -2977,17 +2978,14 @@
     return !!(client && client.id);
   }
   function pickerHtml(selected) {
-    var clients = clientChoices();
-    var h = '<div id="client-pick-wrap"><div class="name" id="client-pick-label">Client</div>';
-    h += '<div id="client-pick" role="listbox" aria-labelledby="client-pick-label">';
-    function option(id, label, on) {
-      return '<button type="button" class="share-row" role="option" data-client="' + esc(id) + '" aria-selected="' + (on ? 'true' : 'false') + '">' + esc(label) + '</button>';
-    }
-    h += option('', selfOptionLabel(), !selected);
-    clients.forEach(function (c) { h += option(c.id, c.name, c.id === selected); });
-    h += '</div>';
-    if (!clients.length) h += '<p class="db-note" id="client-pick-empty">No connected clients.</p>';
-    return h + '</div>';
+    var options = [{ value: '', label: selfOptionLabel() }];
+    clientChoices().forEach(function (c) { options.push({ value: c.id, label: c.name }); });
+    return '<div id="client-pick-wrap">' + WBPreview.clientSelectHtml({
+      id: 'client-pick',
+      label: 'Client',
+      selected: selected || '',
+      options: options
+    }) + '</div>';
   }
   function readRoster() {
     var pending;
@@ -3001,7 +2999,15 @@
       return trainerRoster;
     });
   }
-  function bindPicker() {}
+  function bindPicker() {
+    var sel = document.getElementById('client-pick');
+    if (!sel) return;
+    sel.onchange = function () {
+      var clientId = sel.value;
+      if (!clientId) go('#/tracking/dashboard');
+      else go('#/tracking/dashboard/client/' + encodeURIComponent(clientId));
+    };
+  }
   function selfOptionLabel() {
     var name = personLabel(cachedProfile || {});
     if (!name || name.indexOf('@') !== -1) return 'Me';
@@ -3026,9 +3032,11 @@
   function paintClientEditor() {
     if (!window.WBDashboard || !trainerModel) return;
     var self = !editorClient;
-    var body = pickerHtml(editorClient) + WBDashboard.editorHtml(trainerModel, trainerOrder, {
+    var order = dashboardEditing && Array.isArray(editDraft) ? editDraft : trainerOrder;
+    var body = pickerHtml(editorClient) + WBDashboard.editorHtml(trainerModel, order, {
       self: self,
-      share: !self && receivesShares(clientRecord(editorClient))
+      share: !self && receivesShares(clientRecord(editorClient)),
+      editing: dashboardEditing
     });
     paintTracking('dashboard', body, true);
   }
@@ -3081,18 +3089,47 @@
       });
     });
   }
-  function applyTrainerOrder(next) {
-    trainerOrder = next;
-    if (!editorClient) rememberOwnOrder(trainerOrder);
+  function visibleOrder() {
+    var source = dashboardEditing && Array.isArray(editDraft) ? editDraft : (trainerOrder || []);
+    return window.WBShares ? WBShares.orderOf(source) : source.slice();
+  }
+  function beginEdit() {
+    if (dashboardEditing || !trainerModel) return;
+    dashboardEditing = true;
+    editDraft = (trainerOrder || []).slice();
     paintClientEditor();
-    if (!editorClient) saveOwnLayout(trainerOrder);
+  }
+  function reviseDraft(next) {
+    if (!dashboardEditing) return;
+    editDraft = next;
+    paintClientEditor();
+  }
+  function saveDashboardEdit() {
+    if (!dashboardEditing || !window.WBShares) return;
+    var next = WBShares.orderOf(editDraft || []);
+    trainerOrder = next;
+    dashboardEditing = false;
+    editDraft = null;
+    if (!editorClient) rememberOwnOrder(next);
+    paintClientEditor();
+    if (!editorClient) saveOwnLayout(next);
   }
   function resetOwnLayout() {
     if (!window.WBShares) return;
+    if (editorClient) {
+      dashboardEditing = false;
+      editDraft = null;
+      trainerOrder = WBShares.standard();
+      paintClientEditor();
+      toast('Dashboard reset.');
+      return;
+    }
     if (!layoutCanSave) {
       toast('Could not load your saved dashboard, so this change was not saved.');
       return;
     }
+    dashboardEditing = false;
+    editDraft = null;
     trainerOrder = WBShares.standard();
     rememberOwnOrder(trainerOrder);
     paintClientEditor();
@@ -3112,8 +3149,10 @@
   function shareCurrent() {
     if (!window.WBDashboard || !trainerModel || !editorClient) return;
     if (!receivesShares(clientRecord(editorClient))) return;
-    var order = window.WBShares ? WBShares.orderOf(trainerOrder) : (trainerOrder || []);
+    var order = visibleOrder();
     if (!order.length) return;
+    trainerOrder = order.slice();
+    if (dashboardEditing) editDraft = order.slice();
     var snap = WBDashboard.freeze(trainerModel, order, { asOf: dashboardDay(), trainerName: trainerName() });
     var btn = document.getElementById('dash-share');
     if (btn) btn.disabled = true;
@@ -3135,41 +3174,6 @@
       toast('Could not share that dashboard.');
     });
   }
-  function bindCardDrag() {
-    var sheet = document.getElementById('dashboard-sheet');
-    if (!sheet || !sheet.querySelector('[data-card]')) return;
-    var dragId = '';
-    sheet.addEventListener('dragstart', function (e) {
-      var handle = e.target.closest ? e.target.closest('[data-drag]') : null;
-      var sec = e.target.closest ? e.target.closest('[data-card]') : null;
-      if (handle) dragId = handle.getAttribute('data-drag');
-      else if (sec && !(e.target.closest && e.target.closest('button'))) dragId = sec.getAttribute('data-card');
-      else { e.preventDefault(); return; }
-      try {
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', dragId);
-      } catch (err) {}
-    });
-    sheet.addEventListener('dragover', function (e) {
-      if (!dragId) return;
-      var sec = e.target.closest ? e.target.closest('[data-card]') : null;
-      if (!sec) return;
-      e.preventDefault();
-      Array.prototype.forEach.call(sheet.querySelectorAll('.is-drop'), function (el) {
-        if (el !== sec) el.classList.remove('is-drop');
-      });
-      sec.classList.add('is-drop');
-    });
-    sheet.addEventListener('drop', function (e) {
-      var sec = e.target.closest ? e.target.closest('[data-card]') : null;
-      var before = sec && sec.getAttribute('data-card');
-      Array.prototype.forEach.call(sheet.querySelectorAll('.is-drop'), function (el) { el.classList.remove('is-drop'); });
-      if (!dragId || !before || before === dragId || !window.WBShares) { dragId = ''; return; }
-      e.preventDefault();
-      applyTrainerOrder(WBShares.moveBefore(trainerOrder, dragId, before));
-      dragId = '';
-    });
-  }
   function onDashboardClick(e) {
     if (e.target.closest('#dashboard-find')) {
       var note = document.getElementById('dashboard-hub');
@@ -3183,13 +3187,6 @@
       return true;
     }
     if (e.target.closest('#dashboard-upgrade')) { go('#/subscriptions'); return true; }
-    var picked = e.target.closest('#client-pick [data-client]');
-    if (picked) {
-      var clientId = picked.getAttribute('data-client');
-      if (!clientId) go('#/tracking/dashboard');
-      else go('#/tracking/dashboard/client/' + encodeURIComponent(clientId));
-      return true;
-    }
     var opened = e.target.closest('[data-share]');
     if (opened) {
       go('#/tracking/dashboard/share/' + encodeURIComponent(opened.getAttribute('data-share')));
@@ -3197,24 +3194,26 @@
     }
     if (e.target.closest('#dash-share')) { shareCurrent(); return true; }
     if (e.target.closest('#dash-reset')) { resetOwnLayout(); return true; }
+    if (e.target.closest('#dash-edit')) { beginEdit(); return true; }
+    if (e.target.closest('#dash-save')) { saveDashboardEdit(); return true; }
     var add = e.target.closest('[data-card-add]');
-    if (add && window.WBShares) {
-      applyTrainerOrder(WBShares.addCard(trainerOrder, add.getAttribute('data-card-add')));
+    if (add && dashboardEditing && window.WBShares) {
+      reviseDraft(WBShares.addCard(editDraft, add.getAttribute('data-card-add')));
       return true;
     }
     var up = e.target.closest('[data-card-up]');
-    if (up && window.WBShares) {
-      applyTrainerOrder(WBShares.moveCard(trainerOrder, up.getAttribute('data-card-up'), -1));
+    if (up && dashboardEditing && window.WBShares) {
+      reviseDraft(WBShares.moveCard(editDraft, up.getAttribute('data-card-up'), -1));
       return true;
     }
     var down = e.target.closest('[data-card-down]');
-    if (down && window.WBShares) {
-      applyTrainerOrder(WBShares.moveCard(trainerOrder, down.getAttribute('data-card-down'), 1));
+    if (down && dashboardEditing && window.WBShares) {
+      reviseDraft(WBShares.moveCard(editDraft, down.getAttribute('data-card-down'), 1));
       return true;
     }
     var remove = e.target.closest('[data-card-remove]');
-    if (remove && window.WBShares) {
-      applyTrainerOrder(WBShares.removeCard(trainerOrder, remove.getAttribute('data-card-remove')));
+    if (remove && dashboardEditing && window.WBShares) {
+      reviseDraft(WBShares.removeCard(editDraft, remove.getAttribute('data-card-remove')));
       return true;
     }
     return false;
@@ -3345,6 +3344,8 @@
   }
   function paintTrainerOwn(historyRes, scheduleRes, layoutRes, settle) {
     editorClient = '';
+    dashboardEditing = false;
+    editDraft = null;
     var failed = !historyRes || historyRes.unavailable || historyRes.error;
     var sessions = historyRes && historyRes.sessions || [];
     var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes && historyRes.sets, historyRes && historyRes.exercises) : [];
@@ -3427,6 +3428,8 @@
       if (!known) {
         editorClient = '';
         trainerModel = null;
+        dashboardEditing = false;
+        editDraft = null;
         paintTracking('dashboard', pickerHtml('') + '<div class="card" id="client-missing"><div class="name">That client is not connected.</div></div>', true);
         return;
       }
@@ -3434,6 +3437,8 @@
         editorClient = clientId;
         trainerOrder = WBShares.standard();
         trainerModel = null;
+        dashboardEditing = false;
+        editDraft = null;
       }
       var historyP;
       var scheduleP;
@@ -3452,6 +3457,8 @@
         var sets = window.WBHistory ? WBHistory.fromRows(sessions, historyRes.sets, historyRes.exercises) : [];
         if (failed && !sessions.length && !sets.length) {
           trainerModel = null;
+          dashboardEditing = false;
+          editDraft = null;
           paintTracking('dashboard', pickerHtml(clientId) + WBDashboard.unavailableHtml(), true);
           return;
         }

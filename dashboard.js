@@ -1065,7 +1065,6 @@
   function toolRow(id, index, total) {
     var label = CARD_LABEL[id] || 'card';
     return '<div class="db-tools">' +
-      '<button type="button" class="sm" draggable="true" data-drag="' + id + '" aria-label="Drag ' + esc(label) + '">Drag</button>' +
       '<button type="button" class="sm" data-card-up="' + id + '" aria-label="Move ' + esc(label) + ' up"' + (index === 0 ? ' disabled' : '') + '>▲</button>' +
       '<button type="button" class="sm" data-card-down="' + id + '" aria-label="Move ' + esc(label) + ' down"' + (index === total - 1 ? ' disabled' : '') + '>▼</button>' +
       '<button type="button" class="sm danger" data-card-remove="' + id + '" aria-label="Remove ' + esc(label) + '">Delete</button>' +
@@ -1073,34 +1072,40 @@
   }
   function withEdit(section, id, index, total) {
     return section
-      .replace('<section class="db-sec"', '<section class="db-sec db-edit" data-card="' + id + '" draggable="true"')
+      .replace('<section class="db-sec"', '<section class="db-sec db-edit" data-card="' + id + '"')
       .replace('>', '>' + toolRow(id, index, total));
   }
   function editorHtml(model, order, opts) {
+    opts = opts || {};
     var ids = keptOrder(order);
+    var editing = !!opts.editing;
+    var self = !!opts.self;
     var sections = ids.map(function (id, index) {
-      var opts = id === 'workouts' ? { scheduleNote: !model || !model.workouts || model.workouts.streak == null } : null;
-      return withEdit(cardSection(id, model, opts), id, index, ids.length);
+      var cardOpts = id === 'workouts' ? { scheduleNote: !model || !model.workouts || model.workouts.streak == null } : null;
+      var section = cardSection(id, model, cardOpts);
+      return editing ? withEdit(section, id, index, ids.length) : section;
     }).join('');
-    var self = !!(opts && opts.self);
     if (!sections) sections = '<p class="db-note" id="dashboard-no-cards">' + (self ? 'Add a card.' : 'Add a card to share.') + '</p>';
     var missing = CARD_ALL.filter(function (id) { return ids.indexOf(id) < 0; });
     var add = '';
-    if (missing.length) {
-      add = '<div class="card" id="dash-add"><div class="name">Add a card</div><div class="actions">';
+    if (editing && missing.length) {
+      add = '<div id="dash-add"><p class="db-note" id="dash-add-label">Add a card</p><div class="actions">';
       missing.forEach(function (id) {
         add += '<button type="button" data-card-add="' + id + '">' + esc(CARD_LABEL[id]) + '</button>';
       });
       add += '</div></div>';
     }
-    var canShare = !self && (!opts || opts.share !== false);
-    var shareBtn = self
-      ? '<button type="button" id="dash-reset">Reset to standard</button>'
-      : (canShare
-        ? '<button type="button" class="pri" id="dash-share"' + (ids.length ? '' : ' disabled') + '>Share</button>'
-        : '<p class="db-note" id="dash-share-none">This client keeps their own live dashboard.</p>');
-    return '<div id="dash-editor">' + shareBtn + add + '</div>' +
-      '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' + sections + '</div></div>';
+    var canShare = !self && opts.share !== false;
+    var bar = '<div id="dash-editor"><div class="dash-actions">';
+    bar += '<button type="button" id="dash-edit" aria-pressed="' + (editing ? 'true' : 'false') + '">Edit</button>';
+    bar += '<button type="button" id="dash-reset">Reset</button>';
+    if (canShare) bar += '<button type="button" class="pri" id="dash-share"' + (ids.length ? '' : ' disabled') + '>Share</button>';
+    bar += '</div>';
+    if (!self && opts.share === false) bar += '<p class="db-note" id="dash-share-none">This client keeps their own live dashboard.</p>';
+    bar += '</div>';
+    var save = editing ? '<button type="button" class="pri" id="dash-save">Save</button>' : '';
+    return bar + add +
+      '<div id="dashboard"><div class="db-sheet" id="dashboard-sheet">' + sections + '</div>' + save + '</div>';
   }
 
   var api = {

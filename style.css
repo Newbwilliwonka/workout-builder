@@ -429,9 +429,9 @@ button.hx-row .name{font-size:16px}
 .hx-lap i{margin-left:auto;color:var(--mute);font-style:normal;font-size:13px}
 .hx-counts{margin-top:8px;font-weight:600;font-size:14px}
 .hx-events li{font-size:14px;padding:2px 0}
-/* Sheet sits above the fixed app background (body::before is z-index -1). A light slate tint only: no blur veil and no pseudo-element over the cards.
-   Fill alpha is 15% more opaque than 0.06 (0.06 * 1.15 = 0.069). Text stays the dark ink color. */
-.db-sheet{position:relative;z-index:1;background:rgba(30,41,59,.069);border:1px solid rgba(17,24,39,.12);border-radius:16px;overflow:hidden}
+/* Sheet sits above the fixed app background (body::before is z-index -1).
+   90% white keeps the dark ink readable and lets a hint of the photo through. No blur veil. */
+.db-sheet{position:relative;z-index:1;background:rgba(255,255,255,.9);border:1px solid rgba(17,24,39,.12);border-radius:16px;overflow:hidden}
 .db-sec{padding:14px;border-bottom:1px solid rgba(17,24,39,.14)}
 .db-sec:last-child{border-bottom:0}
 .db-label{margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
@@ -484,10 +484,13 @@ button.hx-row .name{font-size:16px}
 .db-empty .name{color:var(--ink)}
 .db-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 #client-pick-wrap{margin:0 0 12px}
-#client-pick .share-row{margin-bottom:8px}
-#client-pick .share-row[aria-selected="true"]{box-shadow:inset 0 0 0 2px var(--pri)}
+#client-pick-wrap label{margin-top:0}
 #dash-editor{margin:0 0 12px}
-#dash-editor .actions{margin-top:8px}
+.dash-actions{display:flex;flex-wrap:wrap;gap:8px}
+.dash-actions button{flex:1 1 auto}
+#dash-edit[aria-pressed="true"]{background:#fff;box-shadow:inset 0 0 0 2px var(--pri)}
+#dash-add{margin:0 0 12px}
+#dash-save{display:block;width:100%;margin-top:12px}
 #dashboard-soon .actions{flex-direction:column}
 #dashboard-soon .actions button{width:100%}
 #dashboard-hub{margin-top:10px}
@@ -498,4 +501,3 @@ button.hx-row .name{font-size:16px}
 #trainer-shares h2{margin:0 0 10px;font-size:17px;line-height:1.3;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink)}
 .db-tools{display:flex;justify-content:flex-end;gap:6px;margin:0 0 8px}
 .db-tools button{flex:none}
-.db-edit.is-drop{box-shadow:inset 0 0 0 2px var(--pri)}
