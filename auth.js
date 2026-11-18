@@ -796,7 +796,26 @@
       return messageRpc('message_send', { p_person: personId, p_id: messageId, p_body: body });
     },
     markRead: function (personId) { return messageRpc('message_read', { p_person: personId }); },
-    trainerSearch: function (mode) { return findRpc('trainer_search', { p_mode: mode || 'online', p_lat: null, p_lng: null }); },
+    trainerSearch: function (mode, lat, lng) {
+      var args = { p_mode: mode || 'online', p_lat: null, p_lng: null };
+      if (mode === 'near' && lat != null && lng != null && isFinite(Number(lat)) && isFinite(Number(lng))) {
+        args.p_lat = Number(lat);
+        args.p_lng = Number(lng);
+      }
+      return findRpc('trainer_search', args);
+    },
+    myServiceLocations: function () { return findRpc('my_service_locations'); },
+    saveServiceLocation: function (pin) {
+      pin = pin || {};
+      return findRpc('save_service_location', {
+        p_lat: pin.latitude,
+        p_lng: pin.longitude,
+        p_city: pin.city || '',
+        p_region: pin.region || pin.state || '',
+        p_country: pin.country || ''
+      });
+    },
+    removeServiceLocation: function () { return findRpc('remove_service_location'); },
     trainerRequestSend: function (trainerId, note) { return findRpc('trainer_request_send', { p_trainer: trainerId, p_note: note || '' }); },
     trainerRequestDecide: function (id, approve) { return findRpc('trainer_request_decide', { p_id: id, p_approve: !!approve }); },
     trainerRequests: function () { return findRpc('trainer_request_inbox'); },
@@ -1246,6 +1265,10 @@
     if (/no conversation to end/i.test(msg)) return new Error('There is no conversation to end.');
     if (/waiting for approval/i.test(msg)) return new Error('Your account is waiting for approval.');
     if (/read-only/i.test(msg)) return new Error('This conversation is read-only.');
+    if (/choose a location/i.test(msg)) return new Error('Choose a location.');
+    if (/only a trainer or master trainer can set a service location/i.test(msg)) return new Error('Only a Trainer or Master Trainer can set a service location.');
+    if (/choose a place with a city and state/i.test(msg)) return new Error('Choose a place with a city and state.');
+    if (/drop a pin/i.test(msg)) return new Error('Drop a pin on the map.');
     return new Error((msg || 'Could not use trainer search.').split('\n')[0]);
   }
   function findRpc(name, args) {

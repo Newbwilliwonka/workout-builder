@@ -281,6 +281,33 @@
     h += '</div>';
     return h;
   }
+  var PIN_NOTE = 'Your exact pin is private. It is only used to find nearby clients in the Trainer Hub search. Only your city and state are shown publicly.';
+  function placeText(city, region) {
+    var c = clean(city);
+    var r = clean(region);
+    if (c && r) return c + ', ' + r;
+    return c || r;
+  }
+  // One pin for now. The public city and state are text, not fields the trainer types.
+  function pinHtml(pin) {
+    pin = pin || {};
+    var place = placeText(pin.city, pin.region || pin.state);
+    var h = '<section id="profile-pin" class="pin-block">';
+    h += '<p class="pin-note" id="pin-privacy">' + esc(PIN_NOTE) + '</p>';
+    h += '<form id="pin-search" autocomplete="off">';
+    h += '<label for="pin-query">Service location</label>';
+    h += '<div class="pin-search-row"><input id="pin-query" maxlength="120" autocomplete="off" placeholder="Address or city" enterkeyhint="search">';
+    h += '<button type="submit" id="pin-go">Search</button></div></form>';
+    h += '<div id="pin-map" class="pin-map" role="application" aria-label="Service location map"></div>';
+    h += '<p class="mute pin-attr">Maps and place names © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</p>';
+    h += '<p class="pin-public" id="pin-public">' + (place ? ('Public location: ' + esc(place)) : 'No pin yet. Search or tap the map.') + '</p>';
+    h += '<p class="errs" id="pin-error" hidden></p>';
+    h += '<div class="actions">';
+    h += '<button type="button" class="pri" id="pin-save" disabled>Save pin</button>';
+    h += '<button type="button" id="pin-remove"' + (place ? '' : ' hidden') + '>Remove pin</button>';
+    h += '</div></section>';
+    return h;
+  }
   function sheetHtml(opts) {
     opts = opts || {};
     var bio = String(opts.bio || '');
@@ -311,6 +338,7 @@
       h += '<option value="online"' + (selected === 'online' ? ' selected' : '') + '>Online</option>';
       h += '<option value="both"' + (selected === 'both' ? ' selected' : '') + '>Both</option>';
       h += '</select>';
+      h += pinHtml(opts.pin);
     }
     h += '<label for="profile-bio">Bio</label><textarea id="profile-bio" maxlength="' + BIO_MAX + '" rows="3" placeholder="Specialties, service areas, certifications">' + esc(bio) + '</textarea>';
     h += '<p class="mute bio-count" id="profile-count">' + bio.length + '/' + BIO_MAX + '</p>';
@@ -425,6 +453,8 @@
     fromTrainerHtml: fromTrainerHtml,
     verifyAreaHtml: verifyAreaHtml,
     personIcon: personIcon,
+    PIN_NOTE: PIN_NOTE,
+    pinHtml: pinHtml,
     sheetHtml: sheetHtml,
     preparePhoto: preparePhoto,
     fillAvatars: fillAvatars

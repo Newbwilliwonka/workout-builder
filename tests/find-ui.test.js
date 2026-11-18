@@ -20,6 +20,9 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   p.on('pageerror', function (e) { errs.push(String(e)); });
   p.on('dialog', function (d) { d.accept(); });
   await p.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  const context = b.defaultBrowserContext();
+  await context.overridePermissions('http://127.0.0.1:8787', ['geolocation']);
+  await p.setGeolocation({ latitude: 30.2672, longitude: -97.7431 });
   await p.evaluateOnNewDocument(function (ids) {
     window.__mode = 'client';
     window.__expired = false;
@@ -34,8 +37,8 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
       email: 'ada@example.com'
     }];
     var trainers = [
-      { id: ids.AMY, name: 'Amy Coach', role: 'Master Trainer', verified: true, serviceType: 'both', request: 'none', email: 'amy@example.com' },
-      { id: ids.BEA, name: 'Bea Coach', role: 'Trainer', verified: false, serviceType: 'online', request: 'none', email: 'bea@example.com' }
+      { id: ids.AMY, name: 'Amy Coach', role: 'Master Trainer', verified: true, serviceType: 'both', request: 'none', city: 'Austin', state: 'Texas', email: 'amy@example.com' },
+      { id: ids.BEA, name: 'Bea Coach', role: 'Trainer', verified: false, serviceType: 'online', request: 'none', city: 'Dallas', state: 'Texas', email: 'bea@example.com' }
     ];
     function me() {
       if (window.__mode === 'trainer') {
@@ -79,7 +82,41 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
       api.trainerRequestCount = function () {
         return Promise.resolve(window.__mode === 'trainer' ? window.__requests.length : 0);
       };
-      api.trainerSearch = function () {
+      api.trainerSearch = function (mode, lat, lng) {
+        window.__search = { mode: mode || 'online', lat: lat == null ? null : lat, lng: lng == null ? null : lng };
+        if (mode === 'near') {
+          return Promise.resolve({
+            mode: 'near',
+            comingSoon: false,
+            trainers: [
+              {
+                id: ids.AMY,
+                name: 'Amy Coach',
+                role: 'Master Trainer',
+                verified: true,
+                serviceType: 'both',
+                request: window.__sent[ids.AMY] ? 'open' : 'none',
+                city: 'Austin',
+                state: 'Texas',
+                distanceMiles: 2
+              },
+              {
+                id: ids.BEA,
+                name: 'Bea Coach',
+                role: 'Trainer',
+                verified: false,
+                serviceType: 'in_person',
+                request: 'none',
+                city: 'Round Rock',
+                state: 'Texas',
+                distanceMiles: 17,
+                email: 'bea@example.com',
+                latitude: 30.2672,
+                longitude: -97.7431
+              }
+            ]
+          });
+        }
         return Promise.resolve({
           mode: 'online',
           comingSoon: false,
@@ -90,10 +127,25 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
               role: row.role,
               verified: row.verified,
               serviceType: row.serviceType,
+              city: row.city,
+              state: row.state,
               request: window.__sent[row.id] ? 'open' : 'none'
             };
           })
         });
+      };
+      api.myServiceLocations = function () {
+        return Promise.resolve(window.__pin ? [window.__pin] : []);
+      };
+      api.saveServiceLocation = function (pin) {
+        window.__savedPin = pin;
+        window.__pin = Object.assign({ id: 'pin1', slot: 1 }, pin);
+        return Promise.resolve(window.__pin);
+      };
+      api.removeServiceLocation = function () {
+        window.__removedPin = true;
+        window.__pin = null;
+        return Promise.resolve({ removed: true });
       };
       api.trainerRequestSend = function (id, note) {
         window.__sent[id] = note || '';
@@ -173,33 +225,23 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
     };
   });
   assert.strictEqual(results.title, 'Find a trainer');
-  assert.strictEqual(results.nearDisabled, true);
+  assert.strictEqual(results.nearDisabled, false);
   assert.strictEqual(results.online, true);
-  const place = await p.evaluate(function () {
-    var note = document.getElementById('find-near-note').getBoundingClientRect();
-    var near = document.getElementById('find-near').getBoundingClientRect();
-    var online = document.getElementById('find-online').getBoundingClientRect();
-    return {
-      inside: document.getElementById('find-near').contains(document.getElementById('find-near-note')),
-      underNear: note.top >= near.top && note.left >= near.left - 1 && note.right <= near.right + 1,
-      rightOfOnline: note.left > online.right - 4
-    };
-  });
-  assert.strictEqual(place.inside, true);
-  assert.strictEqual(place.underNear, true);
-  assert.strictEqual(place.rightOfOnline, true);
   assert.ok(results.text.indexOf('Online only') !== -1);
   assert.ok(results.text.indexOf('Near me') !== -1);
-  assert.ok(results.text.indexOf('Coming soon') !== -1);
+  assert.ok(results.text.indexOf('Coming soon') === -1);
   assert.ok(results.text.indexOf('Amy Coach') !== -1);
   assert.ok(results.text.indexOf('Master Trainer') !== -1);
   assert.ok(results.text.indexOf('Both') !== -1);
+  assert.ok(results.text.indexOf('Austin, Texas') !== -1);
   assert.ok(results.text.indexOf('Bea Coach') !== -1);
+  assert.ok(results.text.indexOf('Dallas, Texas') !== -1);
   assert.ok(results.text.indexOf('Online') !== -1);
   assert.ok(results.text.indexOf('Request to message') !== -1);
   assert.ok(results.text.indexOf('@') === -1);
   assert.ok(results.html.indexOf('amy@example.com') === -1);
   await p.screenshot({ path: ART + '/find-trainer-online.png' });
+  await p.screenshot({ path: ART + '/find-online-city.png' });
 
   await p.click('[data-request="' + AMY + '"]');
   await p.waitForSelector('#find-note');
@@ -225,6 +267,69 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   }, AMY);
   assert.ok(after.text.indexOf('Requested') !== -1);
   assert.strictEqual(after.sent, 'I would like help with squats.');
+
+  await p.click('#find-near');
+  await p.waitForSelector('#find-city');
+  await p.evaluate(function () {
+    window.__cityQuery = '';
+    window.WBPlaces.searchPlace = function (q) {
+      window.__cityQuery = q;
+      return Promise.resolve({
+        latitude: 32.7767,
+        longitude: -96.797,
+        city: 'Dallas',
+        region: 'Texas',
+        country: 'United States',
+        ok: true
+      });
+    };
+  });
+  await p.type('#find-city', 'Dallas');
+  const typed = await p.evaluate(function () {
+    return {
+      query: window.__cityQuery,
+      mode: window.__search && window.__search.mode,
+      oninput: document.getElementById('find-city').oninput
+    };
+  });
+  assert.strictEqual(typed.query, '');
+  assert.strictEqual(typed.mode, 'online');
+  assert.strictEqual(typed.oninput, null);
+  await p.click('#find-city-go');
+  await p.waitForFunction(function () { return window.__cityQuery === 'Dallas' && window.__search && window.__search.mode === 'near'; });
+  await p.click('#find-near');
+  await p.waitForSelector('#find-locate');
+  await p.evaluate(function () {
+    var city = document.getElementById('find-city');
+    var toast = document.getElementById('toast');
+    if (city) city.value = '';
+    if (toast) { toast.className = ''; toast.textContent = ''; }
+  });
+  await p.click('#find-locate');
+  await p.waitForSelector('#find-list .find-place');
+  const near = await p.evaluate(function () {
+    return {
+      text: document.getElementById('app').innerText,
+      html: document.getElementById('app').innerHTML,
+      search: window.__search,
+      pressed: document.getElementById('find-near').getAttribute('aria-pressed')
+    };
+  });
+  assert.strictEqual(near.pressed, 'true');
+  assert.strictEqual(near.search.mode, 'near');
+  assert.ok(Math.abs(near.search.lat - 30.2672) < 0.001);
+  assert.ok(near.text.indexOf('Your location is used only for this search and is not saved.') !== -1);
+  assert.ok(near.text.indexOf('Austin, Texas') !== -1);
+  assert.ok(near.text.indexOf('Round Rock, Texas') !== -1);
+  assert.ok(near.text.indexOf('About 2 mi') !== -1);
+  assert.ok(near.text.indexOf('About 17 mi') !== -1);
+  assert.ok(near.text.indexOf('In person') !== -1);
+  assert.ok(near.text.indexOf('Request to message') !== -1);
+  assert.ok(near.text.indexOf('@') === -1);
+  assert.ok(near.html.indexOf('<script>') === -1);
+  assert.ok(near.html.indexOf('30.2672') === -1);
+  assert.ok(near.html.indexOf('bea@example.com') === -1);
+  await p.screenshot({ path: ART + '/find-near-results.png' });
 
   await p.evaluate(function () { window.__mode = 'trainer'; });
   await p.goto(URL + '#/hub', { waitUntil: 'domcontentloaded' });
@@ -317,6 +422,17 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
 
   await p.goto(URL + '#/account', { waitUntil: 'domcontentloaded' });
   await p.waitForSelector('#profile-edit');
+  await p.evaluate(function () {
+    window.__pin = {
+      id: 'pin1',
+      slot: 1,
+      latitude: 30.2672,
+      longitude: -97.7431,
+      city: 'Austin',
+      region: 'Texas',
+      country: 'United States'
+    };
+  });
   await p.click('#profile-edit');
   await p.waitForSelector('#profile-listed');
   const listing = await p.evaluate(function () {
@@ -335,6 +451,36 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
   });
   await p.screenshot({ path: ART + '/trainer-search-opt-in.png' });
+  await p.waitForFunction(function () {
+    var el = document.getElementById('pin-public');
+    var map = document.querySelector('#pin-map.leaflet-container');
+    return el && map && el.textContent.indexOf('Austin, Texas') !== -1;
+  });
+  const pin = await p.evaluate(function () {
+    var root = document.getElementById('profile-pin');
+    return {
+      note: document.getElementById('pin-privacy').textContent,
+      text: root.innerText,
+      html: root.innerHTML,
+      inputs: Array.prototype.map.call(root.querySelectorAll('input'), function (el) { return el.id; }),
+      attr: root.innerText.indexOf('OpenStreetMap') !== -1
+    };
+  });
+  assert.strictEqual(pin.note, 'Your exact pin is private. It is only used to find nearby clients in the Trainer Hub search. Only your city and state are shown publicly.');
+  assert.ok(pin.text.indexOf('Public location: Austin, Texas') !== -1);
+  assert.ok(pin.inputs.indexOf('pin-query') !== -1);
+  assert.ok(pin.inputs.indexOf('pin-city') === -1);
+  assert.ok(pin.inputs.indexOf('pin-state') === -1);
+  assert.strictEqual(pin.attr, true);
+  assert.ok(pin.text.indexOf('30.2672') === -1);
+  assert.ok(pin.html.indexOf('30.2672') === -1);
+  await p.evaluate(function () {
+    var el = document.getElementById('profile-pin');
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 400); });
+  const pinShot = await p.$('#profile-pin');
+  await pinShot.screenshot({ path: ART + '/profile-service-pin.png' });
   await p.click('#profile-listed');
   assert.strictEqual(await p.$eval('#profile-listed', function (el) { return el.getAttribute('aria-checked'); }), 'false');
 

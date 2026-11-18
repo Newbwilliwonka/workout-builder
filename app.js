@@ -2072,6 +2072,7 @@
     var el = document.getElementById('profile-sheet');
     if (!el) return;
     if (!force && el.getAttribute('data-required') === '1') return;
+    if (window.WBPlaces && WBPlaces.destroyProfilePin) WBPlaces.destroyProfilePin();
     el.remove();
     profileSheetRequired = false;
     profilePhotoBlob = null;
@@ -2100,6 +2101,7 @@
       try { URL.revokeObjectURL(profileObjectUrl); } catch (err) {}
       profileObjectUrl = '';
     }
+    if (window.WBPlaces && WBPlaces.destroyProfilePin) WBPlaces.destroyProfilePin();
     var existing = document.getElementById('profile-sheet');
     if (existing) existing.remove();
     var master = profile.membership === 'master_trainer';
@@ -2229,6 +2231,7 @@
     if (nameEl && opts.required) {
       try { nameEl.focus(); } catch (err) {}
     }
+    if (document.getElementById('profile-pin') && window.WBPlaces && WBPlaces.bindProfilePin) WBPlaces.bindProfilePin();
     syncHeaderSignOut();
   }
   function paintVerification(profile, extra) {
