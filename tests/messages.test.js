@@ -38,6 +38,18 @@ var freshOnly = M.applyServerList([], [
 assert.deepStrictEqual(freshOnly.map(function (m) { return m.id; }), ['1', '2']);
 
 assert.strictEqual(M.initials('fan@example.com'), '?');
+assert.deepStrictEqual(M.threadHeading({ plan: 'Enthusiast' }), {
+  sub: 'Enthusiast · linked client',
+  life: ''
+});
+assert.deepStrictEqual(M.threadHeading({ plan: 'Trainer' }), { sub: 'Trainer', life: '' });
+assert.deepStrictEqual(M.threadHeading({
+  temporary: true, plan: 'Free Client', canSend: true, daysLeft: 6
+}), { sub: 'Free Client', life: '6 days left' });
+assert.strictEqual(M.daysLabel(1), '1 day left');
+assert.deepStrictEqual(M.threadHeading({
+  temporary: true, plan: 'Trainer', canSend: false, daysLeft: 0
+}), { sub: 'Trainer', life: 'Read only' });
 assert.strictEqual(M.initials('kinisiathletics@gmail.com'), '?');
 assert.strictEqual(M.initials('Ada'), 'AD');
 assert.strictEqual(M.initials('Ada Client'), 'AC');

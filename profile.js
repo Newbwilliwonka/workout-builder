@@ -8,6 +8,7 @@
   var CERT_BODY_MAX = 120;
   var CERT_NUMBER_MAX = 80;
   var NOTE_MAX = 280;
+  var SERVICES = { in_person: 'In person', online: 'Online', both: 'Both' };
   var PROMPT = 'To protect your email account from spammers, please enter a name in your profile before proceeding.';
   var EMPTY = 'Fill in the highlighted fields.';
 
@@ -24,6 +25,26 @@
   function needsName(profile) {
     return !!(profile && profile.profileReady === true && !clean(profile.display_name));
   }
+  function canListInSearch(profile) {
+    if (!profile) return false;
+    return profile.membership === 'trainer' || profile.membership === 'master_trainer';
+  }
+  function canFindTrainers(profile) {
+    if (!profile || canListInSearch(profile)) return false;
+    var intended = profile.intended_plan || profile.intendedPlan || '';
+    if (intended === 'trainer' || intended === 'master_trainer') return false;
+    var membership = profile.membership || '';
+    if (membership === 'trainer' || membership === 'master_trainer') return false;
+    return membership === 'free_client' || membership === 'enthusiast'
+      || intended === 'enthusiast' || intended === 'free_client';
+  }
+  function serviceType(value) {
+    var key = clean(value);
+    return SERVICES[key] ? key : '';
+  }
+  function serviceLabel(value) {
+    return SERVICES[serviceType(value)] || '';
+  }
   function locationRequired(profile) {
     if (!profile) return false;
     var membership = profile.membership || '';
@@ -38,6 +59,8 @@
     var city = clean(input.city);
     var state = clean(input.state);
     var online = !!input.online_only;
+    var listed = !!input.listed;
+    var service = serviceType(input.service_type != null ? input.service_type : input.serviceType);
     var bio = String(input.bio == null ? '' : input.bio);
     if (bio.length > BIO_MAX) bio = bio.slice(0, BIO_MAX);
     bio = clean(bio);
@@ -48,17 +71,24 @@
       if (!city) empty.city = true;
       if (!state) empty.state = true;
     }
-    var ok = !empty.name && !empty.city && !empty.state;
+    if (canListInSearch(input) && listed && !service) empty.service = true;
+    var ok = !empty.name && !empty.city && !empty.state && !empty.service;
+    var message = '';
+    if (!ok) message = empty.service && !empty.name && !empty.city && !empty.state
+      ? 'Choose in person, online, or both.'
+      : EMPTY;
     return {
       ok: ok,
       empty: empty,
-      message: ok ? '' : EMPTY,
+      message: message,
       fields: {
         display_name: name || null,
         city: city || null,
         state: state || null,
         online_only: online,
-        bio: bio || null
+        bio: bio || null,
+        listed: canListInSearch(input) ? listed : false,
+        service_type: canListInSearch(input) ? (service || null) : null
       }
     };
   }
@@ -268,6 +298,20 @@
     h += '<div class="loc-row"><div class="field"><label for="profile-city">City</label><input id="profile-city" maxlength="80" autocomplete="address-level2" value="' + esc(opts.city || '') + '"></div>';
     h += '<div class="field"><label for="profile-state">State</label><input id="profile-state" maxlength="80" autocomplete="address-level1" value="' + esc(opts.state || '') + '"></div>';
     h += '<label class="checkline"><input id="profile-online" class="tick" type="checkbox"' + (opts.online_only ? ' checked' : '') + '>Online only</label></div>';
+    if (opts.canList) {
+      var listedOn = !!opts.listed;
+      var selected = serviceType(opts.service_type != null ? opts.service_type : opts.serviceType);
+      h += '<div class="switch-row" id="profile-listing">';
+      h += '<button type="button" class="switch' + (listedOn ? ' on' : '') + '" id="profile-listed" role="switch" aria-checked="' + (listedOn ? 'true' : 'false') + '" aria-label="Show me in trainer search"><i></i></button>';
+      h += '<div class="grow"><div class="name">Show me in trainer search</div>';
+      h += '<p class="mute">Clients and enthusiasts can request to message you.</p></div></div>';
+      h += '<label for="profile-service">Service</label><select id="profile-service">';
+      h += '<option value=""' + (selected ? '' : ' selected') + '>Choose</option>';
+      h += '<option value="in_person"' + (selected === 'in_person' ? ' selected' : '') + '>In person</option>';
+      h += '<option value="online"' + (selected === 'online' ? ' selected' : '') + '>Online</option>';
+      h += '<option value="both"' + (selected === 'both' ? ' selected' : '') + '>Both</option>';
+      h += '</select>';
+    }
     h += '<label for="profile-bio">Bio</label><textarea id="profile-bio" maxlength="' + BIO_MAX + '" rows="3" placeholder="Specialties, service areas, certifications">' + esc(bio) + '</textarea>';
     h += '<p class="mute bio-count" id="profile-count">' + bio.length + '/' + BIO_MAX + '</p>';
     if (opts.master) {
@@ -357,6 +401,10 @@
     PROMPT: PROMPT,
     EMPTY: EMPTY,
     needsName: needsName,
+    canListInSearch: canListInSearch,
+    canFindTrainers: canFindTrainers,
+    serviceType: serviceType,
+    serviceLabel: serviceLabel,
     locationRequired: locationRequired,
     validate: validate,
     isAdminEmail: isAdminEmail,

@@ -108,6 +108,7 @@
     if (page === 'hub') {
       var hubBits = hashBody().split('/');
       if (hubBits[2] === 'edit' && hubBits[1]) return go('#/hub/' + hubBits[1]);
+      if (hubBits[1] === 'find' && hubBits[2]) return go('#/hub/find');
       if (hubBits[1]) return go('#/hub');
       return go('#/');
     }
@@ -2114,7 +2115,10 @@
       state: profile.state || '',
       online_only: !!profile.online_only,
       bio: profile.bio || '',
-      photoUrl: profile.avatarUrl || ''
+      photoUrl: profile.avatarUrl || '',
+      canList: !!WBProfile.canListInSearch(profile),
+      listed: !!profile.listed,
+      service_type: profile.service_type || ''
     }));
     if (!profileKeyBound) {
       profileKeyBound = true;
@@ -2136,7 +2140,7 @@
       errEl.textContent = msg;
     }
     function mark(empty) {
-      [['profile-name', 'name'], ['profile-city', 'city'], ['profile-state', 'state']].forEach(function (pair) {
+      [['profile-name', 'name'], ['profile-city', 'city'], ['profile-state', 'state'], ['profile-service', 'service']].forEach(function (pair) {
         var field = document.getElementById(pair[0]);
         if (!field) return;
         if (empty && empty[pair[1]]) {
@@ -2149,6 +2153,8 @@
       });
     }
     function readFields() {
+      var listedEl = document.getElementById('profile-listed');
+      var serviceEl = document.getElementById('profile-service');
       return WBProfile.validate({
         display_name: nameEl ? nameEl.value : '',
         city: cityEl ? cityEl.value : '',
@@ -2156,7 +2162,9 @@
         online_only: !!(onlineEl && onlineEl.checked),
         bio: bioEl ? bioEl.value : '',
         membership: profile.membership,
-        intended_plan: profile.intended_plan
+        intended_plan: profile.intended_plan,
+        listed: !!(listedEl && listedEl.getAttribute('aria-checked') === 'true'),
+        service_type: serviceEl ? serviceEl.value : ''
       });
     }
     function watch(el, key) {
@@ -2198,6 +2206,13 @@
       });
     });
     if (sheet) sheet.addEventListener('click', function (e) {
+      var toggle = e.target && e.target.closest && e.target.closest('#profile-listed');
+      if (toggle) {
+        var on = toggle.getAttribute('aria-checked') !== 'true';
+        toggle.setAttribute('aria-checked', on ? 'true' : 'false');
+        toggle.classList.toggle('on', on);
+        return;
+      }
       if (e.target && e.target.id === 'profile-sheet' && !profileSheetRequired) closeProfileSheet(true);
       if (e.target && e.target.closest && e.target.closest('#profile-cancel')) closeProfileSheet(true);
       if (e.target && e.target.closest && e.target.closest('#profile-save')) saveProfileFromSheet(profile, readFields, mark, showErr);
@@ -2431,6 +2446,7 @@
     if (locked) h += '<button class="linkish" type="button" id="level-signout">Sign out</button>';
     h += '</div>';
     app.innerHTML = h;
+    refreshRequestBadges();
     if (!session) backBtn.hidden = true;
     showHeaderSignIn(!session);
     app.onchange = function (e) {
@@ -2521,6 +2537,7 @@
     h += '</div>';
     app.innerHTML = h;
     paintAccountAvatar(profile);
+    refreshRequestBadges();
     syncHeaderSignOut();
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) loadPendingCount();
     if (shareHere) loadShare();
@@ -2537,6 +2554,35 @@
       if (e.target.closest('#share-account')) { toggleShare(); return; }
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
     };
+  }
+  function paintRequestBadges(n) {
+    var count = Math.max(0, Number(n) || 0);
+    ['messages-nav', 'hub-nav'].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (!btn) return;
+      var badge = btn.querySelector('.request-count');
+      if (!count) {
+        if (badge) badge.remove();
+        return;
+      }
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'request-count';
+        btn.appendChild(badge);
+      }
+      badge.hidden = false;
+      badge.textContent = String(count);
+      badge.setAttribute('aria-label', count === 1 ? '1 request' : (count + ' requests'));
+    });
+  }
+  function refreshRequestBadges() {
+    if (!window.WBProfile || !WBProfile.canListInSearch || !WBProfile.canListInSearch(cachedProfile)) return;
+    if (!window.WBAuth || !WBAuth.trainerRequestCount) return;
+    var token = routeToken;
+    Promise.resolve().then(function () { return WBAuth.trainerRequestCount(); }).then(function (n) {
+      if (token !== routeToken) return;
+      paintRequestBadges(n);
+    }, function () {});
   }
   function paintPendingCount(n) {
     var badge = document.getElementById('admin-count');
@@ -4147,6 +4193,7 @@
       h += '</div></div>';
     });
     app.innerHTML = h;
+    refreshRequestBadges();
     if (data.workouts.some(function (w) { return w && w.sourceTrainerId; }) && !cachedProfile) {
       var paint = routeToken;
       ensureProfile().then(function () {

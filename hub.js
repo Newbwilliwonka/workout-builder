@@ -5,6 +5,7 @@
   var TITLE_MAX = 120;
   var POST_MAX = 4000;
   var REPLY_MAX = 2000;
+  var NOTE_MAX = 300;
   var ROLES = { 'Free Client': 1, Enthusiast: 1, Trainer: 1, 'Master Trainer': 1, Member: 1 };
 
   function clean(s) {
@@ -53,6 +54,25 @@
     if (!body) return { ok: false, message: 'Enter a reply.' };
     if (body.length > REPLY_MAX) return { ok: false, message: 'That reply is too long.' };
     return { ok: true, message: '', body: body };
+  }
+  function validateRequest(note) {
+    var text = clean(note);
+    if (text.length > NOTE_MAX) return { ok: false, message: 'Keep the note short.', note: text };
+    return { ok: true, message: '', note: text };
+  }
+  function serviceLabel(value) {
+    if (root.WBProfile && root.WBProfile.serviceLabel) return root.WBProfile.serviceLabel(value);
+    if (value === 'online') return 'Online';
+    if (value === 'in_person') return 'In person';
+    if (value === 'both') return 'Both';
+    return '';
+  }
+  function viewerOf(profile) {
+    var P = root.WBProfile;
+    return {
+      finder: !!(P && P.canFindTrainers && P.canFindTrainers(profile)),
+      inbox: !!(P && P.canListInSearch && P.canListInSearch(profile))
+    };
   }
   function previewText(body) {
     var text = clean(body).replace(/\s+/g, ' ');
@@ -118,13 +138,30 @@
     });
     return bits[0] === 'hub' ? bits : ['hub'];
   }
-  function listHtml(rows) {
+  function listTools(opts) {
+    opts = opts || {};
+    var h = '';
+    if (opts.finder) {
+      h += '<button type="button" class="pri" id="hub-find" style="width:100%;margin-bottom:12px">Find a trainer</button>';
+    }
+    if (opts.inbox) {
+      var n = Math.max(0, Number(opts.requestCount) || 0);
+      h += '<button type="button" id="hub-requests" style="width:100%;margin-bottom:12px">Requests';
+      if (n) {
+        h += '<span class="request-count" aria-label="' + esc(n === 1 ? '1 request' : (n + ' requests')) + '">' + esc(String(n)) + '</span>';
+      }
+      h += '</button>';
+    }
+    return h;
+  }
+  function listHtml(rows, opts) {
     var posts = sortPosts(rows);
+    var tools = listTools(opts);
     if (!posts.length) {
-      return '<button type="button" class="pri" id="hub-new" style="width:100%;margin-bottom:12px">New post</button>' +
+      return tools + '<button type="button" class="pri" id="hub-new" style="width:100%;margin-bottom:12px">New post</button>' +
         '<div class="empty" id="hub-empty">No posts yet.</div>';
     }
-    var h = '<button type="button" class="pri" id="hub-new" style="width:100%;margin-bottom:12px">New post</button><div id="hub-list">';
+    var h = tools + '<button type="button" class="pri" id="hub-new" style="width:100%;margin-bottom:12px">New post</button><div id="hub-list">';
     posts.forEach(function (row) {
       var author = authorOf(row);
       h += '<button type="button" class="person" data-post="' + esc(row.id) + '">';
@@ -204,6 +241,78 @@
     h += '</div></div>';
     return h;
   }
+  function personBits(row) {
+    var author = authorOf({
+      authorName: row && (row.name != null ? row.name : row.authorName),
+      authorRole: row && (row.role != null ? row.role : row.authorRole),
+      authorVerified: row && (row.verified != null ? row.verified : row.authorVerified)
+    });
+    return author;
+  }
+  function findResultsHtml(result) {
+    result = result || {};
+    var h = '<div class="seg" id="find-modes" role="group" aria-label="Search">';
+    h += '<button type="button" class="on" id="find-online" aria-pressed="true">Online only</button>';
+    h += '<button type="button" id="find-near" disabled aria-disabled="true">Near me<span class="mute" id="find-near-note">Coming soon</span></button></div>';
+    var trainers = result.trainers || [];
+    if (!trainers.length) {
+      h += '<div class="empty" id="find-empty">No trainers are available online right now.</div>';
+      return h;
+    }
+    h += '<div id="find-list">';
+    trainers.forEach(function (row) {
+      var person = personBits(row);
+      var service = serviceLabel(row.serviceType || row.service_type);
+      var state = row.request || 'none';
+      h += '<article class="card find-person" data-trainer="' + esc(row.id) + '">';
+      h += bylineHtml(person);
+      if (service) h += '<p class="mute">' + esc(service) + '</p>';
+      if (state === 'open') {
+        h += '<button type="button" class="pri" disabled>Requested</button>';
+      } else if (state === 'cooldown') {
+        h += '<button type="button" class="pri" disabled>Unavailable</button>';
+        h += '<p class="mute">You can request this trainer again later.</p>';
+      } else {
+        h += '<button type="button" class="pri" data-request="' + esc(row.id) + '">Request to message</button>';
+      }
+      h += '</article>';
+    });
+    h += '</div>';
+    return h;
+  }
+  function requestFormHtml(trainer) {
+    trainer = trainer || {};
+    var person = personBits(trainer);
+    var service = serviceLabel(trainer.serviceType || trainer.service_type);
+    var h = '<form id="find-request" data-trainer="' + esc(trainer.id || '') + '">';
+    h += '<div class="card">' + bylineHtml(person);
+    if (service) h += '<p class="mute">' + esc(service) + '</p>';
+    h += '</div>';
+    h += '<label for="find-note">Note (optional)</label>';
+    h += '<textarea id="find-note" maxlength="' + NOTE_MAX + '" rows="4" placeholder="Say hello"></textarea>';
+    h += '<p class="mute bio-count" id="find-count">0/' + NOTE_MAX + '</p>';
+    h += '<p class="errs" id="find-error" hidden></p>';
+    h += '<button type="button" class="pri" id="find-send" style="width:100%;margin-top:12px">Send request</button>';
+    h += '</form>';
+    return h;
+  }
+  function requestCardsHtml(rows) {
+    var list = rows || [];
+    if (!list.length) return '<div class="empty" id="request-empty">No requests waiting.</div>';
+    return list.map(function (row) {
+      var person = personBits(row);
+      var note = clean(row.note || '');
+      var h = '<article class="card" data-request-card="' + esc(row.id) + '">';
+      h += '<div class="row" style="width:100%;margin:0">' + bylineHtml(person);
+      h += '<span class="mute" style="margin-left:auto">' + esc(whenLabel(row.at || row.createdAt)) + '</span></div>';
+      if (note) h += '<p class="hub-body">' + esc(note) + '</p>';
+      h += '<div class="actions">';
+      h += '<button type="button" class="pri" data-request-approve="' + esc(row.id) + '">Approve</button>';
+      h += '<button type="button" class="danger" data-request-decline="' + esc(row.id) + '">Decline</button>';
+      h += '</div></article>';
+      return h;
+    }).join('');
+  }
   function reportCardsHtml(rows) {
     var list = rows || [];
     if (!list.length) return '<div class="empty" id="hub-reports-empty">No reports waiting.</div>';
@@ -271,12 +380,16 @@
     ctx.app.innerHTML = '<div class="errs" id="hub-error">' + esc(msg) + '</div>';
     ctx.app.onclick = null;
   }
-  function showList(rows) {
+  function showList(rows, viewer, requestCount) {
     if (!ctx) return;
     editingReply = '';
     ctx.titleEl.textContent = 'Trainer Hub';
     ctx.backBtn.hidden = false;
-    ctx.app.innerHTML = listHtml(rows || []);
+    ctx.app.innerHTML = listHtml(rows || [], {
+      finder: !!(viewer && viewer.finder),
+      inbox: !!(viewer && viewer.inbox),
+      requestCount: requestCount
+    });
     ctx.app.onclick = onClick;
   }
   function showComposer(post) {
@@ -324,12 +437,102 @@
     if (!auth || !auth.hubPosts) return showUnavailable();
     ctx.titleEl.textContent = 'Trainer Hub';
     ctx.app.innerHTML = '<p class="mute">Loading…</p>';
-    Promise.resolve().then(function () { return auth.hubPosts(); }).then(function (rows) {
+    var postsP = Promise.resolve().then(function () { return auth.hubPosts(); });
+    var profileP = auth.profile
+      ? Promise.resolve().then(function () { return auth.profile(); }).catch(function () { return null; })
+      : Promise.resolve(null);
+    var countP = auth.trainerRequestCount
+      ? Promise.resolve().then(function () { return auth.trainerRequestCount(); }).catch(function () { return 0; })
+      : Promise.resolve(0);
+    Promise.all([postsP, profileP, countP]).then(function (pair) {
       if (!ctx || myGen !== gen || parts()[1]) return;
-      showList(rows || []);
+      showList(pair[0] || [], viewerOf(pair[1]), pair[2]);
     }, function (err) {
       if (!ctx || myGen !== gen) return;
       showFailure(err);
+    });
+  }
+  function showFind(myGen) {
+    var auth = root.WBAuth;
+    if (!ctx) return;
+    ctx.titleEl.textContent = 'Find a trainer';
+    ctx.backBtn.hidden = false;
+    if (!auth || !auth.trainerSearch) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    Promise.resolve().then(function () { return auth.trainerSearch('online'); }).then(function (result) {
+      if (!ctx || myGen !== gen || parts()[1] !== 'find' || parts()[2]) return;
+      ctx.app.innerHTML = findResultsHtml(result || {});
+      ctx.app.onclick = onClick;
+    }, function (err) {
+      if (!ctx || myGen !== gen) return;
+      showFailure(err);
+    });
+  }
+  function showRequestForm(id, myGen) {
+    var auth = root.WBAuth;
+    if (!ctx) return;
+    ctx.titleEl.textContent = 'Request to message';
+    ctx.backBtn.hidden = false;
+    if (!auth || !auth.trainerSearch) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    Promise.resolve().then(function () { return auth.trainerSearch('online'); }).then(function (result) {
+      if (!ctx || myGen !== gen || parts()[1] !== 'find' || parts()[2] !== id) return;
+      var trainer = ((result && result.trainers) || []).filter(function (row) { return row && String(row.id) === String(id); })[0];
+      if (!trainer) return showFailure(new Error('That trainer is not available.'));
+      ctx.app.innerHTML = requestFormHtml(trainer);
+      ctx.app.onclick = onClick;
+      var form = document.getElementById('find-request');
+      var box = document.getElementById('find-note');
+      var count = document.getElementById('find-count');
+      if (form) form.onsubmit = function (e) { e.preventDefault(); sendRequest(id); };
+      if (box && count) box.oninput = function () { count.textContent = box.value.length + '/' + NOTE_MAX; };
+    }, function (err) {
+      if (!ctx || myGen !== gen) return;
+      showFailure(err);
+    });
+  }
+  function showRequests(myGen) {
+    var auth = root.WBAuth;
+    if (!ctx) return;
+    ctx.titleEl.textContent = 'Requests';
+    ctx.backBtn.hidden = false;
+    if (!auth || !auth.trainerRequests) return showUnavailable(new Error('Requests are not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    Promise.resolve().then(function () { return auth.trainerRequests(); }).then(function (rows) {
+      if (!ctx || myGen !== gen || parts()[1] !== 'requests') return;
+      ctx.app.innerHTML = '<div id="request-list">' + requestCardsHtml(rows || []) + '</div>';
+      ctx.app.onclick = onClick;
+    }, function (err) {
+      if (!ctx || myGen !== gen) return;
+      showFailure(err);
+    });
+  }
+  function sendRequest(id) {
+    var box = document.getElementById('find-note');
+    var button = document.getElementById('find-send');
+    if (!box || !ctx) return;
+    var check = validateRequest(box.value);
+    if (!check.ok) return showError('find-error', check.message);
+    var auth = root.WBAuth;
+    if (!auth || !auth.trainerRequestSend) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    if (button) button.disabled = true;
+    Promise.resolve().then(function () { return auth.trainerRequestSend(id, check.note); }).then(function () {
+      if (ctx && ctx.toast) ctx.toast('Request sent.');
+      if (ctx) ctx.go('#/hub/find');
+    }, function (err) {
+      if (button) button.disabled = false;
+      showError('find-error', failMessage(err, 'Could not send that request.'));
+    });
+  }
+  function decideRequest(id, approve) {
+    var auth = root.WBAuth;
+    if (!auth || !auth.trainerRequestDecide) return showUnavailable(new Error('Requests are not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    var myGen = gen;
+    Promise.resolve().then(function () { return auth.trainerRequestDecide(id, approve); }).then(function () {
+      if (ctx && ctx.toast) ctx.toast(approve ? 'Approved. They can message you for 7 days.' : 'Declined.');
+      if (ctx && myGen === gen && parts()[1] === 'requests') showRequests(myGen);
+    }, function (err) {
+      if (ctx && ctx.toast) ctx.toast(failMessage(err, 'Could not update that request.'));
     });
   }
   function loadPost(id, myGen, edit) {
@@ -360,6 +563,11 @@
     var bits = parts();
     var id = bits[1] || '';
     if (!id) return loadList(myGen);
+    if (id === 'find') {
+      if (bits[2]) return showRequestForm(bits[2], myGen);
+      return showFind(myGen);
+    }
+    if (id === 'requests') return showRequests(myGen);
     if (id === 'new') return showComposer(null);
     if (bits[2] === 'edit') return loadPost(id, myGen, true);
     return loadPost(id, myGen, false);
@@ -480,8 +688,17 @@
   }
   function onClick(e) {
     if (!ctx || !e.target || !e.target.closest) return;
-    var t = e.target.closest('#hub-new, #hub-save, #hub-edit, #hub-delete, #hub-report, #hub-reply-send, [data-post], [data-reply-edit], [data-reply-save], [data-reply-cancel], [data-reply-delete], [data-reply-report]');
+    var t = e.target.closest('#hub-new, #hub-save, #hub-edit, #hub-delete, #hub-report, #hub-reply-send, #hub-find, #hub-requests, #find-send, [data-request], [data-request-approve], [data-request-decline], [data-post], [data-reply-edit], [data-reply-save], [data-reply-cancel], [data-reply-delete], [data-reply-report]');
     if (!t) return;
+    if (t.id === 'hub-find') return ctx.go('#/hub/find');
+    if (t.id === 'hub-requests') return ctx.go('#/hub/requests');
+    if (t.id === 'find-send') return sendRequest(t.closest('form') && t.closest('form').getAttribute('data-trainer'));
+    var askId = t.getAttribute('data-request');
+    if (askId) return ctx.go('#/hub/find/' + encodeURIComponent(askId));
+    var approveId = t.getAttribute('data-request-approve');
+    if (approveId) return decideRequest(approveId, true);
+    var declineId = t.getAttribute('data-request-decline');
+    if (declineId) return decideRequest(declineId, false);
     if (t.id === 'hub-new') return ctx.go('#/hub/new');
     if (t.id === 'hub-save') return savePost();
     var postId = (openCache && openCache.id) || parts()[1];
@@ -526,6 +743,7 @@
     TITLE_MAX: TITLE_MAX,
     POST_MAX: POST_MAX,
     REPLY_MAX: REPLY_MAX,
+    NOTE_MAX: NOTE_MAX,
     clean: clean,
     esc: esc,
     roleOf: roleOf,
@@ -533,10 +751,16 @@
     authorOf: authorOf,
     validatePost: validatePost,
     validateReply: validateReply,
+    validateRequest: validateRequest,
+    serviceLabel: serviceLabel,
+    viewerOf: viewerOf,
     previewText: previewText,
     sortPosts: sortPosts,
     sortReplies: sortReplies,
     listHtml: listHtml,
+    findResultsHtml: findResultsHtml,
+    requestFormHtml: requestFormHtml,
+    requestCardsHtml: requestCardsHtml,
     formHtml: formHtml,
     postHtml: postHtml,
     reportCardsHtml: reportCardsHtml,

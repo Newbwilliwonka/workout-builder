@@ -105,4 +105,73 @@ assert.ok(reports.indexOf('data-hub-report="delete"') !== -1);
 assert.ok(reports.indexOf('data-hub-report="dismiss"') !== -1);
 assert.ok(H.reportCardsHtml([]).indexOf('No reports waiting') !== -1);
 
+assert.strictEqual(H.validateRequest('  hello  ').note, 'hello');
+assert.strictEqual(H.validateRequest('').ok, true);
+assert.strictEqual(H.validateRequest('x'.repeat(301)).message, 'Keep the note short.');
+assert.strictEqual(H.NOTE_MAX, 300);
+
+const found = H.findResultsHtml({
+  trainers: [{
+    id: 't1',
+    name: '<script>Coach</script>',
+    role: 'Master Trainer',
+    verified: true,
+    serviceType: 'both',
+    request: 'none',
+    email: 'coach@example.com'
+  }, {
+    id: 't2',
+    name: 'Bea',
+    role: 'Trainer',
+    verified: false,
+    serviceType: 'online',
+    request: 'open',
+    email: 'bea@example.com'
+  }]
+});
+assert.ok(found.indexOf('Online only') !== -1);
+assert.ok(found.indexOf('Near me') !== -1);
+assert.ok(found.indexOf('Coming soon') !== -1);
+assert.ok(found.indexOf('id="find-near" disabled') !== -1);
+assert.ok(found.indexOf('Near me<span class="mute" id="find-near-note">Coming soon</span>') !== -1);
+assert.ok(found.indexOf('<script>') === -1);
+assert.ok(found.indexOf('@') === -1);
+assert.ok(found.indexOf('Request to message') !== -1);
+assert.ok(found.indexOf('>Requested<') !== -1);
+assert.ok(found.indexOf('Both') !== -1);
+assert.ok(found.indexOf('Master Trainer') !== -1);
+
+const requestForm = H.requestFormHtml({
+  id: 't1',
+  name: 'Amy <Coach>',
+  role: 'Trainer',
+  serviceType: 'online',
+  email: 'amy@example.com'
+});
+assert.ok(requestForm.indexOf('Amy &lt;Coach&gt;') !== -1);
+assert.ok(requestForm.indexOf('@') === -1);
+assert.ok(requestForm.indexOf('id="find-note"') !== -1);
+assert.ok(requestForm.indexOf('maxlength="300"') !== -1);
+assert.ok(requestForm.indexOf('Send request') !== -1);
+
+const incoming = H.requestCardsHtml([{
+  id: 'r1',
+  name: 'Ada <Lee>',
+  role: 'Free Client',
+  note: 'Hello <script>alert(1)</script>',
+  at: '2026-11-18T12:00:00.000Z',
+  email: 'ada@example.com'
+}]);
+assert.ok(incoming.indexOf('@') === -1);
+assert.ok(incoming.indexOf('<script>') === -1);
+assert.ok(incoming.indexOf('Ada &lt;Lee&gt;') !== -1);
+assert.ok(incoming.indexOf('Hello &lt;script&gt;') !== -1);
+assert.ok(incoming.indexOf('data-request-approve="r1"') !== -1);
+assert.ok(incoming.indexOf('data-request-decline="r1"') !== -1);
+assert.ok(incoming.indexOf('>Approve<') !== -1);
+assert.ok(incoming.indexOf('>Decline<') !== -1);
+assert.strictEqual(H.viewerOf({ membership: 'free_client' }).finder, true);
+assert.strictEqual(H.viewerOf({ membership: 'trainer' }).inbox, true);
+assert.strictEqual(H.viewerOf({ membership: 'trainer' }).finder, false);
+
 console.log('hub rules ok');

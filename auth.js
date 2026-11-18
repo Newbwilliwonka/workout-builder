@@ -48,7 +48,9 @@
   function userOf(session) { return session && session.user ? session.user : null; }
   function profileColumnMissing(err) {
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
-    return /display_name|online_only|avatar_path|\b42703\b|PGRST204|schema cache/i.test(msg);
+    if (/\b42703\b|PGRST204|schema cache/i.test(msg)) return true;
+    if (/display_name|online_only|avatar_path/i.test(msg)) return true;
+    return /['"]listed['"]|['"]service_type['"]|column\s+(?:profiles\.)?(?:listed|service_type)\b/i.test(msg);
   }
   function withReady(row, ready) {
     if (!row) return row;
@@ -76,6 +78,23 @@
       return row;
     }, function () {
       row.access_approved = null;
+      return row;
+    });
+  }
+  function withListing(c, userId, row) {
+    if (!row || !userId) return Promise.resolve(row);
+    return c.from('profiles').select('listed,service_type').eq('id', userId).maybeSingle().then(function (v) {
+      if (!v || v.error || !v.data) {
+        row.listed = false;
+        row.service_type = null;
+        return row;
+      }
+      row.listed = !!v.data.listed;
+      row.service_type = v.data.service_type || null;
+      return row;
+    }, function () {
+      row.listed = false;
+      row.service_type = null;
       return row;
     });
   }
@@ -120,6 +139,8 @@
     }
     if (/enter your name/i.test(msg)) return new Error('Enter your name.');
     if (/city and state|online only/i.test(msg)) return new Error('Enter a city and state, or choose Online only.');
+    if (/only a trainer or master trainer can be listed/i.test(msg)) return new Error('Only a Trainer or Master Trainer can be listed.');
+    if (/choose in person, online, or both/i.test(msg)) return new Error('Choose in person, online, or both.');
     if (/150 characters/i.test(msg)) return new Error('Bio can be at most 150 characters.');
     return new Error(msg || 'Could not save your profile.');
   }
@@ -400,6 +421,8 @@
           return ensureProfile(c, user).then(function (row) {
             return withVerified(c, user.id, row).then(function (ready) {
               return withAccess(c, user.id, ready);
+            }).then(function (ready) {
+              return withListing(c, user.id, ready);
             });
           });
         });
@@ -415,16 +438,37 @@
         bio: fields.bio || null
       };
       if (fields.avatar_path) row.avatar_path = fields.avatar_path;
+      var listing = null;
+      if (Object.prototype.hasOwnProperty.call(fields, 'listed') || Object.prototype.hasOwnProperty.call(fields, 'service_type')) {
+        listing = {
+          listed: !!fields.listed,
+          service_type: fields.service_type || null
+        };
+      }
       return db().then(function (c) {
         return c.auth.getSession().then(function (res) {
           if (res.error) throw res.error;
           var user = userOf(res.data.session);
           if (!user) throw new Error('Sign in first.');
-          return c.from('profiles').update(row).eq('id', user.id).select(PROFILE_FULL).single().then(function (res) {
-            if (res.error) throw res.error;
-            return withVerified(c, user.id, withReady(res.data, true)).then(function (ready) {
-              return withAccess(c, user.id, ready);
+          function write(extra) {
+            var payload = {};
+            Object.keys(row).forEach(function (key) { payload[key] = row[key]; });
+            if (extra) {
+              payload.listed = extra.listed;
+              payload.service_type = extra.service_type;
+            }
+            return c.from('profiles').update(payload).eq('id', user.id).select(PROFILE_FULL).single().then(function (saved) {
+              if (saved.error) throw saved.error;
+              return withVerified(c, user.id, withReady(saved.data, true)).then(function (ready) {
+                return withAccess(c, user.id, ready);
+              }).then(function (ready) {
+                return withListing(c, user.id, ready);
+              });
             });
+          }
+          return write(listing).then(function (saved) { return saved; }, function (err) {
+            if (listing && !listing.listed && profileColumnMissing(err)) return write(null);
+            throw err;
           });
         });
       }).then(function (saved) {
@@ -752,6 +796,12 @@
       return messageRpc('message_send', { p_person: personId, p_id: messageId, p_body: body });
     },
     markRead: function (personId) { return messageRpc('message_read', { p_person: personId }); },
+    trainerSearch: function (mode) { return findRpc('trainer_search', { p_mode: mode || 'online', p_lat: null, p_lng: null }); },
+    trainerRequestSend: function (trainerId, note) { return findRpc('trainer_request_send', { p_trainer: trainerId, p_note: note || '' }); },
+    trainerRequestDecide: function (id, approve) { return findRpc('trainer_request_decide', { p_id: id, p_approve: !!approve }); },
+    trainerRequests: function () { return findRpc('trainer_request_inbox'); },
+    trainerRequestCount: function () { return findRpc('trainer_request_count'); },
+    endTemporary: function (personId) { return findRpc('trainer_temp_end', { p_person: personId }); },
     workoutCopies: function () { return workoutRpc('workout_mine'); },
     sendWorkout: function (deliveries, name, items, sourceId) {
       return workoutRpc('workout_send', {
@@ -1176,6 +1226,33 @@
       return new Error('Sending workouts is not available yet. Apply the workout SQL in the Supabase SQL editor.');
     }
     return new Error(msg || 'Could not send that workout.');
+  }
+  function findError(err) {
+    var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
+    if (/schema cache|could not find|does not exist|PGRST202|PGRST205|42P01/i.test(msg)) {
+      return new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.');
+    }
+    if (/for clients and enthusiasts/i.test(msg)) return new Error('Find a trainer is for clients and enthusiasts.');
+    if (/not available/i.test(msg)) return new Error('That trainer is not available.');
+    if (/this person is already connected/i.test(msg)) return new Error('This person is already connected.');
+    if (/already connected/i.test(msg)) return new Error('You are already connected to this trainer.');
+    if (/already have a conversation/i.test(msg)) return new Error('You already have a conversation with this trainer.');
+    if (/already sent a request/i.test(msg)) return new Error('You already sent a request.');
+    if (/again later/i.test(msg)) return new Error('You can request this trainer again later.');
+    if (/3 open requests/i.test(msg)) return new Error('You already have 3 open requests.');
+    if (/keep the note short/i.test(msg)) return new Error('Keep the note short.');
+    if (/not open/i.test(msg)) return new Error('That request is not open.');
+    if (/already open/i.test(msg)) return new Error('A conversation is already open.');
+    if (/no conversation to end/i.test(msg)) return new Error('There is no conversation to end.');
+    if (/waiting for approval/i.test(msg)) return new Error('Your account is waiting for approval.');
+    if (/read-only/i.test(msg)) return new Error('This conversation is read-only.');
+    return new Error((msg || 'Could not use trainer search.').split('\n')[0]);
+  }
+  function findRpc(name, args) {
+    return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
+      if (res.error) throw findError(res.error);
+      return res.data;
+    });
   }
   function messageError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';

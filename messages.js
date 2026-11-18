@@ -68,6 +68,25 @@
     return (raw.charAt(0) || '?').toUpperCase();
   }
   // The server may put an email in the name field when no display name is saved.
+  function daysLabel(n) {
+    n = Math.max(0, Math.round(Number(n) || 0));
+    if (n === 1) return '1 day left';
+    return n + ' days left';
+  }
+  function threadHeading(person) {
+    person = person || {};
+    var plan = person.plan || '';
+    if (person.temporary) {
+      return {
+        sub: plan,
+        life: person.canSend === false ? 'Read only' : daysLabel(person.daysLeft)
+      };
+    }
+    return {
+      sub: plan ? plan + (plan !== 'Trainer' ? ' · linked client' : '') : '',
+      life: ''
+    };
+  }
   function personTitle(p) {
     p = p || {};
     if (root.WBProfile && root.WBProfile.label) {
@@ -208,19 +227,51 @@
   function personRow(p) {
     var unread = Number(p.unread) || 0;
     var title = personTitle(p);
+    var heading = threadHeading(p);
+    var planLine = heading.life ? (heading.sub ? heading.sub + ' · ' + heading.life : heading.life) : (p.plan || '');
     return '<button type="button" class="person" data-thread="' + esc(p.id) + '">' +
       '<span class="ava" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(title)) + '</span>' +
       '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + (root.WBProfile ? WBProfile.nameHtml(title, !!p.verified) : esc(title)) + '</span>' +
       '<span class="mute" style="margin-left:auto">' + esc(whenLabel(p.at)) + '</span></span>' +
       '<span class="preview">' + esc(p.preview || 'No messages yet') + '</span>' +
-      '<span class="mute">' + esc(p.plan || '') + '</span></span>' +
+      '<span class="mute">' + esc(planLine) + '</span></span>' +
       (unread ? '<span class="count">' + esc(unread) + '</span>' : '') + '</button>';
   }
+  function ask(message) {
+    if (root && typeof root.confirm === 'function') return root.confirm(message);
+    return true;
+  }
+  function decideRequest(id, approve) {
+    var auth = root.WBAuth;
+    if (!auth || !auth.trainerRequestDecide) return;
+    Promise.resolve().then(function () { return auth.trainerRequestDecide(id, approve); }).then(function () {
+      if (ctx && ctx.toast) ctx.toast(approve ? 'Approved. They can message you for 7 days.' : 'Declined.');
+      loadThreads(true);
+    }, function (err) {
+      if (ctx && ctx.toast) ctx.toast((err && err.message) || 'Could not update that request.');
+    });
+  }
+  function endTemporary() {
+    var id = currentThread();
+    if (!id || !ask('End this conversation?')) return;
+    var auth = root.WBAuth;
+    if (!auth || !auth.endTemporary) return;
+    Promise.resolve().then(function () { return auth.endTemporary(id); }).then(function () {
+      if (ctx) ctx.go('#/messages');
+    }, function (err) {
+      if (ctx && ctx.toast) ctx.toast((err && err.message) || 'Could not end that conversation.');
+    });
+  }
   function onClick(e) {
-    var t = e.target && e.target.closest ? e.target.closest('#msg-send, [data-thread-back], [data-thread]') : null;
+    var t = e.target && e.target.closest ? e.target.closest('#msg-send, #temp-end, [data-thread-back], [data-thread], [data-request-approve], [data-request-decline]') : null;
     if (!t || !ctx) return;
     if (t.id === 'msg-send') return sendCurrent();
+    if (t.id === 'temp-end') return endTemporary();
     if (t.hasAttribute('data-thread-back')) return ctx.go('#/messages');
+    var approveId = t.getAttribute('data-request-approve');
+    if (approveId) return decideRequest(approveId, true);
+    var declineId = t.getAttribute('data-request-decline');
+    if (declineId) return decideRequest(declineId, false);
     var id = t.getAttribute('data-thread');
     if (id) ctx.go('#/messages/' + encodeURIComponent(id));
   }
@@ -259,11 +310,15 @@
     ctx.titleEl.textContent = 'Messages';
     ctx.backBtn.hidden = false;
     var threads = data.threads || [];
-    var h;
+    var requests = data.requests || [];
+    var h = '';
+    if (requests.length && root.WBHub && root.WBHub.requestCardsHtml) {
+      h += '<h2 class="hub-replies-h" id="request-heading">Requests</h2><div id="request-list">' + root.WBHub.requestCardsHtml(requests) + '</div>';
+    }
     if (!threads.length) {
-      h = '<div class="empty" id="thread-list">' + (data.role === 'trainer' ? 'No linked people yet.' : 'You are not connected to a trainer.') + '</div>';
+      h += '<div class="empty" id="thread-list">' + (data.role === 'trainer' ? 'No linked people yet.' : 'You are not connected to a trainer.') + '</div>';
     } else {
-      h = '<div id="thread-list">';
+      h += '<div id="thread-list">';
       threads.forEach(function (p) { h += personRow(p); });
       h += '</div>';
     }
@@ -274,9 +329,13 @@
   function showThread(id, data) {
     if (!ctx) return;
     var person = (data && data.person) || {};
+    var heading = threadHeading(person);
+    var canSend = person.temporary ? person.canSend !== false : true;
     var shell = document.getElementById('talk');
     var existing = document.getElementById('msg-text');
-    if (existing && shell && shell.getAttribute('data-person') === id) {
+    if (shell && shell.getAttribute('data-person') === id && shell.getAttribute('data-send') === (canSend ? '1' : '0') && (existing || !canSend)) {
+      var life = document.getElementById('days-left');
+      if (life) life.textContent = heading.life;
       paintBubbles(id);
       syncButton(id);
       return;
@@ -286,13 +345,22 @@
     if (root.WBProfile && person.verified) ctx.titleEl.innerHTML = WBProfile.nameHtml(title, true);
     else ctx.titleEl.textContent = title;
     ctx.backBtn.hidden = false;
-    var plan = person.plan || '';
-    var sub = plan ? plan + (plan !== 'Trainer' ? ' · linked client' : '') : '';
-    var h = '<div id="talk" data-person="' + esc(id) + '">';
-    if (sub) h += '<p class="mute" id="with">' + esc(sub) + '</p>';
+    var h = '<div id="talk" data-person="' + esc(id) + '" data-send="' + (canSend ? '1' : '0') + '">';
+    if (heading.sub) h += '<p class="mute" id="with">' + esc(heading.sub) + '</p>';
+    if (heading.life) h += '<p id="days-left">' + esc(heading.life) + '</p>';
+    if (person.temporary) {
+      h += '<button type="button" id="temp-end">End conversation</button>';
+      if (canSend && heading.sub && heading.sub !== 'Trainer') {
+        h += '<p class="mute" id="temp-note">To take this person on, send a link code from Account.</p>';
+      }
+    }
     h += '<div class="thread" id="thread"></div></div>';
-    h += '<div class="dock"><div class="inner composer"><input id="msg-text" placeholder="Message" autocomplete="off" maxlength="2000">' +
-      '<button type="button" class="pri" id="msg-send"' + (inflight[id] ? ' disabled' : '') + '>Send</button></div></div>';
+    if (canSend) {
+      h += '<div class="dock"><div class="inner composer"><input id="msg-text" placeholder="Message" autocomplete="off" maxlength="2000">' +
+        '<button type="button" class="pri" id="msg-send"' + (inflight[id] ? ' disabled' : '') + '>Send</button></div></div>';
+    } else {
+      h += '<p class="mute" id="thread-readonly">This conversation is read-only.</p>';
+    }
     ctx.app.innerHTML = h;
     ctx.app.onclick = onClick;
     var box = document.getElementById('msg-text');
@@ -365,7 +433,7 @@
         timer = 0;
         return showClosed();
       }
-      if (quiet && document.getElementById('msg-text')) return;
+      if (quiet && document.getElementById('talk')) return;
       showFailure(err);
     });
   }
@@ -438,6 +506,8 @@
     applyServerList: applyServerList,
     prepareAttempt: prepareAttempt,
     initials: initials,
+    daysLabel: daysLabel,
+    threadHeading: threadHeading,
     mount: mount,
     stop: stop,
     refresh: refresh
