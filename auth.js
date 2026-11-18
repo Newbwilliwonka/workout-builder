@@ -4,12 +4,11 @@
   var URL = 'https://thyrgloermygnezfareg.supabase.co';
   var PUBLISHABLE_KEY = 'sb_publishable_YT4vJriMUtcFRveDBA0GaA_eDiu5_Py';
   var REDIRECT = 'https://coachtrainerapp.com/';
-  // Public Cloudflare Turnstile site key. Leave this empty until the real key
-  // from the Cloudflare widget is pasted here. An empty key skips the captcha
-  // completely, so sign-up and sign-in keep working before Supabase captcha is
-  // switched on. The secret key does not belong in this file. Put it only in
-  // the Supabase dashboard: Authentication > Bot and Abuse Protection.
-  var TURNSTILE_SITE_KEY = '';
+  // Public Cloudflare Turnstile site key for coachtrainerapp.com and
+  // www.coachtrainerapp.com. An empty string skips the captcha completely.
+  // The secret key does not belong in this file. Put it only in the Supabase
+  // dashboard: Authentication > Bot and Abuse Protection.
+  var TURNSTILE_SITE_KEY = '0x4AAAAAAGHSgrmqI63VE2ln';
   // Bunny folder that contains 180/ and 360/.
   // A library demo is this value + "/180/" + id + ".gif" (or "/360/"). Not a secret.
   var EXERCISE_GIF_BASE = 'https://kinisiexercises.b-cdn.net';

@@ -36,6 +36,7 @@ const ART = '/opt/cursor/artifacts';
     function patch(api) {
       if (!api || api.__accessStub) return api;
       api.__accessStub = true;
+      api.TURNSTILE_SITE_KEY = '';
       api.session = function () {
         if (window.__mode === 'out') return Promise.resolve(null);
         if (window.__mode === 'waiting' || window.__mode === 'held' || window.__mode === 'held-ok' || window.__mode === 'held-done') {

@@ -6,6 +6,18 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   const b = await pp.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const p = await b.newPage();
   await p.setViewport({ width: 412, height: 915, isMobile: true });
+  await p.evaluateOnNewDocument(function () {
+    var current;
+    Object.defineProperty(window, 'WBAuth', {
+      configurable: true,
+      enumerable: true,
+      get: function () { return current; },
+      set: function (v) {
+        if (v) v.TURNSTILE_SITE_KEY = '';
+        current = v;
+      }
+    });
+  });
   const errs = []; p.on('pageerror', e => errs.push(String(e)));
   const wait = ms => new Promise(r => setTimeout(r, ms));
   await p.goto(URL + '#/signin');

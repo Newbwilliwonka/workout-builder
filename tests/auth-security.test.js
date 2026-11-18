@@ -10,8 +10,9 @@ const root = path.join(__dirname, '..');
 const authSrc = fs.readFileSync(path.join(root, 'auth.js'), 'utf8');
 const appSrc = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 
-assert.ok(/var TURNSTILE_SITE_KEY = '';/.test(authSrc), 'site key stays empty');
+assert.ok(/var TURNSTILE_SITE_KEY = '0x4AAAAAAGHSgrmqI63VE2ln';/.test(authSrc), 'public site key');
 assert.ok(authSrc.indexOf('TURNSTILE_SITE_KEY: TURNSTILE_SITE_KEY') !== -1, 'site key is public on WBAuth');
+assert.ok(appSrc.indexOf('function captchaOn() { return !!turnstileSiteKey(); }') !== -1, 'empty key still skips the check');
 assert.ok(authSrc.indexOf('options.captchaToken = captchaToken') !== -1, 'sign-up passes options.captchaToken');
 assert.ok(authSrc.indexOf('credentials.options = { captchaToken: captchaToken }') !== -1, 'sign-in passes options.captchaToken');
 assert.ok(authSrc.indexOf('options.captchaToken = captchaToken') !== -1 && authSrc.indexOf('resetPasswordForEmail') !== -1, 'reset passes captchaToken');
@@ -57,8 +58,28 @@ const FAKE = [
   });
 
   await p.goto(URL + '#/signin', { waitUntil: 'domcontentloaded' });
-  await p.waitForSelector('[data-auth=in]');
+  await p.waitForSelector('#turnstile-box[data-widget]');
   assert.strictEqual(await p.$('#confirm-pass'), null, 'sign-in has no confirm password');
+  const opened = await p.evaluate(function () {
+    var w = window.__widgets[window.__widgets.length - 1];
+    return {
+      key: window.WBAuth.TURNSTILE_SITE_KEY,
+      sitekey: w && w.sitekey,
+      disabled: document.querySelector('[data-auth=in]').disabled
+    };
+  });
+  assert.strictEqual(opened.key, '0x4AAAAAAGHSgrmqI63VE2ln');
+  assert.strictEqual(opened.sitekey, '0x4AAAAAAGHSgrmqI63VE2ln');
+  assert.strictEqual(opened.disabled, true, 'the real site key waits for a token');
+  assert.ok(scriptUrls.length >= 1 && scriptUrls[0].indexOf('https://challenges.cloudflare.com/turnstile/v0/api.js') === 0, scriptUrls[0]);
+  const scriptsWithKey = scriptUrls.length;
+  await p.evaluate(function () {
+    window.WBAuth.TURNSTILE_SITE_KEY = '';
+    location.hash = '#/subscriptions';
+  });
+  await p.waitForFunction(function () { return location.hash === '#/subscriptions'; });
+  await p.evaluate(function () { location.hash = '#/signin'; });
+  await p.waitForSelector('[data-auth=in]');
   assert.strictEqual(await p.$('#turnstile-box'), null, 'empty site key skips the widget');
   assert.strictEqual(await p.$eval('[data-auth=in]', function (el) { return el.disabled; }), false);
   await p.evaluate(function () { location.hash = '#/join'; });
@@ -81,7 +102,7 @@ const FAKE = [
   assert.strictEqual(order.type, 'password');
   assert.strictEqual(order.auto, 'new-password');
   assert.strictEqual(await p.$('#turnstile-box'), null);
-  assert.deepStrictEqual(scriptUrls, []);
+  assert.strictEqual(scriptUrls.length, scriptsWithKey, 'clearing the site key does not load Turnstile again');
 
   await p.evaluate(function () {
     window.__signUp = null;
@@ -147,7 +168,7 @@ const FAKE = [
   await p.click('[data-auth=send-reset]');
   await p.waitForFunction(function () { return document.querySelector('h2') && document.querySelector('h2').textContent === 'Check your email'; });
   assert.deepStrictEqual(await p.evaluate(function () { return window.__reset; }), ['ada@example.com']);
-  assert.deepStrictEqual(scriptUrls, [], 'empty site key never loads Turnstile');
+  assert.strictEqual(scriptUrls.length, scriptsWithKey, 'empty site key does not load Turnstile');
 
   await p.evaluate(function () {
     window.WBAuth.TURNSTILE_SITE_KEY = 'site-key-for-tests';
