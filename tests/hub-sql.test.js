@@ -59,7 +59,7 @@ function psql(db, sql, filePath) {
 }
 
 const earlier = fs.readdirSync(path.join(root, 'supabase/migrations'))
-  .filter(function (name) { return name.endsWith('.sql') && name.indexOf('trainer_hub') === -1; })
+  .filter(function (name) { return name.endsWith('.sql') && name < '20261118190000_trainer_hub.sql'; })
   .sort();
 
 psql('postgres', 'drop database if exists wb_hub_test;\ncreate database wb_hub_test;\n');

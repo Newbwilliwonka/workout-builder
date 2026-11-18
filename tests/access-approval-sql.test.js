@@ -46,7 +46,7 @@ function psql(db, sql, filePath) {
 }
 
 const migrations = fs.readdirSync(path.join(root, 'supabase/migrations'))
-  .filter(function (name) { return name.endsWith('.sql') && name.indexOf('invite_only_access') === -1; })
+  .filter(function (name) { return name.endsWith('.sql') && name < '20261117180000_invite_only_access.sql'; })
   .sort();
 
 psql('postgres', 'drop database if exists wb_access_test;\ncreate database wb_access_test;\n');

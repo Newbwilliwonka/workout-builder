@@ -261,6 +261,9 @@ const ART = '/opt/cursor/artifacts';
         });
         return Promise.resolve({ id: 'ok' });
       };
+      api.trainerRequestCount = function () { return Promise.resolve(0); };
+      api.trainerRequests = function () { return Promise.resolve([]); };
+      api.trainerSearch = function () { return Promise.resolve({ mode: 'online', comingSoon: false, trainers: [] }); };
       api.hubReports = function () {
         return Promise.resolve(box().reports.filter(function (item) { return item.status === 'open'; }).map(reportRow));
       };

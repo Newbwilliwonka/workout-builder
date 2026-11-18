@@ -273,8 +273,19 @@ button.verify-link{display:inline-flex;width:auto;min-height:44px;padding:8px 0;
 body:has(#hub-reply) main{padding-bottom:150px}
 .dock .inner.composer textarea{flex:1;min-width:0;width:auto;min-height:48px;max-height:120px;resize:vertical}
 .admin-page h3{font-size:13px;margin:14px 0 8px;color:var(--mute);font-weight:700;letter-spacing:.04em;text-transform:uppercase}
-.admin-count,.dashboard-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:12px;font-weight:700;line-height:1;flex:none;box-sizing:border-box}
-.admin-count[hidden],.dashboard-count[hidden]{display:none !important}
+.admin-count,.dashboard-count,.request-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:12px;font-weight:700;line-height:1;flex:none;box-sizing:border-box}
+.admin-count[hidden],.dashboard-count[hidden],.request-count[hidden]{display:none !important}
+#messages-nav,#hub-nav,#hub-requests{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+#profile-sheet .switch{width:52px;min-width:52px;max-width:52px;flex:none}
+.switch-row{display:flex;gap:12px;align-items:center;margin-top:8px}
+.switch-row .name{font-size:16px}
+.switch-row .mute{margin:4px 0 0;font-weight:400}
+.find-person{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.find-person .pri{width:100%}
+#find-near-note{margin:8px 0 12px}
+#days-left{margin:0 0 8px;font-weight:700}
+#thread-readonly{text-align:center;margin:8px 0 0}
+#temp-end{width:100%;margin:0 0 8px}
 .verify-meta{margin:2px 0;font-size:14px}
 .verify-meta b{font-weight:600}
 .preview{display:block;font-size:14px;font-weight:400;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
