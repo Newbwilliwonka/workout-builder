@@ -332,6 +332,22 @@ const ART = '/opt/cursor/artifacts';
   assert.ok(list.text.indexOf('Enthusiast') !== -1);
   assert.strictEqual(list.ids[0], 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2');
   assert.strictEqual(list.script, null);
+  const line = await p.evaluate(function () {
+    var card = document.querySelector('[data-post="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"]');
+    var title = card.querySelector('.hub-line .name');
+    var time = card.querySelector('.hub-when');
+    var tr = title.getBoundingClientRect();
+    var mr = time.getBoundingClientRect();
+    var cr = card.getBoundingClientRect();
+    return {
+      sameLine: Math.abs(mr.top - tr.top) < 6,
+      timeRight: mr.left + 1 >= tr.right,
+      inside: mr.right <= cr.right + 1 && mr.left > cr.left
+    };
+  });
+  assert.strictEqual(line.sameLine, true);
+  assert.strictEqual(line.timeRight, true);
+  assert.strictEqual(line.inside, true);
   await p.screenshot({ path: ART + '/hub_post_list.png' });
 
   await p.click('[data-post="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"]');

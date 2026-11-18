@@ -128,8 +128,8 @@
     posts.forEach(function (row) {
       var author = authorOf(row);
       h += '<button type="button" class="person" data-post="' + esc(row.id) + '">';
-      h += '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + esc(row.title || '') + '</span>';
-      h += '<span class="mute" style="margin-left:auto">' + esc(whenLabel(row.activityAt || row.createdAt)) + '</span></span>';
+      h += '<span class="grow"><span class="row hub-line"><span class="name">' + esc(row.title || '') + '</span>';
+      h += '<span class="mute hub-when">' + esc(whenLabel(row.activityAt || row.createdAt)) + '</span></span>';
       h += '<span class="preview">' + esc(previewText(row.body)) + '</span>';
       h += '<span class="hub-by">' + nameHtml(author) + badgeHtml(author.role);
       h += '<span class="mute">' + esc(replyLabel(row.replyCount)) + '</span></span></span></button>';

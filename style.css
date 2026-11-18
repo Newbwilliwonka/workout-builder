@@ -261,6 +261,9 @@ button.verify-link{display:inline-flex;width:auto;min-height:44px;padding:8px 0;
 #hub-reports-section{margin-top:8px}
 #home-tools{flex-wrap:wrap}
 #home-tools button{padding:0 8px}
+#hub-list .hub-line{flex-wrap:nowrap;align-items:baseline;width:100%;margin:0}
+#hub-list .hub-line .name{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+#hub-list .hub-line .hub-when{flex:none;margin-left:auto;white-space:nowrap}
 .hub-by{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
 .hub-by .name{font-size:15px}
 .hub-title{font-size:20px;line-height:1.25;margin:10px 0 0}
