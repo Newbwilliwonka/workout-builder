@@ -521,6 +521,123 @@
         return true;
       }, function (err) { throw accessError(err); });
     },
+    hubPosts: function () {
+      return db().then(function (c) {
+        return c.from('hub_feed').select('id,title,body,created_at,updated_at,activity_at,author_name,author_role,author_verified,reply_count,reported,mine').order('activity_at', { ascending: false }).limit(200);
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return (res.data || []).map(hubPostRow);
+      }, function (err) { throw hubError(err); });
+    },
+    hubPost: function (id) {
+      if (!isUuid(id)) return Promise.reject(new Error('That post is not available.'));
+      return db().then(function (c) {
+        return Promise.all([
+          c.from('hub_feed').select('id,title,body,created_at,updated_at,activity_at,author_name,author_role,author_verified,reply_count,reported,mine').eq('id', id).maybeSingle(),
+          c.from('hub_reply_feed').select('id,post_id,body,created_at,updated_at,author_name,author_role,author_verified,reported,mine').eq('post_id', id).order('created_at', { ascending: true })
+        ]);
+      }).then(function (pair) {
+        var postRes = pair[0], replyRes = pair[1];
+        if (postRes.error) throw hubError(postRes.error);
+        if (replyRes.error) throw hubError(replyRes.error);
+        if (!postRes.data) throw new Error('That post is not available.');
+        return { post: hubPostRow(postRes.data), replies: (replyRes.data || []).map(hubReplyRow) };
+      }, function (err) { throw hubError(err); });
+    },
+    hubSavePost: function (row) {
+      row = row || {};
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) throw new Error('Sign in first.');
+        if (row.existing) {
+          return ctx.c.from('hub_posts').update({ title: row.title, body: row.body }).eq('id', row.id).select('id').single();
+        }
+        return ctx.c.from('hub_posts').insert({
+          id: row.id,
+          author_id: ctx.user.id,
+          title: row.title,
+          body: row.body
+        }).select('id').single();
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return res.data;
+      }, function (err) { throw hubError(err); });
+    },
+    hubDeletePost: function (id) {
+      if (!isUuid(id)) return Promise.reject(new Error('That post is not available.'));
+      return db().then(function (c) {
+        return c.from('hub_posts').delete().eq('id', id);
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return true;
+      }, function (err) { throw hubError(err); });
+    },
+    hubSaveReply: function (row) {
+      row = row || {};
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) throw new Error('Sign in first.');
+        if (row.existing) {
+          return ctx.c.from('hub_replies').update({ body: row.body }).eq('id', row.id).select('id').single();
+        }
+        return ctx.c.from('hub_replies').insert({
+          id: row.id,
+          post_id: row.postId,
+          author_id: ctx.user.id,
+          body: row.body
+        }).select('id').single();
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return res.data;
+      }, function (err) { throw hubError(err); });
+    },
+    hubDeleteReply: function (id) {
+      if (!isUuid(id)) return Promise.reject(new Error('That reply is not available.'));
+      return db().then(function (c) {
+        return c.from('hub_replies').delete().eq('id', id);
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return true;
+      }, function (err) { throw hubError(err); });
+    },
+    hubReport: function (row) {
+      row = row || {};
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) throw new Error('Sign in first.');
+        var payload = { reporter_id: ctx.user.id, post_id: row.postId };
+        if (row.replyId) payload.reply_id = row.replyId;
+        return ctx.c.from('hub_reports').insert(payload).select('id').single();
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return res.data;
+      }, function (err) { throw hubError(err); });
+    },
+    hubReports: function () {
+      return db().then(function (c) {
+        return c.from('hub_report_queue').select('id,post_id,reply_id,kind,created_at,title,body,author_name,author_role,author_verified,reporter_name').order('created_at', { ascending: true });
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return (res.data || []).map(hubReportRow);
+      }, function (err) { throw hubError(err); });
+    },
+    hubDismissReport: function (id) {
+      if (!id) return Promise.reject(new Error('That report is not available.'));
+      return db().then(function (c) {
+        return c.from('hub_reports').update({ status: 'dismissed' }).eq('id', id).select('id').single();
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return res.data;
+      }, function (err) { throw hubError(err); });
+    },
+    hubDeleteReported: function (row) {
+      row = row || {};
+      return db().then(function (c) {
+        if (row.kind === 'reply' && row.replyId) return c.from('hub_replies').delete().eq('id', row.replyId);
+        if (!row.postId) throw new Error('That post is not available.');
+        return c.from('hub_posts').delete().eq('id', row.postId);
+      }).then(function (res) {
+        if (res.error) throw hubError(res.error);
+        return true;
+      }, function (err) { throw hubError(err); });
+    },
     reviewVerification: function (id, status, note) {
       var patch = { status: status };
       if (status === 'declined') patch.admin_note = note || null;
@@ -1086,6 +1203,88 @@
     if (/only the admin/i.test(msg)) return new Error('Only the admin can change access.');
     if (/waiting for approval/i.test(msg)) return new Error('Your account is waiting for approval.');
     return new Error(msg || 'Could not update access.');
+  }
+  function hubText(value) {
+    var text = String(value == null ? '' : value);
+    return text.indexOf('@') === -1 ? text : '';
+  }
+  function hubPostRow(row) {
+    row = row || {};
+    return {
+      id: row.id,
+      title: row.title || '',
+      body: row.body || '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      activityAt: row.activity_at,
+      replyCount: row.reply_count || 0,
+      reported: !!row.reported,
+      mine: !!row.mine,
+      author: {
+        name: hubText(row.author_name),
+        role: hubText(row.author_role),
+        verified: !!row.author_verified
+      }
+    };
+  }
+  function hubReplyRow(row) {
+    row = row || {};
+    return {
+      id: row.id,
+      postId: row.post_id,
+      body: row.body || '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      reported: !!row.reported,
+      mine: !!row.mine,
+      author: {
+        name: hubText(row.author_name),
+        role: hubText(row.author_role),
+        verified: !!row.author_verified
+      }
+    };
+  }
+  function hubReportRow(row) {
+    row = row || {};
+    return {
+      id: row.id,
+      postId: row.post_id,
+      replyId: row.reply_id || '',
+      kind: row.kind === 'reply' ? 'reply' : 'post',
+      createdAt: row.created_at,
+      title: row.title || '',
+      body: row.body || '',
+      authorName: hubText(row.author_name),
+      authorRole: hubText(row.author_role),
+      authorVerified: !!row.author_verified,
+      reporterName: hubText(row.reporter_name)
+    };
+  }
+  function hubError(err) {
+    if (err instanceof Error && err.hub) return err;
+    var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
+    var friendly = msg;
+    if (/schema cache|could not find|does not exist|PGRST205|PGRST202|42P01|hub_feed|hub_reply_feed|hub_report_queue|hub_posts|hub_replies|hub_reports/i.test(msg)) {
+      friendly = 'Trainer Hub is not available yet. Apply the hub SQL in the Supabase SQL editor.';
+    } else if (/a little while/i.test(msg)) {
+      friendly = /reply/i.test(msg) ? 'You can reply again in a little while.' : (/report/i.test(msg) ? 'You can report again in a little while.' : 'You can post again in a little while.');
+    } else if (/already reported|hub_reports_one_open/i.test(msg)) friendly = 'You already reported this.';
+    else if (/cannot report your own reply/i.test(msg)) friendly = 'You cannot report your own reply.';
+    else if (/cannot report your own/i.test(msg)) friendly = 'You cannot report your own post.';
+    else if (/enter a title/i.test(msg)) friendly = 'Enter a title.';
+    else if (/enter a post/i.test(msg)) friendly = 'Enter a post.';
+    else if (/enter a reply/i.test(msg)) friendly = 'Enter a reply.';
+    else if (/title is too long/i.test(msg)) friendly = 'That title is too long.';
+    else if (/post is too long/i.test(msg)) friendly = 'That post is too long.';
+    else if (/reply is too long/i.test(msg)) friendly = 'That reply is too long.';
+    else if (/waiting for approval/i.test(msg)) friendly = 'Your account is waiting for approval.';
+    else if (/only the admin/i.test(msg)) friendly = 'Only the admin can review a report.';
+    else if (/only edit your own|only delete your own|only post as yourself|only reply as yourself|only report as yourself/i.test(msg)) {
+      friendly = 'You can only change your own posts.';
+    } else if (!friendly) friendly = 'Could not use Trainer Hub.';
+    var out = new Error(friendly.split('\n')[0]);
+    out.hub = true;
+    return out;
   }
   function verificationError(err) {
     var msg = (err && (err.message || err.details || err.hint || err.code)) || '';
