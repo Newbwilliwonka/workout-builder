@@ -253,8 +253,7 @@
     result = result || {};
     var h = '<div class="seg" id="find-modes" role="group" aria-label="Search">';
     h += '<button type="button" class="on" id="find-online" aria-pressed="true">Online only</button>';
-    h += '<button type="button" id="find-near" disabled aria-disabled="true">Near me</button></div>';
-    h += '<p class="mute" id="find-near-note">Coming soon</p>';
+    h += '<button type="button" id="find-near" disabled aria-disabled="true">Near me<span class="mute" id="find-near-note">Coming soon</span></button></div>';
     var trainers = result.trainers || [];
     if (!trainers.length) {
       h += '<div class="empty" id="find-empty">No trainers are available online right now.</div>';

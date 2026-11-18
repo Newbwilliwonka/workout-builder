@@ -133,6 +133,7 @@ assert.ok(found.indexOf('Online only') !== -1);
 assert.ok(found.indexOf('Near me') !== -1);
 assert.ok(found.indexOf('Coming soon') !== -1);
 assert.ok(found.indexOf('id="find-near" disabled') !== -1);
+assert.ok(found.indexOf('Near me<span class="mute" id="find-near-note">Coming soon</span>') !== -1);
 assert.ok(found.indexOf('<script>') === -1);
 assert.ok(found.indexOf('@') === -1);
 assert.ok(found.indexOf('Request to message') !== -1);

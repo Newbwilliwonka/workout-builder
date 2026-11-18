@@ -175,6 +175,19 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   assert.strictEqual(results.title, 'Find a trainer');
   assert.strictEqual(results.nearDisabled, true);
   assert.strictEqual(results.online, true);
+  const place = await p.evaluate(function () {
+    var note = document.getElementById('find-near-note').getBoundingClientRect();
+    var near = document.getElementById('find-near').getBoundingClientRect();
+    var online = document.getElementById('find-online').getBoundingClientRect();
+    return {
+      inside: document.getElementById('find-near').contains(document.getElementById('find-near-note')),
+      underNear: note.top >= near.top && note.left >= near.left - 1 && note.right <= near.right + 1,
+      rightOfOnline: note.left > online.right - 4
+    };
+  });
+  assert.strictEqual(place.inside, true);
+  assert.strictEqual(place.underNear, true);
+  assert.strictEqual(place.rightOfOnline, true);
   assert.ok(results.text.indexOf('Online only') !== -1);
   assert.ok(results.text.indexOf('Near me') !== -1);
   assert.ok(results.text.indexOf('Coming soon') !== -1);
