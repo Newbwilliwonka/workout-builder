@@ -117,20 +117,33 @@ const FAKE = [
   await p.click('[data-auth=up]');
   await p.waitForFunction(function () { return document.body.innerText.indexOf('at least 10 characters') !== -1; });
   assert.strictEqual(await p.evaluate(function () { return window.__signUp; }), null, 'short password still blocks sign-up');
+  assert.deepStrictEqual(await p.evaluate(function () {
+    return [
+      document.getElementById('acct-email').value,
+      document.getElementById('acct-pass').value,
+      document.getElementById('confirm-pass').value
+    ];
+  }), ['ada@example.com', 'secret12', 'secret12']);
 
-  await p.type('#acct-email', 'ada@example.com');
-  await p.type('#acct-pass', 'secret1234');
-  await p.type('#confirm-pass', 'secret12345');
+  await p.evaluate(function () {
+    document.getElementById('acct-pass').value = 'secret1234';
+    document.getElementById('confirm-pass').value = 'secret12345';
+  });
   await p.click('[data-auth=up]');
   await p.waitForFunction(function () {
     var box = document.querySelector('.errs');
     return box && box.textContent === "Passwords don't match.";
   });
   assert.strictEqual(await p.evaluate(function () { return window.__signUp; }), null, 'mismatch does not call sign-up');
+  assert.deepStrictEqual(await p.evaluate(function () {
+    return [
+      document.getElementById('acct-email').value,
+      document.getElementById('acct-pass').value,
+      document.getElementById('confirm-pass').value
+    ];
+  }), ['ada@example.com', 'secret1234', 'secret12345']);
 
-  await p.type('#acct-email', 'ada@example.com');
-  await p.type('#acct-pass', 'secret1234');
-  await p.type('#confirm-pass', 'secret1234');
+  await p.evaluate(function () { document.getElementById('confirm-pass').value = 'secret1234'; });
   await p.click('[data-auth=up]');
   await p.waitForFunction(function () {
     return location.hash === '#/signin' && document.body.innerText.indexOf('Check your email to confirm the account, then sign in.') !== -1;

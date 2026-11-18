@@ -1214,9 +1214,9 @@
     return msg;
   }
   // A local typo has not used the captcha token. Show the error and leave the
-  // fields and widget in place. Rebuilding the form would throw the token away.
+  // email, passwords, and widget in place. Rebuilding the form would throw
+  // the unused token away and make the person start the check again.
   function keepAuthForm(message) {
-    if (!captchaOn()) return false;
     var gate = app.querySelector('.gate');
     if (!gate) return false;
     var box = document.getElementById('auth-error');
