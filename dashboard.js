@@ -622,7 +622,12 @@
   // plus the name, and on the animation alone only when every saved use is Static.
   // A mix, or a missing exercise, is left out: those rows cannot be told from a
   // time-only timer.
-  function staticIndex(workouts) {
+  function schemaOf(workout, fallback) {
+    var raw = workout && workout.version != null && workout.version !== '' ? workout.version : fallback;
+    var n = Number(raw);
+    return isFinite(n) ? n : 4;
+  }
+  function staticIndex(workouts, fallbackVersion) {
     var byId = {};
     var byLib = {};
     var byLibName = {};
@@ -633,9 +638,14 @@
       else bucket.no++;
     }
     (Array.isArray(workouts) ? workouts : []).forEach(function (workout) {
+      // Before schema v4, Static on a timer or interval was the default for
+      // time only. migrate() clears it. A list that is still that old schema
+      // must not be read as chosen holds. The current schema keeps Static
+      // only when the person picked it.
+      var version = schemaOf(workout, fallbackVersion);
       itemsOf(workout).forEach(function (it) {
         if (!it || (it.mode !== 'timer' && it.mode !== 'intervals')) return;
-        var isStatic = !!(it.modeConfig && it.modeConfig.repsType === 'static');
+        var isStatic = !!(version >= 4 && it.modeConfig && it.modeConfig.repsType === 'static');
         add(byId, it.id ? String(it.id) : '', isStatic);
         var media = it.media;
         var lib = media && media.kind === 'library' ? String(media.libraryId || '').trim() : '';
@@ -690,8 +700,8 @@
   }
   function longer(a, b) { return a > b + 1e-9; }
   function faster(a, b) { return a < b - 1e-9; }
-  function holdsBlock(sets, now, workouts) {
-    var known = staticIndex(workouts);
+  function holdsBlock(sets, now, workouts, schemaVersion) {
+    var known = staticIndex(workouts, schemaVersion);
     return bestRows(sets, now, function (set) { return holdSet(set, known); }, holdSeconds, longer, function (sec) { return fmtTime(sec); });
   }
   function stopwatchBlock(sets, now) {
@@ -780,7 +790,7 @@
       strength: strengthBlock(sets, now),
       records: recordBlock(sets, now),
       calendar: calendarBlock(sessions, now),
-      holds: holdsBlock(sets, now, input.workouts),
+      holds: holdsBlock(sets, now, input.workouts, input.schemaVersion),
       stopwatch: stopwatchBlock(sets, now),
       pass: passBlock(sets, now)
     };

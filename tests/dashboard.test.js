@@ -43,8 +43,10 @@ function set(over) {
 function session(id, date, over) {
   return Object.assign({ id: id, local_date: date, status: 'completed', workout_name: 'Day' }, over);
 }
-function model(sets, sessions, entries, workouts) {
-  return D.build({ sets: sets, sessions: sessions, entries: entries || [], workouts: workouts || [], now: NOW });
+function model(sets, sessions, entries, workouts, schemaVersion) {
+  var input = { sets: sets, sessions: sessions, entries: entries || [], workouts: workouts || [], now: NOW };
+  if (schemaVersion != null) input.schemaVersion = schemaVersion;
+  return D.build(input);
 }
 
 assert.strictEqual(D.hitPlan(set()), true);
@@ -587,6 +589,8 @@ assert.ok(!/enable row level security/i.test(migration));
 assert.ok(/input\.cards\.length > 9/.test(authSrc));
 assert.ok(!/cards\.length > 7/.test(authSrc));
 assert.strictEqual((appSrc.match(/workouts: dashboardWorkouts\(\)/g) || []).length, 2);
+assert.strictEqual((appSrc.match(/schemaVersion: data && data.version/g) || []).length, 2);
+assert.ok(/schemaVersion: window\.WB && WB\.SCHEMA_VERSION/.test(appSrc));
 assert.ok(/workouts: pair\[2\] \|\| \[\]/.test(appSrc));
 assert.ok(/function clientDashboardWorkouts\(/.test(appSrc));
 assert.ok(/clientAccountWorkouts/.test(appSrc));
@@ -762,5 +766,22 @@ assert.ok(frozenHandstandHtml.indexOf('Handstand') >= 0);
 assert.ok(frozenHandstandHtml.indexOf('0:50') >= 0);
 assert.ok(frozenHandstandHtml.indexOf('Hollow') < 0);
 assert.ok(frozenHandstandHtml.indexOf('@') < 0);
+
+const legacyDoc = model([
+  timed({ sessionId: 'old-doc', localDate: '2026-11-18', actualWorkSec: 38 }),
+  hold({ sessionId: 'pl', localDate: '2026-11-05', actualHoldSec: 75 })
+], [session('old-doc', '2026-11-18')], [], defs(), 3);
+assert.deepStrictEqual(legacyDoc.holds.map(function (row) { return row.name; }), ['Plank']);
+const mixedSchema = model([
+  timed({
+    sessionId: 'legacy-ex', localDate: '2026-11-18', exerciseName: 'Old plank',
+    personalExerciseId: 'old', stableKey: 'ex_old', actualWorkSec: 30
+  }),
+  timed({ sessionId: 'chosen', localDate: '2026-11-18', actualWorkSec: 38 })
+], [session('legacy-ex', '2026-11-18')], [], [
+  { version: 3, items: [{ id: 'ex_old', name: 'Old plank', mode: 'timer', modeConfig: { workSec: 30, restSec: 0, repsType: 'static' } }] },
+  { items: [{ id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' } }] }
+], 4);
+assert.deepStrictEqual(mixedSchema.holds.map(function (row) { return row.name; }), ['Handstand']);
 
 console.log('DASHBOARD OK');

@@ -3471,6 +3471,7 @@
       sessions: sessions,
       entries: dashboardEntries(scheduleRes),
       workouts: dashboardWorkouts(),
+      schemaVersion: data && data.version,
       now: dashboardNow()
     });
     paintTracking('dashboard', head + WBDashboard.html(model) + extra, settle);
@@ -3540,6 +3541,7 @@
       sessions: sessions,
       entries: dashboardEntries(scheduleRes),
       workouts: dashboardWorkouts(),
+      schemaVersion: data && data.version,
       now: dashboardNow(),
       layout: true
     });
@@ -3649,6 +3651,10 @@
           sessions: sessions,
           entries: entries,
           workouts: pair[2] || [],
+          // Those copies are written by this app after migrate(). A Static
+          // rep type there was chosen. A workout whose own version is under 4
+          // is still the old time-only default.
+          schemaVersion: window.WB && WB.SCHEMA_VERSION,
           now: dashboardNow(),
           layout: true
         });
