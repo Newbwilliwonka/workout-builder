@@ -329,6 +329,32 @@ begin
   exception when others then
     if sqlerrm not like '%clients and enthusiasts%' then raise exception 'trainer near said %', sqlerrm; end if;
   end;
+  update public.profiles
+    set city = null, state = null, online_only = false, listed = true, service_type = 'online'
+    where id = '${AMY}';
+  if not (select online_only from public.profiles where id = '${AMY}') then
+    raise exception 'online service did not set online only';
+  end if;
+  if (select city from public.profiles where id = '${AMY}') is not null
+     or (select state from public.profiles where id = '${AMY}') is not null then
+    raise exception 'a typed city was still required';
+  end if;
+  update public.profiles
+    set service_type = 'both', online_only = true, city = null, state = null
+    where id = '${AMY}';
+  if (select online_only from public.profiles where id = '${AMY}') then
+    raise exception 'in person and online stayed online only';
+  end if;
+  if (select service_type from public.profiles where id = '${AMY}') <> 'both' then
+    raise exception 'both was not kept';
+  end if;
+  update public.profiles
+    set service_type = 'in_person', online_only = true
+    where id = '${AMY}';
+  if (select online_only from public.profiles where id = '${AMY}') then
+    raise exception 'in person kept online only';
+  end if;
+  update public.profiles set service_type = 'both', listed = true where id = '${AMY}';
 end $$;
 
 select set_config('request.jwt.claim.sub', '${C1}', false);

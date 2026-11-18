@@ -57,6 +57,8 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
         window.__profile.state = fields.state;
         window.__profile.online_only = fields.online_only;
         window.__profile.bio = fields.bio;
+        if (Object.prototype.hasOwnProperty.call(fields, 'listed')) window.__profile.listed = fields.listed;
+        if (Object.prototype.hasOwnProperty.call(fields, 'service_type')) window.__profile.service_type = fields.service_type;
         if (fields.avatar_path) {
           window.__profile.avatar_path = fields.avatar_path;
           window.__profile.avatarUrl = 'https://example.test/avatar.jpg';
@@ -140,7 +142,7 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
     return {
       text: document.getElementById('profile-error').textContent,
       name: document.getElementById('profile-name').classList.contains('is-empty'),
-      city: document.getElementById('profile-city').classList.contains('is-empty'),
+      city: !!document.getElementById('profile-city'),
       shown: !document.getElementById('profile-error').hidden,
       promptTop: note.top,
       promptBottom: note.bottom,
@@ -275,23 +277,40 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
     return {
       text: document.getElementById('profile-error').textContent,
       name: document.getElementById('profile-name').classList.contains('is-empty'),
-      city: document.getElementById('profile-city').classList.contains('is-empty'),
-      state: document.getElementById('profile-state').classList.contains('is-empty')
+      city: !!document.getElementById('profile-city'),
+      state: !!document.getElementById('profile-state'),
+      online: !!document.getElementById('profile-online'),
+      serviceHidden: document.getElementById('profile-service-block').hidden,
+      placeHidden: document.getElementById('profile-pin').hidden
     };
   });
   assert.strictEqual(trainerBlock.text, 'Fill in the highlighted fields.');
   assert.strictEqual(trainerBlock.name, true);
-  assert.strictEqual(trainerBlock.city, true);
-  assert.strictEqual(trainerBlock.state, true);
+  assert.strictEqual(trainerBlock.city, false);
+  assert.strictEqual(trainerBlock.state, false);
+  assert.strictEqual(trainerBlock.online, false);
+  assert.strictEqual(trainerBlock.serviceHidden, true);
+  assert.strictEqual(trainerBlock.placeHidden, true);
   await p.screenshot({ path: ART + '/profile-validation.png' });
 
   await p.type('#profile-name', 'Ace');
-  await p.click('#profile-online');
+  await p.click('#profile-save');
+  await p.waitForFunction(function () { return !document.getElementById('profile-sheet') && document.getElementById('account-label').textContent === 'Ace'; });
+  const named = await p.evaluate(function () { return window.__saved; });
+  assert.strictEqual(named.display_name, 'Ace');
+  assert.strictEqual(named.online_only, false);
+  assert.strictEqual(named.city, null);
+
+  await p.click('#profile-open');
+  await p.waitForSelector('#profile-listed');
+  await p.click('#profile-listed');
+  await p.select('#profile-service', 'online');
   await p.click('#profile-save');
   await p.waitForFunction(function () { return !document.getElementById('profile-sheet') && document.getElementById('account-label').textContent === 'Ace'; });
   const onlineSaved = await p.evaluate(function () { return window.__saved; });
   assert.strictEqual(onlineSaved.display_name, 'Ace');
   assert.strictEqual(onlineSaved.online_only, true);
+  assert.strictEqual(onlineSaved.service_type, 'online');
   assert.strictEqual(onlineSaved.city, null);
 
   const resized = await p.evaluate(async function () {

@@ -140,7 +140,9 @@
     if (/enter your name/i.test(msg)) return new Error('Enter your name.');
     if (/city and state|online only/i.test(msg)) return new Error('Enter a city and state, or choose Online only.');
     if (/only a trainer or master trainer can be listed/i.test(msg)) return new Error('Only a Trainer or Master Trainer can be listed.');
-    if (/choose in person, online, or both/i.test(msg)) return new Error('Choose in person, online, or both.');
+    if (/choose in person, online, or both|choose online, in person, or in person and online/i.test(msg)) {
+      return new Error('Choose Online, In person, or In Person and Online.');
+    }
     if (/150 characters/i.test(msg)) return new Error('Bio can be at most 150 characters.');
     return new Error(msg || 'Could not save your profile.');
   }
@@ -432,11 +434,13 @@
       fields = fields || {};
       var row = {
         display_name: fields.display_name || null,
-        city: fields.city || null,
-        state: fields.state || null,
         online_only: !!fields.online_only,
         bio: fields.bio || null
       };
+      // City and state are no longer typed on the profile. Leave any older
+      // values in place. The public place comes from the service pin.
+      if (fields.city) row.city = fields.city;
+      if (fields.state) row.state = fields.state;
       if (fields.avatar_path) row.avatar_path = fields.avatar_path;
       var listing = null;
       if (Object.prototype.hasOwnProperty.call(fields, 'listed') || Object.prototype.hasOwnProperty.call(fields, 'service_type')) {

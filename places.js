@@ -115,6 +115,15 @@
       }, REVERSE_WAIT);
     });
   }
+  function invalidateProfilePin() {
+    function kick() {
+      if (!profileMap) return;
+      try { profileMap.invalidateSize(); } catch (e) {}
+    }
+    kick();
+    if (root.requestAnimationFrame) root.requestAnimationFrame(function () { kick(); });
+    setTimeout(kick, 60);
+  }
   function destroyProfilePin() {
     pinToken += 1;
     cancelReverse();
@@ -384,6 +393,7 @@
     searchPlace: searchPlace,
     reversePlace: reversePlace,
     bindProfilePin: bindProfilePin,
+    invalidateProfilePin: invalidateProfilePin,
     destroyProfilePin: destroyProfilePin
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

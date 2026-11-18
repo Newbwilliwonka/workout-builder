@@ -64,7 +64,7 @@
     if (root.WBProfile && root.WBProfile.serviceLabel) return root.WBProfile.serviceLabel(value);
     if (value === 'online') return 'Online';
     if (value === 'in_person') return 'In person';
-    if (value === 'both') return 'Both';
+    if (value === 'both') return 'In Person and Online';
     return '';
   }
   function viewerOf(profile) {
@@ -264,6 +264,8 @@
     return city || state;
   }
   function placeLine(row, withDistance) {
+    var service = row && (row.serviceType || row.service_type);
+    if (service === 'online') return '';
     var text = placeLabel(row);
     if (withDistance) {
       var dist = distanceLabel(row);

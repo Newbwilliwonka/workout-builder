@@ -8,7 +8,8 @@
   var CERT_BODY_MAX = 120;
   var CERT_NUMBER_MAX = 80;
   var NOTE_MAX = 280;
-  var SERVICES = { in_person: 'In person', online: 'Online', both: 'Both' };
+  var SERVICES = { in_person: 'In person', online: 'Online', both: 'In Person and Online' };
+  var SERVICE_CHOICE = 'Choose Online, In person, or In Person and Online.';
   var PROMPT = 'To protect your email account from spammers, please enter a name in your profile before proceeding.';
   var EMPTY = 'Fill in the highlighted fields.';
 
@@ -53,12 +54,23 @@
     return profile.intended_plan === 'trainer' || profile.intended_plan === 'master_trainer';
   }
   // A name is any non-empty text, including a nickname. Nothing else is checked.
+  // The saved flag matches the service. Online replaces the old Online only box.
+  function onlineOnlyFor(service) {
+    return service === 'online';
+  }
+  // A saved service wins. An older profile that only has the Online only flag
+  // opens with Online chosen, so the next save keeps that flag in step.
+  function chosenService(input) {
+    input = input || {};
+    var selected = serviceType(input.service_type != null ? input.service_type : input.serviceType);
+    if (!selected && input.online_only) selected = 'online';
+    return selected;
+  }
   function validate(input) {
     input = input || {};
     var name = clean(input.display_name);
     var city = clean(input.city);
     var state = clean(input.state);
-    var online = !!input.online_only;
     var listed = !!input.listed;
     var service = serviceType(input.service_type != null ? input.service_type : input.serviceType);
     var bio = String(input.bio == null ? '' : input.bio);
@@ -67,16 +79,10 @@
     if (name.length > NAME_MAX) name = name.slice(0, NAME_MAX);
     var empty = {};
     if (!name) empty.name = true;
-    if (locationRequired(input) && !online) {
-      if (!city) empty.city = true;
-      if (!state) empty.state = true;
-    }
     if (canListInSearch(input) && listed && !service) empty.service = true;
-    var ok = !empty.name && !empty.city && !empty.state && !empty.service;
+    var ok = !empty.name && !empty.service;
     var message = '';
-    if (!ok) message = empty.service && !empty.name && !empty.city && !empty.state
-      ? 'Choose in person, online, or both.'
-      : EMPTY;
+    if (!ok) message = empty.service && !empty.name ? SERVICE_CHOICE : EMPTY;
     return {
       ok: ok,
       empty: empty,
@@ -85,7 +91,7 @@
         display_name: name || null,
         city: city || null,
         state: state || null,
-        online_only: online,
+        online_only: onlineOnlyFor(service),
         bio: bio || null,
         listed: canListInSearch(input) ? listed : false,
         service_type: canListInSearch(input) ? (service || null) : null
@@ -282,6 +288,7 @@
     return h;
   }
   var PIN_NOTE = 'Your exact pin is private. It is only used so clients can find you in the Trainer Hub search. Only your city and state are shown publicly.';
+  var PIN_HINT = 'Add a pin to appear in Near me. You can still save your profile without one.';
   function placeText(city, region) {
     var c = clean(city);
     var r = clean(region);
@@ -289,13 +296,16 @@
     return c || r;
   }
   // One pin for now. The public city and state are text, not fields the trainer types.
-  function pinHtml(pin) {
+  function pinHtml(pin, opts) {
     pin = pin || {};
+    opts = opts || {};
     var place = placeText(pin.city, pin.region || pin.state);
-    var h = '<section id="profile-pin" class="pin-block">';
+    var h = '<section id="profile-pin" class="pin-block"' + (opts.hidden ? ' hidden' : '') + '>';
+    h += '<p class="pin-title" id="pin-title">Service location</p>';
     h += '<p class="pin-note" id="pin-privacy">' + esc(PIN_NOTE) + '</p>';
+    h += '<p class="mute" id="pin-near-hint">' + esc(PIN_HINT) + '</p>';
     h += '<form id="pin-search" autocomplete="off">';
-    h += '<label for="pin-query">Service location</label>';
+    h += '<label for="pin-query">Address or city</label>';
     h += '<div class="pin-search-row"><input id="pin-query" maxlength="120" autocomplete="off" placeholder="Address or city" enterkeyhint="search">';
     h += '<button type="submit" id="pin-go">Search</button></div></form>';
     h += '<div id="pin-map" class="pin-map" role="application" aria-label="Service location map"></div>';
@@ -322,23 +332,23 @@
     h += '<div class="avatar" id="profile-photo" aria-hidden="true">' + (opts.photoUrl ? '<img alt="" src="' + esc(opts.photoUrl) + '">' : personIcon()) + '</div>';
     h += '<label class="file-btn">Upload photo<input id="profile-file" type="file" accept="image/*"></label>';
     h += '<label for="profile-name">Name</label><input id="profile-name" maxlength="' + NAME_MAX + '" autocomplete="nickname" value="' + esc(opts.display_name || '') + '">';
-    h += '<div class="loc-row"><div class="field"><label for="profile-city">City</label><input id="profile-city" maxlength="80" autocomplete="address-level2" value="' + esc(opts.city || '') + '"></div>';
-    h += '<div class="field"><label for="profile-state">State</label><input id="profile-state" maxlength="80" autocomplete="address-level1" value="' + esc(opts.state || '') + '"></div>';
-    h += '<label class="checkline"><input id="profile-online" class="tick" type="checkbox"' + (opts.online_only ? ' checked' : '') + '>Online only</label></div>';
     if (opts.canList) {
       var listedOn = !!opts.listed;
-      var selected = serviceType(opts.service_type != null ? opts.service_type : opts.serviceType);
+      var selected = chosenService(opts);
+      var showService = listedOn;
+      var showPlace = listedOn && selected !== 'online';
       h += '<div class="switch-row" id="profile-listing">';
       h += '<button type="button" class="switch' + (listedOn ? ' on' : '') + '" id="profile-listed" role="switch" aria-checked="' + (listedOn ? 'true' : 'false') + '" aria-label="Show me in trainer search"><i></i></button>';
       h += '<div class="grow"><div class="name">Show me in trainer search</div>';
       h += '<p class="mute">Clients and enthusiasts can request to message you.</p></div></div>';
+      h += '<div id="profile-service-block"' + (showService ? '' : ' hidden') + '>';
       h += '<label for="profile-service">Service</label><select id="profile-service">';
       h += '<option value=""' + (selected ? '' : ' selected') + '>Choose</option>';
       h += '<option value="in_person"' + (selected === 'in_person' ? ' selected' : '') + '>In person</option>';
       h += '<option value="online"' + (selected === 'online' ? ' selected' : '') + '>Online</option>';
-      h += '<option value="both"' + (selected === 'both' ? ' selected' : '') + '>Both</option>';
-      h += '</select>';
-      h += pinHtml(opts.pin);
+      h += '<option value="both"' + (selected === 'both' ? ' selected' : '') + '>In Person and Online</option>';
+      h += '</select></div>';
+      h += pinHtml(opts.pin, { hidden: !showPlace });
     }
     h += '<label for="profile-bio">Bio</label><textarea id="profile-bio" maxlength="' + BIO_MAX + '" rows="3" placeholder="Specialties, service areas, certifications">' + esc(bio) + '</textarea>';
     h += '<p class="mute bio-count" id="profile-count">' + bio.length + '/' + BIO_MAX + '</p>';
@@ -428,11 +438,14 @@
     NOTE_MAX: NOTE_MAX,
     PROMPT: PROMPT,
     EMPTY: EMPTY,
+    SERVICE_CHOICE: SERVICE_CHOICE,
+    PIN_HINT: PIN_HINT,
     needsName: needsName,
     canListInSearch: canListInSearch,
     canFindTrainers: canFindTrainers,
     serviceType: serviceType,
     serviceLabel: serviceLabel,
+    chosenService: chosenService,
     locationRequired: locationRequired,
     validate: validate,
     isAdminEmail: isAdminEmail,

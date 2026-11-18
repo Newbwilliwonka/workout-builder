@@ -41,7 +41,7 @@ textarea{min-height:80px}
 .time input{width:84px;text-align:center}
 .time span{font-weight:700;font-size:20px}
 .errs{background:#fee2e2;color:var(--danger);border-radius:12px;padding:10px 12px;margin-top:14px}
-input.is-empty,textarea.is-empty{border-color:var(--danger);box-shadow:0 0 0 2px var(--danger)}
+input.is-empty,select.is-empty,textarea.is-empty{border-color:var(--danger);box-shadow:0 0 0 2px var(--danger)}
 .media{border:2px dashed #cbd5e1;border-radius:var(--r);min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute);margin-top:14px;background:#f8fafc;padding:12px;text-align:center}
 .media .ex-gif{width:100%;max-height:240px;object-fit:contain;border-radius:10px;background:#0f172a}
 .media .seg{width:100%}
@@ -287,7 +287,10 @@ body:has(#hub-reply) main{padding-bottom:150px}
 .find-near-box .mute{margin:0}
 .find-near-box label{margin:4px 0 0}
 .pin-block{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+.pin-title{margin:14px 0 0;font-weight:600;font-size:14px}
 .pin-note{margin:0;padding:10px 12px;border-radius:12px;background:#eff6ff;color:#1e3a8a;font-size:14px;line-height:1.45}
+#pin-near-hint{margin:0}
+#profile-pin[hidden],#profile-service-block[hidden],#pin-near-hint[hidden]{display:none !important}
 .pin-map{height:200px;width:100%;border-radius:12px;background:#dbe4ee;position:relative;z-index:0;isolation:isolate;touch-action:none}
 .pin-public{margin:0;font-weight:600}
 .pin-attr{margin:0}
