@@ -252,12 +252,14 @@
         return reversePlace(hit.latitude, hit.longitude);
       }).then(function (again) {
         if (token !== pinToken || mine !== editSeq) return;
-        if (button) button.disabled = false;
         if (again) applyHit(again, 13);
       }, function (err) {
         if (token !== pinToken || mine !== editSeq) return;
-        if (button) button.disabled = false;
         setError((err && err.message) || 'No place found. Try a city or address.');
+      }).finally(function () {
+        if (token !== pinToken) return;
+        var go = el('pin-go');
+        if (go) go.disabled = false;
       });
     });
 
@@ -318,11 +320,13 @@
         setSaveEnabled(false);
         setPublic('', '', '');
         setError('');
-        removeBtn.disabled = false;
       }, function (err) {
         if (token !== pinToken || mine !== editSeq) return;
-        removeBtn.disabled = false;
         setError((err && err.message) || 'Could not remove that pin.');
+      }).finally(function () {
+        if (token !== pinToken) return;
+        var again = el('pin-remove');
+        if (again) again.disabled = false;
       });
     });
 

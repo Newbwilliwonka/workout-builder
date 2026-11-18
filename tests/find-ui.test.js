@@ -580,6 +580,53 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   assert.strictEqual(afterRemove.save, true);
   assert.strictEqual(afterRemove.removed, true);
 
+  await p.evaluate(function () {
+    var query = document.getElementById('pin-query');
+    if (query) query.value = '';
+  });
+  await p.type('#pin-query', 'Waco');
+  await p.click('#pin-go');
+  await p.waitForFunction(function () {
+    return window.__geo.some(function (row) { return row.url.indexOf('/search?') !== -1 && row.url.indexOf('Waco') !== -1; });
+  }, { timeout: 5000 });
+  assert.strictEqual(await p.$eval('#pin-go', function (el) { return el.disabled; }), true);
+  await p.mouse.click(mapBox.x, mapBox.y);
+  await p.evaluate(function () {
+    window.__geoReply('Waco', [{
+      lat: '31.5493',
+      lon: '-97.1467',
+      address: { city: 'Waco', state: 'Texas', country: 'United States' }
+    }]);
+  });
+  await p.waitForFunction(function () {
+    return document.getElementById('pin-go').disabled === false;
+  });
+  const afterSupersededSearch = await p.evaluate(function () {
+    return document.getElementById('pin-public').textContent;
+  });
+  assert.ok(afterSupersededSearch.indexOf('Waco') === -1);
+
+  await p.evaluate(function () {
+    var button = document.getElementById('pin-remove');
+    button.hidden = false;
+    window.__removeRelease = null;
+    window.WBAuth.removeServiceLocation = function () {
+      return new Promise(function (resolve) { window.__removeRelease = resolve; });
+    };
+  });
+  await p.evaluate(function () {
+    document.getElementById('pin-remove').scrollIntoView({ block: 'center' });
+  });
+  await p.click('#pin-remove');
+  await p.waitForFunction(function () {
+    return document.getElementById('pin-remove').disabled === true && typeof window.__removeRelease === 'function';
+  });
+  await p.mouse.click(mapBox.x, mapBox.y);
+  await p.evaluate(function () { window.__removeRelease({ removed: true }); });
+  await p.waitForFunction(function () {
+    return document.getElementById('pin-remove').disabled === false;
+  });
+
   await p.click('#profile-listed');
   assert.strictEqual(await p.$eval('#profile-listed', function (el) { return el.getAttribute('aria-checked'); }), 'false');
 
