@@ -64,20 +64,21 @@ function workout(name, items) {
       }));
       const resume = document.querySelector('.pl-resume');
       const skip = document.querySelector('.pl-skip');
-      const track = document.querySelector('.pl-track');
-      const stage = document.querySelector('.pl-stage');
+      const screen = document.querySelector('.pl-screen');
+      const info = document.querySelector('.pl-info');
+      const clock = document.getElementById('ro');
       let place = null;
-      if (resume && skip && track && stage) {
+      if (resume && skip && screen && info && clock) {
         const a = resume.getBoundingClientRect();
         const c = skip.getBoundingClientRect();
-        const t = track.getBoundingClientRect();
-        const g = stage.getBoundingClientRect();
+        const sc = screen.getBoundingClientRect();
+        const inf = info.getBoundingClientRect();
+        const ck = clock.getBoundingClientRect();
         place = {
-          stacked: c.top >= a.bottom - 1,
-          sameWidth: Math.abs(a.width - c.width) < 2 && Math.abs(a.left - c.left) < 2,
-          underStage: a.top >= g.bottom - 1,
-          aboveTrack: c.bottom <= t.top + 1,
-          alignTrack: Math.abs(a.left - t.left) < 2 && Math.abs(a.width - t.width) < 2
+          inMedia: !!(resume.closest('.pl-screen') && skip.closest('.pl-screen')),
+          aboveCard: a.bottom <= inf.top + 1 && c.bottom <= inf.top + 1,
+          insideScreen: a.top >= sc.top && c.bottom <= sc.bottom + 1 && a.left >= sc.left && c.right <= sc.right + 1,
+          clearOfClock: a.top >= ck.bottom - 1 && c.top >= ck.bottom - 1
         };
       }
       return {
@@ -130,7 +131,7 @@ function workout(name, items) {
   assert.strictEqual(s.running, true);
   assert.deepStrictEqual(s.buttons, []);
 
-  // Into the interval, then pause. Skip and Resume are symbols in the action slot.
+  // Into the interval, then pause. Skip and Resume are symbols inside the media window.
   const posed = await p.evaluate(() => {
     const offset = window.__wbFreeze.offset;
     window.__wbFreeze.now = window.__wbPlayer.t0 + 3000 - offset;
@@ -150,7 +151,7 @@ function workout(name, items) {
     { label: 'Skip', text: '' }
   ]);
   assert.deepStrictEqual(s.place, {
-    stacked: true, sameWidth: true, underStage: true, aboveTrack: true, alignTrack: true
+    inMedia: true, aboveCard: true, insideScreen: true, clearOfClock: true
   });
   assert.strictEqual(s.results[0].logged, false);
   assert.strictEqual(s.results[0].workSec, 20);
@@ -289,11 +290,19 @@ function workout(name, items) {
   assert.strictEqual(!!(s.results[1] && s.results[1].logged), false);
   assert.strictEqual(s.run, false);
 
-  // Timer: a running hold still ends on tap. Pausing, then Skip, logs elapsed and starts rest.
+  // Timer keeps today's tap. No Skip or Resume, including if the hold is paused. A tap still ends the work.
   const timed = workout('Timer', [
     mk({ name: 'Wall sit', sets: 1, weight: { unit: 'bodyweight', value: null }, mode: 'timer', modeConfig: { workSec: 30, restSec: 10, repsType: 'number', count: 8 } }),
     mk({ name: 'Row', sets: 1, weight: { unit: 'lb', value: 25 }, mode: 'reps', modeConfig: { repsType: 'number', count: 6, restSec: 15 } })
   ]);
+  await boot(timed);
+  await click('[data-p=primary]');
+  await p.evaluate(() => { document.querySelector('[data-p=primary]').click(); });
+  s = await snap();
+  assert.strictEqual(s.phase, 'standoff');
+  assert.strictEqual(s.running, false);
+  assert.strictEqual(s.hint, 'Tap to resume');
+  assert.deepStrictEqual(s.buttons, []);
   await boot(timed);
   await click('[data-p=primary]');
   const timerWork = await freezeIntoWork(11000);
@@ -311,8 +320,9 @@ function workout(name, items) {
   s = await snap();
   assert.strictEqual(s.running, false);
   assert.strictEqual(s.phase, 'work');
-  assert.deepStrictEqual(s.buttons.map(x => x.label), ['Resume', 'Skip']);
-  await click('.pl-skip');
+  assert.deepStrictEqual(s.buttons, []);
+  assert.strictEqual(s.hint, 'Tap to rest');
+  await click('[data-p=primary]');
   s = await snap();
   assert.strictEqual(s.phase, 'rest');
   assert.strictEqual(s.ro, '0:10');
@@ -320,9 +330,7 @@ function workout(name, items) {
   assert.strictEqual(s.results[0].logged, true);
   assert.strictEqual(s.results[0].workSec, 11);
   assert.strictEqual(s.results[0].reps, 8);
-  assert.strictEqual(s.run, true);
-  assert.ok(s.pending > 0);
-  assert.strictEqual(s.name, 'Row'); // rest frame shows the upcoming exercise
+  assert.strictEqual(s.name, 'Row');
 
   // Timer still running: leaving and ending both keep the seconds done.
   await boot(timed);

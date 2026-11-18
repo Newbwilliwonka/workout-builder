@@ -195,7 +195,11 @@
     var ex = exOf(S.idx);
     return !!(ex && (ex.mode === 'intervals' || ex.mode === 'timer'));
   }
-  function pausedTimedWork() { return inTimedWork() && !S.running; } // standoff and rest keep tap-to-resume
+  function pausedIntervalWork() {
+    if (S.running || S.phase !== 'work') return false;
+    var ex = exOf(S.idx);
+    return !!(ex && ex.mode === 'intervals');
+  }
   function elapsedWorkSec() { return Math.max(0, Math.round(elapsed() / 1000)); }
   // Seconds already performed, kept on the set when leaving mid-work. Ready, standoff, and 0s stay unlogged.
   // Planned reps are not touched. Preview runs (track === false) still record nothing.
@@ -300,7 +304,7 @@
     S.flashDone = true; // hold finished and moved on; running is false because the next step has not started
     advance();
   }
-  // Paused Interval or Timer work: keep the seconds already done and move on as if that set ended.
+  // Paused Interval work: keep the seconds already done and move on as if that set ended.
   // Rest stays on the run; the next interval of this exercise does too. Leaving the run stops the tones.
   function skipPausedWork() {
     var ex = exOf(S.idx);
@@ -595,6 +599,7 @@
       (resting ? '' : '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>') +
       '<div class="pl-top"><span class="pl-chip">' + esc(chip) + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + (S.track === false ? '<span class="tag" id="pv-not-tracked">Preview - not tracked</span>' : '') + '</div>' +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '');
+    if (!sw && pausedIntervalWork()) h += pausedWorkControls();
     h += '<div class="pl-bar"><i id="pg"></i></div></div>'; // end screen
     if (!sw) {
       h += '<div class="pl-info"><div class="pl-name">' + esc(infoEx.name) + '</div><div class="pl-meta">' + infoLines(infoEx).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div>' +
@@ -615,7 +620,6 @@
         (up ? '<div class="pl-upnext">Up next</div>' : '') + '</button>';
     }
     h += '</div></div>'; // end car + stage
-    if (pausedTimedWork()) h += pausedWorkControls();
     if (sw) h += '<button class="pl-go" data-p="primary">' + esc(primaryLabel(ex)) + '</button>';
     // tracking bar — during a shared superset rest, stack every round member's fields
     function trackBlock(mi) {
@@ -680,13 +684,13 @@
   function svgIcon(path) {
     return '<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false"><path fill="currentColor" d="' + path + '"/></svg>';
   }
-  // Same slot as the stopwatch action button: under the stage, full width, ahead of the tracking card.
+  // Inside the media window, in the same overlay band as the hint. Stopwatch keeps .pl-go.
   function pausedWorkControls() {
     return '<div class="pl-paused"><button type="button" class="pl-resume" data-p="resume" aria-label="Resume">' + svgIcon('M8 5v14l11-7z') + '</button>' +
       '<button type="button" class="pl-skip" data-p="skipset" aria-label="Skip">' + svgIcon('M5 5v14l9-7-9-7zm11 0h3v14h-3z') + '</button></div>';
   }
   function hint(ex) {
-    if (pausedTimedWork()) return '';
+    if (pausedIntervalWork()) return '';
     var l = primaryLabel(ex);
     if (S.phase === 'rest') return 'Tap to Skip';
     if (res(S.idx).logged && (S.phase === 'ready' || (S.phase === 'work' && !S.running && ex.mode === 'reps'))) return 'Logged · tap to redo';
