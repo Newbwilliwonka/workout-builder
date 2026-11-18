@@ -72,7 +72,7 @@ async function openPage(browser, membership, payload) {
         value.myDashboardLayout = function () { return Promise.resolve({ cards: null }); };
         value.saveDashboardLayout = function () { return Promise.resolve({ ok: true }); };
         value.resetDashboardLayout = function () { return Promise.resolve({ ok: true }); };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'roster', 'shareSetting', 'myShares', 'clientTracking', 'clientSchedule', 'clientAccountWorkouts', 'clientWorkouts', 'clientSentWorkouts'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
       }

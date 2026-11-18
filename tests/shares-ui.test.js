@@ -108,6 +108,9 @@ async function openPage(browser, cfg) {
         value.clientSchedule = function (id) {
           return Promise.resolve({ entries: window.__clientSchedule[id] || [] });
         };
+        value.clientAccountWorkouts = function () { return Promise.resolve({ workouts: [] }); };
+        value.clientWorkouts = function () { return Promise.resolve([]); };
+        value.clientSentWorkouts = function () { return Promise.resolve([]); };
         value.shareDashboard = function (input) {
           if (window.__shareFail) return Promise.resolve({ ok: false });
           window.__shared.push(JSON.parse(JSON.stringify(input)));

@@ -570,8 +570,9 @@
   function bestRows(sets, now, mode, read, better, format) {
     var groups = {};
     var order = [];
+    var want = typeof mode === 'function' ? mode : function (set) { return set.mode === mode; };
     sets.forEach(function (set) {
-      if (!set || set.status !== 'completed' || set.mode !== mode) return;
+      if (!set || set.status !== 'completed' || !want(set)) return;
       if (read(set) == null) return;
       if (!groups[set.key]) { groups[set.key] = []; order.push(set.key); }
       groups[set.key].push(set);
@@ -603,7 +604,83 @@
     });
     return rows;
   }
+  // A timer or interval with a rep count is not a hold. Static and time-only
+  // sets both omit reps, so the rep columns alone cannot separate them.
+  function hasRepTarget(set) {
+    return num(set.plannedReps) != null || num(set.plannedRepsMin) != null || num(set.plannedRepsMax) != null || num(set.actualReps) != null;
+  }
+  function itemsOf(workout) {
+    if (!workout) return [];
+    var items = workout.items;
+    if (typeof items === 'string') {
+      try { items = JSON.parse(items); } catch (e) { return []; }
+    }
+    return Array.isArray(items) ? items : [];
+  }
+  // Saved workouts still say which exercise is Static. A custom exercise matches
+  // on its id (the set's stable key). A library exercise matches on the animation
+  // plus the name, and on the animation alone only when every saved use is Static.
+  // A mix, or a missing exercise, is left out: those rows cannot be told from a
+  // time-only timer.
+  function staticIndex(workouts) {
+    var byId = {};
+    var byLib = {};
+    var byLibName = {};
+    function add(map, key, isStatic) {
+      if (!key) return;
+      var bucket = map[key] || (map[key] = { yes: 0, no: 0 });
+      if (isStatic) bucket.yes++;
+      else bucket.no++;
+    }
+    (Array.isArray(workouts) ? workouts : []).forEach(function (workout) {
+      itemsOf(workout).forEach(function (it) {
+        if (!it || (it.mode !== 'timer' && it.mode !== 'intervals')) return;
+        var isStatic = !!(it.modeConfig && it.modeConfig.repsType === 'static');
+        add(byId, it.id ? String(it.id) : '', isStatic);
+        var media = it.media;
+        var lib = media && media.kind === 'library' ? String(media.libraryId || '').trim() : '';
+        if (!lib) return;
+        add(byLib, lib, isStatic);
+        var name = String(it.name || '').replace(/^\s+|\s+$/g, '').toLowerCase();
+        if (name) add(byLibName, lib + '\n' + name, isStatic);
+      });
+    });
+    function yes(bucket) { return !!(bucket && bucket.yes && !bucket.no); }
+    return {
+      match: function (set) {
+        if (!set) return false;
+        var stable = String(set.stableKey || set.stable_key || '');
+        if (stable) return yes(byId[stable]);
+        var lib = String(set.libraryExerciseId || set.library_exercise_id || '');
+        if (!lib) return false;
+        var name = String(set.exerciseName || set.exercise_name || '').replace(/^\s+|\s+$/g, '').toLowerCase();
+        if (name && byLibName[lib + '\n' + name]) return yes(byLibName[lib + '\n' + name]);
+        return yes(byLib[lib]);
+      }
+    };
+  }
+  function holdSet(set, known) {
+    if (!set) return false;
+    if (set.mode === 'static_hold') return true;
+    if (set.mode !== 'timer' && set.mode !== 'intervals') return false;
+    if (hasRepTarget(set)) return false;
+    // New saves copy the logged work time into actual hold seconds.
+    if (num(set.actualHoldSec) > 0) return true;
+    return !!(known && known.match(set));
+  }
+  // Logged work is the hold for a timer or interval. The player stores that
+  // clock time in actual_work_sec (the planned length if they finish, the
+  // elapsed seconds if they stop early). Planned work is only the target, so
+  // a set with no logged time stays off the card. Older static_hold rows use
+  // actual_hold_sec, and a new save copies the work time there too.
   function holdSeconds(set) {
+    if (!set) return null;
+    if (set.mode === 'timer' || set.mode === 'intervals') {
+      var work = num(set.actualWorkSec);
+      if (work != null && work > 0) return work;
+      var copied = num(set.actualHoldSec);
+      return copied != null && copied > 0 ? copied : null;
+    }
     var n = num(set.actualHoldSec);
     return n != null && n > 0 ? n : null;
   }
@@ -613,8 +690,9 @@
   }
   function longer(a, b) { return a > b + 1e-9; }
   function faster(a, b) { return a < b - 1e-9; }
-  function holdsBlock(sets, now) {
-    return bestRows(sets, now, 'static_hold', holdSeconds, longer, function (sec) { return fmtTime(sec); });
+  function holdsBlock(sets, now, workouts) {
+    var known = staticIndex(workouts);
+    return bestRows(sets, now, function (set) { return holdSet(set, known); }, holdSeconds, longer, function (sec) { return fmtTime(sec); });
   }
   function stopwatchBlock(sets, now) {
     return bestRows(sets, now, 'stopwatch', speedSeconds, faster, function (sec) { return formatStopwatch(sec * 1000); });
@@ -702,7 +780,7 @@
       strength: strengthBlock(sets, now),
       records: recordBlock(sets, now),
       calendar: calendarBlock(sessions, now),
-      holds: holdsBlock(sets, now),
+      holds: holdsBlock(sets, now, input.workouts),
       stopwatch: stopwatchBlock(sets, now),
       pass: passBlock(sets, now)
     };

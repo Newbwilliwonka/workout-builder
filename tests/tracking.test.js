@@ -98,6 +98,8 @@ assert.strictEqual(full.session.status, 'completed');
 assert.strictEqual(full.session.origin, 'trainer');
 assert.strictEqual(full.sets[1].mode, 'static_hold');
 assert.strictEqual(full.sets[1].actualHoldSec, 42);
+assert.strictEqual(full.sets[1].plannedHoldSec, null);
+assert.strictEqual(full.sets[1].actualWorkSec, null);
 assert.strictEqual(full.sets[1].actualBodyweight, true);
 assert.strictEqual(full.sets[1].actualWeight, null);
 assert.strictEqual(full.sets[1].stableKey, 'ex_plank');
@@ -106,6 +108,8 @@ assert.strictEqual(full.sets[2].stableKey, null);
 assert.strictEqual(full.sets[2].plannedWorkSec, 30);
 assert.strictEqual(full.sets[2].plannedRestSec, 15);
 assert.strictEqual(full.sets[2].actualWorkSec, 12);
+assert.strictEqual(full.sets[2].actualHoldSec, null);
+assert.strictEqual(full.sets[2].plannedHoldSec, null);
 assert.strictEqual(full.sets[2].actualRestSec, null);
 assert.strictEqual(full.sets[2].actualRounds, 1);
 assert.strictEqual(full.sets[2].actualReps, 9);
@@ -120,6 +124,61 @@ assert.deepStrictEqual(full.sets[3].plannedEvents, [
   { lap: 1, name: 'Finish line' },
   { lap: 2, name: 'Unused' }
 ]);
+
+const handstand = {
+  id: 'ex_handstand', name: 'Handstand', sets: 2,
+  weight: { unit: 'bodyweight', value: null },
+  mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' }
+};
+const hollow = {
+  id: 'ex_hollow', name: 'Hollow', sets: 1,
+  weight: { unit: 'bodyweight', value: null },
+  mode: 'timer', modeConfig: { workSec: 20, restSec: 10, repsType: null }
+};
+const hang = {
+  id: 'ex_hang', name: 'Dead hang', sets: 1,
+  weight: { unit: 'bodyweight', value: null },
+  mode: 'intervals', modeConfig: { workSec: 20, repsType: 'static' }
+};
+const staticSaved = T.build({
+  track: true, id: 'ses_holds', workout: { id: 'wo_skill', name: 'Skill', items: [handstand, hollow, hang] },
+  queue: [
+    { exerciseId: 'ex_handstand', set: 1, of: 2, groupId: null },
+    { exerciseId: 'ex_handstand', set: 2, of: 2, groupId: null },
+    { exerciseId: 'ex_hollow', set: 1, of: 1, groupId: null },
+    { exerciseId: 'ex_hang', set: 1, of: 1, groupId: null }
+  ],
+  results: {
+    0: { step: 0, name: 'Handstand', set: 1, mode: 'timer', unit: 'bodyweight', workSec: 12, logged: true },
+    2: { step: 2, name: 'Hollow', set: 1, mode: 'timer', unit: 'bodyweight', workSec: 20, logged: true },
+    3: { step: 3, name: 'Dead hang', set: 1, mode: 'intervals', unit: 'bodyweight', workSec: 18, logged: true }
+  },
+  startedAt: started, endedAt: ended, ownWork: true, timeZone: 'UTC'
+});
+assert.strictEqual(staticSaved.sets[0].mode, 'timer');
+assert.strictEqual(staticSaved.sets[0].status, 'completed');
+assert.strictEqual(staticSaved.sets[0].plannedWorkSec, 45);
+assert.strictEqual(staticSaved.sets[0].actualWorkSec, 12);
+assert.strictEqual(staticSaved.sets[0].actualHoldSec, 12);
+assert.strictEqual(staticSaved.sets[0].plannedHoldSec, null);
+assert.strictEqual(staticSaved.sets[0].plannedReps, null);
+assert.strictEqual(staticSaved.sets[0].actualReps, null);
+assert.strictEqual(staticSaved.sets[0].plannedRestSec, 15);
+assert.strictEqual(staticSaved.sets[1].status, 'skipped');
+assert.strictEqual(staticSaved.sets[1].mode, 'timer');
+assert.strictEqual(staticSaved.sets[1].actualWorkSec, null);
+assert.strictEqual(staticSaved.sets[1].actualHoldSec, null);
+assert.strictEqual(staticSaved.sets[1].plannedHoldSec, null);
+assert.strictEqual(staticSaved.sets[2].mode, 'timer');
+assert.strictEqual(staticSaved.sets[2].actualWorkSec, 20);
+assert.strictEqual(staticSaved.sets[2].actualHoldSec, null);
+assert.strictEqual(staticSaved.sets[2].plannedReps, null);
+assert.strictEqual(staticSaved.sets[3].mode, 'intervals');
+assert.strictEqual(staticSaved.sets[3].actualWorkSec, 18);
+assert.strictEqual(staticSaved.sets[3].actualHoldSec, 18);
+assert.strictEqual(staticSaved.sets[3].plannedHoldSec, null);
+assert.strictEqual(staticSaved.sets[3].plannedRestSec, null);
+assert.strictEqual(staticSaved.sets[3].plannedReps, null);
 
 const day = P.localDay(ended);
 const localSession = {

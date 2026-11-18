@@ -147,7 +147,7 @@ async function openPage(browser, membership, payload) {
           window.__layoutReset = true;
           return Promise.resolve({ ok: true });
         };
-        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'shareSetting', 'programEntries', 'myShares', 'clientTracking', 'clientSchedule'].forEach(function (name) {
+        ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'shareSetting', 'programEntries', 'myShares', 'clientTracking', 'clientSchedule', 'clientAccountWorkouts', 'clientWorkouts', 'clientSentWorkouts'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
         value.myShares = function () {
