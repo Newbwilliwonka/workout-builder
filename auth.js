@@ -48,7 +48,9 @@
   function userOf(session) { return session && session.user ? session.user : null; }
   function profileColumnMissing(err) {
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
-    return /display_name|online_only|avatar_path|listed|service_type|\b42703\b|PGRST204|schema cache/i.test(msg);
+    if (/\b42703\b|PGRST204|schema cache/i.test(msg)) return true;
+    if (/display_name|online_only|avatar_path/i.test(msg)) return true;
+    return /['"]listed['"]|['"]service_type['"]|column\s+(?:profiles\.)?(?:listed|service_type)\b/i.test(msg);
   }
   function withReady(row, ready) {
     if (!row) return row;

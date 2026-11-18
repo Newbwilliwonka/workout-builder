@@ -433,7 +433,7 @@
         timer = 0;
         return showClosed();
       }
-      if (quiet && document.getElementById('msg-text')) return;
+      if (quiet && document.getElementById('talk')) return;
       showFailure(err);
     });
   }
