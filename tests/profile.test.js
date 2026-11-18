@@ -175,11 +175,11 @@ assert.ok(pinned.indexOf('30.2672') === -1);
 assert.ok(pinned.indexOf('id="pin-remove" hidden') === -1);
 
 function assertBefore(html, parts) {
-  var at = -1;
+  var at = 0;
   parts.forEach(function (part) {
-    var next = html.indexOf(part);
-    assert.ok(next > at, part);
-    at = next;
+    var next = html.indexOf(part, at);
+    assert.ok(next >= at, part);
+    at = next + part.length;
   });
 }
 assertBefore(sheet, [
