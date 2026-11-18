@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key> */
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key>  |  #/hub  |  #/hub/new  |  #/hub/<id> */
 (function () {
   'use strict';
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
@@ -105,6 +105,12 @@
     var p = location.hash.split('/');
     if (p[1] === 'play') return WBPlayer.requestEnd();
     if (page === 'messages' && hashBody().split('/')[1]) return go('#/messages');
+    if (page === 'hub') {
+      var hubBits = hashBody().split('/');
+      if (hubBits[2] === 'edit' && hubBits[1]) return go('#/hub/' + hubBits[1]);
+      if (hubBits[1]) return go('#/hub');
+      return go('#/');
+    }
     if (page === 'send') return go('#/');
     if (page === 'received') return go(hashBody().split('/')[1] ? '#/received' : '#/account');
     if (page === 'client') return go('#/account');
@@ -1551,6 +1557,7 @@
       if (page === 'history') return renderHistory(token);
       if (page === 'account') return renderSimpleAccount();
       if (page === 'messages') return openMessages(token);
+      if (page === 'hub') return openHub(token);
       if (page === 'client') {
         if (!window.WBPrograms || !WBPrograms.isTrainer(WBPrograms.roleOf(profile))) return renderLevelNote(profile);
         return openClient(token);
@@ -2386,6 +2393,7 @@
     if (locked) h += '<p class="mute" id="level-lock">Choose a level to continue.</p>';
     if (session && !locked) {
       h += '<button id="messages-nav" type="button" data-go="messages" style="width:100%;margin-bottom:12px">Messages</button>';
+      h += '<button id="hub-nav" type="button" data-go="hub" style="width:100%;margin-bottom:12px">Trainer Hub</button>';
       if (!(window.WBInvites && profile && WBInvites.trainerRole(profile))) {
         h += '<button id="workouts-nav" type="button" data-go="received" style="width:100%;margin-bottom:12px">Workouts</button>';
       }
@@ -2435,6 +2443,7 @@
       }
       if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
+      if (nav && nav.dataset.go === 'hub') return go('#/hub');
       if (nav && nav.dataset.go === 'received') return go('#/received');
       if (handleInvite(e, function () { renderSubscriptions(); })) return;
       if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
@@ -2497,6 +2506,7 @@
     var trainerNav = window.WBInvites && WBInvites.trainerRole(profile);
     h += '<div class="row" id="account-nav" style="margin-bottom:12px">' +
       '<button id="messages-nav" class="grow" type="button" data-go="messages">Messages</button>' +
+      '<button id="hub-nav" class="grow" type="button" data-go="hub">Trainer Hub</button>' +
       (trainerNav
         ? '<button id="send-nav" class="grow" type="button" data-go="send">Send workout</button>'
         : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>');
@@ -2517,6 +2527,7 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
+      if (nav && nav.dataset.go === 'hub') return go('#/hub');
       if (nav && nav.dataset.go === 'send') return go('#/send');
       if (nav && nav.dataset.go === 'received') return go('#/received');
       if (nav && nav.dataset.go === 'admin') return go('#/admin');
@@ -2557,7 +2568,14 @@
       accessP.then(function (rows) { return rows; }, function () { return []; })
     ]).then(function (pair) {
       if (token !== routeToken || hashPage() !== 'account') return;
-      paintPendingCount(pendingTotal(pair[0], pair[1]));
+      var base = pendingTotal(pair[0], pair[1]);
+      paintPendingCount(base);
+      if (!WBAuth.hubReports) return;
+      Promise.resolve().then(function () { return WBAuth.hubReports(); }).then(function (rows) {
+        if (token !== routeToken || hashPage() !== 'account') return;
+        var extra = Array.isArray(rows) ? rows.length : 0;
+        if (extra) paintPendingCount(base + extra);
+      }, function () {});
     });
   }
   function byNewest(rows) {
@@ -2591,6 +2609,14 @@
       ]).then(function (pair) {
         if (hashPage() !== 'admin' || location.hash !== requested) return;
         drawAdmin(pair[0], pair[1]);
+        if (!WBAuth.hubReports) return paintHubReports(null);
+        Promise.resolve().then(function () { return WBAuth.hubReports(); }).then(function (rows) {
+          if (hashPage() !== 'admin' || location.hash !== requested) return;
+          paintHubReports(rows);
+        }, function (err) {
+          if (hashPage() !== 'admin' || location.hash !== requested) return;
+          paintHubReports({ __err: err });
+        });
       });
     }).catch(function () {
       if (hashPage() === 'admin') go('#/signin');
@@ -2665,7 +2691,10 @@
     } else {
       h += verificationCards(queueRows);
     }
-    h += '</section></div>';
+    h += '</section>';
+    h += '<section id="hub-reports-section"><div class="admin-h"><h2>Hub reports</h2><span class="admin-count" id="hub-report-count" hidden></span></div>';
+    h += '<div id="hub-reports-body"><p class="mute" id="hub-reports-loading">Loading…</p></div></section>';
+    h += '</div>';
     app.innerHTML = h;
     app.onclick = function (e) {
       var accessBtn = e.target.closest('[data-access]');
@@ -2675,31 +2704,106 @@
         return setAccountAccess(accessId, turnOn);
       }
       var btn = e.target.closest('[data-verify]');
-      if (!btn || btn.disabled) return;
-      var id = btn.getAttribute('data-id');
-      var action = btn.getAttribute('data-verify');
-      if (action === 'decline') {
-        var box = document.getElementById('decline-' + id);
-        if (box) box.hidden = false;
-        var note = document.getElementById('note-' + id);
-        if (note) { try { note.focus(); } catch (err) {} }
-        return;
-      }
-      if (action === 'approve') return reviewVerification(id, 'approved', '');
-      if (action === 'confirm-decline') {
-        var text = document.getElementById('note-' + id);
-        var result = window.WBProfile ? WBProfile.validateDecline(text ? text.value : '') : { ok: false, message: 'Enter a note.' };
-        var errEl = document.getElementById('note-err-' + id);
-        if (!result.ok) {
-          if (errEl) { errEl.hidden = false; errEl.textContent = result.message || 'Enter a note.'; }
-          if (text) { text.classList.add('is-empty'); text.setAttribute('aria-invalid', 'true'); }
+      if (btn && !btn.disabled) {
+        var id = btn.getAttribute('data-id');
+        var action = btn.getAttribute('data-verify');
+        if (action === 'decline') {
+          var box = document.getElementById('decline-' + id);
+          if (box) box.hidden = false;
+          var note = document.getElementById('note-' + id);
+          if (note) { try { note.focus(); } catch (err) {} }
           return;
         }
-        if (text) { text.classList.remove('is-empty'); text.removeAttribute('aria-invalid'); }
-        if (errEl) errEl.hidden = true;
-        return reviewVerification(id, 'declined', result.note);
+        if (action === 'approve') return reviewVerification(id, 'approved', '');
+        if (action === 'confirm-decline') {
+          var text = document.getElementById('note-' + id);
+          var result = window.WBProfile ? WBProfile.validateDecline(text ? text.value : '') : { ok: false, message: 'Enter a note.' };
+          var errEl = document.getElementById('note-err-' + id);
+          if (!result.ok) {
+            if (errEl) { errEl.hidden = false; errEl.textContent = result.message || 'Enter a note.'; }
+            if (text) { text.classList.add('is-empty'); text.setAttribute('aria-invalid', 'true'); }
+            return;
+          }
+          if (text) { text.classList.remove('is-empty'); text.removeAttribute('aria-invalid'); }
+          if (errEl) errEl.hidden = true;
+          return reviewVerification(id, 'declined', result.note);
+        }
       }
+      var reportBtn = e.target.closest('[data-hub-report]');
+      if (reportBtn && !reportBtn.disabled) return reviewHubReport(reportBtn);
     };
+  }
+  function paintHubCount(n) {
+    var badge = document.getElementById('hub-report-count');
+    if (!badge) return;
+    var count = Math.max(0, Number(n) || 0);
+    if (!count) {
+      badge.hidden = true;
+      badge.textContent = '';
+      badge.removeAttribute('aria-label');
+      return;
+    }
+    badge.hidden = false;
+    badge.textContent = String(count);
+    badge.setAttribute('aria-label', count === 1 ? '1 unreviewed report' : (count + ' unreviewed reports'));
+  }
+  function paintHubReports(reports) {
+    var body = document.getElementById('hub-reports-body');
+    if (!body) return;
+    if (reports == null) {
+      paintHubCount(0);
+      body.innerHTML = '<div class="card" id="hub-reports-wait"><div class="name">Not available yet</div><p class="mute">Trainer Hub is not available yet. Apply the hub SQL in the Supabase SQL editor.</p></div>';
+      return;
+    }
+    if (reports.__err) {
+      paintHubCount(0);
+      var unavailable = reports.__err && /not available yet/i.test(reports.__err.message || '');
+      if (unavailable) {
+        body.innerHTML = '<div class="card" id="hub-reports-wait"><div class="name">Not available yet</div><p class="mute">' + esc(reports.__err.message) + '</p></div>';
+      } else {
+        body.innerHTML = '<div class="errs" id="hub-reports-error">' + esc((reports.__err && reports.__err.message) || 'Could not load reports.') + '</div>';
+      }
+      return;
+    }
+    var rows = Array.isArray(reports) ? reports : [];
+    paintHubCount(rows.length);
+    body.innerHTML = window.WBHub ? WBHub.reportCardsHtml(rows) : '<div class="empty" id="hub-reports-empty">No reports waiting.</div>';
+  }
+  function reviewHubReport(button) {
+    var action = button.getAttribute('data-hub-report');
+    var id = button.getAttribute('data-id');
+    if (action === 'view') {
+      var postId = button.getAttribute('data-post');
+      if (postId) go('#/hub/' + postId);
+      return;
+    }
+    if (action === 'dismiss') {
+      if (!WBAuth.hubDismissReport) return;
+      button.disabled = true;
+      WBAuth.hubDismissReport(id).then(function () {
+        renderAdmin();
+      }, function (err) {
+        button.disabled = false;
+        app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not dismiss that report.') + '</div>');
+      });
+      return;
+    }
+    if (action === 'delete') {
+      if (!WBAuth.hubDeleteReported) return;
+      var kind = button.getAttribute('data-kind') === 'reply' ? 'reply' : 'post';
+      if (!confirm(kind === 'reply' ? 'Delete this reply? This cannot be undone.' : 'Delete this post? This cannot be undone.')) return;
+      button.disabled = true;
+      WBAuth.hubDeleteReported({
+        kind: kind,
+        postId: button.getAttribute('data-post'),
+        replyId: button.getAttribute('data-reply')
+      }).then(function () {
+        renderAdmin();
+      }, function (err) {
+        button.disabled = false;
+        app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not delete that.') + '</div>');
+      });
+    }
   }
   function setAccountAccess(id, approved) {
     if (!WBAuth.setAccess || !id) return;
@@ -2806,6 +2910,28 @@
       if (!session) return go('#/signin');
       if (!window.WBMessages) return;
       WBMessages.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast });
+    }).catch(function () {
+      if (token !== routeToken || location.hash !== requested) return;
+      go('#/signin');
+    });
+  }
+  function openHub(token) {
+    var requested = location.hash;
+    backBtn.hidden = false;
+    app.onclick = null; app.oninput = null; app.onchange = null;
+    app.innerHTML = '<p class="mute">Loading…</p>';
+    var pending;
+    try { pending = WBAuth.session(); } catch (e) { return go('#/signin'); }
+    if (!pending || !pending.then) return go('#/signin');
+    pending.then(function (session) {
+      if (token !== routeToken || location.hash !== requested) return;
+      if (!session) return go('#/signin');
+      if (!window.WBHub) {
+        titleEl.textContent = 'Trainer Hub';
+        app.innerHTML = '<div class="card" id="hub-wait"><div class="name">Not available yet</div><p class="mute">Trainer Hub is not available yet. Apply the hub SQL in the Supabase SQL editor.</p></div>';
+        return;
+      }
+      WBHub.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast });
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
       go('#/signin');
@@ -3045,6 +3171,7 @@
     var token = ++routeToken;
     window.WBPlayer && WBPlayer.unmount();
     window.WBMessages && WBMessages.stop();
+    window.WBHub && WBHub.stop();
     window.WBSends && WBSends.stop();
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
@@ -3990,8 +4117,9 @@
       '<button class="grow" type="button" data-a="account">Account</button>' +
       '<button id="programs-open" class="grow" type="button" data-a="programs">Programs</button>' +
       '<button id="tracking-open" class="grow" type="button" data-a="tracking">Tracking</button></div>' +
-      '<div class="row" style="margin-bottom:8px">' +
+      '<div class="row" id="home-tools" style="margin-bottom:8px">' +
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
+      '<button id="hub-nav" class="grow" type="button" data-a="hub">Trainer Hub</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     var statusLine = libraryStatusHtml();
@@ -4036,6 +4164,7 @@
       if (a === 'tracking') return go('#/tracking');
       if (a === 'account') return openAccount();
       if (a === 'messages') return go('#/messages');
+      if (a === 'hub') return go('#/hub');
       if (a === 'send') {
         if (!levelCan(cachedProfile, 'send')) { levelNoteOn = true; return renderList(); }
         return go('#/send');

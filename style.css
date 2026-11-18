@@ -256,6 +256,22 @@ button.verify-link{display:inline-flex;width:auto;min-height:44px;padding:8px 0;
 .verify-note{margin:8px 0 0;padding:10px 12px;border-radius:12px;background:#fff7ed;color:#9a3412;font-size:14px;line-height:1.45}
 #account-nav #admin-open{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px}
 .admin-page h2{font-size:22px;margin:8px 0 10px}
+.admin-h{display:flex;align-items:center;gap:8px;margin:8px 0 10px}
+.admin-h h2{margin:0}
+#hub-reports-section{margin-top:8px}
+#home-tools{flex-wrap:wrap}
+#home-tools button{padding:0 8px}
+#hub-list .hub-line{flex-wrap:nowrap;align-items:baseline;width:100%;margin:0}
+#hub-list .hub-line .name{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+#hub-list .hub-line .hub-when{flex:none;margin-left:auto;white-space:nowrap}
+.hub-by{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
+.hub-by .name{font-size:15px}
+.hub-title{font-size:20px;line-height:1.25;margin:10px 0 0}
+.hub-body{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0}
+.hub-report-title{font-weight:700;margin:8px 0 0}
+.hub-replies-h{font-size:13px;margin:16px 0 8px;color:var(--mute);font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+body:has(#hub-reply) main{padding-bottom:150px}
+.dock .inner.composer textarea{flex:1;min-width:0;width:auto;min-height:48px;max-height:120px;resize:vertical}
 .admin-page h3{font-size:13px;margin:14px 0 8px;color:var(--mute);font-weight:700;letter-spacing:.04em;text-transform:uppercase}
 .admin-count,.dashboard-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:12px;font-weight:700;line-height:1;flex:none;box-sizing:border-box}
 .admin-count[hidden],.dashboard-count[hidden]{display:none !important}
