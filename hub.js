@@ -379,7 +379,7 @@
     }).join('');
   }
 
-  var ctx = null, gen = 0, editingReply = '', replyDrafts = {}, postAttempt = null, replyAttempt = null, openCache = null, findCache = null;
+  var ctx = null, gen = 0, editingReply = '', replyDrafts = {}, postAttempt = null, replyAttempt = null, openCache = null, findCache = null, findSeq = 0;
 
   function ask(message) {
     if (root && typeof root.confirm === 'function') return root.confirm(message);
@@ -399,9 +399,9 @@
   }
   function stop() {
     gen += 1;
+    findSeq += 1;
     editingReply = '';
     openCache = null;
-    findCache = null;
     ctx = null;
   }
   function showUnavailable(err) {
@@ -493,9 +493,16 @@
       showFailure(err);
     });
   }
+  function onFindList() {
+    return parts()[1] === 'find' && !parts()[2];
+  }
+  function findCurrent(seq, myGen) {
+    return !!(ctx && myGen === gen && seq === findSeq && onFindList());
+  }
   function paintFind(result) {
     if (!ctx) return;
-    findCache = result || null;
+    if (result && result.trainers && result.trainers.length) findCache = result;
+    else if (result && result.mode === 'online') findCache = result;
     ctx.titleEl.textContent = 'Find a trainer';
     ctx.backBtn.hidden = false;
     ctx.app.innerHTML = findResultsHtml(result || {});
@@ -503,35 +510,40 @@
     var form = document.getElementById('find-near-form');
     if (form) form.onsubmit = function (e) { e.preventDefault(); searchNearCity(); };
   }
-  function showFind(myGen) {
+  function showFind() {
     var auth = root.WBAuth;
+    var seq = ++findSeq;
+    var myGen = gen;
     if (!ctx) return;
     ctx.titleEl.textContent = 'Find a trainer';
     ctx.backBtn.hidden = false;
     if (!auth || !auth.trainerSearch) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    if (!onFindList()) return;
     ctx.app.innerHTML = '<p class="mute">Loading…</p>';
     Promise.resolve().then(function () { return auth.trainerSearch('online'); }).then(function (result) {
-      if (!ctx || myGen !== gen || parts()[1] !== 'find' || parts()[2]) return;
+      if (!findCurrent(seq, myGen)) return;
       result = result || {};
       result.mode = 'online';
       paintFind(result);
     }, function (err) {
-      if (!ctx || myGen !== gen) return;
+      if (!findCurrent(seq, myGen)) return;
       showFailure(err);
     });
   }
-  function showNearPrompt(myGen) {
-    if (!ctx || myGen !== gen || parts()[1] !== 'find' || parts()[2]) return;
+  function showNearPrompt() {
+    ++findSeq;
+    if (!ctx || !onFindList()) return;
     paintFind({ mode: 'near', trainers: [], searched: false });
   }
   function runNear(lat, lng) {
     var auth = root.WBAuth;
+    var seq = ++findSeq;
     var myGen = gen;
-    if (!ctx) return;
+    if (!ctx || myGen !== gen || !onFindList()) return;
     if (!auth || !auth.trainerSearch) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
     ctx.app.innerHTML = '<p class="mute">Loading…</p>';
     Promise.resolve().then(function () { return auth.trainerSearch('near', lat, lng); }).then(function (result) {
-      if (!ctx || myGen !== gen || parts()[1] !== 'find' || parts()[2]) return;
+      if (!findCurrent(seq, myGen)) return;
       result = result || {};
       result.mode = 'near';
       result.searched = true;
@@ -546,12 +558,14 @@
       }
       paintFind(result);
     }, function (err) {
-      if (!ctx || myGen !== gen) return;
+      if (!findCurrent(seq, myGen)) return;
       showFailure(err);
     });
   }
   function useMyLocation() {
     var geo = root.navigator && root.navigator.geolocation;
+    var seq = findSeq;
+    var myGen = gen;
     if (!geo || !geo.getCurrentPosition) {
       showError('find-near-error', 'This browser has no location. Type a city instead.');
       return;
@@ -559,34 +573,44 @@
     var button = document.getElementById('find-locate');
     if (button) button.disabled = true;
     geo.getCurrentPosition(function (pos) {
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       var coords = pos && pos.coords;
       var lat = coords && coords.latitude;
       var lng = coords && coords.longitude;
       if (!isFinite(lat) || !isFinite(lng)) {
-        if (button) button.disabled = false;
+        var again = document.getElementById('find-locate');
+        if (again) again.disabled = false;
         showError('find-near-error', 'Location permission is off. Type a city instead.');
         return;
       }
       runNear(lat, lng);
     }, function () {
-      if (button) button.disabled = false;
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
+      var again = document.getElementById('find-locate');
+      if (again) again.disabled = false;
       showError('find-near-error', 'Location permission is off. Type a city instead.');
     }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 12000 });
   }
   function searchNearCity() {
     var input = document.getElementById('find-city');
     var button = document.getElementById('find-city-go');
-    if (!input || !ctx) return;
+    var seq = findSeq;
+    var myGen = gen;
+    if (!input || !ctx || !onFindList()) return;
     var places = root.WBPlaces;
     if (!places || !places.searchPlace) {
       showError('find-near-error', 'Place search is not available.');
       return;
     }
     if (button) button.disabled = true;
-    places.searchPlace(input.value).then(function (hit) {
+    var query = input.value;
+    places.searchPlace(query).then(function (hit) {
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       runNear(hit.latitude, hit.longitude);
     }, function (err) {
-      if (button) button.disabled = false;
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
+      var again = document.getElementById('find-city-go');
+      if (again) again.disabled = false;
       showError('find-near-error', (err && err.message) || 'No place found. Try a city name.');
     });
   }
@@ -695,7 +719,7 @@
     if (!id) return loadList(myGen);
     if (id === 'find') {
       if (bits[2]) return showRequestForm(bits[2], myGen);
-      return showFind(myGen);
+      return showFind();
     }
     if (id === 'requests') return showRequests(myGen);
     if (id === 'new') return showComposer(null);
@@ -822,8 +846,8 @@
     if (!t) return;
     if (t.id === 'hub-find') return ctx.go('#/hub/find');
     if (t.id === 'hub-requests') return ctx.go('#/hub/requests');
-    if (t.id === 'find-online') return showFind(gen);
-    if (t.id === 'find-near') return showNearPrompt(gen);
+    if (t.id === 'find-online') return showFind();
+    if (t.id === 'find-near') return showNearPrompt();
     if (t.id === 'find-locate') return useMyLocation();
     if (t.id === 'find-send') return sendRequest(t.closest('form') && t.closest('form').getAttribute('data-trainer'));
     var askId = t.getAttribute('data-request');

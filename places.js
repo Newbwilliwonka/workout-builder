@@ -132,6 +132,7 @@
     var L = root.L;
     var draft = null;
     var marker = null;
+    var touched = false;
 
     function el(id) { return root.document.getElementById(id); }
     function setPublic(city, region, status) {
@@ -213,6 +214,7 @@
 
     map.on('click', function (e) {
       if (!e || !e.latlng || token !== pinToken) return;
+      touched = true;
       var lat = e.latlng.lat;
       var lng = e.latlng.lng;
       showMarker(lat, lng, 0);
@@ -231,6 +233,7 @@
 
     if (form) form.addEventListener('submit', function (e) {
       e.preventDefault();
+      touched = true;
       cancelReverse();
       var input = el('pin-query');
       var button = el('pin-go');
@@ -316,7 +319,7 @@
     var auth = root.WBAuth;
     if (!auth || !auth.myServiceLocations) return;
     auth.myServiceLocations().then(function (rows) {
-      if (token !== pinToken) return;
+      if (token !== pinToken || touched) return;
       var list = Array.isArray(rows) ? rows : [];
       var pin = null;
       list.forEach(function (row) {

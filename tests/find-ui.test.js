@@ -331,6 +331,22 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   assert.ok(near.html.indexOf('bea@example.com') === -1);
   await p.screenshot({ path: ART + '/find-near-results.png' });
 
+  await p.click('[data-request="' + BEA + '"]');
+  await p.waitForSelector('#find-note');
+  const nearForm = await p.evaluate(function () {
+    return {
+      title: document.getElementById('title').textContent,
+      text: document.getElementById('app').innerText
+    };
+  });
+  assert.strictEqual(nearForm.title, 'Request to message');
+  assert.ok(nearForm.text.indexOf('Bea Coach') !== -1);
+  assert.ok(nearForm.text.indexOf('In person') !== -1);
+  assert.ok(nearForm.text.indexOf('Round Rock, Texas') !== -1);
+  assert.ok(nearForm.text.indexOf('not available') === -1);
+  await p.click('#back');
+  await p.waitForSelector('#find-near');
+
   await p.evaluate(function () { window.__mode = 'trainer'; });
   await p.goto(URL + '#/hub', { waitUntil: 'domcontentloaded' });
   await p.waitForSelector('#hub-requests .request-count');
