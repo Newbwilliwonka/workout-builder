@@ -1061,21 +1061,215 @@
     if (here === 'signin') renderSign('in');
     else go('#/signin');
   }
+  // Cloudflare does not support SRI for this script. Explicit rendering needs ?render=explicit.
+  var TURNSTILE_API = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  var CAPTCHA_EXPIRED = 'That check expired. Please try again.';
+  var CAPTCHA_FAILED = 'The check did not go through. Please try again.';
+  var captchaToken = '', captchaWidgetId = null, captchaSerial = 0, captchaHold = false, captchaResetting = false, turnstileLoader = null;
+  function turnstileSiteKey() {
+    var key = window.WBAuth && WBAuth.TURNSTILE_SITE_KEY;
+    return typeof key === 'string' ? key.trim() : '';
+  }
+  function captchaOn() { return !!turnstileSiteKey(); }
+  function captchaBlocksSubmit() { return captchaOn() && !captchaToken; }
+  function showCaptchaNote(text) {
+    var note = document.getElementById('captcha-note');
+    if (!note) return;
+    if (!text) { note.hidden = true; note.textContent = ''; return; }
+    note.hidden = false;
+    note.textContent = text;
+  }
+  function syncAuthSubmit() {
+    var btn = app.querySelector('[data-auth="up"], [data-auth="in"], [data-auth="send-reset"]');
+    if (!btn) return;
+    btn.disabled = !!(authBusy || captchaBlocksSubmit());
+  }
+  // The screen may have changed while the request was running. Drop the busy
+  // flag and refresh the button that is on screen now. Do not touch that
+  // screen's captcha token or hold flag.
+  function finishAuthAttempt(startedOn) {
+    authBusy = false;
+    if (hashPage() === startedOn) return true;
+    syncAuthSubmit();
+    return false;
+  }
+  function discardCaptchaWidget() {
+    captchaSerial += 1;
+    captchaToken = '';
+    captchaHold = false;
+    var id = captchaWidgetId;
+    captchaWidgetId = null;
+    if (id != null && window.turnstile && window.turnstile.remove) {
+      try { window.turnstile.remove(id); } catch (e) {}
+    }
+  }
+  function resetCaptchaAfterAttempt() {
+    if (!captchaOn()) return;
+    captchaToken = '';
+    if (!document.getElementById('turnstile-box') || captchaWidgetId == null || !window.turnstile || !window.turnstile.reset) {
+      syncAuthSubmit();
+      return;
+    }
+    if (captchaResetting) return;
+    captchaResetting = true;
+    try { window.turnstile.reset(captchaWidgetId); } catch (e) {}
+    captchaResetting = false;
+    syncAuthSubmit();
+  }
+  function captchaHtml() {
+    if (!captchaOn()) return '';
+    return '<div id="captcha-note" class="errs" hidden></div><div id="turnstile-box" class="turnstile-box"></div>';
+  }
+  function loadTurnstileScript() {
+    if (!captchaOn()) return Promise.resolve(false);
+    if (window.turnstile && window.turnstile.render) return Promise.resolve(true);
+    if (turnstileLoader) return turnstileLoader;
+    turnstileLoader = new Promise(function (resolve) {
+      var existing = document.querySelector('script[data-wb-turnstile]');
+      function finish(ok) {
+        if (!ok) turnstileLoader = null;
+        resolve(!!ok);
+      }
+      if (existing) {
+        existing.addEventListener('load', function () { finish(window.turnstile && window.turnstile.render); });
+        existing.addEventListener('error', function () { finish(false); });
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = TURNSTILE_API;
+      s.async = false;
+      s.setAttribute('data-wb-turnstile', '1');
+      s.onload = function () { finish(window.turnstile && window.turnstile.render); };
+      s.onerror = function () {
+        if (s.parentNode) s.parentNode.removeChild(s);
+        finish(false);
+      };
+      document.head.appendChild(s);
+    });
+    return turnstileLoader;
+  }
+  function mountCaptcha() {
+    if (!captchaOn()) return;
+    var serial = captchaSerial;
+    var box = document.getElementById('turnstile-box');
+    if (!box) return;
+    loadTurnstileScript().then(function (ok) {
+      if (serial !== captchaSerial) return;
+      if (!document.getElementById('turnstile-box')) return;
+      if (!ok || !window.turnstile || !window.turnstile.render) {
+        showCaptchaNote(CAPTCHA_FAILED);
+        syncAuthSubmit();
+        return;
+      }
+      function draw() {
+        if (serial !== captchaSerial) return;
+        var live = document.getElementById('turnstile-box');
+        if (!live || !window.turnstile) return;
+        var width = live.getBoundingClientRect().width || 0;
+        if (width < 40) width = (window.innerWidth || 0) - 24;
+        try {
+          captchaWidgetId = window.turnstile.render(live, {
+            sitekey: turnstileSiteKey(),
+            theme: 'light',
+            // Managed widget. Flexible fills the form on a phone; compact fits a narrower one.
+            size: width >= 300 ? 'flexible' : 'compact',
+            appearance: 'always',
+            callback: function (token) {
+              if (serial !== captchaSerial || captchaHold) return;
+              captchaToken = token || '';
+              if (captchaToken) showCaptchaNote('');
+              syncAuthSubmit();
+            },
+            'expired-callback': function () {
+              if (serial !== captchaSerial || captchaHold) return;
+              captchaToken = '';
+              showCaptchaNote(CAPTCHA_EXPIRED);
+              syncAuthSubmit();
+              if (!captchaResetting && window.turnstile && captchaWidgetId != null) {
+                captchaResetting = true;
+                try { window.turnstile.reset(captchaWidgetId); } catch (e) {}
+                captchaResetting = false;
+              }
+            },
+            'error-callback': function () {
+              if (serial !== captchaSerial || captchaHold) return;
+              captchaToken = '';
+              showCaptchaNote(CAPTCHA_FAILED);
+              syncAuthSubmit();
+            },
+            'timeout-callback': function () {
+              if (serial !== captchaSerial || captchaHold) return;
+              captchaToken = '';
+              showCaptchaNote(CAPTCHA_EXPIRED);
+              syncAuthSubmit();
+            }
+          });
+        } catch (e) {
+          showCaptchaNote(CAPTCHA_FAILED);
+        }
+        syncAuthSubmit();
+      }
+      // Render from the script onload. turnstile.ready() rejects when the tag is async.
+      draw();
+    }).catch(function () {
+      if (serial !== captchaSerial) return;
+      showCaptchaNote(CAPTCHA_FAILED);
+      syncAuthSubmit();
+    });
+  }
+  function authErrorText(err) {
+    var msg = (err && err.message) || 'Could not reach sign-in';
+    if (/captcha/i.test(msg)) return CAPTCHA_FAILED;
+    return msg;
+  }
+  // A local typo has not used the captcha token. Show the error and leave the
+  // email, passwords, and widget in place. Rebuilding the form would throw
+  // the unused token away and make the person start the check again.
+  function keepAuthForm(message) {
+    var gate = app.querySelector('.gate');
+    if (!gate) return false;
+    var box = document.getElementById('auth-error');
+    if (!box || !gate.contains(box)) box = null;
+    if (!box) {
+      var banners = gate.querySelectorAll('.errs');
+      for (var i = 0; i < banners.length; i++) {
+        if (banners[i].id === 'captcha-note') continue;
+        box = banners[i];
+        break;
+      }
+    }
+    if (!box) {
+      box = document.createElement('div');
+      gate.insertBefore(box, gate.firstChild);
+    }
+    box.id = 'auth-error';
+    box.className = 'errs';
+    box.hidden = false;
+    box.textContent = message || '';
+    var extras = gate.querySelectorAll('.errs');
+    for (var j = 0; j < extras.length; j++) {
+      if (extras[j] !== box && extras[j].id !== 'captcha-note' && extras[j].parentNode) extras[j].parentNode.removeChild(extras[j]);
+    }
+    return true;
+  }
   function renderSign(mode, message, isError) {
     var create = mode === 'up';
+    discardCaptchaWidget();
     if (create) pendingSignNotice = null;
     else if (message != null) pendingSignNotice = { text: message, isError: !!isError };
     if (!create && pendingSignNotice) { message = pendingSignNotice.text; isError = pendingSignNotice.isError; }
     titleEl.textContent = create ? 'Create account' : 'Sign in';
     backBtn.hidden = true;
     var h = '<div class="gate">';
-    if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
+    if (message) h += '<div id="auth-error" class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     h += '<h2>' + (create ? 'Create your account' : 'Sign in') + '</h2>';
     h += '<p class="lede">Built for trainers and the people they coach.</p>';
     h += '<label for="acct-email">Email</label><input id="acct-email" type="email" autocomplete="username">';
     h += '<label for="acct-pass">Password</label><input id="acct-pass" type="password" autocomplete="' + (create ? 'new-password' : 'current-password') + '">';
+    if (create) h += '<label for="confirm-pass">Confirm password</label><input id="confirm-pass" type="password" autocomplete="new-password">';
     h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
-    h += '<div class="actions"><button class="pri" data-auth="' + (create ? 'up' : 'in') + '" style="width:100%"' + (authBusy ? ' disabled' : '') + '>' + (create ? 'Create account' : 'Sign in') + '</button></div>';
+    h += captchaHtml();
+    h += '<div class="actions"><button class="pri" data-auth="' + (create ? 'up' : 'in') + '" style="width:100%"' + (authBusy || captchaBlocksSubmit() ? ' disabled' : '') + '>' + (create ? 'Create account' : 'Sign in') + '</button></div>';
     if (!create) h += '<button class="linkish" data-auth="forgot">Forgot password?</button>';
     h += create
       ? '<button class="linkish" data-auth="switch" data-mode="in">Already have an account? Sign in</button>'
@@ -1097,27 +1291,48 @@
       // New passwords must be at least 10 characters. Signing in still allows
       // a shorter password that was already saved, so those accounts are not locked out.
       if (!email || password.length < (create ? 10 : 6)) {
-        return renderSign(create ? 'up' : 'in', create
+        var shortMsg = create
           ? 'Enter your email and a password of at least 10 characters.'
-          : 'Enter your email and a password of at least 6 characters.', true);
+          : 'Enter your email and a password of at least 6 characters.';
+        if (!create) pendingSignNotice = { text: shortMsg, isError: true };
+        if (keepAuthForm(shortMsg)) return;
+        return renderSign(create ? 'up' : 'in', shortMsg, true);
+      }
+      if (create) {
+        var confirmEl = document.getElementById('confirm-pass');
+        var confirm = confirmEl ? confirmEl.value : '';
+        if (password !== confirm) {
+          if (keepAuthForm("Passwords don't match.")) return;
+          return renderSign('up', "Passwords don't match.", true);
+        }
+      }
+      if (captchaBlocksSubmit()) {
+        showCaptchaNote(CAPTCHA_FAILED);
+        syncAuthSubmit();
+        return;
       }
       authBusy = true; b.disabled = true;
       var startedOn = hashPage();
-      var op = b.dataset.auth === 'up' ? WBAuth.signUp(email, password) : WBAuth.signIn(email, password);
+      var op = b.dataset.auth === 'up'
+        ? (captchaOn() ? WBAuth.signUp(email, password, captchaToken) : WBAuth.signUp(email, password))
+        : (captchaOn() ? WBAuth.signIn(email, password, captchaToken) : WBAuth.signIn(email, password));
       op.then(function (result) {
-        authBusy = false;
-        if (hashPage() !== startedOn) return;
+        if (!finishAuthAttempt(startedOn)) return;
+        captchaHold = true;
+        resetCaptchaAfterAttempt();
         if (b.dataset.auth === 'up' && result.needsConfirmation) return showSignInNotice('Check your email to confirm the account, then sign in.');
         afterSignIn();
       }).catch(function (err) {
-        authBusy = false;
-        if (hashPage() !== startedOn) return;
-        renderSign(startedOn === 'join' ? 'up' : 'in', (err && err.message) || 'Could not reach sign-in', true);
+        if (!finishAuthAttempt(startedOn)) return;
+        resetCaptchaAfterAttempt();
+        renderSign(startedOn === 'join' ? 'up' : 'in', authErrorText(err), true);
       });
     };
+    mountCaptcha();
   }
   function resetSendError(err) {
     var msg = (err && err.message) || '';
+    if (/captcha/i.test(msg)) return CAPTCHA_FAILED;
     if (/could not load sign-in|sign-in library|failed to fetch|networkerror|load failed/i.test(msg)) {
       return 'Could not send the reset link. Check your connection and try again.';
     }
@@ -1125,17 +1340,19 @@
     return '';
   }
   function renderForgot(message, isError, email) {
+    discardCaptchaWidget();
     titleEl.textContent = 'Forgot password';
     backBtn.hidden = true;
     var sent = message && !isError;
     var h = '<div class="gate">';
-    if (message && isError) h += '<div class="errs">' + esc(message) + '</div>';
+    if (message && isError) h += '<div id="auth-error" class="errs">' + esc(message) + '</div>';
     h += sent
       ? '<h2>Check your email</h2><p class="lede">' + esc(message) + '</p>'
       : '<h2>Forgot password</h2><p class="lede">We\'ll email you a link to choose a new password.</p>';
     if (!sent) {
       h += '<label for="reset-email">Email</label><input id="reset-email" type="email" autocomplete="username" value="' + esc(email || '') + '">';
-      h += '<div class="actions"><button class="pri" data-auth="send-reset" style="width:100%"' + (authBusy ? ' disabled' : '') + '>Send reset link</button></div>';
+      h += captchaHtml();
+      h += '<div class="actions"><button class="pri" data-auth="send-reset" style="width:100%"' + (authBusy || captchaBlocksSubmit() ? ' disabled' : '') + '>Send reset link</button></div>';
     }
     h += '<button class="linkish" data-auth="back-signin">Back to sign in</button></div>';
     app.innerHTML = h;
@@ -1147,21 +1364,32 @@
       if (b.dataset.auth !== 'send-reset' || authBusy) return;
       var emailEl = document.getElementById('reset-email');
       var entered = emailEl ? emailEl.value.trim() : '';
-      if (!entered || entered.indexOf('@') < 1) return renderForgot('Enter your email.', true, entered);
+      if (!entered || entered.indexOf('@') < 1) {
+        if (keepAuthForm('Enter your email.')) return;
+        return renderForgot('Enter your email.', true, entered);
+      }
+      if (captchaBlocksSubmit()) {
+        showCaptchaNote(CAPTCHA_FAILED);
+        syncAuthSubmit();
+        return;
+      }
       authBusy = true; b.disabled = true;
       var started = hashPage();
-      WBAuth.requestPasswordReset(entered).then(function () {
-        authBusy = false;
-        if (hashPage() !== started) return;
+      var reset = captchaOn() ? WBAuth.requestPasswordReset(entered, captchaToken) : WBAuth.requestPasswordReset(entered);
+      reset.then(function () {
+        if (!finishAuthAttempt(started)) return;
+        captchaHold = true;
+        resetCaptchaAfterAttempt();
         renderForgot(RESET_SENT, false);
       }).catch(function (err) {
-        authBusy = false;
-        if (hashPage() !== started) return;
+        if (!finishAuthAttempt(started)) return;
+        resetCaptchaAfterAttempt();
         var shown = resetSendError(err);
         if (!shown) return renderForgot(RESET_SENT, false);
         renderForgot(shown, true, entered);
       });
     };
+    if (!sent) mountCaptcha();
   }
   function renderReset(message, isError, keepPass, keepConfirm) {
     titleEl.textContent = recoveryPhase === 'done' ? 'Password updated' : (recoveryPhase === 'checking' ? 'Checking your link' : 'Set a new password');

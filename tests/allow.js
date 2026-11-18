@@ -18,6 +18,8 @@ async function stubAuth(page, opts) {
     function patch(api) {
       if (!api || api.__sessionStub) return api;
       api.__sessionStub = true;
+      // These tests cover the app with captcha skipped. An empty site key is the skip path.
+      api.TURNSTILE_SITE_KEY = '';
       api.session = function () { return Promise.resolve(session); };
       if (hasProfile) api.profile = function () { return Promise.resolve(profile); };
       return api;

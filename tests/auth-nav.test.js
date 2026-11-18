@@ -6,6 +6,18 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   const b = await pp.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const p = await b.newPage();
   await p.setViewport({ width: 412, height: 915, isMobile: true });
+  await p.evaluateOnNewDocument(function () {
+    var current;
+    Object.defineProperty(window, 'WBAuth', {
+      configurable: true,
+      enumerable: true,
+      get: function () { return current; },
+      set: function (v) {
+        if (v) v.TURNSTILE_SITE_KEY = '';
+        current = v;
+      }
+    });
+  });
   const errs = []; p.on('pageerror', e => errs.push(String(e)));
   const wait = ms => new Promise(r => setTimeout(r, ms));
   await p.goto(URL + '#/signin');
@@ -38,6 +50,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   });
   await p.type('#acct-email', 'ada@example.com');
   await p.type('#acct-pass', 'secret1234');
+  await p.type('#confirm-pass', 'secret1234');
   await p.click('[data-auth=up]');
   await p.waitForFunction(() => location.hash === '#/signin' && document.body.innerText.includes('Check your email to confirm the account, then sign in.') && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in');
   await p.click('[data-auth=switch]');
@@ -87,6 +100,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   });
   await p.type('#acct-email', 'ada@example.com');
   await p.type('#acct-pass', 'secret1234');
+  await p.type('#confirm-pass', 'secret1234');
   await p.click('[data-auth=up]');
   await p.evaluate(() => { var b = document.querySelector('[data-auth=up]'); if (b) b.click(); });
   assert.strictEqual(await p.evaluate(() => window.__signups), 1);
@@ -162,6 +176,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.waitForSelector('#acct-email');
   await p.type('#acct-email', 'kinisiathletics@gmail.com');
   await p.type('#acct-pass', 'secret1234');
+  await p.type('#confirm-pass', 'secret1234');
   await p.click('[data-auth=up]');
   await p.waitForSelector('[data-a=new]');
   assert.strictEqual(await p.evaluate(() => location.hash), '#/');
@@ -175,6 +190,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.waitForSelector('#acct-email');
   await p.type('#acct-email', 'ada@example.com');
   await p.type('#acct-pass', 'secret1234');
+  await p.type('#confirm-pass', 'secret1234');
   await p.click('[data-auth=up]');
   await p.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.includes('Choose how you want to train') && !document.querySelector('[data-a=new]'));
   await p.evaluate(() => { location.hash = '#/play/missing'; });

@@ -38,6 +38,7 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
     var session = { user: { id: 'allow-test', email: 'kinisiathletics@gmail.com' } };
     var current;
     function patch(api) {
+      if (api) api.TURNSTILE_SITE_KEY = '';
       if (!api || api.__profileStub) return api;
       api.__profileStub = true;
       api.session = function () { return Promise.resolve(session); };

@@ -25,6 +25,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
       configurable: true, enumerable: true,
       get: function () { return current; },
       set: function (api) {
+        if (api) api.TURNSTILE_SITE_KEY = '';
         if (!localStorage.getItem('wb.data.v1')) {
           localStorage.setItem('wb.data.v1', JSON.stringify({
             version: 4, sessions: [],

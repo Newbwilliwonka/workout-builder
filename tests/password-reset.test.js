@@ -27,6 +27,7 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
         enumerable: true,
         get: function () { return current; },
         set: function (v) {
+          if (v) v.TURNSTILE_SITE_KEY = '';
           try {
         if (!sessionStorage.getItem('wb.testReady')) localStorage.removeItem('wb.recovery');
         sessionStorage.setItem('wb.testReady', '1');
