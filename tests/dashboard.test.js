@@ -783,5 +783,25 @@ const mixedSchema = model([
   { items: [{ id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' } }] }
 ], 4);
 assert.deepStrictEqual(mixedSchema.holds.map(function (row) { return row.name; }), ['Handstand']);
+const sharedLegacy = model([
+  timed({ sessionId: 'same', localDate: '2026-11-18', actualWorkSec: 38 }),
+  timed({
+    sessionId: 'same-lib', localDate: '2026-11-18', exerciseName: 'Handstand',
+    libraryExerciseId: 'hold', personalExerciseId: '', stableKey: '', actualWorkSec: 33
+  })
+], [session('same', '2026-11-18')], [], [
+  { version: 3, items: [
+    { id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' } },
+    { id: 'old-lib', name: 'Handstand', mode: 'timer', modeConfig: { repsType: 'static', workSec: 30, restSec: 10 }, media: { kind: 'library', libraryId: 'hold' } }
+  ] },
+  { items: [
+    { id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' } },
+    { id: 'new-lib', name: 'Handstand', mode: 'timer', modeConfig: { repsType: 'static', workSec: 30, restSec: 10 }, media: { kind: 'library', libraryId: 'hold' } }
+  ] }
+], 4);
+assert.deepStrictEqual(sharedLegacy.holds.map(function (row) { return [row.name, row.value]; }), [
+  ['Handstand', '0:38'],
+  ['Handstand', '0:33']
+]);
 
 console.log('DASHBOARD OK');

@@ -639,13 +639,13 @@
     }
     (Array.isArray(workouts) ? workouts : []).forEach(function (workout) {
       // Before schema v4, Static on a timer or interval was the default for
-      // time only. migrate() clears it. A list that is still that old schema
-      // must not be read as chosen holds. The current schema keeps Static
-      // only when the person picked it.
+      // time only. migrate() clears it. Skip that old list entirely. Voting
+      // it as "not Static" would cancel a current copy of the same exercise.
       var version = schemaOf(workout, fallbackVersion);
+      if (version < 4) return;
       itemsOf(workout).forEach(function (it) {
         if (!it || (it.mode !== 'timer' && it.mode !== 'intervals')) return;
-        var isStatic = !!(version >= 4 && it.modeConfig && it.modeConfig.repsType === 'static');
+        var isStatic = !!(it.modeConfig && it.modeConfig.repsType === 'static');
         add(byId, it.id ? String(it.id) : '', isStatic);
         var media = it.media;
         var lib = media && media.kind === 'library' ? String(media.libraryId || '').trim() : '';
