@@ -153,6 +153,13 @@ function workout(name, items) {
   assert.deepStrictEqual(s.place, {
     inMedia: true, aboveCard: true, insideScreen: true, clearOfClock: true
   });
+  assert.strictEqual(await p.$eval('.pl-screen', e => e.getAttribute('role')), null);
+  assert.strictEqual(await p.$eval('.pl-screen', e => e.getAttribute('data-p')), null);
+  assert.deepStrictEqual(await p.$$eval('[aria-label="Resume"], [aria-label="Skip"]', els => els.map(e => e.getAttribute('aria-label'))), ['Resume', 'Skip']);
+  await click('.pl-chip');
+  s = await snap();
+  assert.strictEqual(s.phase, 'work');
+  assert.strictEqual(s.running, false);
   assert.strictEqual(s.results[0].logged, false);
   assert.strictEqual(s.results[0].workSec, 20);
   assert.strictEqual(s.results[0].reps, 15);

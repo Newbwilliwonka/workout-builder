@@ -178,7 +178,7 @@ body.playing .bar{display:none}
 .pl-row{padding:8px 0;border-bottom:1px solid #1f2937}.pl-row:last-child{border:0}
 
 .pl-screen{cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
-.pl-screen.is-static{cursor:default}
+.pl-screen.is-static,.pl-screen.is-choose{cursor:default}
 .pl-go{display:block;width:100%;min-height:99px;border-radius:16px;background:#38bdf8;color:#04121f;font-size:18px;font-weight:700}
 .pl-paused{position:absolute;z-index:2;left:0;right:0;top:calc(52% + 36px);display:flex;justify-content:center;align-items:center;gap:14px;pointer-events:none}
 .pl-paused .pl-resume,.pl-paused .pl-skip{pointer-events:auto;width:56px;height:56px;min-width:56px;min-height:56px;padding:0;border:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(2,6,23,.55);color:#fff}
