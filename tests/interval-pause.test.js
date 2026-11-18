@@ -332,14 +332,14 @@ function workout(name, items) {
   assert.strictEqual(s.results[0].reps, 8);
   assert.strictEqual(s.name, 'Row');
 
-  // Timer still running: leaving and ending both keep the seconds done.
+  // Timer is unchanged: leaving or ending mid-work drops the set. The planned time stays, and nothing is logged.
   await boot(timed);
   await click('[data-p=primary]');
   await freezeIntoWork(7000);
   await click('[data-sel="1"]');
   s = await snap();
-  assert.strictEqual(s.results[0].logged, true);
-  assert.strictEqual(s.results[0].workSec, 7);
+  assert.strictEqual(s.results[0].logged, false);
+  assert.strictEqual(s.results[0].workSec, 30);
   assert.strictEqual(s.results[0].reps, 8);
   assert.strictEqual(s.results[1].logged, false);
   await boot(timed);
@@ -347,10 +347,8 @@ function workout(name, items) {
   await freezeIntoWork(4000);
   await click('.pl-endw');
   s = await snap();
-  assert.strictEqual(s.done.length, 1);
-  assert.strictEqual(s.done[0].name, 'Wall sit');
-  assert.strictEqual(s.done[0].workSec, 4);
-  assert.strictEqual(s.done[0].reps, 8);
+  assert.deepStrictEqual(s.done, []);
+  assert.strictEqual(s.sessions, 0);
 
   // Superset rounds still log the way they did. Navigating does not log a reps set early.
   const ss = workout('Superset', [

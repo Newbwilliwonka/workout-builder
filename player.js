@@ -190,21 +190,17 @@
     var q = S.queue[S.idx]; if (!q || !q.groupId) return;
     roundMembers(S.idx).forEach(function (mi) { if (S.results[mi] && !S.results[mi].logged) log(mi); });
   }
-  function inTimedWork() {
+  function inIntervalWork() {
     if (!S || S.idx == null || S.phase !== 'work') return false;
-    var ex = exOf(S.idx);
-    return !!(ex && (ex.mode === 'intervals' || ex.mode === 'timer'));
-  }
-  function pausedIntervalWork() {
-    if (S.running || S.phase !== 'work') return false;
     var ex = exOf(S.idx);
     return !!(ex && ex.mode === 'intervals');
   }
+  function pausedIntervalWork() { return inIntervalWork() && !S.running; }
   function elapsedWorkSec() { return Math.max(0, Math.round(elapsed() / 1000)); }
-  // Seconds already performed, kept on the set when leaving mid-work. Ready, standoff, and 0s stay unlogged.
-  // Planned reps are not touched. Preview runs (track === false) still record nothing.
-  function logPartialTimedWork() {
-    if (!inTimedWork() || S.track === false) return;
+  // Interval only. Seconds already performed are kept when leaving mid-work. Ready, standoff, and 0s stay unlogged.
+  // Planned reps are not touched. Preview runs (track === false) still record nothing. Timer is unchanged.
+  function logPartialInterval() {
+    if (!inIntervalWork() || S.track === false) return;
     var r = S.results[S.idx];
     if (!r || r.logged) return;
     var sec = elapsedWorkSec();
@@ -213,7 +209,7 @@
     log(S.idx);
   }
   function enterStep(i) {
-    if (S.idx != null && i !== S.idx) logPartialTimedWork();
+    if (S.idx != null && i !== S.idx) logPartialInterval();
     logResting(); S.prompt = false;
     S.idx = i; S.running = false; S.acc = 0; S.rep = 1; if (S.run) { stopTones(); S.run = null; }
     var ex = exOf(i);
@@ -417,7 +413,7 @@
       return;
     }
     if (S.phase === 'rest') logResting();
-    else { logPartialTimedWork(); logStartedInRound(); }
+    else { logPartialInterval(); logStartedInRound(); }
     S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged, ownWork: !S.w.sourceTrainerId };
