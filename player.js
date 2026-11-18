@@ -190,7 +190,26 @@
     var q = S.queue[S.idx]; if (!q || !q.groupId) return;
     roundMembers(S.idx).forEach(function (mi) { if (S.results[mi] && !S.results[mi].logged) log(mi); });
   }
+  function inTimedWork() {
+    if (!S || S.idx == null || S.phase !== 'work') return false;
+    var ex = exOf(S.idx);
+    return !!(ex && (ex.mode === 'intervals' || ex.mode === 'timer'));
+  }
+  function pausedTimedWork() { return inTimedWork() && !S.running; } // standoff and rest keep tap-to-resume
+  function elapsedWorkSec() { return Math.max(0, Math.round(elapsed() / 1000)); }
+  // Seconds already performed, kept on the set when leaving mid-work. Ready, standoff, and 0s stay unlogged.
+  // Planned reps are not touched. Preview runs (track === false) still record nothing.
+  function logPartialTimedWork() {
+    if (!inTimedWork() || S.track === false) return;
+    var r = S.results[S.idx];
+    if (!r || r.logged) return;
+    var sec = elapsedWorkSec();
+    if (!(sec > 0)) return;
+    r.workSec = sec;
+    log(S.idx);
+  }
   function enterStep(i) {
+    if (S.idx != null && i !== S.idx) logPartialTimedWork();
     logResting(); S.prompt = false;
     S.idx = i; S.running = false; S.acc = 0; S.rep = 1; if (S.run) { stopTones(); S.run = null; }
     var ex = exOf(i);
@@ -281,6 +300,33 @@
     S.flashDone = true; // hold finished and moved on; running is false because the next step has not started
     advance();
   }
+  // Paused Interval or Timer work: keep the seconds already done and move on as if that set ended.
+  // Rest stays on the run; the next interval of this exercise does too. Leaving the run stops the tones.
+  function skipPausedWork() {
+    var ex = exOf(S.idx);
+    var sec = elapsedWorkSec();
+    if (sec > 0 && S.track !== false) res(S.idx).workSec = sec;
+    if (!(sec > 0)) { // nothing performed: do not log the planned time on the way out
+      stopTones();
+      if (S.run) { S.nodes = []; S.run = null; }
+      advance();
+      return;
+    }
+    if (S.run && S.run.r > 0) {
+      log(S.idx);
+      startTimer('rest');
+      scheduleTones();
+      return render();
+    }
+    var tx = S.idx + 1;
+    if (S.run && tx < S.queue.length && S.queue[tx].exerciseId === ex.id) {
+      log(S.idx); S.idx = tx; res(tx); startTimer('work'); scheduleTones(); return render();
+    }
+    stopTones();
+    if (S.run) { S.nodes = []; S.run = null; }
+    logOnLeave();
+    advance();
+  }
   function phaseEnd(over) {
     var ex = exOf(S.idx), c = ex.modeConfig, r = res(S.idx);
     if (S.phase === 'standoff') { startTimer('work'); S.t0 = now() - over; return render(); }
@@ -366,7 +412,8 @@
       S.onExit();
       return;
     }
-    if (S.phase === 'rest') logResting(); else logStartedInRound();
+    if (S.phase === 'rest') logResting();
+    else { logPartialTimedWork(); logStartedInRound(); }
     S.running = false; cancelAnimationFrame(S.raf);
     var logged = Object.keys(S.results).map(function (k) { return S.results[k]; }).filter(function (r) { return r.logged; }).sort(function (a, b) { return a.step - b.step; });
     var sess = { id: M.uid('ses'), workoutId: S.w.id, workoutName: S.w.name, startedAt: S.startedAt, endedAt: Date.now(), results: logged, ownWork: !S.w.sourceTrainerId };
@@ -568,6 +615,7 @@
         (up ? '<div class="pl-upnext">Up next</div>' : '') + '</button>';
     }
     h += '</div></div>'; // end car + stage
+    if (pausedTimedWork()) h += pausedWorkControls();
     if (sw) h += '<button class="pl-go" data-p="primary">' + esc(primaryLabel(ex)) + '</button>';
     // tracking bar — during a shared superset rest, stack every round member's fields
     function trackBlock(mi) {
@@ -629,7 +677,16 @@
       return '<div class="pl-ev"><span>Lap ' + ev.lap + ' \u201c' + esc(ev.name) + '\u201d</span><div class="pl-pf">' + btn('pass', 'Pass') + btn('fail', 'Fail') + '</div></div>';
     }).join('') + '</div>';
   }
+  function svgIcon(path) {
+    return '<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false"><path fill="currentColor" d="' + path + '"/></svg>';
+  }
+  // Same slot as the stopwatch action button: under the stage, full width, ahead of the tracking card.
+  function pausedWorkControls() {
+    return '<div class="pl-paused"><button type="button" class="pl-resume" data-p="resume" aria-label="Resume">' + svgIcon('M8 5v14l11-7z') + '</button>' +
+      '<button type="button" class="pl-skip" data-p="skipset" aria-label="Skip">' + svgIcon('M5 5v14l9-7-9-7zm11 0h3v14h-3z') + '</button></div>';
+  }
   function hint(ex) {
+    if (pausedTimedWork()) return '';
     var l = primaryLabel(ex);
     if (S.phase === 'rest') return 'Tap to Skip';
     if (res(S.idx).logged && (S.phase === 'ready' || (S.phase === 'work' && !S.running && ex.mode === 'reps'))) return 'Logged · tap to redo';
@@ -700,6 +757,17 @@
       }
     }
     else if (a === 'pause') { ensureAudio(); togglePause(); }
+    else if (a === 'resume') {
+      ensureAudio();
+      var wasRun = S.running;
+      togglePause();
+      if (S && !S.done) flash(!wasRun && S.running ? '▶' : '❚❚');
+    }
+    else if (a === 'skipset') {
+      ensureAudio();
+      skipPausedWork();
+      if (S && !S.done) flash('✓');
+    }
     else if (a === 'skip') advance();
     else if (a === 'back') enterStep(S.idx - 1);
     else if (a === 'end') api.requestEnd();
