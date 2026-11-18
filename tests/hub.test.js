@@ -138,7 +138,8 @@ assert.ok(found.indexOf('<script>') === -1);
 assert.ok(found.indexOf('@') === -1);
 assert.ok(found.indexOf('Request to message') !== -1);
 assert.ok(found.indexOf('>Requested<') !== -1);
-assert.ok(found.indexOf('Both') !== -1);
+assert.ok(found.indexOf('In Person and Online') !== -1);
+assert.ok(found.indexOf('>Both<') === -1);
 assert.ok(found.indexOf('Master Trainer') !== -1);
 assert.strictEqual(H.distanceLabel({ distanceMiles: 0 }), 'About 1 mi');
 assert.strictEqual(H.distanceLabel({ distanceMiles: 2.4 }), 'About 2 mi');
@@ -169,6 +170,42 @@ assert.ok(near.indexOf('Your location is used only for this search and is not sa
 assert.ok(near.indexOf('Use my location') !== -1);
 assert.ok(near.indexOf('@') === -1);
 assert.ok(near.indexOf('In person') !== -1);
+const onlineCard = H.findResultsHtml({
+  trainers: [{
+    id: 't4',
+    name: 'Bea',
+    role: 'Trainer',
+    serviceType: 'online',
+    city: 'Dallas',
+    state: 'Texas',
+    request: 'none'
+  }]
+});
+assert.ok(onlineCard.indexOf('>Online<') !== -1);
+assert.ok(onlineCard.indexOf('Dallas') === -1);
+const bothCard = H.findResultsHtml({
+  trainers: [{
+    id: 't5',
+    name: 'Amy',
+    role: 'Master Trainer',
+    serviceType: 'both',
+    city: 'Austin',
+    state: 'Texas',
+    request: 'none'
+  }]
+});
+assert.ok(bothCard.indexOf('In Person and Online') !== -1);
+assert.ok(bothCard.indexOf('Austin, Texas') !== -1);
+const onlineRequest = H.requestFormHtml({
+  id: 't4',
+  name: 'Bea',
+  role: 'Trainer',
+  serviceType: 'online',
+  city: 'Dallas',
+  state: 'Texas'
+});
+assert.ok(onlineRequest.indexOf('Dallas') === -1);
+assert.ok(onlineRequest.indexOf('>Online<') !== -1);
 
 const requestForm = H.requestFormHtml({
   id: 't1',

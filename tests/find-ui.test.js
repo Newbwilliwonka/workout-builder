@@ -232,15 +232,17 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   assert.ok(results.text.indexOf('Coming soon') === -1);
   assert.ok(results.text.indexOf('Amy Coach') !== -1);
   assert.ok(results.text.indexOf('Master Trainer') !== -1);
-  assert.ok(results.text.indexOf('Both') !== -1);
+  assert.ok(results.text.indexOf('In Person and Online') !== -1);
+  assert.ok(results.text.indexOf('Both') === -1);
   assert.ok(results.text.indexOf('Austin, Texas') !== -1);
   assert.ok(results.text.indexOf('Bea Coach') !== -1);
-  assert.ok(results.text.indexOf('Dallas, Texas') !== -1);
+  assert.ok(results.text.indexOf('Dallas, Texas') === -1);
   assert.ok(results.text.indexOf('Online') !== -1);
   assert.ok(results.text.indexOf('Request to message') !== -1);
   assert.ok(results.text.indexOf('@') === -1);
   assert.ok(results.html.indexOf('amy@example.com') === -1);
   await p.screenshot({ path: ART + '/find-trainer-online.png' });
+  await p.screenshot({ path: ART + '/find-in-person-and-online.png' });
   await p.screenshot({ path: ART + '/find-online-city.png' });
 
   await p.click('[data-request="' + AMY + '"]');
@@ -462,15 +464,91 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   assert.ok(listing.label.indexOf('Show me in trainer search') !== -1);
   assert.strictEqual(listing.on, 'true');
   assert.strictEqual(listing.service, 'online');
+  const onlineService = await p.evaluate(function () {
+    var service = document.getElementById('profile-service');
+    var pin = document.getElementById('profile-pin');
+    var title = document.getElementById('pin-title');
+    var note = document.getElementById('pin-privacy');
+    return {
+      labels: Array.prototype.map.call(service.options, function (opt) { return opt.textContent; }),
+      city: !!document.getElementById('profile-city'),
+      state: !!document.getElementById('profile-state'),
+      onlineBox: !!document.getElementById('profile-online'),
+      serviceHidden: document.getElementById('profile-service-block').hidden,
+      placeHidden: pin.hidden,
+      noteAfterTitle: !!(title && note && title.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING)
+    };
+  });
+  assert.deepStrictEqual(onlineService.labels, ['Choose', 'In person', 'Online', 'In Person and Online']);
+  assert.strictEqual(onlineService.city, false);
+  assert.strictEqual(onlineService.state, false);
+  assert.strictEqual(onlineService.onlineBox, false);
+  assert.strictEqual(onlineService.serviceHidden, false);
+  assert.strictEqual(onlineService.placeHidden, true);
+  assert.strictEqual(onlineService.noteAfterTitle, true);
+  await p.evaluate(function () {
+    var el = document.getElementById('profile-service');
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+  });
+  await p.screenshot({ path: ART + '/profile-service-online.png' });
+  await p.click('#profile-listed');
+  const searchOff = await p.evaluate(function () {
+    return {
+      on: document.getElementById('profile-listed').getAttribute('aria-checked'),
+      serviceHidden: document.getElementById('profile-service-block').hidden,
+      placeHidden: document.getElementById('profile-pin').hidden
+    };
+  });
+  assert.strictEqual(searchOff.on, 'false');
+  assert.strictEqual(searchOff.serviceHidden, true);
+  assert.strictEqual(searchOff.placeHidden, true);
+  await p.evaluate(function () {
+    var el = document.getElementById('profile-listing');
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+  });
+  await p.screenshot({ path: ART + '/profile-search-off.png' });
+  await p.click('#profile-listed');
+  assert.strictEqual(await p.$eval('#profile-pin', function (el) { return el.hidden; }), true);
+  await p.select('#profile-service', 'in_person');
+  const inPerson = await p.evaluate(function () {
+    var pin = document.getElementById('profile-pin');
+    var title = document.getElementById('pin-title');
+    var note = document.getElementById('pin-privacy');
+    var map = document.getElementById('pin-map');
+    return {
+      serviceHidden: document.getElementById('profile-service-block').hidden,
+      placeHidden: pin.hidden,
+      title: title.textContent,
+      note: note.textContent,
+      noteAfterTitle: !!(title.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING),
+      hint: document.getElementById('pin-near-hint').textContent,
+      mapW: map.getBoundingClientRect().width,
+      mapH: map.getBoundingClientRect().height
+    };
+  });
+  assert.strictEqual(inPerson.serviceHidden, false);
+  assert.strictEqual(inPerson.placeHidden, false);
+  assert.strictEqual(inPerson.title, 'Service location');
+  assert.strictEqual(inPerson.note, 'Your exact pin is private. It is only used so clients can find you in the Trainer Hub search. Only your city and state are shown publicly.');
+  assert.strictEqual(inPerson.noteAfterTitle, true);
+  assert.ok(inPerson.hint.indexOf('Near me') !== -1);
+  assert.ok(inPerson.mapW > 100, 'map has no width after it is shown');
+  assert.ok(inPerson.mapH > 100, 'map has no height after it is shown');
   await p.evaluate(function () {
     var el = document.getElementById('profile-listing');
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
   });
   await p.screenshot({ path: ART + '/trainer-search-opt-in.png' });
+  await p.evaluate(function () {
+    var el = document.getElementById('pin-title');
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+  });
+  await p.screenshot({ path: ART + '/profile-service-in-person.png' });
   await p.waitForFunction(function () {
     var el = document.getElementById('pin-public');
     var map = document.querySelector('#pin-map.leaflet-container');
-    return el && map && el.textContent.indexOf('Austin, Texas') !== -1;
+    var box = map && map.getBoundingClientRect();
+    return el && map && box.width > 100 && el.textContent.indexOf('Austin, Texas') !== -1;
   });
   const pin = await p.evaluate(function () {
     var root = document.getElementById('profile-pin');

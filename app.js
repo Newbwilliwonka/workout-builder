@@ -2113,8 +2113,6 @@
       verified: nameVerified,
       verified_until: profile.verified_until || '',
       display_name: profile.display_name || '',
-      city: profile.city || '',
-      state: profile.state || '',
       online_only: !!profile.online_only,
       bio: profile.bio || '',
       photoUrl: profile.avatarUrl || '',
@@ -2127,9 +2125,6 @@
       document.addEventListener('keydown', onProfileKey);
     }
     var nameEl = document.getElementById('profile-name');
-    var cityEl = document.getElementById('profile-city');
-    var stateEl = document.getElementById('profile-state');
-    var onlineEl = document.getElementById('profile-online');
     var bioEl = document.getElementById('profile-bio');
     var countEl = document.getElementById('profile-count');
     var errEl = document.getElementById('profile-error');
@@ -2142,7 +2137,7 @@
       errEl.textContent = msg;
     }
     function mark(empty) {
-      [['profile-name', 'name'], ['profile-city', 'city'], ['profile-state', 'state'], ['profile-service', 'service']].forEach(function (pair) {
+      [['profile-name', 'name'], ['profile-service', 'service']].forEach(function (pair) {
         var field = document.getElementById(pair[0]);
         if (!field) return;
         if (empty && empty[pair[1]]) {
@@ -2159,15 +2154,28 @@
       var serviceEl = document.getElementById('profile-service');
       return WBProfile.validate({
         display_name: nameEl ? nameEl.value : '',
-        city: cityEl ? cityEl.value : '',
-        state: stateEl ? stateEl.value : '',
-        online_only: !!(onlineEl && onlineEl.checked),
         bio: bioEl ? bioEl.value : '',
         membership: profile.membership,
         intended_plan: profile.intended_plan,
         listed: !!(listedEl && listedEl.getAttribute('aria-checked') === 'true'),
         service_type: serviceEl ? serviceEl.value : ''
       });
+    }
+    function syncListingSections() {
+      var listedEl = document.getElementById('profile-listed');
+      var serviceEl = document.getElementById('profile-service');
+      var serviceBlock = document.getElementById('profile-service-block');
+      var pin = document.getElementById('profile-pin');
+      var listed = !!(listedEl && listedEl.getAttribute('aria-checked') === 'true');
+      var service = serviceEl ? serviceEl.value : '';
+      if (serviceBlock) serviceBlock.hidden = !listed;
+      if (!pin) return;
+      var showPlace = listed && service !== 'online';
+      var wasHidden = !!pin.hidden;
+      pin.hidden = !showPlace;
+      if (showPlace && wasHidden && window.WBPlaces && WBPlaces.invalidateProfilePin) {
+        WBPlaces.invalidateProfilePin();
+      }
     }
     function watch(el, key) {
       if (!el) return;
@@ -2179,12 +2187,12 @@
       });
     }
     watch(nameEl, 'name');
-    watch(cityEl, 'city');
-    watch(stateEl, 'state');
     if (bioEl && countEl) bioEl.addEventListener('input', function () {
       countEl.textContent = bioEl.value.length + '/' + WBProfile.BIO_MAX;
     });
-    if (onlineEl) onlineEl.addEventListener('change', function () {
+    var serviceEl = document.getElementById('profile-service');
+    if (serviceEl) serviceEl.addEventListener('change', function () {
+      syncListingSections();
       var result = readFields();
       mark(result.empty);
       if (result.ok) showErr('');
@@ -2213,6 +2221,10 @@
         var on = toggle.getAttribute('aria-checked') !== 'true';
         toggle.setAttribute('aria-checked', on ? 'true' : 'false');
         toggle.classList.toggle('on', on);
+        syncListingSections();
+        var toggled = readFields();
+        mark(toggled.empty);
+        if (toggled.ok) showErr('');
         return;
       }
       if (e.target && e.target.id === 'profile-sheet' && !profileSheetRequired) closeProfileSheet(true);
@@ -2232,6 +2244,7 @@
       try { nameEl.focus(); } catch (err) {}
     }
     if (document.getElementById('profile-pin') && window.WBPlaces && WBPlaces.bindProfilePin) WBPlaces.bindProfilePin();
+    syncListingSections();
     syncHeaderSignOut();
   }
   function paintVerification(profile, extra) {
