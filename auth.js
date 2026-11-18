@@ -1263,8 +1263,13 @@
   function hubError(err) {
     if (err instanceof Error && err.hub) return err;
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
+    var code = String((err && err.code) || '');
+    var duplicate = code === '23505' || /23505|duplicate key|already exists/i.test(msg);
     var friendly = msg;
-    if (/schema cache|could not find|does not exist|PGRST205|PGRST202|42P01|hub_feed|hub_reply_feed|hub_report_queue|hub_posts|hub_replies|hub_reports/i.test(msg)) {
+    if (duplicate) {
+      if (/already reported|hub_reports_one_open/i.test(msg)) friendly = 'You already reported this.';
+      else if (!/duplicate key|23505|already exists/i.test(friendly)) friendly = (msg ? msg + ' ' : '') + '23505';
+    } else if (/schema cache|could not find|does not exist|PGRST205|PGRST202|42P01/i.test(msg)) {
       friendly = 'Trainer Hub is not available yet. Apply the hub SQL in the Supabase SQL editor.';
     } else if (/a little while/i.test(msg)) {
       friendly = /reply/i.test(msg) ? 'You can reply again in a little while.' : (/report/i.test(msg) ? 'You can report again in a little while.' : 'You can post again in a little while.');

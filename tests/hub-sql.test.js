@@ -224,6 +224,34 @@ begin
   end if;
 end $$;
 
+-- The author of a post cannot delete the report on it. Deleting the post still does.
+select set_config('request.jwt.claim.sub', '${JO}', false);
+insert into public.hub_reports (reporter_id, post_id) values ('${JO}', '${POST2}');
+delete from public.hub_reports where post_id = '${POST}';
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from public.hub_reports where post_id = '${POST}' and status = 'open';
+  if n <> 1 then raise exception 'author erased a report %', n; end if;
+  select count(*) into n from public.hub_reports where post_id = '${POST2}' and status = 'open';
+  if n <> 1 then raise exception 'report on the second post %', n; end if;
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${COACH}', false);
+delete from public.hub_reports where post_id = '${POST2}';
+delete from public.hub_posts where id = '${POST2}';
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from public.hub_reports where post_id = '${POST2}';
+  if n <> 0 then raise exception 'deleting the post left reports %', n; end if;
+  select count(*) into n from public.hub_reports where post_id = '${POST}' and status = 'open';
+  if n <> 1 then raise exception 'the other report changed %', n; end if;
+end $$;
+set role authenticated;
+
 -- Five posts are allowed. The sixth is refused, even with an old timestamp.
 select set_config('request.jwt.claim.sub', '${JO}', false);
 do $$

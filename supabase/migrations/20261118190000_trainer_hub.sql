@@ -39,9 +39,10 @@
 --   Policies
 --     anon has no access. authenticated can read and write only when
 --     private.is_approved is true. A person can update only their own
---     posts and replies. They can delete only their own. The admin can
---     delete any post or reply and is the only role that can read or
---     dismiss reports.
+--     posts and replies. They can delete only their own posts and replies.
+--     The admin can delete any post or reply, and is the only person who
+--     can read, dismiss, or delete a report. Deleting a post or reply still
+--     removes its reports.
 --   Indexes
 --     hub_posts (activity_at desc, id desc)
 --     hub_posts (author_id, created_at desc)
@@ -521,15 +522,9 @@ begin
   end if;
 
   if tg_op = 'DELETE' then
+    -- Authors cannot clear a report on their own words. The cleanup flag is
+    -- set only while a post or reply delete is removing its reports.
     if cleaning or private.is_admin() then
-      return old;
-    end if;
-    if exists (select 1 from public.hub_posts p where p.id = old.post_id and p.author_id = uid) then
-      return old;
-    end if;
-    if old.reply_id is not null and exists (
-      select 1 from public.hub_replies y where y.id = old.reply_id and y.author_id = uid
-    ) then
       return old;
     end if;
     raise exception 'Only the admin can delete a report.';
@@ -689,25 +684,7 @@ create policy hub_reports_delete
   on public.hub_reports
   for delete
   to authenticated
-  using (
-    (select private.is_approved((select auth.uid())))
-    and (
-      (select private.is_admin())
-      or not exists (select 1 from public.hub_posts p where p.id = post_id)
-      or (
-        reply_id is not null
-        and not exists (select 1 from public.hub_replies y where y.id = reply_id)
-      )
-      or exists (
-        select 1 from public.hub_posts p
-        where p.id = post_id and p.author_id = (select auth.uid())
-      )
-      or exists (
-        select 1 from public.hub_replies y
-        where y.id = reply_id and y.author_id = (select auth.uid())
-      )
-    )
-  );
+  using ((select private.is_admin()));
 
 create or replace view public.hub_feed
 with (security_barrier = true, security_invoker = false) as
