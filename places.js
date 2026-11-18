@@ -133,6 +133,7 @@
     var draft = null;
     var marker = null;
     var touched = false;
+    var editSeq = 0;
 
     function el(id) { return root.document.getElementById(id); }
     function setPublic(city, region, status) {
@@ -214,6 +215,7 @@
 
     map.on('click', function (e) {
       if (!e || !e.latlng || token !== pinToken) return;
+      var mine = ++editSeq;
       touched = true;
       var lat = e.latlng.lat;
       var lng = e.latlng.lng;
@@ -222,10 +224,10 @@
       setError('');
       setPublic('', '', 'Finding city and state…');
       scheduleReverse(token, lat, lng).then(function (hit) {
-        if (token !== pinToken) return;
+        if (token !== pinToken || mine !== editSeq) return;
         applyHit(hit, 0);
       }, function (err) {
-        if (token !== pinToken) return;
+        if (token !== pinToken || mine !== editSeq) return;
         setSaveEnabled(false);
         setError((err && err.message) || 'Could not find a city and state for that pin.');
       });
@@ -233,6 +235,7 @@
 
     if (form) form.addEventListener('submit', function (e) {
       e.preventDefault();
+      var mine = ++editSeq;
       touched = true;
       cancelReverse();
       var input = el('pin-query');
@@ -241,18 +244,18 @@
       if (button) button.disabled = true;
       setError('');
       searchPlace(input.value).then(function (hit) {
-        if (token !== pinToken) return null;
+        if (token !== pinToken || mine !== editSeq) return null;
         if (hit.ok) {
           applyHit(hit, 13);
           return null;
         }
         return reversePlace(hit.latitude, hit.longitude);
       }).then(function (again) {
-        if (token !== pinToken) return;
+        if (token !== pinToken || mine !== editSeq) return;
         if (button) button.disabled = false;
         if (again) applyHit(again, 13);
       }, function (err) {
-        if (token !== pinToken) return;
+        if (token !== pinToken || mine !== editSeq) return;
         if (button) button.disabled = false;
         setError((err && err.message) || 'No place found. Try a city or address.');
       });
@@ -262,13 +265,21 @@
     if (saveBtn) saveBtn.addEventListener('click', function () {
       if (!draft || !draft.city || !draft.region || !draft.country || token !== pinToken) return;
       var auth = root.WBAuth;
+      var mine = ++editSeq;
+      var saving = {
+        latitude: draft.latitude,
+        longitude: draft.longitude,
+        city: draft.city,
+        region: draft.region,
+        country: draft.country
+      };
       if (!auth || !auth.saveServiceLocation) {
         setError('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');
         return;
       }
       saveBtn.disabled = true;
-      auth.saveServiceLocation(draft).then(function (row) {
-        if (token !== pinToken) return;
+      auth.saveServiceLocation(saving).then(function (row) {
+        if (token !== pinToken || mine !== editSeq) return;
         if (row && row.city) {
           draft.city = row.city;
           draft.region = row.region || draft.region;
@@ -279,7 +290,7 @@
         setSaveEnabled(false);
         setError('');
       }, function (err) {
-        if (token !== pinToken) return;
+        if (token !== pinToken || mine !== editSeq) return;
         setSaveEnabled(true);
         setError((err && err.message) || 'Could not save that pin.');
       });
@@ -288,13 +299,16 @@
     var removeBtn = el('pin-remove');
     if (removeBtn) removeBtn.addEventListener('click', function () {
       var auth = root.WBAuth;
+      var mine = ++editSeq;
+      touched = true;
+      cancelReverse();
       if (!auth || !auth.removeServiceLocation) {
         setError('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');
         return;
       }
       removeBtn.disabled = true;
       auth.removeServiceLocation().then(function () {
-        if (token !== pinToken) return;
+        if (token !== pinToken || mine !== editSeq) return;
         draft = null;
         if (marker && profileMap) {
           profileMap.removeLayer(marker);
@@ -306,7 +320,7 @@
         setError('');
         removeBtn.disabled = false;
       }, function (err) {
-        if (token !== pinToken) return;
+        if (token !== pinToken || mine !== editSeq) return;
         removeBtn.disabled = false;
         setError((err && err.message) || 'Could not remove that pin.');
       });
@@ -345,7 +359,7 @@
         if (profileMap && token === pinToken) profileMap.invalidateSize();
       }, 60);
     }, function (err) {
-      if (token !== pinToken) return;
+      if (token !== pinToken || touched) return;
       var msg = (err && err.message) || '';
       if (/not available yet/i.test(msg)) {
         setError('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');

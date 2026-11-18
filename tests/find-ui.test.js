@@ -497,6 +497,89 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   await new Promise(function (resolve) { setTimeout(resolve, 400); });
   const pinShot = await p.$('#profile-pin');
   await pinShot.screenshot({ path: ART + '/profile-service-pin.png' });
+
+  await p.evaluate(function () {
+    window.__geo = [];
+    window.fetch = function (url) {
+      return new Promise(function (resolve) {
+        window.__geo.push({ url: String(url), resolve: resolve });
+      });
+    };
+    window.__geoReply = function (part, body) {
+      var item = window.__geo.filter(function (row) { return row.url.indexOf(part) !== -1; }).pop();
+      if (!item) throw new Error('missing ' + part);
+      item.resolve({ ok: true, json: function () { return Promise.resolve(body); } });
+    };
+  });
+  const mapBox = await p.evaluate(function () {
+    var rect = document.getElementById('pin-map').getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await p.mouse.click(mapBox.x, mapBox.y);
+  await p.waitForFunction(function () {
+    return window.__geo.some(function (row) { return row.url.indexOf('/reverse') !== -1; });
+  }, { timeout: 5000 });
+  await p.type('#pin-query', 'Dallas');
+  await p.click('#pin-go');
+  await p.waitForFunction(function () {
+    return window.__geo.some(function (row) { return row.url.indexOf('/search') !== -1; });
+  }, { timeout: 5000 });
+  await p.evaluate(function () {
+    window.__geoReply('/search', [{
+      lat: '32.7767',
+      lon: '-96.797',
+      address: { city: 'Dallas', state: 'Texas', country: 'United States' }
+    }]);
+  });
+  await p.waitForFunction(function () {
+    return document.getElementById('pin-public').textContent.indexOf('Dallas, Texas') !== -1;
+  });
+  await p.evaluate(function () {
+    window.__geoReply('/reverse', {
+      lat: '31.0000',
+      lon: '-97.0000',
+      address: { city: 'Clicktown', state: 'Texas', country: 'United States' }
+    });
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 400); });
+  const afterSearch = await p.evaluate(function () {
+    return {
+      text: document.getElementById('pin-public').textContent,
+      save: document.getElementById('pin-save').disabled
+    };
+  });
+  assert.ok(afterSearch.text.indexOf('Dallas, Texas') !== -1);
+  assert.ok(afterSearch.text.indexOf('Clicktown') === -1);
+  assert.strictEqual(afterSearch.save, false);
+
+  await p.mouse.click(mapBox.x, mapBox.y);
+  await p.waitForFunction(function () {
+    return window.__geo.filter(function (row) { return row.url.indexOf('/reverse') !== -1; }).length >= 2;
+  }, { timeout: 5000 });
+  await p.click('#pin-remove');
+  await p.waitForFunction(function () {
+    return document.getElementById('pin-public').textContent.indexOf('No pin yet') !== -1;
+  });
+  await p.evaluate(function () {
+    window.__geoReply('/reverse', {
+      lat: '29.7604',
+      lon: '-95.3698',
+      address: { city: 'Backtown', state: 'Texas', country: 'United States' }
+    });
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 400); });
+  const afterRemove = await p.evaluate(function () {
+    return {
+      text: document.getElementById('pin-public').textContent,
+      save: document.getElementById('pin-save').disabled,
+      removed: window.__removedPin === true
+    };
+  });
+  assert.ok(afterRemove.text.indexOf('No pin yet') !== -1);
+  assert.ok(afterRemove.text.indexOf('Backtown') === -1);
+  assert.strictEqual(afterRemove.save, true);
+  assert.strictEqual(afterRemove.removed, true);
+
   await p.click('#profile-listed');
   assert.strictEqual(await p.$eval('#profile-listed', function (el) { return el.getAttribute('aria-checked'); }), 'false');
 
