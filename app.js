@@ -1213,6 +1213,22 @@
     if (/captcha/i.test(msg)) return CAPTCHA_FAILED;
     return msg;
   }
+  // A local typo has not used the captcha token. Show the error and leave the
+  // fields and widget in place. Rebuilding the form would throw the token away.
+  function keepAuthForm(message) {
+    if (!captchaOn()) return false;
+    var gate = app.querySelector('.gate');
+    if (!gate) return false;
+    var box = document.getElementById('auth-error');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'auth-error';
+      box.className = 'errs';
+      gate.insertBefore(box, gate.firstChild);
+    }
+    box.textContent = message || '';
+    return true;
+  }
   function renderSign(mode, message, isError) {
     var create = mode === 'up';
     discardCaptchaWidget();
@@ -1252,14 +1268,20 @@
       // New passwords must be at least 10 characters. Signing in still allows
       // a shorter password that was already saved, so those accounts are not locked out.
       if (!email || password.length < (create ? 10 : 6)) {
-        return renderSign(create ? 'up' : 'in', create
+        var shortMsg = create
           ? 'Enter your email and a password of at least 10 characters.'
-          : 'Enter your email and a password of at least 6 characters.', true);
+          : 'Enter your email and a password of at least 6 characters.';
+        if (!create) pendingSignNotice = { text: shortMsg, isError: true };
+        if (keepAuthForm(shortMsg)) return;
+        return renderSign(create ? 'up' : 'in', shortMsg, true);
       }
       if (create) {
         var confirmEl = document.getElementById('confirm-pass');
         var confirm = confirmEl ? confirmEl.value : '';
-        if (password !== confirm) return renderSign('up', "Passwords don't match.", true);
+        if (password !== confirm) {
+          if (keepAuthForm("Passwords don't match.")) return;
+          return renderSign('up', "Passwords don't match.", true);
+        }
       }
       if (captchaBlocksSubmit()) {
         showCaptchaNote(CAPTCHA_FAILED);
@@ -1273,15 +1295,15 @@
         : (captchaOn() ? WBAuth.signIn(email, password, captchaToken) : WBAuth.signIn(email, password));
       op.then(function (result) {
         authBusy = false;
+        if (hashPage() !== startedOn) return;
         captchaHold = true;
         resetCaptchaAfterAttempt();
-        if (hashPage() !== startedOn) return;
         if (b.dataset.auth === 'up' && result.needsConfirmation) return showSignInNotice('Check your email to confirm the account, then sign in.');
         afterSignIn();
       }).catch(function (err) {
         authBusy = false;
-        resetCaptchaAfterAttempt();
         if (hashPage() !== startedOn) return;
+        resetCaptchaAfterAttempt();
         renderSign(startedOn === 'join' ? 'up' : 'in', authErrorText(err), true);
       });
     };
@@ -1321,7 +1343,10 @@
       if (b.dataset.auth !== 'send-reset' || authBusy) return;
       var emailEl = document.getElementById('reset-email');
       var entered = emailEl ? emailEl.value.trim() : '';
-      if (!entered || entered.indexOf('@') < 1) return renderForgot('Enter your email.', true, entered);
+      if (!entered || entered.indexOf('@') < 1) {
+        if (keepAuthForm('Enter your email.')) return;
+        return renderForgot('Enter your email.', true, entered);
+      }
       if (captchaBlocksSubmit()) {
         showCaptchaNote(CAPTCHA_FAILED);
         syncAuthSubmit();
@@ -1332,14 +1357,14 @@
       var reset = captchaOn() ? WBAuth.requestPasswordReset(entered, captchaToken) : WBAuth.requestPasswordReset(entered);
       reset.then(function () {
         authBusy = false;
+        if (hashPage() !== started) return;
         captchaHold = true;
         resetCaptchaAfterAttempt();
-        if (hashPage() !== started) return;
         renderForgot(RESET_SENT, false);
       }).catch(function (err) {
         authBusy = false;
-        resetCaptchaAfterAttempt();
         if (hashPage() !== started) return;
+        resetCaptchaAfterAttempt();
         var shown = resetSendError(err);
         if (!shown) return renderForgot(RESET_SENT, false);
         renderForgot(shown, true, entered);

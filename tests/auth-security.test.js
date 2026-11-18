@@ -215,6 +215,43 @@ const FAKE = [
     var note = document.getElementById('captcha-note');
     return document.querySelector('[data-auth=up]').disabled === false && (!note || note.hidden);
   });
+  const keptWidget = await p.evaluate(function () { return window.__widgets[window.__widgets.length - 1].id; });
+  await p.evaluate(function () {
+    window.__signUp = null;
+    window.WBAuth.signUp = function () {
+      window.__signUp = Array.prototype.slice.call(arguments);
+      return Promise.reject(new Error('should not run'));
+    };
+    document.getElementById('acct-email').value = 'ada@example.com';
+    document.getElementById('acct-pass').value = 'secret1234';
+    document.getElementById('confirm-pass').value = 'nope123456';
+  });
+  await p.click('[data-auth=up]');
+  await p.waitForFunction(function () {
+    var box = document.querySelector('#auth-error');
+    return box && box.textContent === "Passwords don't match.";
+  });
+  const kept = await p.evaluate(function () {
+    return {
+      email: document.getElementById('acct-email').value,
+      pass: document.getElementById('acct-pass').value,
+      confirm: document.getElementById('confirm-pass').value,
+      widget: window.__widgets[window.__widgets.length - 1].id,
+      disabled: document.querySelector('[data-auth=up]').disabled,
+      called: window.__signUp
+    };
+  });
+  assert.strictEqual(kept.email, 'ada@example.com');
+  assert.strictEqual(kept.pass, 'secret1234');
+  assert.strictEqual(kept.confirm, 'nope123456');
+  assert.strictEqual(kept.widget, keptWidget, 'a local mismatch keeps the unused captcha');
+  assert.strictEqual(kept.disabled, false);
+  assert.strictEqual(kept.called, null);
+  await p.evaluate(function () {
+    document.getElementById('acct-email').value = '';
+    document.getElementById('acct-pass').value = '';
+    document.getElementById('confirm-pass').value = '';
+  });
   await p.evaluate(function () {
     window.__signUp = null;
     window.__resets = [];
@@ -300,6 +337,27 @@ const FAKE = [
   assert.deepStrictEqual(await p.evaluate(function () { return window.__reset; }), ['ada@example.com', 'tok-reset']);
   assert.ok((await p.evaluate(function () { return window.__resets.length; })) >= 1, 'reset link attempt resets the widget');
   assert.strictEqual(await p.$eval('[data-auth=send-reset]', function (el) { return el.disabled; }), true);
+
+  await p.evaluate(function () { location.hash = '#/signin'; });
+  await p.waitForSelector('#turnstile-box[data-widget]');
+  await p.evaluate(function () {
+    var gate = {};
+    gate.p = new Promise(function (resolve) { gate.resolve = resolve; });
+    window.__holdGate = gate;
+    window.WBAuth.signIn = function () { return gate.p; };
+    window.__widgets[window.__widgets.length - 1].opts.callback('tok-hold');
+  });
+  await p.waitForFunction(function () { return document.querySelector('[data-auth=in]').disabled === false; });
+  await p.type('#acct-email', 'ada@example.com');
+  await p.type('#acct-pass', 'secret1234');
+  await p.click('[data-auth=in]');
+  await p.click('[data-auth=switch]');
+  await p.waitForSelector('#confirm-pass');
+  await p.evaluate(function () { window.__holdGate.resolve({ user: { email: 'ada@example.com' } }); });
+  await new Promise(function (r) { setTimeout(r, 50); });
+  assert.strictEqual(await p.evaluate(function () { return location.hash; }), '#/join');
+  await p.evaluate(function () { window.__widgets[window.__widgets.length - 1].opts.callback('tok-after-leave'); });
+  await p.waitForFunction(function () { return document.querySelector('[data-auth=up]') && document.querySelector('[data-auth=up]').disabled === false; });
 
   await p.setViewport({ width: 320, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
   await p.evaluate(function () { location.hash = '#/signin'; });
