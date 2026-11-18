@@ -119,5 +119,23 @@ assert.ok(coachSheet.indexOf('>Both<') > 0);
 const coachOn = P.sheetHtml({ canList: true, listed: true, service_type: 'online', display_name: 'Coach Kim' });
 assert.ok(coachOn.indexOf('aria-checked="true"') > 0);
 assert.ok(coachOn.indexOf('value="online" selected') > 0);
+assert.ok(edit.indexOf('id="profile-pin"') === -1);
+assert.ok(coachSheet.indexOf(P.PIN_NOTE) > 0);
+assert.ok(coachSheet.indexOf('id="pin-map"') > 0);
+assert.ok(coachSheet.indexOf('id="pin-query"') > 0);
+assert.ok(coachSheet.indexOf('id="pin-city"') === -1);
+assert.ok(coachSheet.indexOf('id="pin-state"') === -1);
+assert.ok(coachSheet.indexOf('OpenStreetMap') > 0);
+const pinned = P.sheetHtml({
+  canList: true,
+  display_name: 'Coach',
+  service_type: 'both',
+  listed: true,
+  pin: { city: '<script>', region: 'Texas', latitude: 30.2672, longitude: -97.74 }
+});
+assert.ok(pinned.indexOf('<script>') === -1);
+assert.ok(pinned.indexOf('Public location: &lt;script&gt;, Texas') > 0);
+assert.ok(pinned.indexOf('30.2672') === -1);
+assert.ok(pinned.indexOf('id="pin-remove" hidden') === -1);
 
 console.log('profile rules ok');

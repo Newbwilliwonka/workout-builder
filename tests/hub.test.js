@@ -131,15 +131,44 @@ const found = H.findResultsHtml({
 });
 assert.ok(found.indexOf('Online only') !== -1);
 assert.ok(found.indexOf('Near me') !== -1);
-assert.ok(found.indexOf('Coming soon') !== -1);
-assert.ok(found.indexOf('id="find-near" disabled') !== -1);
-assert.ok(found.indexOf('Near me<span class="mute" id="find-near-note">Coming soon</span>') !== -1);
+assert.ok(found.indexOf('Coming soon') === -1);
+assert.ok(found.indexOf('id="find-near" disabled') === -1);
+assert.ok(found.indexOf('aria-pressed="false">Near me</button>') !== -1);
 assert.ok(found.indexOf('<script>') === -1);
 assert.ok(found.indexOf('@') === -1);
 assert.ok(found.indexOf('Request to message') !== -1);
 assert.ok(found.indexOf('>Requested<') !== -1);
 assert.ok(found.indexOf('Both') !== -1);
 assert.ok(found.indexOf('Master Trainer') !== -1);
+assert.strictEqual(H.distanceLabel({ distanceMiles: 0 }), 'About 1 mi');
+assert.strictEqual(H.distanceLabel({ distanceMiles: 2.4 }), 'About 2 mi');
+assert.strictEqual(H.distanceLabel({}), '');
+assert.strictEqual(H.placeLabel({ city: ' Austin ', state: 'Texas' }), 'Austin, Texas');
+const near = H.findResultsHtml({
+  mode: 'near',
+  searched: true,
+  trainers: [{
+    id: 't3',
+    name: 'Cara',
+    role: 'Trainer',
+    verified: false,
+    serviceType: 'in_person',
+    request: 'none',
+    city: '<script>Austin</script>',
+    state: 'Texas',
+    distanceMiles: 2,
+    email: 'cara@example.com',
+    latitude: 30.2672
+  }]
+});
+assert.ok(near.indexOf('About 2 mi') !== -1);
+assert.ok(near.indexOf('&lt;script&gt;Austin&lt;/script&gt;, Texas · About 2 mi') !== -1);
+assert.ok(near.indexOf('<script>') === -1);
+assert.ok(near.indexOf('30.2672') === -1);
+assert.ok(near.indexOf('Your location is used only for this search and is not saved.') !== -1);
+assert.ok(near.indexOf('Use my location') !== -1);
+assert.ok(near.indexOf('@') === -1);
+assert.ok(near.indexOf('In person') !== -1);
 
 const requestForm = H.requestFormHtml({
   id: 't1',

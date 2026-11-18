@@ -249,14 +249,52 @@
     });
     return author;
   }
+  function distanceLabel(row) {
+    if (!row || (row.distanceMiles == null && row.distance == null)) return '';
+    var n = Number(row.distanceMiles != null ? row.distanceMiles : row.distance);
+    if (!isFinite(n)) return '';
+    var miles = Math.round(n);
+    if (miles < 1) miles = 1;
+    return miles === 1 ? 'About 1 mi' : ('About ' + miles + ' mi');
+  }
+  function placeLabel(row) {
+    var city = clean(row && row.city);
+    var state = clean(row && (row.state != null ? row.state : row.region));
+    if (city && state) return city + ', ' + state;
+    return city || state;
+  }
+  function placeLine(row, withDistance) {
+    var text = placeLabel(row);
+    if (withDistance) {
+      var dist = distanceLabel(row);
+      if (dist) text = text ? (text + ' · ' + dist) : dist;
+    }
+    if (!text) return '';
+    return '<p class="mute find-place">' + esc(text) + '</p>';
+  }
   function findResultsHtml(result) {
     result = result || {};
+    var near = result.mode === 'near';
     var h = '<div class="seg" id="find-modes" role="group" aria-label="Search">';
-    h += '<button type="button" class="on" id="find-online" aria-pressed="true">Online only</button>';
-    h += '<button type="button" id="find-near" disabled aria-disabled="true">Near me<span class="mute" id="find-near-note">Coming soon</span></button></div>';
+    h += '<button type="button" id="find-online"' + (near ? '' : ' class="on"') + ' aria-pressed="' + (near ? 'false' : 'true') + '">Online only</button>';
+    h += '<button type="button" id="find-near"' + (near ? ' class="on"' : '') + ' aria-pressed="' + (near ? 'true' : 'false') + '">Near me</button></div>';
+    if (near) {
+      h += '<form id="find-near-form" class="card find-near-box">';
+      h += '<p class="mute" id="find-near-privacy">Your location is used only for this search and is not saved.</p>';
+      h += '<button type="button" class="pri" id="find-locate">Use my location</button>';
+      h += '<label for="find-city">Or a city</label>';
+      h += '<div class="pin-search-row"><input id="find-city" maxlength="80" autocomplete="address-level2" placeholder="City" enterkeyhint="search">';
+      h += '<button type="submit" id="find-city-go">Search</button></div>';
+      h += '<p class="errs" id="find-near-error" hidden></p>';
+      if (result.unavailable) h += '<p class="mute" id="find-near-wait">' + esc(result.unavailable) + '</p>';
+      h += '</form>';
+    }
     var trainers = result.trainers || [];
+    if (near && !result.searched) return h;
     if (!trainers.length) {
-      h += '<div class="empty" id="find-empty">No trainers are available online right now.</div>';
+      h += '<div class="empty" id="find-empty">' + (near
+        ? 'No trainers are near that place right now.'
+        : 'No trainers are available online right now.') + '</div>';
       return h;
     }
     h += '<div id="find-list">';
@@ -267,6 +305,7 @@
       h += '<article class="card find-person" data-trainer="' + esc(row.id) + '">';
       h += bylineHtml(person);
       if (service) h += '<p class="mute">' + esc(service) + '</p>';
+      h += placeLine(row, near);
       if (state === 'open') {
         h += '<button type="button" class="pri" disabled>Requested</button>';
       } else if (state === 'cooldown') {
@@ -287,6 +326,7 @@
     var h = '<form id="find-request" data-trainer="' + esc(trainer.id || '') + '">';
     h += '<div class="card">' + bylineHtml(person);
     if (service) h += '<p class="mute">' + esc(service) + '</p>';
+    h += placeLine(trainer, false);
     h += '</div>';
     h += '<label for="find-note">Note (optional)</label>';
     h += '<textarea id="find-note" maxlength="' + NOTE_MAX + '" rows="4" placeholder="Say hello"></textarea>';
@@ -339,7 +379,7 @@
     }).join('');
   }
 
-  var ctx = null, gen = 0, editingReply = '', replyDrafts = {}, postAttempt = null, replyAttempt = null, openCache = null;
+  var ctx = null, gen = 0, editingReply = '', replyDrafts = {}, postAttempt = null, replyAttempt = null, openCache = null, findCache = null, findSeq = 0;
 
   function ask(message) {
     if (root && typeof root.confirm === 'function') return root.confirm(message);
@@ -359,6 +399,7 @@
   }
   function stop() {
     gen += 1;
+    findSeq += 1;
     editingReply = '';
     openCache = null;
     ctx = null;
@@ -452,32 +493,138 @@
       showFailure(err);
     });
   }
-  function showFind(myGen) {
+  function onFindList() {
+    return parts()[1] === 'find' && !parts()[2];
+  }
+  function findCurrent(seq, myGen) {
+    return !!(ctx && myGen === gen && seq === findSeq && onFindList());
+  }
+  function paintFind(result) {
+    if (!ctx) return;
+    if (result && result.trainers && result.trainers.length) findCache = result;
+    else if (result && result.mode === 'online') findCache = result;
+    ctx.titleEl.textContent = 'Find a trainer';
+    ctx.backBtn.hidden = false;
+    ctx.app.innerHTML = findResultsHtml(result || {});
+    ctx.app.onclick = onClick;
+    var form = document.getElementById('find-near-form');
+    if (form) form.onsubmit = function (e) { e.preventDefault(); searchNearCity(); };
+  }
+  function showFind() {
     var auth = root.WBAuth;
+    var seq = ++findSeq;
+    var myGen = gen;
     if (!ctx) return;
     ctx.titleEl.textContent = 'Find a trainer';
     ctx.backBtn.hidden = false;
     if (!auth || !auth.trainerSearch) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    if (!onFindList()) return;
     ctx.app.innerHTML = '<p class="mute">Loading…</p>';
     Promise.resolve().then(function () { return auth.trainerSearch('online'); }).then(function (result) {
-      if (!ctx || myGen !== gen || parts()[1] !== 'find' || parts()[2]) return;
-      ctx.app.innerHTML = findResultsHtml(result || {});
-      ctx.app.onclick = onClick;
+      if (!findCurrent(seq, myGen)) return;
+      result = result || {};
+      result.mode = 'online';
+      paintFind(result);
     }, function (err) {
-      if (!ctx || myGen !== gen) return;
+      if (!findCurrent(seq, myGen)) return;
       showFailure(err);
     });
+  }
+  function showNearPrompt() {
+    ++findSeq;
+    if (!ctx || !onFindList()) return;
+    paintFind({ mode: 'near', trainers: [], searched: false });
+  }
+  function runNear(lat, lng) {
+    var auth = root.WBAuth;
+    var seq = ++findSeq;
+    var myGen = gen;
+    if (!ctx || myGen !== gen || !onFindList()) return;
+    if (!auth || !auth.trainerSearch) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    Promise.resolve().then(function () { return auth.trainerSearch('near', lat, lng); }).then(function (result) {
+      if (!findCurrent(seq, myGen)) return;
+      result = result || {};
+      result.mode = 'near';
+      result.searched = true;
+      if (result.comingSoon) {
+        paintFind({
+          mode: 'near',
+          trainers: [],
+          searched: false,
+          unavailable: 'Near me is not available yet. Apply the near-me SQL in the Supabase SQL editor.'
+        });
+        return;
+      }
+      paintFind(result);
+    }, function (err) {
+      if (!findCurrent(seq, myGen)) return;
+      showFailure(err);
+    });
+  }
+  function useMyLocation() {
+    var geo = root.navigator && root.navigator.geolocation;
+    var seq = findSeq;
+    var myGen = gen;
+    if (!geo || !geo.getCurrentPosition) {
+      showError('find-near-error', 'This browser has no location. Type a city instead.');
+      return;
+    }
+    var button = document.getElementById('find-locate');
+    if (button) button.disabled = true;
+    geo.getCurrentPosition(function (pos) {
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
+      var coords = pos && pos.coords;
+      var lat = coords && coords.latitude;
+      var lng = coords && coords.longitude;
+      if (!isFinite(lat) || !isFinite(lng)) {
+        var again = document.getElementById('find-locate');
+        if (again) again.disabled = false;
+        showError('find-near-error', 'Location permission is off. Type a city instead.');
+        return;
+      }
+      runNear(lat, lng);
+    }, function () {
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
+      var again = document.getElementById('find-locate');
+      if (again) again.disabled = false;
+      showError('find-near-error', 'Location permission is off. Type a city instead.');
+    }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 12000 });
+  }
+  function searchNearCity() {
+    var input = document.getElementById('find-city');
+    var button = document.getElementById('find-city-go');
+    var seq = findSeq;
+    var myGen = gen;
+    if (!input || !ctx || !onFindList()) return;
+    var places = root.WBPlaces;
+    if (!places || !places.searchPlace) {
+      showError('find-near-error', 'Place search is not available.');
+      return;
+    }
+    if (button) button.disabled = true;
+    var query = input.value;
+    places.searchPlace(query).then(function (hit) {
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
+      runNear(hit.latitude, hit.longitude);
+    }, function (err) {
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
+      var again = document.getElementById('find-city-go');
+      if (again) again.disabled = false;
+      showError('find-near-error', (err && err.message) || 'No place found. Try a city name.');
+    });
+  }
+  function trainerFromCache(id) {
+    var rows = (findCache && findCache.trainers) || [];
+    return rows.filter(function (row) { return row && String(row.id) === String(id); })[0] || null;
   }
   function showRequestForm(id, myGen) {
     var auth = root.WBAuth;
     if (!ctx) return;
     ctx.titleEl.textContent = 'Request to message';
     ctx.backBtn.hidden = false;
-    if (!auth || !auth.trainerSearch) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
-    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
-    Promise.resolve().then(function () { return auth.trainerSearch('online'); }).then(function (result) {
+    function draw(trainer) {
       if (!ctx || myGen !== gen || parts()[1] !== 'find' || parts()[2] !== id) return;
-      var trainer = ((result && result.trainers) || []).filter(function (row) { return row && String(row.id) === String(id); })[0];
       if (!trainer) return showFailure(new Error('That trainer is not available.'));
       ctx.app.innerHTML = requestFormHtml(trainer);
       ctx.app.onclick = onClick;
@@ -486,6 +633,13 @@
       var count = document.getElementById('find-count');
       if (form) form.onsubmit = function (e) { e.preventDefault(); sendRequest(id); };
       if (box && count) box.oninput = function () { count.textContent = box.value.length + '/' + NOTE_MAX; };
+    }
+    var cached = trainerFromCache(id);
+    if (cached) return draw(cached);
+    if (!auth || !auth.trainerSearch) return showUnavailable(new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.'));
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    Promise.resolve().then(function () { return auth.trainerSearch('online'); }).then(function (result) {
+      draw(((result && result.trainers) || []).filter(function (row) { return row && String(row.id) === String(id); })[0]);
     }, function (err) {
       if (!ctx || myGen !== gen) return;
       showFailure(err);
@@ -565,7 +719,7 @@
     if (!id) return loadList(myGen);
     if (id === 'find') {
       if (bits[2]) return showRequestForm(bits[2], myGen);
-      return showFind(myGen);
+      return showFind();
     }
     if (id === 'requests') return showRequests(myGen);
     if (id === 'new') return showComposer(null);
@@ -688,10 +842,13 @@
   }
   function onClick(e) {
     if (!ctx || !e.target || !e.target.closest) return;
-    var t = e.target.closest('#hub-new, #hub-save, #hub-edit, #hub-delete, #hub-report, #hub-reply-send, #hub-find, #hub-requests, #find-send, [data-request], [data-request-approve], [data-request-decline], [data-post], [data-reply-edit], [data-reply-save], [data-reply-cancel], [data-reply-delete], [data-reply-report]');
+    var t = e.target.closest('#hub-new, #hub-save, #hub-edit, #hub-delete, #hub-report, #hub-reply-send, #hub-find, #hub-requests, #find-send, #find-online, #find-near, #find-locate, [data-request], [data-request-approve], [data-request-decline], [data-post], [data-reply-edit], [data-reply-save], [data-reply-cancel], [data-reply-delete], [data-reply-report]');
     if (!t) return;
     if (t.id === 'hub-find') return ctx.go('#/hub/find');
     if (t.id === 'hub-requests') return ctx.go('#/hub/requests');
+    if (t.id === 'find-online') return showFind();
+    if (t.id === 'find-near') return showNearPrompt();
+    if (t.id === 'find-locate') return useMyLocation();
     if (t.id === 'find-send') return sendRequest(t.closest('form') && t.closest('form').getAttribute('data-trainer'));
     var askId = t.getAttribute('data-request');
     if (askId) return ctx.go('#/hub/find/' + encodeURIComponent(askId));
@@ -758,6 +915,8 @@
     sortPosts: sortPosts,
     sortReplies: sortReplies,
     listHtml: listHtml,
+    distanceLabel: distanceLabel,
+    placeLabel: placeLabel,
     findResultsHtml: findResultsHtml,
     requestFormHtml: requestFormHtml,
     requestCardsHtml: requestCardsHtml,
