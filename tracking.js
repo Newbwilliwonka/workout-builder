@@ -153,6 +153,11 @@
         row.actualReps = num(result.reps);
         row.actualRounds = num(result.rounds);
       }
+      // Static is a hold: no rep count, and the logged work time is the hold.
+      // Copy it into actual_hold_sec so the dashboard can tell this set from a
+      // time-only timer. Leave planned_hold_sec empty so Hit the plan still
+      // scores the work target and nothing else.
+      if (c.repsType === 'static' && row.actualWorkSec != null) row.actualHoldSec = row.actualWorkSec;
     } else if (mode === 'stopwatch') {
       if (c.lapsEnabled !== false) row.plannedLapCount = num(c.lapCount);
       row.plannedEvents = plannedEvents(c.events);

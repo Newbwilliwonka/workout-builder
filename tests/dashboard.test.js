@@ -43,8 +43,10 @@ function set(over) {
 function session(id, date, over) {
   return Object.assign({ id: id, local_date: date, status: 'completed', workout_name: 'Day' }, over);
 }
-function model(sets, sessions, entries) {
-  return D.build({ sets: sets, sessions: sessions, entries: entries || [], now: NOW });
+function model(sets, sessions, entries, workouts, schemaVersion) {
+  var input = { sets: sets, sessions: sessions, entries: entries || [], workouts: workouts || [], now: NOW };
+  if (schemaVersion != null) input.schemaVersion = schemaVersion;
+  return D.build(input);
 }
 
 assert.strictEqual(D.hitPlan(set()), true);
@@ -586,5 +588,220 @@ assert.ok(!/create policy/i.test(migration));
 assert.ok(!/enable row level security/i.test(migration));
 assert.ok(/input\.cards\.length > 9/.test(authSrc));
 assert.ok(!/cards\.length > 7/.test(authSrc));
+assert.strictEqual((appSrc.match(/workouts: dashboardWorkouts\(\)/g) || []).length, 2);
+assert.strictEqual((appSrc.match(/schemaVersion: data && data.version/g) || []).length, 2);
+assert.ok(/schemaVersion: window\.WB && WB\.SCHEMA_VERSION/.test(appSrc));
+assert.ok(/workouts: pair\[2\] \|\| \[\]/.test(appSrc));
+assert.ok(/function clientDashboardWorkouts\(/.test(appSrc));
+assert.ok(/clientAccountWorkouts/.test(appSrc));
+assert.ok(/actual_hold_sec/.test(dashSrc));
+assert.ok(!/plannedWorkSec/.test(dashSrc.slice(dashSrc.indexOf('function holdSeconds'), dashSrc.indexOf('function speedSeconds'))), 'a missing logged time is not filled in from the plan');
+
+function timed(over) {
+  return set(Object.assign({
+    mode: 'timer', exerciseName: 'Handstand', libraryExerciseId: '', personalExerciseId: 'hs-1',
+    stableKey: 'ex_handstand', plannedReps: null, plannedRepsMin: null, plannedRepsMax: null,
+    actualReps: null, plannedWeightKg: null, actualWeightKg: null,
+    plannedBodyweight: true, actualBodyweight: true, displayUnit: 'bodyweight',
+    plannedHoldSec: null, actualHoldSec: null, plannedWorkSec: 45, actualWorkSec: 45, plannedRestSec: 15
+  }, over));
+}
+function defs() {
+  return [{
+    id: 'wo_skill',
+    name: 'Skill',
+    items: [
+      { id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' }, media: null },
+      { id: 'ex_hollow', name: 'Hollow', mode: 'timer', modeConfig: { workSec: 20, restSec: 10, repsType: null }, media: null },
+      { id: 'ex_hang', name: 'Dead hang', mode: 'intervals', modeConfig: { workSec: 20, repsType: 'static' }, media: null },
+      { id: 'ex_swing', name: 'Swing', mode: 'timer', modeConfig: { workSec: 30, restSec: 15, repsType: 'number', count: 12 }, media: { kind: 'library', libraryId: '0101', view: '180' } },
+      { id: 'ex_pike', name: 'Pike', mode: 'timer', modeConfig: { workSec: 20, restSec: 10, repsType: null }, media: { kind: 'library', libraryId: 'hold', view: '180' } },
+      { id: 'ex_lib_hs', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 30, restSec: 10, repsType: 'static' }, media: { kind: 'library', libraryId: 'hold', view: '180' } }
+    ]
+  }];
+}
+const handstandDay = model([
+  timed({ sessionId: 'hs-short', localDate: '2026-11-18', actualWorkSec: 38, startedAt: 20, setNumber: 1 }),
+  timed({ sessionId: 'hs-long', localDate: '2026-11-17', actualWorkSec: 50, startedAt: 19, setNumber: 1 }),
+  timed({ sessionId: 'hs-tie-new', localDate: '2026-11-12', actualWorkSec: 40, startedAt: 12, setNumber: 2 }),
+  timed({ sessionId: 'hs-tie-old', localDate: '2026-11-01', actualWorkSec: 40, startedAt: 2, setNumber: 1 }),
+  timed({ sessionId: 'hs-skip', localDate: '2026-11-18', actualWorkSec: 90, status: 'skipped' }),
+  timed({ sessionId: 'hs-zero', localDate: '2026-11-18', actualWorkSec: 0 }),
+  timed({ sessionId: 'hs-plan', localDate: '2026-11-18', actualWorkSec: null, plannedWorkSec: 90 }),
+  timed({
+    sessionId: 'hollow', localDate: '2026-11-18', exerciseName: 'Hollow', personalExerciseId: 'hol-1',
+    stableKey: 'ex_hollow', actualWorkSec: 40, plannedWorkSec: 20, startedAt: 21
+  }),
+  timed({
+    sessionId: 'hang', localDate: '2026-11-16', exerciseName: 'Dead hang', personalExerciseId: 'hang-1',
+    stableKey: 'ex_hang', mode: 'intervals', actualWorkSec: 22, plannedWorkSec: 20, plannedRestSec: null, startedAt: 16
+  }),
+  timed({
+    sessionId: 'swing', localDate: '2026-11-18', exerciseName: 'Swing', libraryExerciseId: '0101',
+    personalExerciseId: '', stableKey: '', plannedReps: 12, actualReps: 12, actualWorkSec: 30, startedAt: 22
+  }),
+  hold({ sessionId: 'plank', localDate: '2026-11-05', actualHoldSec: 75, startedAt: 5 })
+], [session('hs-long', '2026-11-17')], [], defs());
+assert.deepStrictEqual(handstandDay.holds.map(function (row) { return [row.name, row.value, row.date, row.dateLabel]; }), [
+  ['Handstand', '0:50', '2026-11-17', 'Nov 17'],
+  ['Dead hang', '0:22', '2026-11-16', 'Nov 16'],
+  ['Plank', '1:15', '2026-11-05', 'Nov 5']
+]);
+assert.ok(!handstandDay.holds.some(function (row) { return row.name === 'Hollow' || row.name === 'Swing'; }));
+assert.deepStrictEqual(handstandDay.strength, { weight: [], reps: [] });
+assert.deepStrictEqual(handstandDay.records.map(function (row) { return [row.name, row.badge, row.value]; }), [
+  ['Plank', 'Longest hold', '1:15 hold']
+]);
+assert.deepStrictEqual(handstandDay.stopwatch, []);
+assert.strictEqual(handstandDay.volume.weekKg, 0);
+assert.strictEqual(handstandDay.plan.total, 11);
+assert.strictEqual(handstandDay.plan.hits, 4, 'the plan still scores work time, and a time-only timer still counts');
+assert.strictEqual(D.hitPlan(timed({ actualWorkSec: 12, actualHoldSec: 12 })), D.hitPlan(timed({ actualWorkSec: 12, actualHoldSec: null })));
+assert.strictEqual(D.hitPlan(timed({ actualWorkSec: 45, actualHoldSec: 45 })), true);
+
+const marked = model([
+  timed({ sessionId: 'marked', localDate: '2026-11-18', actualWorkSec: 50, actualHoldSec: 10, startedAt: 3 }),
+  timed({ sessionId: 'copied', localDate: '2026-11-10', actualWorkSec: null, actualHoldSec: 16, plannedWorkSec: 45, stableKey: 'ex_missing', personalExerciseId: 'gone', startedAt: 2 }),
+  timed({ sessionId: 'was-reps', localDate: '2026-11-18', actualWorkSec: 60, plannedReps: 8, actualReps: 8, actualHoldSec: 60, stableKey: 'ex_handstand' })
+], [session('marked', '2026-11-18')]);
+assert.deepStrictEqual(marked.holds.map(function (row) { return [row.name, row.value, row.date]; }), [
+  ['Handstand', '0:50', '2026-11-18'],
+  ['Handstand', '0:16', '2026-11-10']
+]);
+const tied = model([
+  timed({ sessionId: 'tie-new', localDate: '2026-11-10', actualWorkSec: 40, actualHoldSec: 40, startedAt: 5, setNumber: 2 }),
+  timed({ sessionId: 'tie-old', localDate: '2026-11-02', actualWorkSec: 40, actualHoldSec: 40, startedAt: 4, setNumber: 1 })
+], [session('tie-new', '2026-11-10')]);
+assert.deepStrictEqual(tied.holds.map(function (row) { return [row.value, row.date]; }), [['0:40', '2026-11-02']]);
+
+const renamed = model([
+  timed({
+    sessionId: 'lib-hs', localDate: '2026-11-18', exerciseName: 'Handstand', libraryExerciseId: 'hold',
+    personalExerciseId: '', stableKey: '', actualWorkSec: 33, startedAt: 4
+  }),
+  timed({
+    sessionId: 'lib-pike', localDate: '2026-11-18', exerciseName: 'Pike', libraryExerciseId: 'hold',
+    personalExerciseId: '', stableKey: '', actualWorkSec: 80, startedAt: 5
+  }),
+  timed({
+    sessionId: 'lib-renamed', localDate: '2026-11-09', exerciseName: 'HS', libraryExerciseId: 'only',
+    personalExerciseId: '', stableKey: '', actualWorkSec: 27, startedAt: 1
+  }),
+  timed({
+    sessionId: 'conflict', localDate: '2026-11-18', exerciseName: 'Handstand', libraryExerciseId: '',
+    personalExerciseId: 'conflict', stableKey: 'ex_handstand', actualWorkSec: 99, startedAt: 9
+  })
+], [session('lib', '2026-11-18')], [], [{
+  items: [
+    { id: 'ex_lib_hs', name: 'Handstand', mode: 'timer', modeConfig: { repsType: 'static', workSec: 30, restSec: 10 }, media: { kind: 'library', libraryId: 'hold' } },
+    { id: 'ex_pike', name: 'Pike', mode: 'timer', modeConfig: { repsType: null, workSec: 20, restSec: 10 }, media: { kind: 'library', libraryId: 'hold' } },
+    { id: 'ex_only', name: 'Handstand', mode: 'timer', modeConfig: { repsType: 'static', workSec: 30, restSec: 10 }, media: { kind: 'library', libraryId: 'only' } }
+  ]
+}, {
+  items: JSON.stringify([{ id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { repsType: null } }, { id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { repsType: 'static' } }])
+}]);
+assert.deepStrictEqual(renamed.holds.map(function (row) { return [row.name, row.value]; }), [
+  ['Handstand', '0:33'],
+  ['HS', '0:27']
+]);
+assert.ok(!renamed.holds.some(function (row) { return row.name === 'Pike'; }));
+
+const stillStatic = model([
+  timed({ sessionId: 'kept', localDate: '2026-11-18', actualWorkSec: 41, actualHoldSec: 41 })
+], [session('kept', '2026-11-18')], [], [{ items: [{ id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { repsType: null, workSec: 45, restSec: 15 } }] }]);
+assert.deepStrictEqual(stillStatic.holds.map(function (row) { return row.value; }), ['0:41']);
+
+const piped = H.fromRows(
+  [
+    { id: 'ses-hs', local_date: '2026-11-18', started_at: '2026-11-18T15:00:00.000Z', status: 'completed', workout_name: 'Skill' },
+    { id: 'ses-hol', local_date: '2026-11-18', started_at: '2026-11-18T15:10:00.000Z', status: 'completed', workout_name: 'Skill' }
+  ],
+  [
+    {
+      session_id: 'ses-hs', personal_exercise_id: '11111111-1111-4111-8111-111111111111',
+      exercise_name: 'Handstand', mode: 'timer', set_number: 1, status: 'completed',
+      display_unit: 'bodyweight', planned_bodyweight: true, actual_bodyweight: true,
+      planned_reps: null, actual_reps: null, planned_hold_sec: null, actual_hold_sec: null,
+      planned_work_sec: 45, actual_work_sec: 38, planned_rest_sec: 15
+    },
+    {
+      session_id: 'ses-hol', personal_exercise_id: '22222222-2222-4222-8222-222222222222',
+      exercise_name: 'Hollow', mode: 'timer', set_number: 1, status: 'completed',
+      display_unit: 'bodyweight', planned_bodyweight: true, actual_bodyweight: true,
+      planned_work_sec: 20, actual_work_sec: 40, planned_rest_sec: 10
+    }
+  ],
+  [
+    { id: '11111111-1111-4111-8111-111111111111', stable_key: 'ex_handstand' },
+    { id: '22222222-2222-4222-8222-222222222222', stable_key: 'ex_hollow' }
+  ]
+);
+const pipedModel = D.build({
+  sets: piped,
+  sessions: [
+    { id: 'ses-hs', local_date: '2026-11-18', status: 'completed' },
+    { id: 'ses-hol', local_date: '2026-11-18', status: 'completed' }
+  ],
+  workouts: defs(),
+  now: new Date(2026, 10, 18, 16, 0, 0)
+});
+assert.strictEqual(piped[0].stableKey, 'ex_handstand');
+assert.strictEqual(piped[0].actualHoldSec, null);
+assert.strictEqual(piped[0].actualWorkSec, 38);
+assert.deepStrictEqual(pipedModel.holds.map(function (row) { return [row.name, row.value, row.dateLabel]; }), [
+  ['Handstand', '0:38', 'Nov 18']
+]);
+
+const frozenHandstand = D.freeze(handstandDay, ['holds'], { asOf: '2026-11-18', trainerName: 'coach@example.com' });
+handstandDay.holds = [];
+assert.strictEqual(frozenHandstand.trainerName, 'Trainer');
+assert.deepStrictEqual(frozenHandstand.cards[0].holds.map(function (row) { return [row.name, row.value, row.date, row.dateLabel]; }), [
+  ['Handstand', '0:50', '2026-11-17', 'Nov 17'],
+  ['Dead hang', '0:22', '2026-11-16', 'Nov 16'],
+  ['Plank', '1:15', '2026-11-05', 'Nov 5']
+]);
+assert.ok(!Object.prototype.hasOwnProperty.call(frozenHandstand.cards[0].holds[0], 'startedAt'));
+const frozenHandstandHtml = D.snapshotHtml(frozenHandstand);
+assert.ok(frozenHandstandHtml.indexOf('Handstand') >= 0);
+assert.ok(frozenHandstandHtml.indexOf('0:50') >= 0);
+assert.ok(frozenHandstandHtml.indexOf('Hollow') < 0);
+assert.ok(frozenHandstandHtml.indexOf('@') < 0);
+
+const legacyDoc = model([
+  timed({ sessionId: 'old-doc', localDate: '2026-11-18', actualWorkSec: 38 }),
+  hold({ sessionId: 'pl', localDate: '2026-11-05', actualHoldSec: 75 })
+], [session('old-doc', '2026-11-18')], [], defs(), 3);
+assert.deepStrictEqual(legacyDoc.holds.map(function (row) { return row.name; }), ['Plank']);
+const mixedSchema = model([
+  timed({
+    sessionId: 'legacy-ex', localDate: '2026-11-18', exerciseName: 'Old plank',
+    personalExerciseId: 'old', stableKey: 'ex_old', actualWorkSec: 30
+  }),
+  timed({ sessionId: 'chosen', localDate: '2026-11-18', actualWorkSec: 38 })
+], [session('legacy-ex', '2026-11-18')], [], [
+  { version: 3, items: [{ id: 'ex_old', name: 'Old plank', mode: 'timer', modeConfig: { workSec: 30, restSec: 0, repsType: 'static' } }] },
+  { items: [{ id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' } }] }
+], 4);
+assert.deepStrictEqual(mixedSchema.holds.map(function (row) { return row.name; }), ['Handstand']);
+const sharedLegacy = model([
+  timed({ sessionId: 'same', localDate: '2026-11-18', actualWorkSec: 38 }),
+  timed({
+    sessionId: 'same-lib', localDate: '2026-11-18', exerciseName: 'Handstand',
+    libraryExerciseId: 'hold', personalExerciseId: '', stableKey: '', actualWorkSec: 33
+  })
+], [session('same', '2026-11-18')], [], [
+  { version: 3, items: [
+    { id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' } },
+    { id: 'old-lib', name: 'Handstand', mode: 'timer', modeConfig: { repsType: 'static', workSec: 30, restSec: 10 }, media: { kind: 'library', libraryId: 'hold' } }
+  ] },
+  { items: [
+    { id: 'ex_handstand', name: 'Handstand', mode: 'timer', modeConfig: { workSec: 45, restSec: 15, repsType: 'static' } },
+    { id: 'new-lib', name: 'Handstand', mode: 'timer', modeConfig: { repsType: 'static', workSec: 30, restSec: 10 }, media: { kind: 'library', libraryId: 'hold' } }
+  ] }
+], 4);
+assert.deepStrictEqual(sharedLegacy.holds.map(function (row) { return [row.name, row.value]; }), [
+  ['Handstand', '0:38'],
+  ['Handstand', '0:33']
+]);
 
 console.log('DASHBOARD OK');

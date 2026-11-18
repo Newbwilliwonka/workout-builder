@@ -3423,6 +3423,39 @@
     }
     catch (e) { return local; }
   }
+  function dashboardWorkouts() {
+    return data && Array.isArray(data.workouts) ? data.workouts : [];
+  }
+  function workoutList(value) {
+    if (typeof value === 'string') {
+      try { value = JSON.parse(value); } catch (e) { return []; }
+    }
+    if (Array.isArray(value)) return value;
+    if (value && Array.isArray(value.workouts)) return value.workouts;
+    return [];
+  }
+  // Saved exercises for this client, so an older Static timer can be recognized.
+  // A missing or refused read leaves those rows off the card; it does not fail the sheet.
+  function clientDashboardWorkouts(clientId) {
+    function quiet(fn) {
+      if (typeof fn !== 'function') return Promise.resolve([]);
+      var pending;
+      try { pending = fn(clientId); } catch (e) { return Promise.resolve([]); }
+      return Promise.resolve(pending).then(workoutList, function () { return []; });
+    }
+    var auth = window.WBAuth || {};
+    return Promise.all([
+      quiet(auth.clientAccountWorkouts),
+      quiet(auth.clientWorkouts),
+      quiet(auth.clientSentWorkouts)
+    ]).then(function (lists) {
+      var out = [];
+      lists.forEach(function (rows) {
+        rows.forEach(function (row) { if (row) out.push(row); });
+      });
+      return out;
+    }, function () { return []; });
+  }
   function paintLoadedDashboard(historyRes, scheduleRes, settle, prefix, sharePack) {
     var failed = !historyRes || historyRes.unavailable || historyRes.error;
     var sessions = historyRes && historyRes.sessions || [];
@@ -3437,6 +3470,8 @@
       sets: sets,
       sessions: sessions,
       entries: dashboardEntries(scheduleRes),
+      workouts: dashboardWorkouts(),
+      schemaVersion: data && data.version,
       now: dashboardNow()
     });
     paintTracking('dashboard', head + WBDashboard.html(model) + extra, settle);
@@ -3505,6 +3540,8 @@
       sets: sets,
       sessions: sessions,
       entries: dashboardEntries(scheduleRes),
+      workouts: dashboardWorkouts(),
+      schemaVersion: data && data.version,
       now: dashboardNow(),
       layout: true
     });
@@ -3593,7 +3630,8 @@
       catch (e2) { scheduleP = Promise.resolve({ unavailable: true, entries: [] }); }
       Promise.all([
         Promise.resolve(historyP).then(function (res) { return res || { error: true, sets: [], sessions: [], exercises: [] }; }, function () { return { error: true, sets: [], sessions: [], exercises: [] }; }),
-        Promise.resolve(scheduleP).then(function (res) { return res || { unavailable: true, entries: [] }; }, function () { return { unavailable: true, entries: [] }; })
+        Promise.resolve(scheduleP).then(function (res) { return res || { unavailable: true, entries: [] }; }, function () { return { unavailable: true, entries: [] }; }),
+        clientDashboardWorkouts(clientId)
       ]).then(function (pair) {
         if (!onDashboard(token) || trackingTail().id !== clientId) return;
         var historyRes = pair[0];
@@ -3612,6 +3650,11 @@
           sets: sets,
           sessions: sessions,
           entries: entries,
+          workouts: pair[2] || [],
+          // Those copies are written by this app after migrate(). A Static
+          // rep type there was chosen. A workout whose own version is under 4
+          // is still the old time-only default.
+          schemaVersion: window.WB && WB.SCHEMA_VERSION,
           now: dashboardNow(),
           layout: true
         });
