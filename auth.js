@@ -4,6 +4,12 @@
   var URL = 'https://thyrgloermygnezfareg.supabase.co';
   var PUBLISHABLE_KEY = 'sb_publishable_YT4vJriMUtcFRveDBA0GaA_eDiu5_Py';
   var REDIRECT = 'https://coachtrainerapp.com/';
+  // Public Cloudflare Turnstile site key. Leave this empty until the real key
+  // from the Cloudflare widget is pasted here. An empty key skips the captcha
+  // completely, so sign-up and sign-in keep working before Supabase captcha is
+  // switched on. The secret key does not belong in this file. Put it only in
+  // the Supabase dashboard: Authentication > Bot and Abuse Protection.
+  var TURNSTILE_SITE_KEY = '';
   // Bunny folder that contains 180/ and 360/.
   // A library demo is this value + "/180/" + id + ".gif" (or "/360/"). Not a secret.
   var EXERCISE_GIF_BASE = 'https://kinisiexercises.b-cdn.net';
@@ -325,16 +331,22 @@
     onAuth: function (fn) {
       if (typeof fn === 'function') authWatchers.push(fn);
     },
-    signUp: function (email, password) {
+    signUp: function (email, password, captchaToken) {
       return db().then(function (c) {
-        return c.auth.signUp({ email: email, password: password, options: { emailRedirectTo: REDIRECT } });
+        var options = { emailRedirectTo: REDIRECT };
+        if (captchaToken) options.captchaToken = captchaToken;
+        return c.auth.signUp({ email: email, password: password, options: options });
       }).then(function (res) {
         if (res.error) throw res.error;
         return { session: res.data.session || null, needsConfirmation: !res.data.session };
       });
     },
-    signIn: function (email, password) {
-      return db().then(function (c) { return c.auth.signInWithPassword({ email: email, password: password }); }).then(function (res) {
+    signIn: function (email, password, captchaToken) {
+      return db().then(function (c) {
+        var credentials = { email: email, password: password };
+        if (captchaToken) credentials.options = { captchaToken: captchaToken };
+        return c.auth.signInWithPassword(credentials);
+      }).then(function (res) {
         if (res.error) throw res.error;
         return res.data.session || null;
       });
@@ -345,9 +357,11 @@
       });
     },
     // Same redirect as email confirmation. coachtrainerapp.com/** is already allowed.
-    requestPasswordReset: function (email) {
+    requestPasswordReset: function (email, captchaToken) {
       return db().then(function (c) {
-        return c.auth.resetPasswordForEmail(String(email || '').trim(), { redirectTo: REDIRECT });
+        var options = { redirectTo: REDIRECT };
+        if (captchaToken) options.captchaToken = captchaToken;
+        return c.auth.resetPasswordForEmail(String(email || '').trim(), options);
       }).then(function (res) {
         if (res.error) throw res.error;
         return true;
@@ -361,6 +375,8 @@
         return true;
       });
     },
+    // Public site key only. Empty means the sign-in screens skip Turnstile.
+    TURNSTILE_SITE_KEY: TURNSTILE_SITE_KEY,
     // '', 'recovery', 'code', or 'error'. Read from the URL captured at load.
     recoveryArrival: function () { return arrivalKind(); },
     // Classify the link after the client has had a chance to read it.

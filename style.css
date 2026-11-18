@@ -68,6 +68,8 @@ input.is-empty,textarea.is-empty{border-color:var(--danger);box-shadow:0 0 0 2px
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 16px;border-radius:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
 .gate{padding-top:18px}
+.turnstile-box{margin-top:14px;width:100%;max-width:100%;min-height:65px}
+#captcha-note[hidden]{display:none}
 .gate h2{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .lede{color:var(--mute);font-size:16px;line-height:1.45;margin:0 0 22px}
 .gate .card{padding:22px 18px}

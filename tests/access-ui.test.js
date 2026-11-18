@@ -274,6 +274,7 @@ const ART = '/opt/cursor/artifacts';
   });
   await p.type('#acct-email', 'pat@example.com');
   await p.type('#acct-pass', 'secret1234');
+  await p.type('#confirm-pass', 'secret1234');
   await p.type('#invite-code', 'ABCD2345');
   await p.click('[data-auth=up]');
   await p.waitForSelector('#access-wait');
