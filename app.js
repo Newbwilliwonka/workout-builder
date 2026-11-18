@@ -1084,6 +1084,15 @@
     if (!btn) return;
     btn.disabled = !!(authBusy || captchaBlocksSubmit());
   }
+  // The screen may have changed while the request was running. Drop the busy
+  // flag and refresh the button that is on screen now. Do not touch that
+  // screen's captcha token or hold flag.
+  function finishAuthAttempt(startedOn) {
+    authBusy = false;
+    if (hashPage() === startedOn) return true;
+    syncAuthSubmit();
+    return false;
+  }
   function discardCaptchaWidget() {
     captchaSerial += 1;
     captchaToken = '';
@@ -1220,13 +1229,27 @@
     var gate = app.querySelector('.gate');
     if (!gate) return false;
     var box = document.getElementById('auth-error');
+    if (!box || !gate.contains(box)) box = null;
+    if (!box) {
+      var banners = gate.querySelectorAll('.errs');
+      for (var i = 0; i < banners.length; i++) {
+        if (banners[i].id === 'captcha-note') continue;
+        box = banners[i];
+        break;
+      }
+    }
     if (!box) {
       box = document.createElement('div');
-      box.id = 'auth-error';
-      box.className = 'errs';
       gate.insertBefore(box, gate.firstChild);
     }
+    box.id = 'auth-error';
+    box.className = 'errs';
+    box.hidden = false;
     box.textContent = message || '';
+    var extras = gate.querySelectorAll('.errs');
+    for (var j = 0; j < extras.length; j++) {
+      if (extras[j] !== box && extras[j].id !== 'captcha-note' && extras[j].parentNode) extras[j].parentNode.removeChild(extras[j]);
+    }
     return true;
   }
   function renderSign(mode, message, isError) {
@@ -1238,7 +1261,7 @@
     titleEl.textContent = create ? 'Create account' : 'Sign in';
     backBtn.hidden = true;
     var h = '<div class="gate">';
-    if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
+    if (message) h += '<div id="auth-error" class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     h += '<h2>' + (create ? 'Create your account' : 'Sign in') + '</h2>';
     h += '<p class="lede">Built for trainers and the people they coach.</p>';
     h += '<label for="acct-email">Email</label><input id="acct-email" type="email" autocomplete="username">';
@@ -1294,15 +1317,13 @@
         ? (captchaOn() ? WBAuth.signUp(email, password, captchaToken) : WBAuth.signUp(email, password))
         : (captchaOn() ? WBAuth.signIn(email, password, captchaToken) : WBAuth.signIn(email, password));
       op.then(function (result) {
-        authBusy = false;
-        if (hashPage() !== startedOn) return;
+        if (!finishAuthAttempt(startedOn)) return;
         captchaHold = true;
         resetCaptchaAfterAttempt();
         if (b.dataset.auth === 'up' && result.needsConfirmation) return showSignInNotice('Check your email to confirm the account, then sign in.');
         afterSignIn();
       }).catch(function (err) {
-        authBusy = false;
-        if (hashPage() !== startedOn) return;
+        if (!finishAuthAttempt(startedOn)) return;
         resetCaptchaAfterAttempt();
         renderSign(startedOn === 'join' ? 'up' : 'in', authErrorText(err), true);
       });
@@ -1324,7 +1345,7 @@
     backBtn.hidden = true;
     var sent = message && !isError;
     var h = '<div class="gate">';
-    if (message && isError) h += '<div class="errs">' + esc(message) + '</div>';
+    if (message && isError) h += '<div id="auth-error" class="errs">' + esc(message) + '</div>';
     h += sent
       ? '<h2>Check your email</h2><p class="lede">' + esc(message) + '</p>'
       : '<h2>Forgot password</h2><p class="lede">We\'ll email you a link to choose a new password.</p>';
@@ -1356,14 +1377,12 @@
       var started = hashPage();
       var reset = captchaOn() ? WBAuth.requestPasswordReset(entered, captchaToken) : WBAuth.requestPasswordReset(entered);
       reset.then(function () {
-        authBusy = false;
-        if (hashPage() !== started) return;
+        if (!finishAuthAttempt(started)) return;
         captchaHold = true;
         resetCaptchaAfterAttempt();
         renderForgot(RESET_SENT, false);
       }).catch(function (err) {
-        authBusy = false;
-        if (hashPage() !== started) return;
+        if (!finishAuthAttempt(started)) return;
         resetCaptchaAfterAttempt();
         var shown = resetSendError(err);
         if (!shown) return renderForgot(RESET_SENT, false);

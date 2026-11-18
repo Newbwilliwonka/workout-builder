@@ -327,6 +327,19 @@ const FAKE = [
     return box && box.textContent === 'Invalid login credentials';
   });
   assert.deepStrictEqual(await p.evaluate(function () { return window.__signIn; }), ['ada@example.com', 'secret1234', 'tok-signin']);
+  await p.evaluate(function () { window.__widgets[window.__widgets.length - 1].opts.callback('tok-short'); });
+  await p.waitForFunction(function () { return document.querySelector('[data-auth=in]').disabled === false; });
+  await p.evaluate(function () {
+    document.getElementById('acct-email').value = 'ada@example.com';
+    document.getElementById('acct-pass').value = 'short';
+  });
+  await p.click('[data-auth=in]');
+  await p.waitForFunction(function () {
+    var shown = Array.prototype.filter.call(document.querySelectorAll('.errs'), function (el) {
+      return el.id !== 'captcha-note' && !el.hidden;
+    });
+    return shown.length === 1 && shown[0].textContent.indexOf('at least 6 characters') !== -1 && document.body.innerText.indexOf('Invalid login credentials') === -1;
+  });
 
   await p.evaluate(function () {
     window.__reset = null;
@@ -366,11 +379,13 @@ const FAKE = [
   await p.click('[data-auth=in]');
   await p.click('[data-auth=switch]');
   await p.waitForSelector('#confirm-pass');
+  const joinWidget = await p.evaluate(function () { return window.__widgets[window.__widgets.length - 1].id; });
+  await p.evaluate(function () { window.__widgets[window.__widgets.length - 1].opts.callback('tok-while-busy'); });
+  assert.strictEqual(await p.$eval('[data-auth=up]', function (el) { return el.disabled; }), true, 'the old request still blocks the new screen');
   await p.evaluate(function () { window.__holdGate.resolve({ user: { email: 'ada@example.com' } }); });
-  await new Promise(function (r) { setTimeout(r, 50); });
-  assert.strictEqual(await p.evaluate(function () { return location.hash; }), '#/join');
-  await p.evaluate(function () { window.__widgets[window.__widgets.length - 1].opts.callback('tok-after-leave'); });
   await p.waitForFunction(function () { return document.querySelector('[data-auth=up]') && document.querySelector('[data-auth=up]').disabled === false; });
+  assert.strictEqual(await p.evaluate(function () { return location.hash; }), '#/join');
+  assert.strictEqual(await p.evaluate(function () { return window.__widgets[window.__widgets.length - 1].id; }), joinWidget, 'the old request did not reset the new check');
 
   await p.setViewport({ width: 320, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
   await p.evaluate(function () { location.hash = '#/signin'; });
