@@ -482,7 +482,7 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
       attr: root.innerText.indexOf('OpenStreetMap') !== -1
     };
   });
-  assert.strictEqual(pin.note, 'Your exact pin is private. It is only used to find nearby clients in the Trainer Hub search. Only your city and state are shown publicly.');
+  assert.strictEqual(pin.note, 'Your exact pin is private. It is only used so clients can find you in the Trainer Hub search. Only your city and state are shown publicly.');
   assert.ok(pin.text.indexOf('Public location: Austin, Texas') !== -1);
   assert.ok(pin.inputs.indexOf('pin-query') !== -1);
   assert.ok(pin.inputs.indexOf('pin-city') === -1);

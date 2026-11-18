@@ -6,7 +6,7 @@ const P = require('../places.js');
 
 assert.ok(P.MIN_GAP >= 1000);
 assert.ok(P.REVERSE_WAIT >= 1000);
-assert.strictEqual(P.PRIVACY_NOTE, 'Your exact pin is private. It is only used to find nearby clients in the Trainer Hub search. Only your city and state are shown publicly.');
+assert.strictEqual(P.PRIVACY_NOTE, 'Your exact pin is private. It is only used so clients can find you in the Trainer Hub search. Only your city and state are shown publicly.');
 assert.ok(P.NEAR_NOTE.indexOf('not saved') !== -1);
 assert.ok(P.NOMINATIM.indexOf('nominatim.openstreetmap.org') !== -1);
 assert.ok(P.TILES.indexOf('tile.openstreetmap.org') !== -1);

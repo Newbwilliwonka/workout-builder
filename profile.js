@@ -281,7 +281,7 @@
     h += '</div>';
     return h;
   }
-  var PIN_NOTE = 'Your exact pin is private. It is only used to find nearby clients in the Trainer Hub search. Only your city and state are shown publicly.';
+  var PIN_NOTE = 'Your exact pin is private. It is only used so clients can find you in the Trainer Hub search. Only your city and state are shown publicly.';
   function placeText(city, region) {
     var c = clean(city);
     var r = clean(region);

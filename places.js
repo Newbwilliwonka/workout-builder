@@ -8,7 +8,7 @@
   var TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   var MIN_GAP = 1100;
   var REVERSE_WAIT = 1000;
-  var PRIVACY_NOTE = 'Your exact pin is private. It is only used to find nearby clients in the Trainer Hub search. Only your city and state are shown publicly.';
+  var PRIVACY_NOTE = 'Your exact pin is private. It is only used so clients can find you in the Trainer Hub search. Only your city and state are shown publicly.';
   var NEAR_NOTE = 'Your location is used only for this search and is not saved.';
   var ATTR = 'Maps and place names © OpenStreetMap contributors';
 
