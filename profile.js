@@ -332,6 +332,21 @@
     h += '<div class="avatar" id="profile-photo" aria-hidden="true">' + (opts.photoUrl ? '<img alt="" src="' + esc(opts.photoUrl) + '">' : personIcon()) + '</div>';
     h += '<label class="file-btn">Upload photo<input id="profile-file" type="file" accept="image/*"></label>';
     h += '<label for="profile-name">Name</label><input id="profile-name" maxlength="' + NAME_MAX + '" autocomplete="nickname" value="' + esc(opts.display_name || '') + '">';
+    if (opts.master) {
+      h += '<div id="verify-slot">';
+      if (opts.verified) {
+        h += verifyAreaHtml({
+          show: true,
+          mode: 'verified',
+          ends: opts.verified_until != null ? opts.verified_until : opts.verifiedUntil
+        });
+      } else {
+        h += '<p class="mute" id="verify-loading">Loading…</p>';
+      }
+      h += '</div>';
+    }
+    h += '<label for="profile-bio">Bio</label><textarea id="profile-bio" maxlength="' + BIO_MAX + '" rows="3" placeholder="Specialties, service areas, certifications">' + esc(bio) + '</textarea>';
+    h += '<p class="mute bio-count" id="profile-count">' + bio.length + '/' + BIO_MAX + '</p>';
     if (opts.canList) {
       var listedOn = !!opts.listed;
       var selected = chosenService(opts);
@@ -349,21 +364,6 @@
       h += '<option value="both"' + (selected === 'both' ? ' selected' : '') + '>In Person and Online</option>';
       h += '</select></div>';
       h += pinHtml(opts.pin, { hidden: !showPlace });
-    }
-    h += '<label for="profile-bio">Bio</label><textarea id="profile-bio" maxlength="' + BIO_MAX + '" rows="3" placeholder="Specialties, service areas, certifications">' + esc(bio) + '</textarea>';
-    h += '<p class="mute bio-count" id="profile-count">' + bio.length + '/' + BIO_MAX + '</p>';
-    if (opts.master) {
-      h += '<div id="verify-slot">';
-      if (opts.verified) {
-        h += verifyAreaHtml({
-          show: true,
-          mode: 'verified',
-          ends: opts.verified_until != null ? opts.verified_until : opts.verifiedUntil
-        });
-      } else {
-        h += '<p class="mute" id="verify-loading">Loading…</p>';
-      }
-      h += '</div>';
     }
     h += '<p class="errs" id="profile-error" hidden>Fill in the highlighted fields.</p>';
     h += '<button type="button" class="pri" id="profile-save"' + (opts.unavailable ? ' disabled' : '') + '>Save</button>';

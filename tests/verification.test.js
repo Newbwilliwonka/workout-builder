@@ -155,8 +155,8 @@ assert.ok(plain.indexOf('id="verify-slot"') === -1);
 assert.ok(plain.indexOf('>Profile</h3>') > 0);
 const master = P.sheetHtml({ master: true, display_name: 'Coach Kim', membership: 'master_trainer' });
 assert.ok(master.indexOf('id="verify-slot"') > 0);
-assert.ok(master.indexOf('id="profile-bio"') > 0);
-assert.ok(master.indexOf('id="verify-slot"') > master.indexOf('id="profile-bio"'));
+assert.ok(master.indexOf('id="profile-name"') < master.indexOf('id="verify-slot"'));
+assert.ok(master.indexOf('id="verify-slot"') < master.indexOf('id="profile-bio"'));
 const sealed = P.sheetHtml({ verified: true, display_name: 'Coach Kim' });
 assert.ok(sealed.indexOf('aria-label="Verified"') > 0);
 assert.ok(sealed.indexOf('Coach Kim') > 0);
@@ -169,7 +169,8 @@ const ownSeal = P.sheetHtml({
   display_name: 'Coach Kim',
   bio: 'Strength'
 });
-assert.ok(ownSeal.indexOf('id="verify-ends"') > ownSeal.indexOf('id="profile-bio"'));
+assert.ok(ownSeal.indexOf('id="profile-name"') < ownSeal.indexOf('id="verify-ends"'));
+assert.ok(ownSeal.indexOf('id="verify-ends"') < ownSeal.indexOf('id="profile-bio"'));
 assert.ok(ownSeal.indexOf('Verification ends Oct 26, 2028') > 0);
 assert.strictEqual(ownSeal.indexOf('Get verified'), -1);
 

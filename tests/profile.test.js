@@ -174,4 +174,72 @@ assert.ok(pinned.indexOf('Public location: &lt;script&gt;, Texas') > 0);
 assert.ok(pinned.indexOf('30.2672') === -1);
 assert.ok(pinned.indexOf('id="pin-remove" hidden') === -1);
 
+function assertBefore(html, parts) {
+  var at = -1;
+  parts.forEach(function (part) {
+    var next = html.indexOf(part);
+    assert.ok(next > at, part);
+    at = next;
+  });
+}
+assertBefore(sheet, [
+  'id="profile-prompt"',
+  'id="profile-title"',
+  'id="profile-photo"',
+  'id="profile-file"',
+  'id="profile-name"',
+  'id="profile-bio"',
+  'id="profile-count"',
+  'id="profile-error"',
+  'id="profile-save"'
+]);
+assert.ok(sheet.indexOf('id="verify-slot"') === -1);
+assert.ok(sheet.indexOf('id="profile-listing"') === -1);
+assertBefore(inPerson, [
+  'id="profile-title"',
+  'id="profile-photo"',
+  'id="profile-file"',
+  'for="profile-name"',
+  'id="profile-name"',
+  'for="profile-bio"',
+  'id="profile-bio"',
+  'id="profile-count"',
+  'id="profile-listing"',
+  'id="profile-listed"',
+  'id="profile-service-block"',
+  'for="profile-service"',
+  'id="profile-service"',
+  'id="pin-title"',
+  'id="pin-privacy"',
+  'id="pin-near-hint"',
+  'id="pin-query"',
+  'id="pin-map"',
+  'OpenStreetMap',
+  'id="pin-public"',
+  'id="pin-save"',
+  'id="pin-remove"',
+  'id="profile-error"',
+  'id="profile-save"',
+  'id="profile-cancel"'
+]);
+const masterSheet = P.sheetHtml({
+  master: true,
+  canList: true,
+  listed: true,
+  service_type: 'in_person',
+  display_name: 'Coach Kim',
+  bio: 'Strength'
+});
+assertBefore(masterSheet, [
+  'id="profile-name"',
+  'id="verify-slot"',
+  'id="profile-bio"',
+  'id="profile-count"',
+  'id="profile-listed"',
+  'id="profile-service"',
+  'id="profile-pin"'
+]);
+assert.ok(masterSheet.indexOf('id="verify-loading"') > 0);
+assert.ok(masterSheet.indexOf('Get verified') === -1);
+
 console.log('profile rules ok');

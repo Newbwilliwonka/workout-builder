@@ -138,15 +138,18 @@ const ART = '/opt/cursor/artifacts';
   await p.waitForSelector('#profile-bio');
   const profileSeal = await p.evaluate(function () {
     var title = document.getElementById('profile-title');
+    var name = document.getElementById('profile-name');
     var bio = document.getElementById('profile-bio');
+    var ends = document.getElementById('verify-ends');
     return {
       name: title.querySelector('.nm').textContent,
       seal: !!title.querySelector('.seal'),
       bio: bio.value,
       link: !!document.getElementById('verify-open'),
       slot: !!document.getElementById('verify-slot'),
-      ends: (document.getElementById('verify-ends') || {}).textContent || '',
-      endsAfterBio: !!(document.getElementById('verify-ends') && (bio.compareDocumentPosition(document.getElementById('verify-ends')) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      ends: (ends || {}).textContent || '',
+      nameThenEnds: !!(ends && (name.compareDocumentPosition(ends) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      endsThenBio: !!(ends && (ends.compareDocumentPosition(bio) & Node.DOCUMENT_POSITION_FOLLOWING)),
       bioBeforeSeal: bio.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING
     };
   });
@@ -156,7 +159,8 @@ const ART = '/opt/cursor/artifacts';
   assert.strictEqual(profileSeal.link, false);
   assert.strictEqual(profileSeal.slot, true);
   assert.strictEqual(profileSeal.ends, 'Verification ends Jun 1, 2027');
-  assert.strictEqual(profileSeal.endsAfterBio, true);
+  assert.strictEqual(profileSeal.nameThenEnds, true);
+  assert.strictEqual(profileSeal.endsThenBio, true);
   const endsBox = await p.evaluate(function () {
     var el = document.getElementById('verify-ends');
     return el.getBoundingClientRect().height;
@@ -222,9 +226,12 @@ const ART = '/opt/cursor/artifacts';
   assert.strictEqual(declined.pending, false);
   assert.strictEqual(declined.seal, false);
   const order = await p.evaluate(function () {
-    var bio = document.getElementById('profile-bio');
+    var name = document.getElementById('profile-name');
     var link = document.getElementById('verify-open');
-    return bio.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING;
+    var bio = document.getElementById('profile-bio');
+    var nameThenLink = name.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING;
+    var linkThenBio = link.compareDocumentPosition(bio) & Node.DOCUMENT_POSITION_FOLLOWING;
+    return nameThenLink && linkThenBio;
   });
   assert.ok(order);
 
