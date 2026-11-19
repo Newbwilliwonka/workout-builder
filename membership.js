@@ -22,11 +22,11 @@
         'Message your trainer anytime',
         'Keep all your data if you switch trainers',
         'View your workout history',
-        'Follow custom tracking dashboards set up by your trainer'
+        'Follow custom tracking dashboards set up by your trainer',
+        'Find a trainer near you or online in the Trainer Hub, and send a message request',
+        'Join the Trainer Hub forum'
       ],
-      comingSoon: [
-        'Find a new trainer in the Trainer Hub'
-      ],
+      comingSoon: [],
       cta: 'Join with an invite from your trainer'
     },
     {
@@ -54,12 +54,12 @@
         'Track solo sessions and sessions with your trainer',
         'See your progress on a live tracking dashboard',
         'Share your workouts and tracking with your trainer',
-        'Add a bio and location to your profile',
-        'Follow custom tracking dashboards from your trainer'
+        'Add a photo and bio to your profile',
+        'Follow custom tracking dashboards from your trainer',
+        'Find a trainer near you or online in the Trainer Hub, and send a message request',
+        'Join the Trainer Hub forum'
       ],
-      comingSoon: [
-        'Find a trainer in the Trainer Hub'
-      ],
+      comingSoon: [],
       cta: 'Choose Enthusiast'
     },
     {
@@ -88,7 +88,10 @@
         'Message your clients',
         'Invite up to 15 clients and enthusiasts',
         'Keep your workouts if either of you ends the connection',
-        'Add a bio and location to your profile'
+        'Add a photo, bio, and a private service-location pin. Only your city and state are shown.',
+        'Get found in Trainer Hub search for in-person training, online training, or both',
+        'Accept message requests from new clients and enthusiasts',
+        'Join the Trainer Hub forum'
       ],
       comingSoon: [],
       highlight: 'Get found in the Trainer Hub by clients who already train with a coach or pay for training',
