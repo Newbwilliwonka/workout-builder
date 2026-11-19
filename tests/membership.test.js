@@ -1,5 +1,7 @@
 // Membership rules without a network: node tests/membership.test.js
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const Mem = require('../membership.js');
 
 const byId = {};
@@ -11,11 +13,11 @@ assert.strictEqual(byId.free_client.priceLabel, 'Free');
 assert.strictEqual(byId.free_client.priceCents, 0);
 assert.strictEqual(byId.free_client.inviteOnly, true);
 assert.strictEqual(byId.free_client.paysInApp, false);
-assert.strictEqual(byId.free_client.value, 'Train with your coach.');
+assert.strictEqual(byId.free_client.value, 'Join with an invite from your trainer.');
 assert.deepStrictEqual(byId.free_client.available, [
   'Get personalized workouts and programs from your trainer',
   'Run your sessions from your program calendar, solo or with your trainer',
-  'Message your trainer anytime',
+  'Message your trainer',
   'Keep all your data if you switch trainers',
   'View your workout history',
   'Follow custom tracking dashboards set up by your trainer',
@@ -26,7 +28,8 @@ assert.deepStrictEqual(byId.free_client.comingSoon, []);
 byId.free_client.available.forEach(function (line) {
   assert.strictEqual(byId.free_client.comingSoon.indexOf(line), -1);
 });
-assert.strictEqual(byId.free_client.cta, 'Join with an invite from your trainer');
+assert.strictEqual(byId.free_client.cta, undefined);
+assert.strictEqual(byId.free_client.available.indexOf(byId.free_client.value), -1);
 assert.strictEqual(byId.free_client.recommended, false);
 assert.strictEqual(Mem.canSelectIntended('free_client'), false);
 
@@ -88,7 +91,7 @@ assert.deepStrictEqual(byId.trainer.available, [
   'Join the Trainer Hub forum'
 ]);
 assert.deepStrictEqual(byId.trainer.comingSoon, []);
-assert.strictEqual(byId.trainer.highlight, 'Get found in the Trainer Hub by clients who already train with a coach or pay for training');
+assert.strictEqual(byId.trainer.highlight, 'Get found in the Trainer Hub by clients who have trained with a coach');
 byId.trainer.comingSoon.forEach(function (line) { assert.strictEqual(byId.trainer.available.indexOf(line), -1); });
 assert.strictEqual(byId.trainer.available.indexOf(byId.trainer.highlight), -1);
 assert.strictEqual(Mem.canSelectIntended('trainer'), true);
@@ -103,15 +106,17 @@ assert.strictEqual(byId.master_trainer.beta, true);
 assert.strictEqual(byId.master_trainer.clientCap, 30);
 assert.strictEqual(byId.master_trainer.value, 'Coach a larger roster.');
 assert.strictEqual(byId.master_trainer.cta, 'Choose Master Trainer');
+assert.strictEqual(byId.master_trainer.includes, 'Everything in the Trainer subscription, plus:');
+assert.strictEqual(byId.master_trainer.available.indexOf(byId.master_trainer.includes), -1);
+assert.strictEqual(byId.master_trainer.comingSoon.indexOf(byId.master_trainer.includes), -1);
 assert.deepStrictEqual(byId.master_trainer.available, [
-  'Everything in Trainer, plus:',
   'Invite up to 30 clients and enthusiasts',
   'Show a verified certification on your profile'
 ]);
 assert.deepStrictEqual(byId.master_trainer.comingSoon, [
   'Team Training and Team Drills with tracking'
 ]);
-assert.strictEqual(byId.master_trainer.highlight, 'Get found in the Trainer Hub by clients who already train with a coach or pay for training');
+assert.strictEqual(byId.master_trainer.highlight, 'Get found in the Trainer Hub by clients who have trained with a coach');
 assert.strictEqual(byId.master_trainer.recommended, false);
 assert.strictEqual(Mem.priceLine(byId.master_trainer), '$29.99 / month');
 assert.strictEqual(Mem.canSelectIntended('master_trainer'), true);
@@ -134,7 +139,6 @@ assert.strictEqual(byId.free_client.beta, undefined);
 assert.strictEqual(byId.free_client.oldPriceLabel, undefined);
 assert.strictEqual(byId.free_client.includes, undefined);
 assert.strictEqual(byId.trainer.includes, undefined);
-assert.strictEqual(byId.master_trainer.includes, undefined);
 
 assert.strictEqual(Mem.canSelectIntended('none'), false);
 assert.strictEqual(Mem.canSelectIntended(''), false);
@@ -160,5 +164,23 @@ assert.strictEqual(Mem.hasDesignated({ membership: 'none', intended_plan: 'free_
 assert.strictEqual(Mem.hasDesignated({ membership: 'none', intended_plan: 'enthusiast' }), true);
 assert.strictEqual(Mem.hasDesignated({ membership: 'free_client', intended_plan: null }), true);
 assert.strictEqual(Mem.hasDesignated({ membership: 'trainer' }), true);
+
+// Card order lives in drawSubscriptions: highlight with the available list, then Coming soon.
+(function () {
+  var src = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  var start = src.indexOf('function drawSubscriptions(');
+  var end = src.indexOf('function renderSimpleAccount(');
+  assert.ok(start > 0 && end > start);
+  var body = src.slice(start, end);
+  var listAt = body.indexOf('t.available.forEach');
+  var hubAt = body.indexOf("'<div class=\"hub\">");
+  var soonAt = body.indexOf('>Coming soon<');
+  assert.ok(listAt > 0 && hubAt > listAt && soonAt > hubAt);
+  assert.strictEqual(body.indexOf("if (t.inviteOnly) h += '<p class=\"invite\">'"), -1);
+  var inviteOnlyAt = body.lastIndexOf('if (t.inviteOnly)');
+  var inviteAt = body.indexOf("'<p class=\"invite\">'");
+  assert.ok(inviteOnlyAt > soonAt && inviteAt > inviteOnlyAt);
+  assert.ok(body.slice(inviteOnlyAt, inviteAt).indexOf('if (t.cta)') !== -1);
+})();
 
 console.log('MEMBERSHIP OK');

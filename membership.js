@@ -15,19 +15,18 @@
       workoutCap: null,
       clientCap: null,
       recommended: false,
-      value: 'Train with your coach.',
+      value: 'Join with an invite from your trainer.',
       available: [
         'Get personalized workouts and programs from your trainer',
         'Run your sessions from your program calendar, solo or with your trainer',
-        'Message your trainer anytime',
+        'Message your trainer',
         'Keep all your data if you switch trainers',
         'View your workout history',
         'Follow custom tracking dashboards set up by your trainer',
         'Find a trainer near you or online in the Trainer Hub, and send a message request',
         'Join the Trainer Hub forum'
       ],
-      comingSoon: [],
-      cta: 'Join with an invite from your trainer'
+      comingSoon: []
     },
     {
       id: 'enthusiast',
@@ -94,7 +93,7 @@
         'Join the Trainer Hub forum'
       ],
       comingSoon: [],
-      highlight: 'Get found in the Trainer Hub by clients who already train with a coach or pay for training',
+      highlight: 'Get found in the Trainer Hub by clients who have trained with a coach',
       cta: 'Choose Trainer'
     },
     {
@@ -112,15 +111,15 @@
       clientCap: 30,
       recommended: false,
       value: 'Coach a larger roster.',
+      includes: 'Everything in the Trainer subscription, plus:',
       available: [
-        'Everything in Trainer, plus:',
         'Invite up to 30 clients and enthusiasts',
         'Show a verified certification on your profile'
       ],
       comingSoon: [
         'Team Training and Team Drills with tracking'
       ],
-      highlight: 'Get found in the Trainer Hub by clients who already train with a coach or pay for training',
+      highlight: 'Get found in the Trainer Hub by clients who have trained with a coach',
       cta: 'Choose Master Trainer'
     }
   ];
