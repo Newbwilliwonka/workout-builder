@@ -529,8 +529,56 @@
     if (window.WBPlayer) WBPlayer.unmount();
     render();
   }
+  // A blank set count still has an exercise to look at. The saved workout is not changed.
+  function viewItem(item) {
+    var next = item;
+    try {
+      if (window.WB && WB.normalizeExercise) next = WB.normalizeExercise(item);
+    } catch (e) { next = item; }
+    if (!next || (typeof next.sets === 'number' && next.sets >= 1)) return next;
+    var copy = next;
+    try { copy = JSON.parse(JSON.stringify(next)); } catch (e2) {}
+    if (copy) copy.sets = 1;
+    return copy;
+  }
+  // Same player the calendar opens for View: real player, track off, nothing saved.
+  function openView(root, workout, onLeave) {
+    if (!root || !workout || !workout.items || !workout.items.length || !window.WBPlayer) return false;
+    var playableW = {
+      id: workout.id,
+      name: workout.name,
+      items: workout.items.map(viewItem).filter(Boolean)
+    };
+    if (!playableW.items.length) return false;
+    root.innerHTML = '';
+    root.onclick = null;
+    root.onchange = null;
+    root.oninput = null;
+    root.onpointerdown = null;
+    window.__wbClockOffset = 0;
+    try {
+      WBPlayer.mount(root, playableW, { version: 4, workouts: [], sessions: [] }, function () {}, onLeave || function () {}, { track: false });
+    } catch (e) {
+      WBPlayer.unmount();
+      document.body.classList.remove('playing');
+      return false;
+    }
+    window.scrollTo(0, 0);
+    return true;
+  }
   function openRealPlayer(track) {
     if (state.playerLive) return;
+    if (track === false) {
+      if (!openView(app, workoutById(state.focusWorkout), leavePlayer)) {
+        state.screen = 'home';
+        state.playerLive = false;
+        state.hint = 'Add an exercise before running this workout.';
+        render();
+        return;
+      }
+      state.playerLive = true;
+      return;
+    }
     var workout = playable(state.focusWorkout);
     if (!workout || !workout.items || !workout.items.length || !window.WBPlayer) {
       state.screen = 'home';
@@ -547,8 +595,8 @@
     app.onpointerdown = null;
     window.__wbClockOffset = 0;
     var scratch = { version: 4, workouts: [], sessions: [] };
-    var opts = { track: track !== false };
-    if (track !== false && state.focusEntry) opts.programId = state.focusEntry;
+    var opts = { track: true };
+    if (state.focusEntry) opts.programId = state.focusEntry;
     WBPlayer.mount(app, workout, scratch, function () {}, leavePlayer, opts);
     window.scrollTo(0, 0);
   }
@@ -1470,5 +1518,5 @@
     state = null;
     options = null;
   }
-  window.WBPreview = { mount: mount, unmount: unmount, back: back, calendarOnPhone: calendarOnPhone, clientSelectHtml: clientSelectHtml };
+  window.WBPreview = { mount: mount, unmount: unmount, back: back, openView: openView, calendarOnPhone: calendarOnPhone, clientSelectHtml: clientSelectHtml };
 })();

@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key>  |  #/hub  |  #/hub/new  |  #/hub/<id> */
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key>  |  #/hub  |  #/hub/new  |  #/hub/<id> */
 (function () {
   'use strict';
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
@@ -103,7 +103,7 @@
       return go('#/');
     }
     var p = location.hash.split('/');
-    if (p[1] === 'play') return WBPlayer.requestEnd();
+    if (p[1] === 'play' || p[1] === 'view') return WBPlayer.requestEnd();
     if (page === 'messages' && hashBody().split('/')[1]) return go('#/messages');
     if (page === 'hub') {
       var hubBits = hashBody().split('/');
@@ -2895,10 +2895,19 @@
       app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not review that request.') + '</div>');
     });
   }
+  function openWorkoutView(id) {
+    var viewed = getW(id);
+    titleEl.textContent = viewed ? viewed.name : 'Workouts';
+    backBtn.hidden = false;
+    // Calendar View: WBPreview.openView mounts the real player with track off.
+    // Leaving it, including Back, returns to the workout list.
+    if (!window.WBPreview || !viewed || !WBPreview.openView(app, viewed, function () { go('#/'); })) return go('#/');
+  }
   function showBuilder() {
     ensureShare();
     scheduleAccountSync();
     var p = location.hash.replace(/^#\/?/, '').split('/');
+    if (p[0] === 'view') return openWorkoutView(p[1]);
     var current = (p[0] === 'play' || p[0] === 'w') ? getW(p[1]) : null;
     if (current && current.sourceTrainerId && !cachedProfile && WBAuth.profile && profileLookup !== routeToken) {
       profileLookup = routeToken;
@@ -4201,7 +4210,8 @@
           '<button class="sm" data-a="wdown" data-id="' + w.id + '" aria-label="Move down"' + (wi === nW - 1 ? ' disabled' : '') + '>▼</button>';
       }
       h += '<button class="pri sm" data-a="open" data-id="' + w.id + '">Open</button>' +
-        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>';
+        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>' +
+        '<button class="sm" data-a="view" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>View</button>';
       if (!locked) {
         h += '<button class="sm" data-a="dup" data-id="' + w.id + '">Duplicate</button>' +
           '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button>';
@@ -4244,6 +4254,10 @@
         if (!(w && w.items && w.items.length)) return;
         if (!workoutRunnable(w)) { toast(RUN_NEEDS_NUMBERS); return; }
         setCopyReturn(''); go('#/play/' + w.id);
+      }
+      else if (a === 'view') {
+        if (!(w && w.items && w.items.length)) return;
+        setCopyReturn(''); go('#/view/' + w.id);
       }
       else if (a === 'dup') {
         if (!levelCan(cachedProfile, 'open') || atWorkoutCap(cachedProfile)) { levelNoteOn = true; return renderList(); }
@@ -5204,7 +5218,7 @@
     data.workouts = next;
     var page = hashPage();
     var id = hashBody().split('/')[1] || '';
-    if (id && removed[id] && (page === 'w' || page === 'play')) {
+    if (id && removed[id] && (page === 'w' || page === 'play' || page === 'view')) {
       go('#/');
     } else if (page === '') {
       renderList();
