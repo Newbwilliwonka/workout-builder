@@ -3302,6 +3302,7 @@
     draft.pendingUrl = '';
   }
   window.addEventListener('hashchange', function () {
+    closeLibStill();
     releasePendingImage();
     draft = null;
     if (hashPage() !== 'signin') pendingSignNotice = null;
@@ -3310,6 +3311,7 @@
     if (recoveryPhase !== 'checking') route();
     window.scrollTo(0, 0);
   });
+  window.addEventListener('popstate', function () { closeLibStill(); });
 
   // ---------- Exercise history ----------
   function historyImageKey(stableKey) {
@@ -4530,17 +4532,28 @@
     return h + '</select>';
   }
   function libMeta(row) { return [row.body_part, row.equipment, row.target].filter(Boolean).join(' · '); }
+  function libThumbPlaceholder() {
+    return '<span class="lib-thumb" aria-hidden="true"><svg class="lib-thumb-ph" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"></rect><circle cx="9" cy="10" r="1.5" fill="currentColor"></circle><path d="M3 16l5-4 4 3 3-2 6 5" fill="none" stroke="currentColor" stroke-width="1.8"></path></svg></span>';
+  }
+  function libThumbHtml(row) {
+    var url = M.exerciseStillUrl(row.id, gifBase());
+    if (!url) return libThumbPlaceholder();
+    return '<button type="button" class="lib-thumb" data-a="libzoom" data-src="' + esc(url) + '" data-name="' + esc(row.name || '') + '" aria-label="Enlarge ' + esc(row.name || 'exercise') + '"><img alt="" loading="lazy" src="' + esc(url) + '"></button>';
+  }
   function libHitHtml(row, d) {
     var on = String(row.id) === String(d.libraryId) ? ' on' : '';
     var yours = row.savedName ? '<span class="mute lib-yours">Your name: ' + esc(row.savedName) + '</span>' : '';
     var savedAttr = row.savedName ? ' data-saved-name="' + esc(row.savedName) + '"' : '';
-    return '<button type="button" class="lib-hit' + on + '" data-a="pick" data-id="' + esc(row.id) + '" data-name="' + esc(row.name) + '"' + savedAttr + '><span class="name">' + esc(row.name) + '</span>' +
+    return '<div class="lib-hit' + on + '" data-a="pick" data-id="' + esc(row.id) + '" data-name="' + esc(row.name) + '"' + savedAttr + '>' +
+      libThumbHtml(row) +
+      '<button type="button" class="lib-hit-main"><span class="name">' + esc(row.name) + '</span>' +
       yours +
-      (libMeta(row) ? '<span class="mute">' + esc(libMeta(row)) + '</span>' : '') + '</button>';
+      (libMeta(row) ? '<span class="mute">' + esc(libMeta(row)) + '</span>' : '') + '</button></div>';
   }
   function resultsHtml(d) {
     // A pick hides the list. It stays hidden through filter changes and re-renders
-    // until the search text itself changes, then the usual search output comes back.
+    // until the search text changes, or the search box is focused while it still
+    // has text. Clicking outside or Escape hides it again.
     if (d.libCollapsed) return '';
     if (d.libStatus) return '<p class="' + (d.libError ? 'errs' : 'mute') + '">' + esc(d.libStatus) + '</p>';
     var q = String(d.libQuery || '').trim();
@@ -4607,7 +4620,80 @@
   }
   function paintLib() {
     var box = document.getElementById('lib-results');
-    if (box && draft) box.innerHTML = resultsHtml(draft);
+    if (!box || !draft) return;
+    box.innerHTML = resultsHtml(draft);
+    bindLibThumbs(box);
+  }
+  function libThumbFailed(img) {
+    var thumb = img && img.closest && img.closest('.lib-thumb');
+    if (!thumb || !thumb.parentNode || thumb.getAttribute('data-lib-ph')) return;
+    thumb.setAttribute('data-lib-ph', '1');
+    thumb.insertAdjacentHTML('afterend', libThumbPlaceholder());
+    thumb.remove();
+  }
+  // A cached 404 often does not fire error again after a rebuild. Check images
+  // that already failed, and keep one capture listener for loads that fail later.
+  function bindLibThumbs(root) {
+    if (!root || !root.querySelectorAll) return;
+    Array.prototype.forEach.call(root.querySelectorAll('.lib-thumb img'), function (img) {
+      if (img.complete && img.naturalWidth === 0) libThumbFailed(img);
+    });
+  }
+  document.addEventListener('error', function (e) {
+    var t = e.target;
+    if (!t || t.tagName !== 'IMG' || !t.closest || !t.closest('.lib-thumb')) return;
+    libThumbFailed(t);
+  }, true);
+  function libQueryValue() {
+    var input = document.getElementById('lib-q');
+    if (input) return String(input.value || '');
+    return String((draft && draft.libQuery) || '');
+  }
+  // Focusing the search box brings the same matches back. An empty box stays shut.
+  function reopenLibResults() {
+    if (!draft || draft.source !== 'library' || !draft.libCollapsed) return;
+    if (!libQueryValue().trim()) return;
+    draft.libCollapsed = false;
+    paintLib();
+  }
+  function collapseLibResults() {
+    if (!draft || draft.source !== 'library' || draft.libCollapsed) return;
+    draft.libCollapsed = true;
+    closeLibStill();
+    paintLib();
+  }
+  function libSearchInside(e) {
+    var t = e && e.target && e.target.closest ? e.target : null;
+    if (!t) return false;
+    return !!(t.closest('#lib-q') || t.closest('#lib-results') || t.closest('.lib-filters') || t.closest('#lib-still'));
+  }
+  function closeLibStill() {
+    var el = document.getElementById('lib-still');
+    if (!el) return false;
+    el.remove();
+    document.body.classList.remove('lib-still-on');
+    return true;
+  }
+  function openLibStill(src, name) {
+    if (!src) return;
+    closeLibStill();
+    var layer = document.createElement('div');
+    layer.id = 'lib-still';
+    layer.className = 'lib-still';
+    layer.setAttribute('role', 'dialog');
+    layer.setAttribute('aria-modal', 'true');
+    layer.setAttribute('aria-label', name || 'Exercise still');
+    layer.innerHTML = '<button type="button" class="lib-still-x" aria-label="Close">\u00d7</button><img alt="' + esc(name || '') + '" src="' + esc(src) + '">';
+    layer.addEventListener('click', function (e) {
+      if (e.target && e.target.tagName === 'IMG') return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeLibStill();
+    });
+    document.body.classList.add('lib-still-on');
+    document.body.appendChild(layer);
+    var closer = layer.querySelector('.lib-still-x');
+    if (closer) closer.focus();
   }
   function scheduleLibSearch(append, immediate) {
     clearTimeout(scheduleLibSearch.t);
@@ -4896,13 +4982,35 @@
     var box = document.getElementById('name-suggest');
     if (box && !box.hidden && !nameSuggestInside(e)) closeNameSuggest();
     if (!eventSuggestInside(e)) closeEventSuggest();
+    if (!libSearchInside(e)) collapseLibResults();
   });
   document.addEventListener('focusin', function (e) {
     var box = document.getElementById('name-suggest');
     if (box && !box.hidden && !nameSuggestInside(e)) closeNameSuggest();
     if (!eventSuggestInside(e)) closeEventSuggest();
+    if (e.target && e.target.id === 'lib-q') reopenLibResults();
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (e.target && e.target.id === 'lib-q') reopenLibResults();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (closeLibStill()) { e.preventDefault(); return; }
+    if (document.getElementById('profile-sheet')) return;
+    var nameBox = document.getElementById('name-suggest');
+    if (nameBox && !nameBox.hidden) return;
+    var evOpen = false;
+    Array.prototype.forEach.call(document.querySelectorAll('.event-suggest'), function (box) {
+      if (!box.hidden) evOpen = true;
+    });
+    if (evOpen) return;
+    if (!draft || draft.source !== 'library' || draft.libCollapsed) return;
+    collapseLibResults();
+    e.preventDefault();
   });
   function renderEditor(w, exId) {
+    closeLibStill();
     var isNew = exId === 'new', ex = isNew ? null : w.items.filter(function (x) { return x.id === exId; })[0];
     if (!isNew && !ex) return go('#/w/' + w.id);
     if (!draft) draft = makeDraft(ex || M.newExercise());
@@ -4952,6 +5060,7 @@
       editorMediaHtml(d) + '<div id="errs"></div>' +
       '<div class="actions" style="margin-top:16px"><button class="pri grow" data-a="save">Save exercise</button><button data-a="cancel">Cancel</button></div></div>';
     app.innerHTML = copyNote(w) + h;
+    bindLibThumbs(app);
     if (window.WBMedia) WBMedia.bind(app);
     if (d.source === 'library') ensureLibFilters();
     app.onchange = null;
@@ -5015,6 +5124,7 @@
       if (b === 'cfg.lapsEnabled') renderEditor(w, exId);
     };
     app.onclick = function (e) {
+      if (e.target && e.target.id === 'lib-q') reopenLibResults();
       var s = e.target.closest('[data-seg]');
       if (s) {
         var k = s.dataset.seg;
@@ -5034,13 +5144,19 @@
       if (b.dataset.a === 'suggest-name') { chooseSuggestedName(b.getAttribute('data-name') || ''); return; }
       if (b.dataset.a === 'suggest-event') { chooseSuggestedEvent(b.getAttribute('data-lap'), b.getAttribute('data-name') || ''); return; }
       if (b.dataset.a === 'cancel') { releasePendingImage(); return go('#/w/' + w.id); }
+      if (b.dataset.a === 'libzoom') {
+        openLibStill(b.getAttribute('data-src') || '', b.getAttribute('data-name') || '');
+        return;
+      }
       if (b.dataset.a === 'pick') {
-        d.libraryId = b.dataset.id || '';
-        var savedName = b.getAttribute('data-saved-name');
-        d.name = savedName ? savedName : (b.dataset.name || d.name);
+        var hit = b.closest('.lib-hit') || b;
+        d.libraryId = hit.dataset.id || '';
+        var savedName = hit.getAttribute('data-saved-name');
+        d.name = savedName ? savedName : (hit.dataset.name || d.name);
         d.source = 'library';
         if (d.view !== '360') d.view = '180';
         applyLibraryDescription(d, libRowById(d, d.libraryId));
+        closeLibStill();
         d.libCollapsed = true;
         return renderEditor(w, exId);
       }

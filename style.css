@@ -53,9 +53,20 @@ input.is-empty,select.is-empty,textarea.is-empty{border-color:var(--danger);box-
 #lib-results, #name-suggest, .event-suggest{margin-top:8px}
 #lib-results:empty, #name-suggest:empty, #name-suggest[hidden], .event-suggest:empty, .event-suggest[hidden]{display:none}
 .lib-hit, .name-hit{display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;margin-top:6px;padding:10px 12px}
+.lib-hit{flex-direction:row;align-items:center;gap:10px;cursor:pointer}
 .lib-hit.on, .name-hit.on{border-color:var(--pri);background:#eff6ff}
 .lib-hit .name, .name-hit .name{font-size:16px}
 .lib-hit .mute, .name-hit .mute{font-weight:400}
+button.lib-hit-main{flex:1;min-width:0;min-height:44px;margin:0;padding:0;background:transparent;border-radius:0;color:inherit;font-weight:400;text-align:left;display:flex;flex-direction:column;align-items:flex-start;justify-content:center}
+.lib-thumb{width:44px;height:44px;min-width:44px;min-height:44px;flex:none;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--line);border-radius:10px;background:#fff;overflow:hidden}
+button.lib-thumb{cursor:pointer}
+.lib-thumb img{width:100%;height:100%;object-fit:contain;display:block;background:#fff}
+.lib-thumb-ph{width:22px;height:22px;display:block;color:#9ca3af}
+.lib-hit:focus-visible, .lib-thumb:focus-visible, .lib-hit-main:focus-visible{outline:2px solid var(--pri);outline-offset:2px}
+body.lib-still-on{overflow:hidden}
+.lib-still{position:fixed;inset:0;z-index:80;background:rgba(17,24,39,.72);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:max(16px,env(safe-area-inset-top)) 16px 16px}
+.lib-still img{width:min(86vw,68vh,420px);height:min(86vw,68vh,420px);object-fit:contain;background:#fff;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.28)}
+button.lib-still-x{align-self:flex-end;width:48px;height:48px;min-width:48px;min-height:48px;margin:0;padding:0;border-radius:12px;background:#fff;color:#111827;font-size:32px;line-height:1}
 .card>.seg{margin-top:2px}
 .ss{border-left:6px solid var(--ss);background:#f5f3ff;padding:10px;border-radius:var(--r);margin-bottom:10px}
 .ss>.card{margin-bottom:8px}
