@@ -172,7 +172,7 @@ H.collectPages(function (after, size) {
 
 const html = H.listHtml(sets, { stillBase: 'https://cdn.example.test/exercises' });
 assert.ok(html.indexOf('Test account') < 0);
-assert.ok(html.indexOf('https://cdn.example.test/exercises/still/0101.jpg') >= 0);
+assert.ok(html.indexOf('https://cdn.example.test/exercises/still2/0101.jpg') >= 0);
 assert.ok(html.indexOf('data-history="lib-0101"') >= 0);
 assert.ok(html.indexOf('No image') < 0);
 const sprintRow = html.slice(html.indexOf('Court sprint') - 200, html.indexOf('Court sprint'));

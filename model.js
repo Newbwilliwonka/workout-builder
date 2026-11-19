@@ -143,12 +143,12 @@
   }
 
   // Static frame for a library exercise. Same id check as exerciseGifUrl.
-  // base is the folder that contains still/. An empty base returns no URL.
+  // base is the folder that contains still2/. An empty base returns no URL.
   function exerciseStillUrl(libraryId, base) {
     var root = String(base == null ? '' : base).trim().replace(/\/+$/, '');
     var id = String(libraryId || '').trim();
     if (!root || !/^[A-Za-z0-9_-]{1,32}$/.test(id)) return '';
-    return root + '/still/' + id + '.jpg';
+    return root + '/still2/' + id + '.jpg';
   }
 
   // Human-readable summary line for list views.

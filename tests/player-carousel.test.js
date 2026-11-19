@@ -43,8 +43,8 @@ data.workouts.push(w);
   await p.setRequestInterception(true);
   p.on('request', req => {
     const u = req.url();
-    if (u.endsWith('/still/0001.jpg')) return req.respond({ status: 200, contentType: 'image/jpeg', body: jpeg });
-    if (u.endsWith('/still/miss.jpg')) return req.respond({ status: 404, contentType: 'text/plain', body: 'no' });
+    if (u.endsWith('/still2/0001.jpg')) return req.respond({ status: 200, contentType: 'image/jpeg', body: jpeg });
+    if (u.endsWith('/still2/miss.jpg')) return req.respond({ status: 404, contentType: 'text/plain', body: 'no' });
     if (u.endsWith('/180/0001.gif') || u.endsWith('/180/miss.gif') || u.endsWith('/360/miss.gif')) return req.respond({ status: 200, contentType: 'image/gif', body: gif });
     return req.continue();
   });
@@ -70,7 +70,7 @@ data.workouts.push(w);
     return cur && main && cur.complete && cur.naturalWidth > 0 && main.complete && main.naturalWidth > 0;
   });
   assert.strictEqual(await p.$eval('.pl-media img', e => e.getAttribute('src')), 'https://cdn.example.test/exercises/180/0001.gif');
-  assert.strictEqual(await p.$eval('.pl-ci.cur img', e => e.getAttribute('src')), 'https://cdn.example.test/exercises/still/0001.jpg');
+  assert.strictEqual(await p.$eval('.pl-ci.cur img', e => e.getAttribute('src')), 'https://cdn.example.test/exercises/still2/0001.jpg');
   assert.strictEqual(await p.$eval('.pl-info .pl-name', e => e.textContent), 'Squat');
   assert.strictEqual(await p.$$eval('.pl-ci b', a => a.length), 0);
   const tiles = () => p.$$eval('.pl-ci', a => a.map(e => ({

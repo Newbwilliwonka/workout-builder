@@ -91,8 +91,8 @@ assert.strictEqual(M.exerciseGifUrl('0101', '360', 'https://cdn.example.test/exe
 assert.strictEqual(M.exerciseGifUrl('0101', 'side', 'https://cdn.example.test/exercises'), 'https://cdn.example.test/exercises/180/0101.gif');
 assert.strictEqual(M.exerciseGifUrl('../0101', '180', 'https://cdn.example.test/exercises'), '');
 assert.strictEqual(M.exerciseStillUrl('0101', ''), '');
-assert.strictEqual(M.exerciseStillUrl('0101', 'https://cdn.example.test/exercises/'), 'https://cdn.example.test/exercises/still/0101.jpg');
-assert.strictEqual(M.exerciseStillUrl('0101', 'https://cdn.example.test/exercises'), 'https://cdn.example.test/exercises/still/0101.jpg');
+assert.strictEqual(M.exerciseStillUrl('0101', 'https://cdn.example.test/exercises/'), 'https://cdn.example.test/exercises/still2/0101.jpg');
+assert.strictEqual(M.exerciseStillUrl('0101', 'https://cdn.example.test/exercises'), 'https://cdn.example.test/exercises/still2/0101.jpg');
 assert.strictEqual(M.exerciseStillUrl('../0101', 'https://cdn.example.test/exercises'), '');
 assert.strictEqual(M.exerciseStillUrl('', 'https://cdn.example.test/exercises'), '');
 const libEx = M.normalizeExercise(mk({ name: 'Test press', media: { kind: 'library', libraryId: '0101', view: '360', src: 'https://cdn.example.test/nope.gif' } }));
