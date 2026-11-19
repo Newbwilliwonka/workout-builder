@@ -3302,6 +3302,7 @@
     draft.pendingUrl = '';
   }
   window.addEventListener('hashchange', function () {
+    closeLibStill();
     releasePendingImage();
     draft = null;
     if (hashPage() !== 'signin') pendingSignNotice = null;
@@ -3310,6 +3311,7 @@
     if (recoveryPhase !== 'checking') route();
     window.scrollTo(0, 0);
   });
+  window.addEventListener('popstate', function () { closeLibStill(); });
 
   // ---------- Exercise history ----------
   function historyImageKey(stableKey) {
@@ -4620,15 +4622,28 @@
     var box = document.getElementById('lib-results');
     if (!box || !draft) return;
     box.innerHTML = resultsHtml(draft);
-    Array.prototype.forEach.call(box.querySelectorAll('.lib-thumb img'), function (img) {
-      img.addEventListener('error', function () {
-        var thumb = img.closest('.lib-thumb');
-        if (!thumb || !thumb.parentNode) return;
-        thumb.insertAdjacentHTML('afterend', libThumbPlaceholder());
-        thumb.remove();
-      });
+    bindLibThumbs(box);
+  }
+  function libThumbFailed(img) {
+    var thumb = img && img.closest && img.closest('.lib-thumb');
+    if (!thumb || !thumb.parentNode || thumb.getAttribute('data-lib-ph')) return;
+    thumb.setAttribute('data-lib-ph', '1');
+    thumb.insertAdjacentHTML('afterend', libThumbPlaceholder());
+    thumb.remove();
+  }
+  // A cached 404 often does not fire error again after a rebuild. Check images
+  // that already failed, and keep one capture listener for loads that fail later.
+  function bindLibThumbs(root) {
+    if (!root || !root.querySelectorAll) return;
+    Array.prototype.forEach.call(root.querySelectorAll('.lib-thumb img'), function (img) {
+      if (img.complete && img.naturalWidth === 0) libThumbFailed(img);
     });
   }
+  document.addEventListener('error', function (e) {
+    var t = e.target;
+    if (!t || t.tagName !== 'IMG' || !t.closest || !t.closest('.lib-thumb')) return;
+    libThumbFailed(t);
+  }, true);
   function libQueryValue() {
     var input = document.getElementById('lib-q');
     if (input) return String(input.value || '');
@@ -4995,6 +5010,7 @@
     e.preventDefault();
   });
   function renderEditor(w, exId) {
+    closeLibStill();
     var isNew = exId === 'new', ex = isNew ? null : w.items.filter(function (x) { return x.id === exId; })[0];
     if (!isNew && !ex) return go('#/w/' + w.id);
     if (!draft) draft = makeDraft(ex || M.newExercise());
@@ -5044,6 +5060,7 @@
       editorMediaHtml(d) + '<div id="errs"></div>' +
       '<div class="actions" style="margin-top:16px"><button class="pri grow" data-a="save">Save exercise</button><button data-a="cancel">Cancel</button></div></div>';
     app.innerHTML = copyNote(w) + h;
+    bindLibThumbs(app);
     if (window.WBMedia) WBMedia.bind(app);
     if (d.source === 'library') ensureLibFilters();
     app.onchange = null;
