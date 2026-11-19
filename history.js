@@ -70,7 +70,7 @@
     var folder = String(base == null ? '' : base).replace(/\/+$/, '');
     var id = String(libraryId || '').trim();
     if (!folder || !/^[A-Za-z0-9_-]{1,32}$/.test(id)) return '';
-    return folder + '/still/' + id + '.jpg';
+    return folder + '/still2/' + id + '.jpg';
   }
   function pick(row, camel, snake) {
     if (Object.prototype.hasOwnProperty.call(row, camel) && row[camel] != null) return row[camel];
