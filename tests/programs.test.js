@@ -68,6 +68,29 @@ assert.strictEqual(P.entryDone(entry, [{ workoutId: 'push', endedAt: day, result
 assert.strictEqual(P.entryDone(entry, [{ workoutId: 'other', programId: 'pg1', endedAt: day, results: [{ logged: true }] }]), true);
 assert.strictEqual(P.entryDone(entry, [{ workoutId: 'push', endedAt: new Date(2026, 10, 13).getTime(), results: [{ logged: true }] }]), false);
 assert.strictEqual(P.dayDone(marked.programs, [{ workoutId: 'push', endedAt: day, results: [{ logged: true }] }]), true);
+// A database session completes only that person's entry. Same workout on the
+// same day does not check someone else. A different day still does not match
+// unless it is that exact program. Moving a workout keeps its owner.
+const adaEntry = { id: 'pg-ada', ownerId: 'ada', workoutId: 'push', date: '2026-11-12' };
+const remoteAda = P.sessionFromRemote({
+  id: 's-ada', client_id: 'ada', local_date: '2026-11-12', workout_id: 'push', program_id: 'pg-ada', status: 'completed'
+});
+const remoteEarly = P.sessionFromRemote({
+  id: 's-early', client_id: 'ada', local_date: '2026-11-10', workout_id: 'push', program_id: 'pg-ada', status: 'ended_early'
+});
+const remoteOtherDay = P.sessionFromRemote({
+  id: 's-other', client_id: 'ada', local_date: '2026-11-13', workout_id: 'push', status: 'completed'
+});
+assert.strictEqual(P.localDay(remoteAda.endedAt), '2026-11-12');
+assert.strictEqual(P.entryDone(adaEntry, [remoteAda]), true);
+assert.strictEqual(P.entryDone(entry, [remoteAda]), false);
+assert.strictEqual(P.entryDone(adaEntry, [remoteEarly]), true);
+assert.strictEqual(P.entryDone(adaEntry, [remoteOtherDay]), false);
+assert.strictEqual(P.sessionFromRemote({ client_id: 'ada', local_date: '2026-11-12', workout_id: 'push', status: 'in_progress' }), null);
+assert.strictEqual(P.entryDone(adaEntry, [{ workoutId: 'push', endedAt: day, results: [{ logged: true }] }]), true);
+const keptOwner = P.move([adaEntry], 'pg-ada', '2026-11-18');
+assert.strictEqual(keptOwner.moved.ownerId, 'ada');
+assert.strictEqual(keptOwner.moved.date, '2026-11-18');
 
 assert.strictEqual(P.validTimes('10:00', '09:00').ok, false);
 assert.strictEqual(P.validTimes('10:00', '10:00').ok, false);

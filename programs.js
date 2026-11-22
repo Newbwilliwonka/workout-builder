@@ -277,17 +277,59 @@
   }
   function loggedSession(session) {
     if (!session) return false;
+    // A row from workout_sessions has no local results list. completed and
+    // ended_early are the same finished logs this device already counts.
+    if (session.remote) return session.status === 'completed' || session.status === 'ended_early';
     var results = session.results;
     if (!Array.isArray(results) || !results.length) return false;
     return results.some(function (row) { return row && row.logged !== false; });
   }
+  // Which entry a session completes stays the same: its program id, or the
+  // same workout on the same local day. A database row only counts for the
+  // person who logged it. A session saved on this device has no person, so it
+  // still counts and nothing that shows today disappears.
+  function sessionMatchesEntry(entry, session) {
+    if (!entry || !session) return false;
+    if (session.remote || session.clientId) {
+      if (!session.clientId || session.clientId !== entry.ownerId) return false;
+    }
+    if (!loggedSession(session)) return false;
+    if (session.programId && session.programId === entry.id) return true;
+    return session.workoutId === entry.workoutId && localDay(session.endedAt || session.startedAt) === entry.date;
+  }
   function entryDone(entry, sessions) {
     if (!entry) return false;
-    return (sessions || []).some(function (session) {
-      if (!loggedSession(session)) return false;
-      if (session.programId && session.programId === entry.id) return true;
-      return session.workoutId === entry.workoutId && localDay(session.endedAt || session.startedAt) === entry.date;
-    });
+    return (sessions || []).some(function (session) { return sessionMatchesEntry(entry, session); });
+  }
+  // Turn a workout_sessions row into the shape entryDone already understands.
+  // Noon on local_date keeps the same-day match in the viewer's time zone.
+  function sessionFromRemote(row) {
+    if (!row || typeof row !== 'object') return null;
+    var status = row.status || '';
+    if (status !== 'completed' && status !== 'ended_early') return null;
+    var day = String(row.local_date || row.localDate || '').slice(0, 10);
+    var programId = String(row.program_id || row.programId || '');
+    var workoutId = String(row.workout_id || row.workoutId || '');
+    var clientId = String(row.client_id || row.clientId || '');
+    if (!clientId || (!programId && !workoutId)) return null;
+    if (!isDay(day) && !programId) return null;
+    var when = 0;
+    if (isDay(day)) {
+      var parts = day.split('-');
+      when = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0, 0).getTime();
+    } else {
+      when = Date.parse(row.ended_at || row.endedAt || row.started_at || row.startedAt) || 0;
+    }
+    return {
+      id: String(row.local_id || row.localId || row.id || ''),
+      clientId: clientId,
+      programId: programId,
+      workoutId: workoutId,
+      startedAt: when,
+      endedAt: when,
+      status: status,
+      remote: true
+    };
   }
   function dayDone(entries, sessions) {
     return !!(entries && entries.length) && entries.every(function (entry) { return entryDone(entry, sessions); });
@@ -405,6 +447,7 @@
     setTimes: setTimes,
     entryDone: entryDone,
     dayDone: dayDone,
+    sessionFromRemote: sessionFromRemote,
     fromRemote: fromRemote,
     merge: merge,
     settleDrops: settleDrops,

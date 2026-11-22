@@ -294,6 +294,34 @@
       };
     });
   }
+  function uuidList(ids) {
+    var out = [];
+    var seen = {};
+    var list = Array.isArray(ids) ? ids : [ids];
+    list.forEach(function (id) {
+      var s = String(id || '');
+      if (!isUuid(s) || seen[s]) return;
+      seen[s] = 1;
+      out.push(s);
+    });
+    return out;
+  }
+  function pagedRows(c, table, cols, filter) {
+    var pages = root.WBHistory && root.WBHistory.collectPages;
+    if (typeof pages !== 'function') {
+      var q = filter(c.from(table).select(cols).limit(1000), null);
+      return q.then(function (res) {
+        if (!res || res.error) return { data: null, error: (res && res.error) || { message: 'read failed' } };
+        return { data: res.data || [], error: null };
+      });
+    }
+    return pages(function (after, size) {
+      var query = c.from(table).select(cols).order('id', { ascending: true }).limit(size);
+      query = filter(query, after);
+      if (after) query = query.gt('id', after);
+      return query;
+    }, 1000);
+  }
   function loadSchedule(c, id) {
     var pageSize = 1000;
     var pages = root.WBHistory && root.WBHistory.collectPages;
@@ -1075,6 +1103,53 @@
         }
         if (res.error) throw programError(res.error);
         return Array.isArray(res.data) ? res.data : [];
+      });
+    },
+    // One read for every calendar the trainer is allowed to open. Callers
+    // pass only people they can already see. Row level security still drops
+    // anything this account cannot read.
+    programEntriesFor: function (ownerIds) {
+      var ids = uuidList(ownerIds);
+      if (!ids.length) return Promise.resolve([]);
+      var base = 'id,local_id,owner_id,workout_local_id,workout_name,items,day,presence,updated_at';
+      function load(cols) {
+        return db().then(function (c) {
+          return pagedRows(c, 'program_entries', cols, function (q) {
+            return q.in('owner_id', ids);
+          });
+        });
+      }
+      return load(base + ',starts_at,ends_at').then(function (page) {
+        if (page && page.error && timeColumnMissing(page.error)) {
+          return load(base).then(function (page2) {
+            if (!page2 || page2.error) throw programError(page2 && page2.error);
+            var rows = Array.isArray(page2.data) ? page2.data : [];
+            rows.timesPending = true;
+            return rows;
+          });
+        }
+        if (!page || page.error) throw programError(page && page.error);
+        return Array.isArray(page.data) ? page.data : [];
+      });
+    },
+    // Finished sessions for the people on screen, in pages, not one query per day.
+    // An empty list leaves the on-device log as the check marks.
+    calendarSessions: function (ownerIds) {
+      var ids = uuidList(ownerIds);
+      if (!ids.length) return Promise.resolve([]);
+      var cols = 'id,client_id,local_id,workout_id,program_id,local_date,started_at,ended_at,status';
+      return signedUser().then(function (ctx) {
+        if (!ctx.user) return [];
+        return pagedRows(ctx.c, 'workout_sessions', cols, function (q) {
+          return q.in('client_id', ids).in('status', ['completed', 'ended_early']);
+        }).then(function (page) {
+          if (!page || page.error) return [];
+          return page.data || [];
+        });
+      }).then(function (rows) {
+        return Array.isArray(rows) ? rows : [];
+      }, function () {
+        return [];
       });
     },
     saveProgramEntry: function (entry) {

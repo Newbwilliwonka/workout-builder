@@ -704,11 +704,11 @@ async function stub(page, extra) {
   await trainer.waitForSelector('#pv-client');
   await trainer.waitForSelector('#pv-workouts [data-drag]');
   assert.strictEqual(await trainer.$('.pv-handle'), null);
-  assert.strictEqual(await trainer.$eval('#pv-client', function (el) { return el.value; }), '');
-  assert.strictEqual(await trainer.$eval('#pv-client option:checked', function (el) { return el.textContent; }), 'My calendar');
+  assert.strictEqual(await trainer.$eval('#pv-client', function (el) { return el.value; }), 'all');
+  assert.strictEqual(await trainer.$eval('#pv-client option:checked', function (el) { return el.textContent; }), 'All clients');
   assert.deepStrictEqual(await trainer.$$eval('#pv-client option', function (els) {
     return els.map(function (el) { return el.textContent; });
-  }), ['My calendar', 'Client · Free Client', 'Jo Park · Enthusiast', 'Enthusiast · Enthusiast']);
+  }), ['All clients', 'My calendar', 'Client · Free Client', 'Jo Park · Enthusiast', 'Enthusiast · Enthusiast']);
   assert.ok((await trainer.$eval('#pv-client', function (el) { return el.innerHTML; })).indexOf('@') === -1);
   assert.strictEqual(await trainer.$('#pv-workouts .actions'), null);
   assert.strictEqual(await trainer.$('#pv-workouts button'), null);
@@ -738,6 +738,11 @@ async function stub(page, extra) {
   }, M.STORAGE_KEY);
   await trainer.reload();
   await trainer.waitForSelector('#pv-client');
+  await trainer.waitForFunction(function () {
+    var sel = document.getElementById('pv-client');
+    return sel && sel.value === 'all' && document.body.innerText.indexOf('My lift') !== -1 && document.body.innerText.indexOf('Ada lift') !== -1;
+  });
+  await trainer.select('#pv-client', '');
   await trainer.waitForFunction(function () {
     var sel = document.getElementById('pv-client');
     return sel && sel.value === '' && sel.options[sel.selectedIndex].textContent === 'My calendar' && document.body.innerText.indexOf('My lift') !== -1;
