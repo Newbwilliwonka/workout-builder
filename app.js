@@ -2438,11 +2438,13 @@
     });
   }
   function hideLanding() {
+    document.documentElement.classList.add('wb-app');
     document.documentElement.classList.remove('wb-landing');
     if (landingEl && landingEl.parentNode) landingEl.parentNode.removeChild(landingEl);
   }
   function showLanding() {
     if (!landingEl) return;
+    document.documentElement.classList.remove('wb-app');
     document.documentElement.classList.add('wb-landing');
     if (!landingEl.isConnected) {
       var host = app && app.parentNode;
@@ -3327,13 +3329,14 @@
     var page = hashPage();
     captureInvite();
     showHeaderSignIn(false);
-    // Keep the marketing page out of the way until a session check says this
-    // is a signed-out visit with no invite and no recovery link.
+    // A bare visit keeps the marketing page up while the session check runs, so
+    // signed-out visitors never see the empty Workouts header. A stored session
+    // already hid it. Invite and recovery visits hide it here and open their own screen.
     var publicRoot = (location.hash === '' || location.hash === '#') && !(linkInviteCode() || inviteArrival);
     var recoveryNow = recoveryPhase === 'checking' || recoveryPhase === 'form' || recoveryPhase === 'retry' ||
       (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) ||
       (!recoverySettled && !recoveryPhase && recoveryLocked());
-    hideLanding();
+    if (!(publicRoot && !recoveryNow)) hideLanding();
     // Recovery links are claimed before any guard replaces the hash or sends
     // a signed-out person to the normal sign-in page.
     if (recoveryPhase === 'checking') return renderReset();

@@ -562,12 +562,13 @@ button.hx-row .name{font-size:16px}
 .db-tools{display:flex;justify-content:flex-end;gap:6px;margin:0 0 8px}
 .db-tools button{flex:none}
 
-/* The marketing page stays in the HTML for search engines, and stays hidden
-   until a signed-out visit is confirmed. App chrome hides only while it is open. */
-#landing{display:none !important}
-html.wb-landing #landing{display:block !important}
-html.wb-landing body > header.bar,
-html.wb-landing body > #app{display:none !important}
+/* Marketing copy stays in the HTML. A bare signed-out visit shows it immediately.
+   html.wb-app hides it before paint for a stored session, an invite, or a recovery link. */
+body:has(#landing) > header.bar,
+body:has(#landing) > #app{display:none !important}
+html.wb-app #landing{display:none !important}
+html.wb-app body:has(#landing) > header.bar{display:flex !important}
+html.wb-app body:has(#landing) > #app{display:block !important}
 .landing-shell{box-sizing:border-box;width:100%;max-width:1100px;margin-left:auto;margin-right:auto;padding-left:20px;padding-right:20px}
 .landing-bar{position:sticky;top:0;z-index:6;background:#111827;color:#fff}
 .landing-bar .landing-shell{display:flex;align-items:center;gap:8px;min-height:56px;padding-top:12px;padding-bottom:12px}

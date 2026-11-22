@@ -3,6 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+(function () {
+  var search = '', hash = '';
+  try { search = location.search || ''; hash = location.hash || ''; } catch (e) {}
+  function has(name) {
+    var re = new RegExp('(?:^|[?&#])' + name + '=');
+    return re.test(search) || re.test(hash);
+  }
+  var marketing = !hash || hash === '#';
+  var authLink = has('invite') || has('code') || has('error') || has('error_code') || has('access_token') || has('token_hash') || /(?:^|[?&#])type=recovery(?:&|$)/.test(search + hash);
+  var stored = false;
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i) || '';
+      if (key.indexOf('-auth-token') === -1 || key.indexOf('code-verifier') !== -1) continue;
+      if ((localStorage.getItem(key) || '').indexOf('access_token') !== -1) { stored = true; break; }
+    }
+  } catch (e) {}
+  if (!marketing || authLink || stored) document.documentElement.classList.add('wb-app');
+})();
+</script>
 <meta name="theme-color" content="#111827">
 <title>Coach Trainer App | Build, Run, and Track Client Training</title>
 <meta name="description" content="Coach Trainer App helps trainers create team drills, run gym circuits, build personal training sessions, schedule programs, and track client progress live.">

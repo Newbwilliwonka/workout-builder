@@ -90,6 +90,32 @@ Mem.TIERS.forEach(function (tier) {
     const page = await browser.newPage();
     page.on('pageerror', function (err) { errors.push(String(err)); });
     await stubAuth(page, { session: null });
+    await page.evaluateOnNewDocument(function () {
+      window.__appChromeInstead = false;
+      window.__landingWasThere = false;
+      var armed = false;
+      function note() {
+        var bar = document.querySelector && document.querySelector('body > header.bar');
+        var el = document.getElementById && document.getElementById('landing');
+        if (el && el.isConnected) window.__landingWasThere = true;
+        if (!bar || !window.__landingWasThere) return;
+        var landingOn = !!(el && el.isConnected && getComputedStyle(el).display !== 'none');
+        if (getComputedStyle(bar).display !== 'none' && !landingOn) window.__appChromeInstead = true;
+      }
+      function arm() {
+        var root = document.documentElement;
+        if (armed || !root || root.nodeType !== 1) return false;
+        armed = true;
+        new MutationObserver(note).observe(root, { childList: true, subtree: true, attributes: true });
+        note();
+        return true;
+      }
+      function boot(tries) {
+        if (arm() || tries > 20) return;
+        setTimeout(function () { boot(tries + 1); }, 0);
+      }
+      boot(0);
+    });
     await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
     function landingInset() {
       var shell = document.querySelector('.landing-wrap');
@@ -167,6 +193,7 @@ Mem.TIERS.forEach(function (tier) {
     assert.strictEqual(seen.bar.linkRight, true);
     assert.strictEqual(seen.bar.brandFull, true);
     assert.strictEqual(await page.evaluate(function () { return document.documentElement.classList.contains('wb-landing'); }), true);
+    assert.strictEqual(await page.evaluate(function () { return window.__appChromeInstead; }), false);
     const phoneInset = await page.evaluate(landingInset);
     assert.strictEqual(phoneInset.pad, '20px');
     assert.strictEqual(phoneInset.max, '1100px');
@@ -262,7 +289,11 @@ Mem.TIERS.forEach(function (tier) {
       assert.strictEqual(await p.evaluate(function () { return document.documentElement.classList.contains('wb-landing'); }), false);
       await p.close();
     }
-    await neverShowsLanding(function (p) { return stubAuth(p); }, URL, function () { return !!document.querySelector('[data-a=new]'); });
+    await neverShowsLanding(function (p) {
+      return p.evaluateOnNewDocument(function () {
+        localStorage.setItem('sb-thyrgloermygnezfareg-auth-token', '{"access_token":"abc"}');
+      }).then(function () { return stubAuth(p); });
+    }, URL, function () { return !!document.querySelector('[data-a=new]'); });
     await neverShowsLanding(function (p) { return stubAuth(p, { session: null }); }, URL + '?invite=ABCD2345', function () {
       var h = document.querySelector('h2');
       return location.hash === '#/signin' && h && h.textContent === 'Sign in';
