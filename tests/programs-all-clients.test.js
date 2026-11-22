@@ -100,7 +100,11 @@ function remoteSession(clientId, programId, workoutId) {
           if (!value) return;
           value.shareSetting = function () { return Promise.resolve(pack.share); };
           value.roster = function () { return Promise.resolve(pack.roster); };
-          value.clientStatus = function (id) { return Promise.resolve(pack.status[id] || { shared: false, enthusiast: false, linked: false }); };
+          value.clientStatus = function (id) {
+            if (window.__wbShareFail && window.__wbShareFail[id]) return Promise.reject(new Error('share'));
+            var live = window.__wbShareLive && window.__wbShareLive[id];
+            return Promise.resolve(live || pack.status[id] || { shared: false, enthusiast: false, linked: false });
+          };
           value.programEntries = function () { return Promise.resolve([]); };
           value.saveProgramEntry = function () { return Promise.resolve(true); };
           value.deleteProgramEntry = function () { return Promise.resolve(true); };
@@ -351,6 +355,49 @@ function remoteSession(clientId, programId, workoutId) {
       today.textContent.indexOf('Nina flow') === -1;
   });
   assert.strictEqual(await trainer.$('.pv-day.today .pv-who'), null);
+
+  function sessionCallsSince(start) {
+    return trainer.evaluate(function (from) {
+      return window.__wbAllCalls.sessions.slice(from);
+    }, start);
+  }
+  // A newer single-client share read replaces the All clients snapshot.
+  await trainer.evaluate(function (id) {
+    window.__wbShareLive = {};
+    window.__wbShareLive[id] = { shared: true, enthusiast: true, linked: true };
+  }, OWEN);
+  var owenCalls = await trainer.evaluate(function () { return window.__wbAllCalls.sessions.length; });
+  await trainer.select('#pv-client', OWEN);
+  await trainer.waitForFunction(function () {
+    var today = document.querySelector('.pv-day.today');
+    return document.getElementById('pv-client').value === 'en-owen' && !document.getElementById('pv-private') &&
+      today && today.textContent.indexOf('Owen secret') !== -1;
+  });
+  var owenAsked = await sessionCallsSince(owenCalls);
+  assert.ok(owenAsked.some(function (ids) { return ids.indexOf(OWEN) >= 0; }));
+
+  await trainer.evaluate(function (id) {
+    window.__wbShareLive[id] = { shared: false, enthusiast: true, linked: true };
+  }, NINA);
+  var ninaOff = await trainer.evaluate(function () { return window.__wbAllCalls.sessions.length; });
+  await trainer.select('#pv-client', NINA);
+  await trainer.waitForSelector('#pv-private');
+  (await sessionCallsSince(ninaOff)).forEach(function (ids) {
+    assert.strictEqual(ids.indexOf(NINA), -1);
+  });
+
+  await trainer.select('#pv-client', '');
+  await trainer.waitForFunction(function () { return document.getElementById('pv-client').value === ''; });
+  await trainer.evaluate(function (id) {
+    window.__wbShareFail = {};
+    window.__wbShareFail[id] = true;
+  }, NINA);
+  var ninaFail = await trainer.evaluate(function () { return window.__wbAllCalls.sessions.length; });
+  await trainer.select('#pv-client', NINA);
+  await trainer.waitForSelector('#pv-private');
+  (await sessionCallsSince(ninaFail)).forEach(function (ids) {
+    assert.strictEqual(ids.indexOf(NINA), -1);
+  });
 
   const ninaData = M.emptyData();
   ninaData.workouts.push(ninaWo);

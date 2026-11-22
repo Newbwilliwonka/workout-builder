@@ -29,6 +29,7 @@
       clientId: '',
       clients: [],
       shares: {},
+      clientShareFresh: false,
       remoteSessions: [],
       profile: null,
       userId: '',
@@ -55,9 +56,13 @@
     (state && state.clients || []).forEach(function (row) { if (row && row.id === id) found = row; });
     return found;
   }
+  // All clients keeps one share snapshot per Enthusiast. A single calendar uses
+  // the read for that open client once it finishes, so an older snapshot cannot
+  // keep them hidden or editable.
   function shareFor(id) {
-    if (state && state.shares && Object.prototype.hasOwnProperty.call(state.shares, id)) return state.shares[id];
-    if (state && state.clientId === id && state.clientShare) return state.clientShare;
+    if (!state) return null;
+    if (!viewingAll() && state.clientId === id && state.clientShareFresh) return state.clientShare;
+    if (state.shares && Object.prototype.hasOwnProperty.call(state.shares, id)) return state.shares[id];
     return null;
   }
   function isEnthusiastClient(client) {
@@ -126,6 +131,7 @@
     }
     var owner = ownerId();
     if (!owner || owner === 'self') return self ? [self] : [];
+    if (P.isTrainer(state.role) && state.clientId && !canSee()) return [];
     return [owner];
   }
   function workouts() {
@@ -1257,6 +1263,7 @@
     if (e.target.id !== 'pv-client') return;
     state.clientId = e.target.value;
     state.clientShare = null;
+    state.clientShareFresh = false;
     state.remoteSessions = [];
     state.hint = '';
     state.sheet = null;
@@ -1748,8 +1755,15 @@
       var shares = {};
       rows.forEach(function (row) { shares[row.id] = row.status; });
       state.shares = shares;
+      state.clientShareFresh = false;
       showCalendar();
     });
+  }
+  function rememberClientShare(status) {
+    state.clientShare = status;
+    state.clientShareFresh = true;
+    if (!state.shares) state.shares = {};
+    if (state.clientId) state.shares[state.clientId] = status;
   }
   function loadClientShare(token) {
     if (!state || token !== loadToken) return;
@@ -1758,19 +1772,20 @@
       showCalendar();
       return;
     }
-    Promise.resolve().then(function () { return options.loadClient(state.clientId); }).then(function (status) {
-      if (!state || token !== loadToken) return;
-      state.clientShare = status || { shared: false, enthusiast: false, linked: true };
+    var requested = state.clientId;
+    Promise.resolve().then(function () { return options.loadClient(requested); }).then(function (status) {
+      if (!state || token !== loadToken || state.clientId !== requested) return;
+      rememberClientShare(status || { shared: false, enthusiast: false, linked: true });
       state.ready = true;
       render();
       if (canSee()) { pullRemote(); pullSessions(); }
     }, function () {
-      if (!state || token !== loadToken) return;
-      state.clientShare = null;
+      if (!state || token !== loadToken || state.clientId !== requested) return;
+      // Unknown share stays hidden. Do not read that person's sessions.
+      rememberClientShare(null);
       state.ready = true;
       render();
-      pullRemote();
-      pullSessions();
+      if (canSee()) { pullRemote(); pullSessions(); }
     });
   }
   function refresh() {
