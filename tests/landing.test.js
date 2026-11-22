@@ -1,0 +1,341 @@
+// Public landing page: copy, search tags, and signed-out root.
+// node tests/landing.test.js [url]
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+
+const root = path.join(__dirname, '..');
+const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const appSrc = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+const Mem = require('../membership.js');
+
+const TITLE = 'Coach Trainer App | Build, Run, and Track Client Training';
+const DESCRIPTION = 'Coach Trainer App helps trainers create team drills, run gym circuits, build personal training sessions, schedule programs, and track client progress live.';
+const FEATURES = [
+  'Create team Drills with cones and events.',
+  'Run Team Gym Training.',
+  'Customize your Personal Training sessions with Reps, Intervals, Timed sets, and Stopwatch.',
+  'Schedule your programs in the calendar and track your clients\' progress in real time.',
+  'Design personalized Tracking Dashboards for your clients.',
+  'Get new Clients online and in person through our Trainer Hub with online and area trainer searches.',
+  'All of your clients have free access to the Workout player, Calendar, History, Messaging system, and the Trainer Hub.'
+];
+const SHOTS = [
+  'assets/landing/team-drills.jpg',
+  'assets/landing/team-gym.jpg',
+  'assets/landing/feature-3.jpg',
+  'assets/landing/feature-4.jpg',
+  'assets/landing/feature-5.jpg',
+  'assets/landing/feature-6.jpg',
+  'assets/landing/feature-7.jpg'
+];
+
+assert.ok(html.indexOf('<title>' + TITLE + '</title>') !== -1);
+assert.ok(html.indexOf('<meta name="description" content="' + DESCRIPTION + '">') !== -1);
+assert.ok(html.indexOf('<meta property="og:title" content="' + TITLE + '">') !== -1);
+assert.ok(html.indexOf('<meta property="og:description" content="' + DESCRIPTION + '">') !== -1);
+assert.ok(html.indexOf('<meta property="og:image" content="https://coachtrainerapp.com/assets/landing/team-drills.jpg">') !== -1);
+
+const landingStart = html.indexOf('<div id="landing">');
+const landingEnd = html.indexOf('<div id="toast"');
+assert.ok(landingStart > 0 && landingEnd > landingStart);
+const landing = html.slice(landingStart, landingEnd);
+const headings = [];
+landing.replace(/<h2>([^<]*)<\/h2>/g, function (_, text) { headings.push(text); return _; });
+assert.deepStrictEqual(headings, FEATURES);
+const srcs = [];
+landing.replace(/<img src="([^"]+)"/g, function (_, src) { srcs.push(src); return _; });
+assert.deepStrictEqual(srcs, SHOTS);
+assert.strictEqual(landing.split('loading="lazy"').length - 1, SHOTS.length);
+assert.strictEqual(landing.split('>Sign up / Sign in</a>').length - 1, 2);
+assert.strictEqual(landing.split('href="#/signin"').length - 1, 2);
+assert.ok(landing.indexOf('Coach Trainer App') !== -1);
+assert.ok(landing.indexOf('data-plan') === -1);
+
+const shotStart = appSrc.indexOf('var LANDING_SHOTS = [');
+const shotEnd = appSrc.indexOf('];', shotStart);
+assert.ok(shotStart > 0 && shotEnd > shotStart);
+SHOTS.forEach(function (shot) {
+  assert.ok(appSrc.slice(shotStart, shotEnd).indexOf("'" + shot + "'") !== -1, shot);
+});
+const plansStart = appSrc.indexOf('function landingPlansHtml(');
+const plansEnd = appSrc.indexOf('function fillLandingPlans(');
+assert.ok(plansStart > 0 && plansEnd > plansStart);
+const plans = appSrc.slice(plansStart, plansEnd);
+assert.ok(plans.indexOf('WBMembership.TIERS.forEach') !== -1);
+assert.ok(plans.indexOf('t.available.forEach') !== -1);
+assert.ok(plans.indexOf('t.priceLabel') !== -1);
+assert.ok(plans.indexOf('t.name') !== -1);
+assert.strictEqual(plans.indexOf('data-plan'), -1);
+assert.strictEqual(plans.indexOf('t.cta'), -1);
+Mem.TIERS.forEach(function (tier) {
+  tier.available.concat(tier.comingSoon || []).forEach(function (line) {
+    assert.strictEqual(landing.indexOf(line), -1, 'plan copy stays in the shared tier list: ' + line);
+  });
+});
+
+(async function () {
+  let pp;
+  try { pp = require('puppeteer-core'); } catch (e) { pp = null; }
+  const URL = process.argv[2];
+  if (!URL) {
+    console.log('LANDING OK');
+    return;
+  }
+  if (!pp) throw new Error('puppeteer-core is required to open the landing page');
+  const stubAuth = require('./allow.js').stubAuth;
+  const browser = await pp.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+  const errors = [];
+  try {
+    const page = await browser.newPage();
+    page.on('pageerror', function (err) { errors.push(String(err)); });
+    await stubAuth(page, { session: null });
+    await page.evaluateOnNewDocument(function () {
+      window.__appChromeInstead = false;
+      window.__landingWasThere = false;
+      var armed = false;
+      function note() {
+        var bar = document.querySelector && document.querySelector('body > header.bar');
+        var el = document.getElementById && document.getElementById('landing');
+        if (el && el.isConnected) window.__landingWasThere = true;
+        if (!bar || !window.__landingWasThere) return;
+        var landingOn = !!(el && el.isConnected && getComputedStyle(el).display !== 'none');
+        if (getComputedStyle(bar).display !== 'none' && !landingOn) window.__appChromeInstead = true;
+      }
+      function arm() {
+        var root = document.documentElement;
+        if (armed || !root || root.nodeType !== 1) return false;
+        armed = true;
+        new MutationObserver(note).observe(root, { childList: true, subtree: true, attributes: true });
+        note();
+        return true;
+      }
+      function boot(tries) {
+        if (arm() || tries > 20) return;
+        setTimeout(function () { boot(tries + 1); }, 0);
+      }
+      boot(0);
+    });
+    await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
+    function landingInset() {
+      var shell = document.querySelector('.landing-wrap');
+      var style = getComputedStyle(shell);
+      var vw = document.documentElement.clientWidth;
+      function edges(el) {
+        var r = el.getBoundingClientRect();
+        return { left: Math.round(r.left), right: Math.round(vw - r.right) };
+      }
+      return {
+        pad: style.paddingLeft,
+        max: style.maxWidth,
+        shell: edges(shell),
+        feats: edges(document.querySelector('.landing-features')),
+        plans: edges(document.getElementById('landing-plans')),
+        end: edges(document.querySelector('.landing-end'))
+      };
+    }
+    await page.goto(URL, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(function (first) {
+      var h = document.querySelector('#landing h2');
+      return h && h.textContent === first && document.getElementById('landing-plans') && document.querySelector('#landing-plans h3');
+    }, {}, FEATURES[0]);
+    const seen = await page.evaluate(function () {
+      var landing = document.getElementById('landing');
+      var heads = Array.prototype.map.call(landing.querySelectorAll('.landing-feature h2'), function (el) { return el.textContent; });
+      var links = Array.prototype.map.call(landing.querySelectorAll('a[href="#/signin"]'), function (el) { return el.textContent; });
+      var frames = Array.prototype.map.call(landing.querySelectorAll('.landing-frame'), function (el) {
+        var img = el.querySelector('img');
+        var box = el.getBoundingClientRect();
+        return {
+          src: img ? img.getAttribute('src') : '',
+          lazy: img ? img.getAttribute('loading') : '',
+          ratio: box.width ? box.height / box.width : 0
+        };
+      });
+      var names = Array.prototype.map.call(landing.querySelectorAll('.plan h3'), function (el) { return el.textContent; });
+      var text = landing.innerText;
+      var doc = document.documentElement;
+      return {
+        hash: location.hash,
+        heads: heads,
+        links: links,
+        frames: frames,
+        names: names,
+        text: text,
+        plans: document.querySelectorAll('#landing [data-plan]').length,
+        overflow: doc.scrollWidth - doc.clientWidth,
+        bar: (function () {
+          var bar = landing.querySelector('.landing-bar');
+          var brand = landing.querySelector('.landing-brand');
+          var link = bar.querySelector('a');
+          var bb = brand.getBoundingClientRect();
+          var lb = link.getBoundingClientRect();
+          var barBox = bar.getBoundingClientRect();
+          return {
+            brand: brand.textContent,
+            link: link.textContent,
+            brandLeft: bb.left < lb.left,
+            linkRight: lb.right <= barBox.right + 1,
+            brandFull: brand.scrollWidth <= brand.clientWidth + 1
+          };
+        })()
+      };
+    });
+    assert.strictEqual(seen.hash, '');
+    assert.deepStrictEqual(seen.heads, FEATURES);
+    assert.deepStrictEqual(seen.links, ['Sign up / Sign in', 'Sign up / Sign in']);
+    assert.deepStrictEqual(seen.names, Mem.TIERS.map(function (t) { return t.name; }));
+    assert.strictEqual(seen.plans, 0);
+    assert.ok(seen.overflow <= 1, 'horizontal overflow ' + seen.overflow);
+    assert.strictEqual(seen.bar.brand, 'Coach Trainer App');
+    assert.strictEqual(seen.bar.link, 'Sign up / Sign in');
+    assert.strictEqual(seen.bar.brandLeft, true);
+    assert.strictEqual(seen.bar.linkRight, true);
+    assert.strictEqual(seen.bar.brandFull, true);
+    assert.strictEqual(await page.evaluate(function () { return document.documentElement.classList.contains('wb-landing'); }), true);
+    assert.strictEqual(await page.evaluate(function () { return window.__appChromeInstead; }), false);
+    const phoneInset = await page.evaluate(landingInset);
+    assert.strictEqual(phoneInset.pad, '20px');
+    assert.strictEqual(phoneInset.max, '1100px');
+    assert.ok(phoneInset.feats.left >= 16 && phoneInset.feats.left <= 24, 'phone feature inset ' + phoneInset.feats.left);
+    assert.deepStrictEqual(phoneInset.plans, phoneInset.feats);
+    assert.deepStrictEqual(phoneInset.end, phoneInset.feats);
+    await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
+    const deskInset = await page.evaluate(landingInset);
+    assert.strictEqual(deskInset.max, '1100px');
+    assert.ok(deskInset.shell.left > 40, 'desktop container inset ' + deskInset.shell.left);
+    assert.strictEqual(deskInset.shell.left, deskInset.shell.right);
+    assert.deepStrictEqual(deskInset.plans, deskInset.feats);
+    assert.deepStrictEqual(deskInset.end, deskInset.feats);
+    assert.ok(deskInset.feats.left >= deskInset.shell.left);
+    await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
+    assert.strictEqual(seen.frames.length, SHOTS.length);
+    seen.frames.forEach(function (frame, i) {
+      assert.strictEqual(frame.src, SHOTS[i]);
+      assert.strictEqual(frame.lazy, 'lazy');
+      assert.ok(Math.abs(frame.ratio - 9 / 16) < 0.04, 'frame ' + i + ' ratio ' + frame.ratio);
+    });
+    await page.evaluate(function () {
+      return Promise.all(Array.prototype.map.call(document.querySelectorAll('.landing-feature img'), function (img) {
+        img.loading = 'eager';
+        img.scrollIntoView({ block: 'center' });
+        return img.decode().catch(function () {});
+      }));
+    });
+    const shots = await page.evaluate(function () {
+      return Array.prototype.map.call(document.querySelectorAll('.landing-feature img'), function (img) {
+        return { missing: img.classList.contains('is-missing'), width: img.naturalWidth };
+      });
+    });
+    assert.strictEqual(shots[0].missing, false);
+    assert.ok(shots[0].width > 0 && shots[1].width > 0);
+    shots.slice(2).forEach(function (shot, i) { assert.strictEqual(shot.missing, true, SHOTS[i + 2]); });
+    Mem.TIERS.forEach(function (tier) {
+      assert.ok(seen.text.indexOf(tier.name) !== -1, tier.name);
+      assert.ok(seen.text.indexOf(tier.priceLabel) !== -1, tier.priceLabel);
+      tier.available.forEach(function (line) { assert.ok(seen.text.indexOf(line) !== -1, line); });
+      (tier.comingSoon || []).forEach(function (line) { assert.ok(seen.text.indexOf(line) !== -1, line); });
+    });
+    assert.ok(seen.text.indexOf('Choose Enthusiast') === -1);
+    assert.ok(seen.text.indexOf('Choose Trainer') === -1);
+    assert.ok(seen.text.indexOf('Choose Master Trainer') === -1);
+
+    await page.click('.landing-bar a[href="#/signin"]');
+    await page.waitForFunction(function () {
+      var h = document.querySelector('h2');
+      var landing = document.getElementById('landing');
+      return location.hash === '#/signin' && h && h.textContent === 'Sign in' && landing && getComputedStyle(landing).display === 'none';
+    });
+    await page.evaluate(function () {
+      window.WBAuth.session = function () { return new Promise(function () {}); };
+    });
+    await page.evaluate(function () { history.back(); });
+    await page.waitForFunction(function () { return location.hash === '' || location.hash === '#'; });
+    const backState = await page.evaluate(function () {
+      var el = document.getElementById('landing');
+      var bar = document.querySelector('body > header.bar');
+      return {
+        connected: !!(el && el.isConnected),
+        landing: el ? getComputedStyle(el).display : '',
+        bar: bar ? getComputedStyle(bar).display : '',
+        appClass: document.documentElement.classList.contains('wb-app')
+      };
+    });
+    assert.strictEqual(backState.connected, true);
+    assert.notStrictEqual(backState.landing, 'none');
+    assert.strictEqual(backState.bar, 'none');
+    assert.strictEqual(backState.appClass, false);
+    await page.evaluate(function () {
+      window.WBAuth.session = function () { return Promise.resolve(null); };
+    });
+    await page.goto(URL + '#/', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(function () {
+      var landing = document.getElementById('landing');
+      return location.hash === '#/subscriptions' && landing && getComputedStyle(landing).display === 'none' && document.body.innerText.indexOf('Choose how you want to train') !== -1;
+    });
+    await page.goto(URL + '?invite=ABCD2345', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(function () {
+      var code = document.getElementById('invite-code');
+      var landing = document.getElementById('landing');
+      return location.hash === '#/signin' && code && code.value === 'ABCD-2345' && landing && getComputedStyle(landing).display === 'none';
+    });
+
+    const signedIn = await browser.newPage();
+    signedIn.on('pageerror', function (err) { errors.push(String(err)); });
+    await stubAuth(signedIn);
+    await signedIn.goto(URL, { waitUntil: 'domcontentloaded' });
+    await signedIn.waitForSelector('[data-a=new]');
+    assert.strictEqual(await signedIn.evaluate(function () {
+      var el = document.getElementById('landing');
+      return !!(el && el.isConnected && getComputedStyle(el).display === 'none');
+    }), true);
+    assert.ok(await signedIn.$('header.bar'));
+
+    async function neverShowsLanding(setup, url, ready) {
+      const p = await browser.newPage();
+      p.on('pageerror', function (err) { errors.push(String(err)); });
+      await p.evaluateOnNewDocument(function () {
+        window.__landingShown = false;
+        function note() {
+          var el = document.getElementById && document.getElementById('landing');
+          if (el && el.isConnected && getComputedStyle(el).display !== 'none') window.__landingShown = true;
+        }
+        var timer = setInterval(note, 16);
+        function arm() {
+          note();
+          if (!document.documentElement) return;
+          clearInterval(timer);
+          new MutationObserver(note).observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', arm);
+        else arm();
+      });
+      await setup(p);
+      await p.goto(url, { waitUntil: 'domcontentloaded' });
+      await p.waitForFunction(ready);
+      assert.strictEqual(await p.evaluate(function () { return window.__landingShown; }), false);
+      assert.strictEqual(await p.evaluate(function () { return document.documentElement.classList.contains('wb-landing'); }), false);
+      await p.close();
+    }
+    await neverShowsLanding(function (p) {
+      return p.evaluateOnNewDocument(function () {
+        localStorage.setItem('sb-thyrgloermygnezfareg-auth-token', '{"access_token":"abc"}');
+      }).then(function () { return stubAuth(p); });
+    }, URL, function () { return !!document.querySelector('[data-a=new]'); });
+    await neverShowsLanding(function (p) { return stubAuth(p, { session: null }); }, URL + '?invite=ABCD2345', function () {
+      var h = document.querySelector('h2');
+      return location.hash === '#/signin' && h && h.textContent === 'Sign in';
+    });
+    await neverShowsLanding(function (p) { return stubAuth(p, { session: null }); }, URL + '?code=reset-code', function () {
+      return location.hash === '#/reset' && document.body.innerText.indexOf('This reset link is invalid or has expired.') !== -1;
+    });
+
+    assert.deepStrictEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+  console.log('LANDING OK');
+})().catch(function (err) {
+  console.error(err);
+  process.exit(1);
+});

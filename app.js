@@ -1,4 +1,5 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key>  |  #/hub  |  #/hub/new  |  #/hub/<id> */
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key>  |  #/hub  |  #/hub/new  |  #/hub/<id>
+   A signed-out visit with no hash shows the public landing page. */
 (function () {
   'use strict';
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
@@ -1027,6 +1028,7 @@
     }).catch(function () { if (hashPage() === from) go('#/signin'); });
   }
   function afterSignIn() {
+    signedInNow = true;
     if (!onAuthPage()) return;
     var pending;
     try { pending = WBAuth.session(); } catch (e) { return go('#/subscriptions'); }
@@ -1479,6 +1481,7 @@
   function abandonReset() {
     var mustSignOut = recoveryLocked() || (recoveryPhase === 'form' && recoveryReady);
     function goSign() {
+      signedInNow = false;
       unlockRecovery();
       recoverySettled = true;
       recoveryPhase = '';
@@ -2036,6 +2039,7 @@
       closeProfileSheet(true);
       if (window.WBSharing) shareState = WBSharing.initialState();
       syncHeaderSignOut();
+      signedInNow = false;
       if (hashPage() !== from) return;
       go('#/signin');
     }).catch(function (err) {
@@ -2374,6 +2378,94 @@
       showErr((err && err.message) || 'Could not save your profile.');
     });
   }
+  // One path per feature photo. Drop a file at the path and the frame fills in.
+  // A missing file keeps the neutral 16:9 frame.
+  var LANDING_SHOTS = [
+    'assets/landing/team-drills.jpg',
+    'assets/landing/team-gym.jpg',
+    'assets/landing/feature-3.jpg',
+    'assets/landing/feature-4.jpg',
+    'assets/landing/feature-5.jpg',
+    'assets/landing/feature-6.jpg',
+    'assets/landing/feature-7.jpg'
+  ];
+  var landingEl = document.getElementById('landing');
+  function landingPlansHtml() {
+    var h = '<div class="sales">';
+    h += '<h2>Choose how you want to train</h2>';
+    h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
+    h += '<p class="note">Beta pricing for the first 100 members.</p>';
+    h += '<div class="plan-grid">';
+    WBMembership.TIERS.forEach(function (t) {
+      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + (t.beta ? ' is-beta' : '') + '">';
+      if (t.beta) h += '<span class="ribbon">BETA</span>';
+      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
+      h += '<div class="price">';
+      if (t.oldPriceLabel) h += '<span class="was">' + esc(t.oldPriceLabel) + '</span>';
+      h += '<span class="now">' + esc(t.priceLabel) + '</span>';
+      if (t.priceCents) h += '<span class="per">/ month</span>';
+      h += '</div>';
+      h += '<p class="value">' + esc(t.value) + '</p>';
+      if (t.includes) h += '<p class="includes">' + esc(t.includes) + '</p>';
+      h += '<ul>';
+      t.available.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
+      h += '</ul>';
+      if (t.highlight) h += '<div class="hub"><span class="hub-badge">Trainer Hub</span><p>' + esc(t.highlight) + '</p></div>';
+      if (t.comingSoon.length) {
+        h += '<p class="soon">Coming soon</p><ul>';
+        t.comingSoon.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
+        h += '</ul>';
+      }
+      h += '</article>';
+    });
+    h += '</div></div>';
+    return h;
+  }
+  function fillLandingPlans() {
+    if (!landingEl || !window.WBMembership) return;
+    var host = landingEl.querySelector('#landing-plans');
+    if (!host || host.childElementCount) return;
+    host.innerHTML = landingPlansHtml();
+  }
+  function bindLandingShots() {
+    if (!landingEl) return;
+    var imgs = landingEl.querySelectorAll('.landing-feature img');
+    Array.prototype.forEach.call(imgs, function (img, i) {
+      var path = LANDING_SHOTS[i];
+      if (path && img.getAttribute('src') !== path) img.setAttribute('src', path);
+      if (img.getAttribute('data-bound')) return;
+      img.setAttribute('data-bound', '1');
+      function miss() { img.classList.add('is-missing'); }
+      img.addEventListener('error', miss);
+      if (img.complete && img.naturalWidth === 0 && img.currentSrc) miss();
+    });
+  }
+  // Remember a confirmed sign-in so the next route does not paint the marketing
+  // page while getSession() is still reading the new token.
+  var signedInNow = false;
+  // The marketing node stays in the document. Classes hide and show it so
+  // Back to the bare URL does not wait on a session check to paint it.
+  function storedSession() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i) || '';
+        if (key.indexOf('-auth-token') === -1 || key.indexOf('code-verifier') !== -1) continue;
+        if ((localStorage.getItem(key) || '').indexOf('access_token') !== -1) return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  function hideLanding() {
+    document.documentElement.classList.add('wb-app');
+    document.documentElement.classList.remove('wb-landing');
+  }
+  function showLanding() {
+    if (!landingEl) return;
+    document.documentElement.classList.remove('wb-app');
+    document.documentElement.classList.add('wb-landing');
+    fillLandingPlans();
+    bindLandingShots();
+  }
   function renderSubscriptions(message, isError) {
     titleEl.textContent = 'Subscriptions';
     backBtn.hidden = true;
@@ -2472,7 +2564,7 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        return WBAuth.signOut().then(function () { cachedProfile = null; resetLibraryMemory(); go('#/signin'); });
+        return WBAuth.signOut().then(function () { cachedProfile = null; signedInNow = false; resetLibraryMemory(); go('#/signin'); });
       }
       if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
@@ -3250,6 +3342,15 @@
     var page = hashPage();
     captureInvite();
     showHeaderSignIn(false);
+    // A bare visit keeps the marketing page up while the session check runs, so
+    // signed-out visitors never see the empty Workouts header. A stored session
+    // already hid it. Invite and recovery visits hide it here and open their own screen.
+    var publicRoot = (location.hash === '' || location.hash === '#') && !(linkInviteCode() || inviteArrival);
+    var recoveryNow = recoveryPhase === 'checking' || recoveryPhase === 'form' || recoveryPhase === 'retry' ||
+      (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) ||
+      (!recoverySettled && !recoveryPhase && recoveryLocked());
+    if (publicRoot && !recoveryNow && !storedSession() && !signedInNow) showLanding();
+    else hideLanding();
     // Recovery links are claimed before any guard replaces the hash or sends
     // a signed-out person to the normal sign-in page.
     if (recoveryPhase === 'checking') return renderReset();
@@ -3261,7 +3362,8 @@
     if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
     // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
     // A signed-out visit that carries an invite code opens sign-in, so the code can be redeemed
-    // after sign-in or create-account. Any other signed-out visit opens Subscriptions.
+    // after sign-in or create-account. A bare visit with no invite keeps the public landing.
+    // Any other signed-out visit opens Subscriptions.
     // Recovery links are claimed above. A failed session check still opens sign-in.
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') {
       profileGateOn = false;
@@ -3285,14 +3387,22 @@
     app.innerHTML = '';
     app.onclick = null; app.oninput = null; app.onchange = null;
     var pending;
-    try { pending = WBAuth.session(); } catch (e) { return go('#/signin'); }
-    if (!pending || !pending.then) return go('#/signin');
+    try { pending = WBAuth.session(); } catch (e) { hideLanding(); return go('#/signin'); }
+    if (!pending || !pending.then) { hideLanding(); return go('#/signin'); }
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go(signedOutHome());
+      if (!session) {
+        signedInNow = false;
+        if (publicRoot && !recoveryNow && (location.hash === '' || location.hash === '#')) return showLanding();
+        hideLanding();
+        return go(signedOutHome());
+      }
+      signedInNow = true;
+      hideLanding();
       openSignedIn(token, requested, page);
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
+      hideLanding();
       go('#/signin');
     });
   }
@@ -5380,5 +5490,7 @@
       setTimeout(function () { scheduleAccountSync(); }, 0);
     });
   }
+  fillLandingPlans();
+  bindLandingShots();
   route();
 })();
