@@ -505,9 +505,49 @@
         (r.laps && r.laps.length ? '<div class="pl-laps sm">' + r.laps.map(function (l, k) { return '<span>L' + (k + 1) + ' ' + M.formatStopwatch(l.lapMs) + '</span>'; }).join('') + '</div>' : '') +
         eventSummaryHtml(r) + '</div></div>';
     });
-    h += '</div><button class="pri" style="width:100%" data-p="exit">Done</button></div>';
+    h += '</div>';
+    if (S.reschedule) h += '<div id="unscheduled-slot"></div>';
+    h += '<button class="pri" style="width:100%" data-p="exit">Done</button></div>';
     S.root.innerHTML = h;
     paintSaveNote();
+    paintReschedule(s);
+  }
+  function rescheduleNoteHtml(canMessage) {
+    var h = '<div class="card" id="unscheduled-note" role="status">';
+    h += '<p>This workout was not on your calendar. Message your trainer if you want it rescheduled.</p>';
+    if (canMessage) h += '<button type="button" class="pri" id="unscheduled-message" data-p="note-message">Message your trainer</button>';
+    h += '<button type="button" id="unscheduled-dismiss" data-p="note-dismiss">Not now</button></div>';
+    return h;
+  }
+  function paintReschedule(sess) {
+    var spec = S && S.reschedule;
+    if (!spec || !sess || !window.WBPrograms || !WBPrograms.shouldSuggestReschedule) return;
+    var token = sess.id;
+    function decide(role) {
+      if (!S || !S.done || S.done.id !== token) return;
+      var entries = [];
+      try { entries = typeof spec.entries === 'function' ? spec.entries() : (spec.entries || []); } catch (e) { entries = []; }
+      if (!WBPrograms.shouldSuggestReschedule(role, sess, entries)) return;
+      var auth = window.WBAuth;
+      if (!auth || !auth.myConnection) return;
+      Promise.resolve().then(function () { return auth.myConnection(); }).then(function (conn) {
+        if (!S || !S.done || S.done.id !== token) return;
+        var trainerId = conn && (conn.trainerId || conn.trainer_id);
+        if (!trainerId) return;
+        var slot = document.getElementById('unscheduled-slot');
+        if (!slot) return;
+        var canMessage = !!(window.WBMessages && typeof auth.sendMessage === 'function');
+        slot.innerHTML = rescheduleNoteHtml(canMessage);
+        S.noteTrainer = String(trainerId);
+      }, function () {});
+    }
+    var role = 'none';
+    try { role = typeof spec.role === 'function' ? spec.role() : (spec.role || 'none'); } catch (e2) { role = 'none'; }
+    if (role && role !== 'none') { decide(role); return; }
+    if (!window.WBAuth || !WBAuth.profile) return;
+    Promise.resolve().then(function () { return WBAuth.profile(); }).then(function (profile) {
+      decide(window.WBPrograms.roleOf(profile));
+    }, function () {});
   }
 
   // ---------- rendering ----------
@@ -774,13 +814,22 @@
     else if (a === 'end') api.requestEnd();
     else if (a === 'endnow') finish();
     else if (a === 'keep') { S.prompt = false; render(); }
+    else if (a === 'note-dismiss') {
+      var note = document.getElementById('unscheduled-note');
+      if (note && note.parentNode) note.parentNode.removeChild(note);
+    }
+    else if (a === 'note-message') {
+      var trainer = S && S.noteTrainer;
+      var goNote = S && S.reschedule && S.reschedule.go;
+      if (trainer && typeof goNote === 'function') goNote('#/messages/' + encodeURIComponent(trainer));
+    }
     else if (a === 'exit') S.onExit();
   }
   function onInput(e) { var f = e.target.dataset.f; if (!f) return; var si = e.target.dataset.si != null ? +e.target.dataset.si : S.idx, v = M.num(e.target.value); res(si)[f] = v === null || isNaN(v) ? null : Math.max(0, v); }
 
   var api = {
     mount: function (root, w, data, persist, onExit, opts) {
-      S = { root: root, w: w, data: data, persist: persist, onExit: onExit, queue: M.buildPlayQueue(w), results: {}, startedAt: Date.now(), acc: 0, running: false, nodes: [], track: !(opts && opts.track === false), programId: opts && opts.programId || null };
+      S = { root: root, w: w, data: data, persist: persist, onExit: onExit, queue: M.buildPlayQueue(w), results: {}, startedAt: Date.now(), acc: 0, running: false, nodes: [], track: !(opts && opts.track === false), programId: opts && opts.programId || null, reschedule: opts && opts.reschedule || null };
       document.body.classList.add('playing');
       root.onclick = onClick; root.oninput = onInput; root.onchange = onInput;
       document.addEventListener('visibilitychange', onVis);

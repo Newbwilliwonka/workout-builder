@@ -3021,7 +3021,13 @@
         return go('#/w/' + current.id);
       }
       titleEl.textContent = current.name; backBtn.hidden = false;
-      return WBPlayer.mount(app, current, data, persist, function () { go('#/w/' + current.id); });
+      return WBPlayer.mount(app, current, data, persist, function () { go('#/w/' + current.id); }, {
+        reschedule: {
+          role: function () { return window.WBPrograms ? WBPrograms.roleOf(cachedProfile) : 'none'; },
+          entries: function () { return data.programs || []; },
+          go: go
+        }
+      });
     }
     if (p[0] === 'w' && current) {
       if (copyLocked(current)) {

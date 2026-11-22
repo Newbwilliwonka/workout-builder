@@ -343,8 +343,24 @@
     }
     return '<span class="pv-ico ' + kind + '" title="' + esc(presenceLabel(kind)) + '">' + mark + '</span>';
   }
-  function check() { return '<span class="pv-check" aria-label="Completed">✓</span>'; }
+  function check(extra) {
+    var cls = extra ? 'pv-check is-extra' : 'pv-check';
+    var label = extra ? 'Completed, not scheduled' : 'Completed';
+    return '<span class="' + cls + '" aria-label="' + label + '">✓</span>';
+  }
   function onDay(date) { return P.byStart(entries().filter(function (row) { return row.date === date; })); }
+  function shownScope() {
+    return { owners: peopleShown(), selfId: (state && state.userId) || 'self' };
+  }
+  function unscheduledFor(date) {
+    if (!P.unscheduledOn) return [];
+    return P.unscheduledOn(date, entries(), sessions(), shownScope());
+  }
+  function loggedName(row) {
+    var live = row && workoutById(row.workoutId);
+    if (live && live.name) return live.name;
+    return (row && row.workoutName) || 'Workout';
+  }
   function dragAttrs(kind, id, label, allowed) {
     if (!allowed) return '';
     return ' data-drag="' + esc(id) + '" data-drag-kind="' + kind + '" data-label="' + esc(label) + '"';
@@ -370,6 +386,23 @@
       (when ? '<div class="pv-when">' + esc(when) + '</div>' : '') +
       '<div class="mute">' + esc(presenceLabel(kind)) + '</div></div>';
   }
+  function extraCard(row) {
+    var name = loggedName(row);
+    var who = rowClientLabel(row);
+    return '<div class="card pv-session is-extra" data-logged="' + esc(row.id) + '"><div class="pv-session-top">' +
+      '<div class="name">' + esc(name) + '</div>' + check(true) + '</div>' +
+      (who ? '<div class="pv-who" data-client-slot="1">' + esc(who) + '</div>' : '') + '</div>';
+  }
+  function extraMonthHtml(rows) {
+    var h = '';
+    (rows || []).forEach(function (row) {
+      var name = loggedName(row);
+      var who = rowClientLabel(row);
+      h += '<span class="pv-extra" data-logged="' + esc(row.id) + '"><span class="pv-uname">' + esc(name) + '</span>' +
+        (who ? '<span class="pv-who" data-client-slot="1">' + esc(who) + '</span>' : '') + check(true) + '</span>';
+    });
+    return h;
+  }
   function presenceChoice(name, selected, entryId) {
     function opt(value, label) {
       var on = selected === value ? ' checked' : '';
@@ -382,7 +415,7 @@
       opt('solo', 'Solo') + opt('trainer', 'Trainer present') + '</div>';
   }
   function legendHtml() {
-    return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span></div>';
+    return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span><span>' + check(true) + 'Not scheduled</span></div>';
   }
   function weekHtml() {
     var start = P.weekStart(state.cursor);
@@ -401,11 +434,13 @@
       d.setDate(start.getDate() + i);
       var date = P.iso(d);
       var items = onDay(date);
+      var extras = unscheduledFor(date);
       var today = date === todayIso();
       h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '" data-day="' + date + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="pv-today-label mute"> Today</span>' : '') + '</div></div>' +
         (P.dayDone(items, tracked) ? check() : '') + '</div>';
       items.forEach(function (row) { h += sessionCard(row); });
-      if (!items.length && canEditHere()) h += '<div class="mute pv-drop">Drop here</div>';
+      extras.forEach(function (row) { h += extraCard(row); });
+      if (!items.length && !extras.length && canEditHere()) h += '<div class="mute pv-drop">Drop here</div>';
       h += '</div>';
     }
     return h + '</div></div>';
@@ -425,6 +460,7 @@
       d.setDate(start.getDate() + i);
       var date = P.iso(d);
       var items = onDay(date);
+      var extras = unscheduledFor(date);
       var outside = d.getMonth() !== month;
       var done = P.dayDone(items, tracked);
       var kinds = {};
@@ -435,13 +471,14 @@
         var who = rowClientLabel(row);
         if (who && !seenName[who]) { seenName[who] = 1; names.push(who); }
       });
+      var extraNames = extras.map(function (row) { return loggedName(row); });
       var icons = '';
       if (kinds.trainer) icons += ico('trainer');
       if (kinds.solo) icons += ico('solo');
       var nameHtml = names.length ? '<span class="pv-names" data-client-slot="1" title="' + esc(names.join(', ')) + '">' + esc(names.join(' · ')) + '</span>' : '';
-      var aria = DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate() + (names.length ? ', ' + names.join(', ') : '') + (done ? ', completed' : '');
-      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + (items.length ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(aria) + '">' +
-        '<span class="pv-num">' + d.getDate() + '</span><span class="pv-marks">' + icons + (done ? check() : '') + '</span>' + nameHtml + '</button>';
+      var aria = DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate() + (names.length ? ', ' + names.join(', ') : '') + (extraNames.length ? ', ' + extraNames.join(', ') + ', completed, not scheduled' : '') + (done ? ', completed' : '');
+      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + ((items.length || extras.length) ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(aria) + '">' +
+        '<span class="pv-num">' + d.getDate() + '</span><span class="pv-marks">' + icons + (done ? check() : '') + '</span>' + nameHtml + extraMonthHtml(extras) + '</button>';
     }
     return h + '</div>';
   }
@@ -604,23 +641,56 @@
       '<span class="pv-row-end"><span class="pv-row-client" data-client-slot="1">' + esc(who) + '</span>' +
       (done ? check() : '') + '</span></button>';
   }
+  function extraRowHtml(row) {
+    var name = loggedName(row);
+    var who = rowClientLabel(row);
+    var label = name + (who ? ', ' + who : '') + ', completed, not scheduled';
+    return '<button type="button" class="pv-day-row is-extra" data-open-logged="' + esc(row.id) + '" aria-label="' + esc(label) + '">' +
+      '<span class="pv-row-main"><span class="name">' + esc(name) + '</span></span>' +
+      '<span class="pv-row-end"><span class="pv-row-client" data-client-slot="1">' + esc(who) + '</span>' +
+      check(true) + '</span></button>';
+  }
   function dayListHtml() {
     var date = state.sheet.date;
     var items = onDay(date);
+    var extras = unscheduledFor(date);
     var tracked = sessions();
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">';
     h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3>';
-    if (!items.length) h += '<p class="mute" id="pv-empty-day">No workouts scheduled</p>';
+    if (!items.length && !extras.length) h += '<p class="mute" id="pv-empty-day">No workouts scheduled</p>';
     items.forEach(function (row) { h += dayRowHtml(row, tracked); });
+    extras.forEach(function (row) { h += extraRowHtml(row); });
     if (canEditHere()) h += '<button type="button" data-sheet="add-day">Add workout</button>';
     return h + '</div></div>';
   }
+  function loggedById(id) {
+    var found = null;
+    if (!state || !state.sheet || !state.sheet.date) return null;
+    unscheduledFor(state.sheet.date).forEach(function (row) { if (row && row.id === id) found = row; });
+    return found;
+  }
   function daySheetHtml() {
+    if (state.sheet.loggedId) return loggedSheetHtml();
     var row = entryById(state.sheet.entryId);
     var actions = row ? P.entryMenu(contextForOwner(row.ownerId)) : [];
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">';
     if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
     else h += dayWorkoutHtml(row, actions);
+    return h + '</div></div>';
+  }
+  function loggedSheetHtml() {
+    var row = loggedById(state.sheet.loggedId);
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">';
+    if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
+    else {
+      var name = loggedName(row);
+      var actions = P.entryMenu(contextForOwner(row.ownerId)).filter(function (action) { return action === 'run' || action === 'view'; });
+      h += '<div class="pv-slot"><h3 class="name pv-slot-title">' + check(true) + '<span>' + esc(name) + '</span></h3>';
+      h += '<p class="mute">' + esc(prettyDate(row.date)) + ' · Completed, not scheduled</p>';
+      if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '">Run</button>';
+      if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '">View</button>';
+      h += '</div>';
+    }
     return h + '</div></div>';
   }
   function dayWorkoutHtml(row, actions) {
@@ -809,6 +879,11 @@
     var scratch = { version: 4, workouts: [], sessions: [] };
     var opts = { track: true };
     if (state.focusEntry) opts.programId = state.focusEntry;
+    opts.reschedule = {
+      role: function () { return state && state.role; },
+      entries: function () { return (data() && data().programs) || []; },
+      go: options && options.go
+    };
     WBPlayer.mount(app, workout, scratch, function () {}, leavePlayer, opts);
     window.scrollTo(0, 0);
   }
@@ -818,7 +893,7 @@
   }
   function returnsToList(sheet) {
     if (!sheet || !sheet.date) return false;
-    if (sheet.type === 'day' && sheet.entryId) return true;
+    if (sheet.type === 'day' && (sheet.entryId || sheet.loggedId)) return true;
     if (sheet.type === 'add' && sheet.returnTo === 'list') return true;
     return false;
   }
@@ -926,6 +1001,12 @@
     var drafts = {};
     drafts[row.id] = { start: row.start || '', end: row.end || '', error: '' };
     state.sheet = { type: 'day', date: row.date, entryId: row.id, drafts: drafts };
+    state.hint = '';
+    render();
+  }
+  function openLogged(row) {
+    if (!row) return;
+    state.sheet = { type: 'day', date: row.date, entryId: '', loggedId: row.id, workoutId: row.workoutId, ownerId: row.ownerId };
     state.hint = '';
     render();
   }
@@ -1673,6 +1754,12 @@
         openAdd(addDate, '', false, true);
         return;
       }
+    }
+    var loggedBtn = e.target.closest('[data-open-logged]');
+    if (loggedBtn && state.sheet && state.sheet.type === 'list') {
+      var logged = loggedById(loggedBtn.getAttribute('data-open-logged'));
+      if (logged) openLogged(logged);
+      return;
     }
     var rowBtn = e.target.closest('[data-open-entry]');
     if (rowBtn && state.sheet && state.sheet.type === 'list') {

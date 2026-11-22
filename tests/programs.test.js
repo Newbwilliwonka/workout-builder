@@ -62,35 +62,86 @@ assert.strictEqual(marked.changed.presence, 'trainer');
 
 const entry = marked.programs[0];
 const day = new Date(2026, 10, 12, 15, 0, 0).getTime();
+entry.updatedAt = day - 60000;
+entry.dateSetAt = day - 60000;
 assert.strictEqual(P.entryDone(entry, []), false);
 assert.strictEqual(P.entryDone(entry, [{ workoutId: 'push', endedAt: day, results: [] }]), false);
 assert.strictEqual(P.entryDone(entry, [{ workoutId: 'push', endedAt: day, results: [{ logged: true }] }]), true);
 assert.strictEqual(P.entryDone(entry, [{ workoutId: 'other', programId: 'pg1', endedAt: day, results: [{ logged: true }] }]), true);
 assert.strictEqual(P.entryDone(entry, [{ workoutId: 'push', endedAt: new Date(2026, 10, 13).getTime(), results: [{ logged: true }] }]), false);
 assert.strictEqual(P.dayDone(marked.programs, [{ workoutId: 'push', endedAt: day, results: [{ logged: true }] }]), true);
-// A database session completes only that person's entry. Same workout on the
-// same day does not check someone else. A different day still does not match
-// unless it is that exact program. Moving a workout keeps its owner.
-const adaEntry = { id: 'pg-ada', ownerId: 'ada', workoutId: 'push', date: '2026-11-12' };
+// A database session completes only that person's entry on the same local day.
+// An earlier run does not check the original scheduled day. Moving a workout
+// keeps its owner.
+const adaEntry = { id: 'pg-ada', ownerId: 'ada', workoutId: 'push', date: '2026-11-12', updatedAt: Date.parse('2026-11-01T12:00:00Z') };
 const remoteAda = P.sessionFromRemote({
-  id: 's-ada', client_id: 'ada', local_date: '2026-11-12', workout_id: 'push', program_id: 'pg-ada', status: 'completed'
+  id: 's-ada', client_id: 'ada', local_date: '2026-11-12', workout_id: 'push', program_id: 'pg-ada', status: 'completed',
+  workout_name: 'Push'
 });
 const remoteEarly = P.sessionFromRemote({
-  id: 's-early', client_id: 'ada', local_date: '2026-11-10', workout_id: 'push', program_id: 'pg-ada', status: 'ended_early'
+  id: 's-early', client_id: 'ada', local_date: '2026-11-10', workout_id: 'push', program_id: 'pg-ada', status: 'ended_early',
+  workout_name: 'Push', started_at: '2026-11-10T15:00:00Z', ended_at: '2026-11-10T16:00:00Z'
 });
 const remoteOtherDay = P.sessionFromRemote({
   id: 's-other', client_id: 'ada', local_date: '2026-11-13', workout_id: 'push', status: 'completed'
 });
 assert.strictEqual(P.localDay(remoteAda.endedAt), '2026-11-12');
+assert.strictEqual(P.sessionDay(remoteAda), '2026-11-12');
+assert.strictEqual(remoteAda.workoutName, 'Push');
 assert.strictEqual(P.entryDone(adaEntry, [remoteAda]), true);
 assert.strictEqual(P.entryDone(entry, [remoteAda]), false);
-assert.strictEqual(P.entryDone(adaEntry, [remoteEarly]), true);
+assert.strictEqual(P.entryDone(adaEntry, [remoteEarly]), false);
 assert.strictEqual(P.entryDone(adaEntry, [remoteOtherDay]), false);
 assert.strictEqual(P.sessionFromRemote({ client_id: 'ada', local_date: '2026-11-12', workout_id: 'push', status: 'in_progress' }), null);
 assert.strictEqual(P.entryDone(adaEntry, [{ workoutId: 'push', endedAt: day, results: [{ logged: true }] }]), true);
+const movedBefore = { id: 'pg-ada', ownerId: 'ada', workoutId: 'push', date: '2026-11-10', dateSetAt: Date.parse('2026-11-10T08:00:00Z'), updatedAt: Date.parse('2026-11-10T20:00:00Z') };
+assert.strictEqual(P.entryDone(movedBefore, [remoteEarly]), true);
+const movedAfter = { id: 'pg-ada', ownerId: 'ada', workoutId: 'push', date: '2026-11-10', dateSetAt: Date.parse('2026-11-10T18:00:00Z'), updatedAt: Date.parse('2026-11-10T08:00:00Z') };
+assert.strictEqual(P.entryDone(movedAfter, [remoteEarly]), false);
+const touched = P.setPresence([Object.assign({}, movedBefore, { id: 'pg-ada', presence: 'solo' })], 'pg-ada', 'trainer');
+assert.strictEqual(touched.changed.dateSetAt, movedBefore.dateSetAt);
+assert.ok(touched.changed.updatedAt > movedBefore.updatedAt);
+assert.strictEqual(P.entryDone(touched.changed, [remoteEarly]), true);
+const retimed = P.setTimes([touched.changed], 'pg-ada', '09:00', '10:00');
+assert.strictEqual(retimed.changed.dateSetAt, movedBefore.dateSetAt);
+assert.strictEqual(P.entryDone(retimed.changed, [remoteEarly]), true);
+const relocated = P.move([retimed.changed], 'pg-ada', '2026-11-18');
+assert.ok(relocated.moved.dateSetAt > retimed.changed.dateSetAt);
+assert.strictEqual(relocated.moved.date, '2026-11-18');
+const adaScope = { owners: ['ada'], selfId: 'ada' };
+assert.strictEqual(P.unscheduledOn('2026-11-10', [adaEntry], [remoteEarly], adaScope).length, 1);
+assert.strictEqual(P.unscheduledOn('2026-11-10', [adaEntry], [remoteEarly], adaScope)[0].workoutName, 'Push');
+assert.strictEqual(P.unscheduledOn('2026-11-12', [adaEntry], [remoteEarly], adaScope).length, 0);
+assert.strictEqual(P.unscheduledOn('2026-11-10', [movedBefore], [remoteEarly], adaScope).length, 0);
+assert.strictEqual(P.unscheduledOn('2026-11-10', [movedAfter], [remoteEarly], adaScope).length, 1);
+assert.strictEqual(P.unscheduledOn('2026-11-10', [adaEntry], [remoteEarly], { owners: ['trainer'], selfId: 'trainer' }).length, 0);
+const deviceRun = { id: 'ses-me', workoutId: 'push', workoutName: 'Push', startedAt: day, endedAt: day, results: [{ logged: true }] };
+assert.strictEqual(P.unscheduledOn('2026-11-12', [], [deviceRun], { owners: ['ada'], selfId: 'trainer' }).length, 0);
+assert.strictEqual(P.unscheduledOn('2026-11-12', [], [deviceRun], { owners: ['trainer'], selfId: 'trainer' }).length, 1);
+assert.strictEqual(P.unscheduledOn('2026-11-12', [], [deviceRun, Object.assign({}, deviceRun, { remote: true, clientId: 'trainer' })], { owners: ['trainer'], selfId: 'trainer' }).length, 1);
+const earlyLocal = { id: 'ses-early', workoutId: 'push', workoutName: 'Push', programId: 'pg-ada', localDate: '2026-11-10', startedAt: Date.parse('2026-11-10T15:00:00Z'), endedAt: Date.parse('2026-11-10T16:00:00Z'), results: [{ logged: true }] };
+assert.strictEqual(P.shouldSuggestReschedule('enthusiast', earlyLocal, [adaEntry]), true);
+assert.strictEqual(P.shouldSuggestReschedule('free_client', earlyLocal, [adaEntry]), true);
+assert.strictEqual(P.shouldSuggestReschedule('trainer', earlyLocal, [adaEntry]), false);
+assert.strictEqual(P.shouldSuggestReschedule('master_trainer', earlyLocal, [adaEntry]), false);
+assert.strictEqual(P.shouldSuggestReschedule('enthusiast', earlyLocal, [movedBefore]), false);
+assert.strictEqual(P.shouldSuggestReschedule('enthusiast', { workoutId: 'push', results: [] }, [adaEntry]), false);
 const keptOwner = P.move([adaEntry], 'pg-ada', '2026-11-18');
 assert.strictEqual(keptOwner.moved.ownerId, 'ada');
 assert.strictEqual(keptOwner.moved.date, '2026-11-18');
+const sameDay = [{ id: 'pg1', ownerId: self, workoutId: 'push', workoutName: 'Push', date: '2026-11-12', presence: 'solo', dateSetAt: 1000, updatedAt: 1000, synced: true }];
+const timeEdit = P.merge(sameDay, [{
+  local_id: 'pg1', owner_id: self, workout_local_id: 'push', workout_name: 'Push', day: '2026-11-12', presence: 'trainer', updated_at: new Date(5000).toISOString()
+}], self, {});
+const keptStamp = timeEdit.filter(function (row) { return row.id === 'pg1'; })[0];
+assert.strictEqual(keptStamp.presence, 'trainer');
+assert.strictEqual(keptStamp.dateSetAt, 1000);
+const dayMove = P.merge(sameDay, [{
+  local_id: 'pg1', owner_id: self, workout_local_id: 'push', workout_name: 'Push', day: '2026-11-10', presence: 'solo', updated_at: new Date(9000).toISOString()
+}], self, {});
+const movedStamp = dayMove.filter(function (row) { return row.id === 'pg1'; })[0];
+assert.strictEqual(movedStamp.date, '2026-11-10');
+assert.strictEqual(movedStamp.dateSetAt, 9000);
 
 assert.strictEqual(P.validTimes('10:00', '09:00').ok, false);
 assert.strictEqual(P.validTimes('10:00', '10:00').ok, false);

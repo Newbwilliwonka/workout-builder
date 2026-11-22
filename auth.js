@@ -1137,7 +1137,7 @@
     calendarSessions: function (ownerIds) {
       var ids = uuidList(ownerIds);
       if (!ids.length) return Promise.resolve([]);
-      var cols = 'id,client_id,local_id,workout_id,program_id,local_date,started_at,ended_at,status';
+      var cols = 'id,client_id,local_id,workout_id,workout_name,program_id,local_date,started_at,ended_at,status';
       return signedUser().then(function (ctx) {
         if (!ctx.user) return [];
         return pagedRows(ctx.c, 'workout_sessions', cols, function (q) {
