@@ -3286,6 +3286,47 @@
     } catch (e) {}
     return false;
   }
+  function linkedWorkout(id, name, items) {
+    if (!id || !Array.isArray(items) || !items.length) return null;
+    var copy = items;
+    try { copy = JSON.parse(JSON.stringify(items)); } catch (e) { copy = items.slice(); }
+    return { id: String(id), name: name || 'Workout', items: copy };
+  }
+  function matchClientWorkout(row, workoutId) {
+    if (!row) return null;
+    var local = row.localId != null ? row.localId : (row.local_id != null ? row.local_id : row.id);
+    if (String(local || '') !== String(workoutId || '')) return null;
+    return linkedWorkout(local, row.name, row.items);
+  }
+  function firstClientWorkout(list, workoutId) {
+    var found = null;
+    (list || []).forEach(function (row) {
+      if (!found) found = matchClientWorkout(row, workoutId);
+    });
+    return found;
+  }
+  // The linked client's workout, not a workout stored on this device.
+  function loadLinkedWorkout(clientId, workoutId) {
+    if (!clientId || !workoutId || !window.WBAuth) return Promise.resolve(null);
+    function call(name) {
+      var fn = WBAuth[name];
+      if (typeof fn !== 'function') return Promise.resolve(null);
+      return Promise.resolve().then(function () { return fn.call(WBAuth, clientId); }).then(function (value) {
+        return value;
+      }, function () { return null; });
+    }
+    return Promise.all([
+      call('clientAccountWorkouts'),
+      call('clientSentWorkouts'),
+      call('clientWorkouts')
+    ]).then(function (parts) {
+      var account = parts[0];
+      var accountRows = account && Array.isArray(account.workouts) ? account.workouts : (Array.isArray(account) ? account : []);
+      var sent = Array.isArray(parts[1]) ? parts[1] : [];
+      var own = Array.isArray(parts[2]) ? parts[2] : [];
+      return firstClientWorkout(accountRows, workoutId) || firstClientWorkout(sent, workoutId) || firstClientWorkout(own, workoutId) || null;
+    });
+  }
   function trackedSessions() {
     var rows = Array.isArray(data.sessions) ? data.sessions.slice() : [];
     if (window.WBSharing) {
@@ -3330,6 +3371,7 @@
       loadEntries: function (ownerId) { return WBAuth.programEntries ? WBAuth.programEntries(ownerId) : Promise.reject(new Error('programs')); },
       loadEntriesFor: function (ownerIds) { return WBAuth.programEntriesFor ? WBAuth.programEntriesFor(ownerIds) : Promise.reject(new Error('programs')); },
       loadSessions: function (ownerIds) { return WBAuth.calendarSessions ? WBAuth.calendarSessions(ownerIds) : Promise.resolve([]); },
+      loadClientWorkout: function (clientId, workoutId) { return loadLinkedWorkout(clientId, workoutId); },
       saveEntry: function (entry) { return WBAuth.saveProgramEntry ? WBAuth.saveProgramEntry(entry) : Promise.reject(new Error('programs')); },
       deleteEntry: function (entry) { return WBAuth.deleteProgramEntry ? WBAuth.deleteProgramEntry(entry.ownerId, entry.id) : Promise.reject(new Error('programs')); },
       loadCalendar: function (zone, token) { return WBAuth.calendarFeed ? WBAuth.calendarFeed(zone, token) : Promise.reject(Object.assign(new Error('local'), { local: true })); },

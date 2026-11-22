@@ -741,7 +741,7 @@ async function stub(page, extra) {
   await trainer.waitForSelector('#pv-client');
   await trainer.waitForFunction(function () {
     var sel = document.getElementById('pv-client');
-    return sel && sel.value === 'all' && document.body.innerText.indexOf('My lift') !== -1 && document.body.innerText.indexOf('Ada lift') !== -1;
+    return sel && sel.value === 'all' && document.body.innerText.indexOf('Self') !== -1 && document.body.innerText.indexOf('ada@example.com') === -1 && document.querySelector('.pv-day.today .pv-ico.solo') && document.querySelector('.pv-day.today .pv-ico.trainer');
   });
   await trainer.select('#pv-client', '');
   await trainer.waitForFunction(function () {
