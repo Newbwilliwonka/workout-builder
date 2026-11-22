@@ -1028,6 +1028,7 @@
     }).catch(function () { if (hashPage() === from) go('#/signin'); });
   }
   function afterSignIn() {
+    signedInNow = true;
     if (!onAuthPage()) return;
     var pending;
     try { pending = WBAuth.session(); } catch (e) { return go('#/subscriptions'); }
@@ -1480,6 +1481,7 @@
   function abandonReset() {
     var mustSignOut = recoveryLocked() || (recoveryPhase === 'form' && recoveryReady);
     function goSign() {
+      signedInNow = false;
       unlockRecovery();
       recoverySettled = true;
       recoveryPhase = '';
@@ -2037,6 +2039,7 @@
       closeProfileSheet(true);
       if (window.WBSharing) shareState = WBSharing.initialState();
       syncHeaderSignOut();
+      signedInNow = false;
       if (hashPage() !== from) return;
       go('#/signin');
     }).catch(function (err) {
@@ -2437,19 +2440,29 @@
       if (img.complete && img.naturalWidth === 0 && img.currentSrc) miss();
     });
   }
+  // Remember a confirmed sign-in so the next route does not paint the marketing
+  // page while getSession() is still reading the new token.
+  var signedInNow = false;
+  // The marketing node stays in the document. Classes hide and show it so
+  // Back to the bare URL does not wait on a session check to paint it.
+  function storedSession() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i) || '';
+        if (key.indexOf('-auth-token') === -1 || key.indexOf('code-verifier') !== -1) continue;
+        if ((localStorage.getItem(key) || '').indexOf('access_token') !== -1) return true;
+      }
+    } catch (e) {}
+    return false;
+  }
   function hideLanding() {
     document.documentElement.classList.add('wb-app');
     document.documentElement.classList.remove('wb-landing');
-    if (landingEl && landingEl.parentNode) landingEl.parentNode.removeChild(landingEl);
   }
   function showLanding() {
     if (!landingEl) return;
     document.documentElement.classList.remove('wb-app');
     document.documentElement.classList.add('wb-landing');
-    if (!landingEl.isConnected) {
-      var host = app && app.parentNode;
-      if (host) host.insertBefore(landingEl, app);
-    }
     fillLandingPlans();
     bindLandingShots();
   }
@@ -2551,7 +2564,7 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        return WBAuth.signOut().then(function () { cachedProfile = null; resetLibraryMemory(); go('#/signin'); });
+        return WBAuth.signOut().then(function () { cachedProfile = null; signedInNow = false; resetLibraryMemory(); go('#/signin'); });
       }
       if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
@@ -3336,7 +3349,8 @@
     var recoveryNow = recoveryPhase === 'checking' || recoveryPhase === 'form' || recoveryPhase === 'retry' ||
       (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) ||
       (!recoverySettled && !recoveryPhase && recoveryLocked());
-    if (!(publicRoot && !recoveryNow)) hideLanding();
+    if (publicRoot && !recoveryNow && !storedSession() && !signedInNow) showLanding();
+    else hideLanding();
     // Recovery links are claimed before any guard replaces the hash or sends
     // a signed-out person to the normal sign-in page.
     if (recoveryPhase === 'checking') return renderReset();
@@ -3378,10 +3392,12 @@
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
       if (!session) {
+        signedInNow = false;
         if (publicRoot && !recoveryNow && (location.hash === '' || location.hash === '#')) return showLanding();
         hideLanding();
         return go(signedOutHome());
       }
+      signedInNow = true;
       hideLanding();
       openSignedIn(token, requested, page);
     }).catch(function () {

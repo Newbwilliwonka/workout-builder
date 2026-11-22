@@ -37,7 +37,7 @@ assert.ok(html.indexOf('<meta property="og:description" content="' + DESCRIPTION
 assert.ok(html.indexOf('<meta property="og:image" content="https://coachtrainerapp.com/assets/landing/team-drills.jpg">') !== -1);
 
 const landingStart = html.indexOf('<div id="landing">');
-const landingEnd = html.indexOf('<main id="app">');
+const landingEnd = html.indexOf('<div id="toast"');
 assert.ok(landingStart > 0 && landingEnd > landingStart);
 const landing = html.slice(landingStart, landingEnd);
 const headings = [];
@@ -243,16 +243,41 @@ Mem.TIERS.forEach(function (tier) {
     await page.click('.landing-bar a[href="#/signin"]');
     await page.waitForFunction(function () {
       var h = document.querySelector('h2');
-      return location.hash === '#/signin' && h && h.textContent === 'Sign in' && !document.getElementById('landing');
+      var landing = document.getElementById('landing');
+      return location.hash === '#/signin' && h && h.textContent === 'Sign in' && landing && getComputedStyle(landing).display === 'none';
+    });
+    await page.evaluate(function () {
+      window.WBAuth.session = function () { return new Promise(function () {}); };
+    });
+    await page.evaluate(function () { history.back(); });
+    await page.waitForFunction(function () { return location.hash === '' || location.hash === '#'; });
+    const backState = await page.evaluate(function () {
+      var el = document.getElementById('landing');
+      var bar = document.querySelector('body > header.bar');
+      return {
+        connected: !!(el && el.isConnected),
+        landing: el ? getComputedStyle(el).display : '',
+        bar: bar ? getComputedStyle(bar).display : '',
+        appClass: document.documentElement.classList.contains('wb-app')
+      };
+    });
+    assert.strictEqual(backState.connected, true);
+    assert.notStrictEqual(backState.landing, 'none');
+    assert.strictEqual(backState.bar, 'none');
+    assert.strictEqual(backState.appClass, false);
+    await page.evaluate(function () {
+      window.WBAuth.session = function () { return Promise.resolve(null); };
     });
     await page.goto(URL + '#/', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(function () {
-      return location.hash === '#/subscriptions' && !document.getElementById('landing') && document.body.innerText.indexOf('Choose how you want to train') !== -1;
+      var landing = document.getElementById('landing');
+      return location.hash === '#/subscriptions' && landing && getComputedStyle(landing).display === 'none' && document.body.innerText.indexOf('Choose how you want to train') !== -1;
     });
     await page.goto(URL + '?invite=ABCD2345', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(function () {
       var code = document.getElementById('invite-code');
-      return location.hash === '#/signin' && code && code.value === 'ABCD-2345' && !document.getElementById('landing');
+      var landing = document.getElementById('landing');
+      return location.hash === '#/signin' && code && code.value === 'ABCD-2345' && landing && getComputedStyle(landing).display === 'none';
     });
 
     const signedIn = await browser.newPage();
@@ -260,7 +285,10 @@ Mem.TIERS.forEach(function (tier) {
     await stubAuth(signedIn);
     await signedIn.goto(URL, { waitUntil: 'domcontentloaded' });
     await signedIn.waitForSelector('[data-a=new]');
-    assert.strictEqual(await signedIn.evaluate(function () { return document.getElementById('landing'); }), null);
+    assert.strictEqual(await signedIn.evaluate(function () {
+      var el = document.getElementById('landing');
+      return !!(el && el.isConnected && getComputedStyle(el).display === 'none');
+    }), true);
     assert.ok(await signedIn.$('header.bar'));
 
     async function neverShowsLanding(setup, url, ready) {
