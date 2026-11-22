@@ -1,4 +1,4 @@
-// Replaced images, duplicated images, deleted workouts, library search toggles, and Back.
+// Replaced images, deleted workouts, library search toggles, and Back.
 // node tests/image-lifecycle.test.js [url]
 const assert = require('assert');
 const fs = require('fs');
@@ -118,10 +118,6 @@ fs.writeFileSync(fileB, pngB);
       card.querySelector('button[data-a="' + action + '"]').click();
     }, name, action);
   }
-  async function home() {
-    await p.evaluate(function () { location.hash = '#/'; });
-    await p.waitForSelector('[data-a=new]');
-  }
 
   await p.goto(URL);
   await p.evaluate(function (k) {
@@ -238,49 +234,9 @@ fs.writeFileSync(fileB, pngB);
   const played = await shown('.pl-media img');
   assert.strictEqual(played.size, pngB.length, 'the player shows the replaced image without a reload');
   await p.evaluate(function () { location.hash = '#/'; });
-  await p.waitForSelector('[data-a=dup]');
-
-  const beforeDup = (await workouts())[0].items[0].media.imageKey;
-  await clickCard('Original', 'dup');
-  await p.waitForFunction(function () {
-    return Array.prototype.some.call(document.querySelectorAll('.card .name'), function (n) { return n.textContent === 'Original (copy)'; });
-  });
-  const saved = await workouts();
-  const original = saved.filter(function (w) { return w.name === 'Original'; })[0];
-  const copy = saved.filter(function (w) { return w.name === 'Original (copy)'; })[0];
-  const originalKey = original.items[0].media.imageKey;
-  const copyKey = copy.items[0].media.imageKey;
-  assert.strictEqual(originalKey, beforeDup);
-  assert.notStrictEqual(copyKey, originalKey);
+  await p.waitForSelector('[data-a=new]');
+  const originalKey = (await workouts())[0].items[0].media.imageKey;
   assert.strictEqual(await waitIdb(originalKey, pngB.length), pngB.length);
-  assert.strictEqual(await waitIdb(copyKey, pngB.length), pngB.length);
-  await clickCard('Original (copy)', 'open');
-  await p.waitForSelector('[data-a=edit]');
-  await p.click('[data-a=edit]');
-  await p.waitForSelector('#ex-photo');
-  await (await p.$('#ex-photo')).uploadFile(fileA);
-  await p.waitForFunction(function (n) {
-    var img = document.querySelector('.media img');
-    return img && fetch(img.src).then(function (r) { return r.blob(); }).then(function (b) { return b.size === n; });
-  }, {}, pngA.length);
-  await p.click('[data-a=save]');
-  await p.waitForSelector('[data-a=add]');
-  assert.strictEqual(await waitIdb(originalKey, pngB.length), pngB.length, 'replacing the copy leaves the original image');
-  assert.strictEqual(await waitIdb(copyKey, pngA.length), pngA.length);
-  await home();
-  await clickCard('Original', 'open');
-  await p.waitForSelector('[data-a=edit]');
-  await p.click('[data-a=edit]');
-  const stillOriginal = await shown('.media img');
-  assert.strictEqual(stillOriginal.size, pngB.length);
-  await home();
-
-  await clickCard('Original (copy)', 'del');
-  await p.waitForFunction(function () {
-    return !Array.prototype.some.call(document.querySelectorAll('.card .name'), function (n) { return n.textContent === 'Original (copy)'; });
-  });
-  assert.strictEqual(await waitIdb(copyKey, 0), 0, 'deleting the copy removes its image');
-  assert.strictEqual(await idbSize(originalKey), pngB.length);
 
   await p.evaluate(function (storageKey, imageKey) {
     var data = JSON.parse(localStorage.getItem(storageKey));

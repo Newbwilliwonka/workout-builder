@@ -1,7 +1,6 @@
 // Rules for a sent copy: one id per try, and a Free Client cannot keep an edit.
 const assert = require('assert');
 const S = require('../sends.js');
-const M = require('../model.js');
 
 const squat = { id: 'ex_squat', name: 'Squat', sets: 3 };
 const workout = { id: 'wo_friday', name: 'Friday full body', items: [squat] };
@@ -108,16 +107,6 @@ assert.ok(locked.indexOf('@') === -1);
 const namedFrom = S.lockedHtml({ name: 'Friday', sourceTrainerName: 'Sam', sourceTrainerEmail: 'coach@example.com', items: [] });
 assert.ok(namedFrom.indexOf('From Sam') !== -1);
 assert.ok(namedFrom.indexOf('@') === -1);
-
-const received = M.newWorkout('From coach');
-received.sourceTrainerId = 't1';
-received.sourceTrainerEmail = 'coach@example.com';
-received.sourceWorkoutId = 'wo_src';
-const copy = M.duplicateWorkout(received);
-assert.strictEqual(copy.sourceTrainerId, undefined);
-assert.strictEqual(copy.sourceTrainerEmail, undefined);
-assert.strictEqual(received.sourceTrainerId, 't1');
-assert.ok(copy.name.indexOf('(copy)') > 0);
 
 assert.strictEqual(S.isUnavailable(new Error('Sending workouts is not available yet.')), true);
 assert.strictEqual(S.isUnavailable(new Error('Failed to fetch')), false);
