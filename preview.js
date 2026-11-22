@@ -421,19 +421,38 @@
   function resetConfirmHtml() {
     return '<div class="pl-modal" id="pv-gcal-reset-confirm" role="dialog" aria-label="Reset your calendar link?"><div class="card"><h3>Reset your calendar link?</h3><p class="mute">Your current link will stop working, and anyone who has it will no longer see your schedule. You\'ll need to add it to Google Calendar again on a computer.</p><button type="button" class="pri" id="pv-gcal-reset-yes" data-gcal="reset-yes">Yes, reset</button><button type="button" id="pv-gcal-reset-cancel" data-gcal="reset-cancel">Cancel</button></div></div>';
   }
-  // First-name slot for a later All clients view. Empty on this calendar.
+  function firstWord(value) {
+    var raw = String(value || '').replace(/^\s+|\s+$/g, '');
+    if (!raw || raw.indexOf('@') !== -1) return '';
+    return raw.split(/\s+/)[0] || '';
+  }
+  // First name only when this workout belongs to a client the trainer is viewing.
+  // My calendar and a client's own calendar leave the slot empty.
+  function rowClientLabel(row) {
+    if (!state || !P.isTrainer(state.role) || !row) return '';
+    var owner = row.ownerId || '';
+    var self = state.userId || 'self';
+    if (!owner || owner === self) return '';
+    var client = null;
+    (state.clients || []).forEach(function (item) {
+      if (item && item.id === owner) client = item;
+    });
+    if (!client) return '';
+    return firstWord(client.display_name) || firstWord(client.name);
+  }
   function dayRowHtml(row, tracked) {
     var workout = workoutById(row.workoutId);
     var name = workout ? (workout.name || 'Workout') : (row.workoutName || 'Workout');
     var when = P.formatRange(row.start, row.end);
     var kind = row.presence === 'trainer' ? 'trainer' : 'solo';
     var done = P.entryDone(row, tracked);
-    var label = name + (when ? ', ' + when : '') + ', ' + presenceLabel(kind) + (done ? ', completed' : '');
+    var who = rowClientLabel(row);
+    var label = name + (when ? ', ' + when : '') + ', ' + presenceLabel(kind) + (who ? ', ' + who : '') + (done ? ', completed' : '');
     return '<button type="button" class="pv-day-row" data-open-entry="' + esc(row.id) + '" aria-label="' + esc(label) + '">' +
       ico(kind) +
       '<span class="pv-row-main"><span class="name">' + esc(name) + '</span>' +
       (when ? '<span class="pv-when">' + esc(when) + '</span>' : '') + '</span>' +
-      '<span class="pv-row-end"><span class="pv-row-client" data-client-slot="1"></span>' +
+      '<span class="pv-row-end"><span class="pv-row-client" data-client-slot="1">' + esc(who) + '</span>' +
       (done ? check() : '') + '</span></button>';
   }
   function dayListHtml() {

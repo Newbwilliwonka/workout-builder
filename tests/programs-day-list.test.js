@@ -19,7 +19,7 @@ function workout(name) {
 
 async function stub(page, extra) {
   await require('./allow.js').stubAuth(page, { profile: extra.profile, session: extra.session });
-  await page.evaluateOnNewDocument(function () {
+  await page.evaluateOnNewDocument(function (roster, status) {
     var desc = Object.getOwnPropertyDescriptor(window, 'WBAuth');
     if (!desc || !desc.set) return;
     var prev = desc.set;
@@ -34,11 +34,11 @@ async function stub(page, extra) {
         value.programEntries = function () { return Promise.resolve([]); };
         value.saveProgramEntry = function () { return Promise.resolve(true); };
         value.deleteProgramEntry = function () { return Promise.resolve(true); };
-        value.roster = function () { return Promise.resolve({ role: null, clients: [] }); };
-        value.clientStatus = function () { return Promise.resolve({ shared: false, enthusiast: false, linked: false }); };
+        value.roster = function () { return Promise.resolve(roster); };
+        value.clientStatus = function () { return Promise.resolve(status); };
       }
     });
-  });
+  }, extra.roster || { role: null, clients: [] }, extra.status || { shared: false, enthusiast: false, linked: false });
 }
 
 (async () => {
@@ -280,6 +280,82 @@ async function stub(page, extra) {
   await client.waitForFunction(function () {
     return !document.getElementById('pv-sheet') && document.querySelector('.pv-month') && location.hash === '#/programs';
   });
+
+  const trainer = await browser.newPage();
+  trainer.on('pageerror', function (err) { errors.push(String(err)); });
+  await trainer.setViewport(phone);
+  await stub(trainer, {
+    profile: { id: 'trainer-1', email: 'kinisiathletics@gmail.com', membership: 'trainer', intended_plan: 'trainer', display_name: 'Alex Rivera' },
+    session: { user: { id: 'trainer-1', email: 'kinisiathletics@gmail.com' } },
+    roster: {
+      role: 'trainer',
+      clients: [{ id: 'client-sam', display_name: 'Sam Ortiz', plan: 'Free Client' }]
+    },
+    status: { shared: true, enthusiast: false, linked: true }
+  });
+  const trainerData = M.emptyData();
+  trainerData.workouts.push(morning, midday, evening);
+  trainerData.programs = [
+    {
+      id: 'own-am', ownerId: 'trainer-1', workoutId: morning.id, workoutName: 'Morning lift',
+      items: morning.items, date: 'TODAY', presence: 'solo', start: '07:00', end: '08:00', updatedAt: 1
+    },
+    {
+      id: 'sam-eve', ownerId: 'client-sam', workoutId: evening.id, workoutName: 'Evening strength',
+      items: evening.items, date: 'TODAY', presence: 'trainer', start: '15:00', end: '16:15', updatedAt: 3
+    },
+    {
+      id: 'sam-am', ownerId: 'client-sam', workoutId: morning.id, workoutName: 'Morning lift',
+      items: morning.items, date: 'TODAY', presence: 'solo', start: '07:00', end: '08:00', updatedAt: 1
+    },
+    {
+      id: 'sam-mid', ownerId: 'client-sam', workoutId: midday.id, workoutName: 'Midday core',
+      items: midday.items, date: 'TODAY', presence: 'solo', start: '11:30', end: '12:00', updatedAt: 2
+    }
+  ];
+  await trainer.goto(URL + '#/', { waitUntil: 'domcontentloaded' });
+  await trainer.evaluate(function (key, value) {
+    var data = JSON.parse(value);
+    var now = new Date();
+    var day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    data.programs.forEach(function (row) { row.date = day; });
+    localStorage.setItem(key, JSON.stringify(data));
+  }, M.STORAGE_KEY, JSON.stringify(trainerData));
+  await trainer.reload({ waitUntil: 'domcontentloaded' });
+  await trainer.waitForSelector('#programs-open');
+  await trainer.click('#programs-open');
+  await trainer.waitForSelector('#pv-client');
+  await openToday(trainer);
+  assert.deepStrictEqual((await rows(trainer)).map(function (row) { return row.client; }), ['']);
+  await trainer.click('#back');
+  await trainer.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
+  await trainer.select('#pv-client', 'client-sam');
+  await trainer.waitForFunction(function () {
+    var today = document.querySelector('.pv-day.today');
+    return document.getElementById('pv-client').value === 'client-sam' && today && today.textContent.indexOf('Evening strength') !== -1;
+  });
+  await openToday(trainer);
+  const named = await rows(trainer);
+  assert.deepStrictEqual(named.map(function (row) { return row.name + ' ' + row.client; }), [
+    'Morning lift Sam',
+    'Midday core Sam',
+    'Evening strength Sam'
+  ]);
+  assert.ok(named.every(function (row) { return row.client === 'Sam' && row.slot; }));
+  assert.strictEqual(await trainer.$eval('#pv-day-sheet .pv-day-row', function (el) { return el.getAttribute('aria-label'); }), 'Morning lift, 7:00–8:00 AM, Solo, Sam');
+  await trainer.screenshot({ path: path.join(ART, 'programs_day_client_name.png') });
+  await trainer.click('#back');
+  await trainer.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
+  await trainer.evaluate(function () {
+    var el = document.querySelector('[data-cal=month]');
+    if (el) el.scrollIntoView({ block: 'center' });
+  });
+  await trainer.click('[data-cal=month]');
+  await trainer.waitForSelector('.pv-cell.today');
+  await trainer.evaluate(function () { document.querySelector('.pv-cell.today').scrollIntoView({ block: 'center' }); });
+  await trainer.click('.pv-cell.today');
+  await trainer.waitForSelector('#pv-day-sheet .pv-day-row');
+  assert.deepStrictEqual((await rows(trainer)).map(function (row) { return row.client; }), ['Sam', 'Sam', 'Sam']);
 
   assert.deepStrictEqual(errors, []);
   console.log('PROGRAMS DAY LIST OK');
