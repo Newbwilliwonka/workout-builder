@@ -154,6 +154,8 @@ function ex(over) {
   await page.reload();
   await page.waitForSelector('.pv-day');
   await page.tap('.pv-day:not(.today) .pv-day-h');
+  await page.waitForSelector('[data-sheet=add-day]');
+  await page.tap('[data-sheet=add-day]');
   await page.waitForSelector('#pv-start-h');
   assert.deepStrictEqual(await page.evaluate(function () {
     return {

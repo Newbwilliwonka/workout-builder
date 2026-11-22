@@ -147,7 +147,9 @@ function today() {
 
   await openPrograms();
   await page.click('.pv-day.today .pv-day-h');
-  await page.waitForSelector('#pv-day-sheet');
+  await page.waitForSelector('#pv-day-sheet .pv-day-row');
+  await page.click('#pv-day-sheet .pv-day-row');
+  await page.waitForSelector('[data-run]');
   await page.click('[data-run]');
   await page.waitForSelector('.pl-screen');
   await page.click('[data-p=primary]');
@@ -229,6 +231,8 @@ function today() {
   // In-app End and the player back arrow still show the summary, then Done returns to Programs.
   await openPrograms();
   await page.click('.pv-day.today .pv-day-h');
+  await page.waitForSelector('#pv-day-sheet .pv-day-row');
+  await page.click('#pv-day-sheet .pv-day-row');
   await page.waitForSelector('[data-run]');
   await page.click('[data-run]');
   await page.waitForSelector('[data-p=end]');
@@ -308,6 +312,8 @@ function today() {
   // View-only player: browser back closes it and stays on Programs, without the End prompt.
   await openPrograms();
   await page.click('.pv-day.today .pv-day-h');
+  await page.waitForSelector('#pv-day-sheet .pv-day-row');
+  await page.click('#pv-day-sheet .pv-day-row');
   await page.waitForSelector('[data-view-wo]');
   await page.click('[data-view-wo]');
   await page.waitForSelector('#pv-not-tracked');
