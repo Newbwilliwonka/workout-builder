@@ -91,6 +91,23 @@ Mem.TIERS.forEach(function (tier) {
     page.on('pageerror', function (err) { errors.push(String(err)); });
     await stubAuth(page, { session: null });
     await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
+    function landingInset() {
+      var shell = document.querySelector('.landing-wrap');
+      var style = getComputedStyle(shell);
+      var vw = document.documentElement.clientWidth;
+      function edges(el) {
+        var r = el.getBoundingClientRect();
+        return { left: Math.round(r.left), right: Math.round(vw - r.right) };
+      }
+      return {
+        pad: style.paddingLeft,
+        max: style.maxWidth,
+        shell: edges(shell),
+        feats: edges(document.querySelector('.landing-features')),
+        plans: edges(document.getElementById('landing-plans')),
+        end: edges(document.querySelector('.landing-end'))
+      };
+    }
     await page.goto(URL, { waitUntil: 'networkidle0' });
     await page.waitForFunction(function (first) {
       var h = document.querySelector('#landing h2');
@@ -149,6 +166,21 @@ Mem.TIERS.forEach(function (tier) {
     assert.strictEqual(seen.bar.brandLeft, true);
     assert.strictEqual(seen.bar.linkRight, true);
     assert.strictEqual(seen.bar.brandFull, true);
+    const phoneInset = await page.evaluate(landingInset);
+    assert.strictEqual(phoneInset.pad, '20px');
+    assert.strictEqual(phoneInset.max, '1100px');
+    assert.ok(phoneInset.feats.left >= 16 && phoneInset.feats.left <= 24, 'phone feature inset ' + phoneInset.feats.left);
+    assert.deepStrictEqual(phoneInset.plans, phoneInset.feats);
+    assert.deepStrictEqual(phoneInset.end, phoneInset.feats);
+    await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
+    const deskInset = await page.evaluate(landingInset);
+    assert.strictEqual(deskInset.max, '1100px');
+    assert.ok(deskInset.shell.left > 40, 'desktop container inset ' + deskInset.shell.left);
+    assert.strictEqual(deskInset.shell.left, deskInset.shell.right);
+    assert.deepStrictEqual(deskInset.plans, deskInset.feats);
+    assert.deepStrictEqual(deskInset.end, deskInset.feats);
+    assert.ok(deskInset.feats.left >= deskInset.shell.left);
+    await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
     assert.strictEqual(seen.frames.length, SHOTS.length);
     seen.frames.forEach(function (frame, i) {
       assert.strictEqual(frame.src, SHOTS[i]);
