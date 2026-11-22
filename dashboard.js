@@ -375,10 +375,16 @@
     var kg = readNum(set, 'plannedWeightKg', 'planned_weight_kg');
     return kg > 0 ? kg : null;
   }
+  // An exact count is the plan. A range leaves that empty and stores min and max,
+  // so extra reps have to clear the top. A floor with no top uses the floor.
   function plannedRepsCount(set) {
     if (!set) return null;
     var reps = readNum(set, 'plannedReps', 'planned_reps');
-    return reps > 0 ? reps : null;
+    if (reps > 0) return reps;
+    var max = readNum(set, 'plannedRepsMax', 'planned_reps_max');
+    if (max > 0) return max;
+    var min = readNum(set, 'plannedRepsMin', 'planned_reps_min');
+    return min > 0 ? min : null;
   }
   // The card's window is the calendar month it already titles as "this month".
   function inStrengthWindow(set, now) {
@@ -400,9 +406,9 @@
     return '+' + text + ' ' + (unit === 'lb' ? 'lb' : 'kg');
   }
   // One line per exercise. The best actual set is compared with that set's plan.
-  // A weight above the designed weight is Strength. Reps above the designed reps
-  // are Capacity. Any mode counts when that plan is present. Nothing at or under
-  // the plan is a gain.
+  // A weight above the designed weight is Strength. Reps above the designed count,
+  // or above the top of a range, are Capacity. Any mode counts when that plan is
+  // present. Nothing at or under the plan is a gain.
   function leaders(sets, now, readActual, readPlanned, unitOf) {
     var groups = {};
     var order = [];

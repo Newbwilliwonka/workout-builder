@@ -443,6 +443,34 @@ const quietHtml = D.html(quietGains);
 assert.ok(quietHtml.indexOf('id="dashboard-strength-weight-empty"') >= 0);
 assert.ok(quietHtml.indexOf('id="dashboard-strength-reps-empty"') >= 0);
 assert.strictEqual((quietHtml.match(/No gains yet this month/g) || []).length, 2);
+const ranged = model([
+  reps({
+    sessionId: 'over', libraryExerciseId: 'rg', exerciseName: 'Range curl',
+    plannedReps: null, plannedRepsMin: 8, plannedRepsMax: 12, actualReps: 14,
+    plannedWeightKg: 20, actualWeightKg: 20
+  }),
+  reps({
+    sessionId: 'top', libraryExerciseId: 'top', exerciseName: 'At the top',
+    plannedReps: null, plannedRepsMin: 8, plannedRepsMax: 12, actualReps: 12,
+    plannedWeightKg: 20, actualWeightKg: 20
+  }),
+  reps({
+    sessionId: 'inside', libraryExerciseId: 'in', exerciseName: 'Inside',
+    plannedReps: null, plannedRepsMin: 8, plannedRepsMax: 12, actualReps: 10,
+    plannedWeightKg: 20, actualWeightKg: 20
+  }),
+  reps({
+    sessionId: 'floor', libraryExerciseId: 'fl', exerciseName: 'Floor',
+    plannedReps: null, plannedRepsMin: 8, plannedRepsMax: null, actualReps: 10,
+    plannedWeightKg: 20, actualWeightKg: 20
+  })
+], [session('over', '2026-11-04'), session('top', '2026-11-04'), session('inside', '2026-11-04'), session('floor', '2026-11-04')]);
+assert.deepStrictEqual(ranged.strength.reps.map(function (row) { return [row.name, row.detail, row.pct]; }), [
+  ['Floor', '+2 reps', 25],
+  ['Range curl', '+2 reps', Math.round((2 / 12) * 100 * 10000) / 10000]
+]);
+assert.deepStrictEqual(ranged.strength.weight, []);
+assert.ok(ranged.strength.reps.every(function (row) { return row.name !== 'At the top' && row.name !== 'Inside'; }));
 const onePct = model([
   reps({
     sessionId: 'g-new', localDate: '2026-11-01', libraryExerciseId: 'g', exerciseName: 'Good lift',
