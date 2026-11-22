@@ -4379,8 +4379,7 @@
         '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>' +
         '<button class="sm" data-a="view" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>View</button>';
       if (!locked) {
-        h += '<button class="sm" data-a="dup" data-id="' + w.id + '">Duplicate</button>' +
-          '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button>';
+        h += '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button>';
       }
       h += '</div></div>';
     });
@@ -4424,33 +4423,6 @@
       else if (a === 'view') {
         if (!(w && w.items && w.items.length)) return;
         setCopyReturn(''); go('#/view/' + w.id);
-      }
-      else if (a === 'dup') {
-        if (!levelCan(cachedProfile, 'open') || atWorkoutCap(cachedProfile)) { levelNoteOn = true; return renderList(); }
-        var c = M.duplicateWorkout(w);
-        var copies = c.imageCopies ? c.imageCopies.slice() : [];
-        if (c.imageCopies) delete c.imageCopies;
-        var finishDup = function () {
-          var i = data.workouts.indexOf(w);
-          if (i < 0) return false;
-          data.workouts.splice(i + 1, 0, c);
-          persist();
-          if (!hashPage()) renderList();
-          toast('Duplicated');
-          return true;
-        };
-        if (!copies.length) { finishDup(); return; }
-        if (!window.WBMedia) { toast('Could not copy the images on this device'); return; }
-        var chain = Promise.resolve();
-        copies.forEach(function (pair) {
-          chain = chain.then(function () { return WBMedia.copy(pair.from, pair.to); });
-        });
-        chain.then(function () {
-          if (!finishDup()) copies.forEach(function (pair) { WBMedia.remove(pair.to); });
-        }).catch(function () {
-          copies.forEach(function (pair) { WBMedia.remove(pair.to); });
-          toast('Could not copy the images on this device');
-        });
       }
       else if (a === 'del') {
         if (!(w && w.sourceTrainerId) && !levelCan(cachedProfile, 'open')) { levelNoteOn = true; return renderList(); }

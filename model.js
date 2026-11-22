@@ -267,28 +267,6 @@
   function unlinkGroup(w, groupId) { w.items.forEach(function (it) { if (it.groupId === groupId) it.groupId = null; }); return touch(w); }
   function unlinkExercise(w, id) { var i = findIdx(w, id); if (i >= 0) w.items[i].groupId = null; cleanGroups(w); return touch(w); }
 
-  function duplicateWorkout(w) {
-    var c = clone(w), map = {}, copies = [], seen = {};
-    c.id = uid('wo'); c.name = w.name + ' (copy)'; c.createdAt = c.updatedAt = Date.now();
-    delete c.sourceTrainerId; delete c.sourceTrainerEmail; delete c.sourceTrainerName; delete c.sourceTrainerVerified; delete c.sourceWorkoutId;
-    c.items.forEach(function (it) {
-      it.id = uid('ex');
-      if (it.groupId) { map[it.groupId] = map[it.groupId] || uid('grp'); it.groupId = map[it.groupId]; }
-      var media = cleanMedia(it.media);
-      if (!media || media.kind !== 'custom') return;
-      // New key so the copy does not share the original's on-device image.
-      var next = seen[media.imageKey];
-      if (!next) {
-        next = uid('img');
-        seen[media.imageKey] = next;
-        copies.push({ from: media.imageKey, to: next });
-      }
-      it.media = { kind: 'custom', imageKey: next };
-    });
-    if (copies.length) Object.defineProperty(c, 'imageCopies', { value: copies, enumerable: false, configurable: true });
-    return c;
-  }
-
   // For the future player: flatten a workout into an ordered list of steps.
   // Supersets rotate one set at a time: A1 B1 C1 … A2 B2 C2 … (exercises with fewer sets drop out).
   function buildPlayQueue(w) {
@@ -393,7 +371,7 @@
     validateExercise: validateExercise, normalizeExercise: normalizeExercise, cleanMedia: cleanMedia, exerciseGifUrl: exerciseGifUrl, exerciseStillUrl: exerciseStillUrl, summarize: summarize,
     blocks: blocks, cleanGroups: cleanGroups, upsertExercise: upsertExercise, deleteExercise: deleteExercise,
     moveExercise: moveExercise, moveGroup: moveGroup, supersetLinkSize: supersetLinkSize, linkSuperset: linkSuperset, unlinkGroup: unlinkGroup,
-    unlinkExercise: unlinkExercise, duplicateWorkout: duplicateWorkout, buildPlayQueue: buildPlayQueue,
+    unlinkExercise: unlinkExercise, buildPlayQueue: buildPlayQueue,
     load: load, save: save, savedLibraryMatches: savedLibraryMatches, libraryRowMatches: libraryRowMatches
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.WB = api;

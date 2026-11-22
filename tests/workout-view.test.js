@@ -73,8 +73,8 @@ function actionsFor(id) {
   await p.waitForSelector('[data-a=view][data-id="' + normal.id + '"]');
 
   const normalActions = await p.evaluate(actionsFor, normal.id);
-  assert.deepStrictEqual(normalActions.map(a => a.action), ['wup', 'wdown', 'open', 'run', 'view', 'dup', 'del']);
-  assert.deepStrictEqual(normalActions.map(a => a.text), ['▲', '▼', 'Open', 'Run', 'View', 'Duplicate', 'Delete']);
+  assert.deepStrictEqual(normalActions.map(a => a.action), ['wup', 'wdown', 'open', 'run', 'view', 'del']);
+  assert.deepStrictEqual(normalActions.map(a => a.text), ['▲', '▼', 'Open', 'Run', 'View', 'Delete']);
   const viewBtn = normalActions.filter(a => a.action === 'view')[0];
   const runBtn = normalActions.filter(a => a.action === 'run')[0];
   assert.strictEqual(viewBtn.className, runBtn.className);
