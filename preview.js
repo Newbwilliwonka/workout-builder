@@ -28,6 +28,8 @@
       focusEntry: null,
       clientId: '',
       clients: [],
+      shares: {},
+      remoteSessions: [],
       profile: null,
       userId: '',
       role: 'none',
@@ -40,43 +42,115 @@
       sheet: null
     };
   }
+  function viewingAll() {
+    return !!(state && P.isTrainer(state.role) && state.clientId === 'all');
+  }
   function ownerId() {
     if (!state) return 'self';
-    if (P.isTrainer(state.role) && state.clientId) return state.clientId;
+    if (P.isTrainer(state.role) && state.clientId && state.clientId !== 'all') return state.clientId;
     return state.userId || 'self';
   }
-  function context() {
+  function clientById(id) {
+    var found = null;
+    (state && state.clients || []).forEach(function (row) { if (row && row.id === id) found = row; });
+    return found;
+  }
+  function shareFor(id) {
+    if (state && state.shares && Object.prototype.hasOwnProperty.call(state.shares, id)) return state.shares[id];
+    if (state && state.clientId === id && state.clientShare) return state.clientShare;
+    return null;
+  }
+  function isEnthusiastClient(client) {
+    if (!client) return false;
+    if (P.ownerPlanOf(client) === 'enthusiast') return true;
+    return String(client.membership || '').toLowerCase().indexOf('enthusiast') >= 0;
+  }
+  // Free Clients on the roster are always visible. An Enthusiast is visible
+  // only while share-with-trainer is on, including workouts they created.
+  function clientShown(client) {
+    if (!client || !client.id) return false;
+    if (!isEnthusiastClient(client)) return true;
+    var share = shareFor(client.id);
+    return !!(share && share.shared === true);
+  }
+  function contextForOwner(owner) {
     var self = state.userId || 'self';
-    var owner = ownerId();
-    var plan = 'free_client';
-    var linked = false;
-    var shareOn = false;
-    if (P.isTrainer(state.role)) {
-      var client = null;
-      state.clients.forEach(function (row) { if (row.id === state.clientId) client = row; });
-      plan = P.ownerPlanOf(client);
-      linked = !!client;
-      shareOn = !!(state.clientShare && state.clientShare.shared === true);
-      if (state.clientShare && state.clientShare.enthusiast === true) plan = 'enthusiast';
+    var id = owner || self;
+    if (!id || id === self || id === 'self') {
+      return {
+        role: state.role,
+        self: self,
+        ownerId: self,
+        ownerPlan: 'free_client',
+        linked: false,
+        shareOn: state.role === 'enthusiast' ? state.shareOn === true : false
+      };
     }
-    return { role: state.role, self: self, ownerId: owner, ownerPlan: plan, linked: linked, shareOn: state.role === 'enthusiast' ? state.shareOn === true : shareOn };
+    var client = clientById(id);
+    var share = shareFor(id);
+    var plan = isEnthusiastClient(client) || (share && share.enthusiast === true) ? 'enthusiast' : P.ownerPlanOf(client);
+    return {
+      role: state.role,
+      self: self,
+      ownerId: id,
+      ownerPlan: plan,
+      linked: !!client,
+      shareOn: !!(share && share.shared === true)
+    };
+  }
+  function context() {
+    if (P.isTrainer(state.role) && state.clientId && state.clientId !== 'all') return contextForOwner(state.clientId);
+    return contextForOwner(state.userId || 'self');
   }
   function canEdit() { return !!state && state.ready && P.canEdit(context()); }
   function canSee() { return !!state && state.ready && P.canSee(context()); }
+  function canEditOwner(owner) { return !!state && state.ready && P.canEdit(contextForOwner(owner)); }
+  function canEditHere() {
+    if (!state || !state.ready) return false;
+    if (viewingAll()) return canEditOwner(state.userId || 'self');
+    return canEdit();
+  }
+  function canEditRow(row) {
+    if (!row) return false;
+    return canEditOwner(row.ownerId || ownerId());
+  }
+  function peopleShown() {
+    var self = state.userId || '';
+    if (viewingAll()) {
+      var ids = [];
+      if (self) ids.push(self);
+      (state.clients || []).forEach(function (client) {
+        if (clientShown(client) && ids.indexOf(client.id) < 0) ids.push(client.id);
+      });
+      return ids;
+    }
+    var owner = ownerId();
+    if (!owner || owner === 'self') return self ? [self] : [];
+    return [owner];
+  }
   function workouts() {
     var rows = data() && data().workouts;
     return Array.isArray(rows) ? rows : [];
   }
   function sessions() {
+    var local = [];
     if (options && options.sessions) {
-      try { return options.sessions() || []; } catch (e) { return []; }
+      try { local = options.sessions() || []; } catch (e) { local = []; }
+    } else {
+      var rows = data() && data().sessions;
+      local = Array.isArray(rows) ? rows : [];
     }
-    var rows = data() && data().sessions;
-    return Array.isArray(rows) ? rows : [];
+    var remote = state && Array.isArray(state.remoteSessions) ? state.remoteSessions : [];
+    if (!remote.length) return local;
+    return local.concat(remote);
   }
   function entries() {
     var rows = data() && data().programs;
-    return P.forOwner(rows, ownerId());
+    if (!Array.isArray(rows)) return [];
+    if (!viewingAll()) return P.forOwner(rows, ownerId());
+    var allow = {};
+    peopleShown().forEach(function (id) { allow[id] = 1; });
+    return rows.filter(function (row) { return row && allow[row.ownerId]; });
   }
   function workoutById(id) {
     var found = null;
@@ -171,28 +245,86 @@
     });
   }
   var pullGen = 0;
+  var sessionGen = 0;
+  function applyEntryRows(rows, owners, token, gen) {
+    if (!state || token !== loadToken || gen !== pullGen || !Array.isArray(rows) || !data()) return;
+    var dropped = data().programDrops || {};
+    var timesPending = !!rows.timesPending;
+    var merged = data().programs || [];
+    owners.forEach(function (id) {
+      var part = rows.filter(function (row) { return row && (row.owner_id || row.ownerId) === id; });
+      if (timesPending) part.timesPending = true;
+      merged = P.merge(merged, part, id, { keepLocalTimes: timesPending, dropped: dropped });
+      dropped = P.settleDrops(dropped, part, merged, id);
+    });
+    data().programs = merged;
+    data().programDrops = dropped;
+    merged.forEach(function (row) {
+      if (row && owners.indexOf(row.ownerId) >= 0 && row.pending) pushRemote(row);
+    });
+    if (timesPending) state.remote = remoteNote({ timesLocal: true });
+    if (options.persist) options.persist();
+    render();
+  }
   function pullRemote() {
+    if (viewingAll()) return pullMany();
     var owner = ownerId();
     if (!options.loadEntries || !P.isUuid(owner)) return;
     var token = loadToken;
     var gen = ++pullGen;
     Promise.resolve().then(function () { return options.loadEntries(owner); }).then(function (rows) {
-      if (!state || token !== loadToken || gen !== pullGen || !Array.isArray(rows) || !data()) return;
-      var dropped = data().programDrops || {};
-      var merged = P.merge(data().programs, rows, owner, { keepLocalTimes: !!rows.timesPending, dropped: dropped });
-      data().programs = merged;
-      data().programDrops = P.settleDrops(dropped, rows, merged, owner);
-      merged.forEach(function (row) {
-        if (row && row.ownerId === owner && row.pending) pushRemote(row);
-      });
-      if (rows.timesPending) state.remote = remoteNote({ timesLocal: true });
-      if (options.persist) options.persist();
-      render();
+      applyEntryRows(rows, [owner], token, gen);
     }, function (err) {
       if (!state || token !== loadToken) return;
       state.remote = remoteNote(err);
       render();
     });
+  }
+  function pullMany() {
+    var owners = peopleShown();
+    if (!owners.length || !data()) return;
+    var token = loadToken;
+    var gen = ++pullGen;
+    var pending;
+    if (options.loadEntriesFor) {
+      pending = Promise.resolve().then(function () { return options.loadEntriesFor(owners); });
+    } else if (options.loadEntries) {
+      pending = Promise.all(owners.map(function (id) {
+        if (!P.isUuid(id)) return [];
+        return Promise.resolve().then(function () { return options.loadEntries(id); });
+      })).then(function (groups) {
+        var flat = [];
+        groups.forEach(function (rows) {
+          if (!Array.isArray(rows)) return;
+          if (rows.timesPending) flat.timesPending = true;
+          flat = flat.concat(rows);
+        });
+        return flat;
+      });
+    } else return;
+    pending.then(function (rows) {
+      applyEntryRows(rows, owners, token, gen);
+    }, function (err) {
+      if (!state || token !== loadToken) return;
+      state.remote = remoteNote(err);
+      render();
+    });
+  }
+  function pullSessions() {
+    if (!options.loadSessions || !state) return;
+    var owners = peopleShown();
+    var token = loadToken;
+    var gen = ++sessionGen;
+    Promise.resolve().then(function () { return options.loadSessions(owners); }).then(function (rows) {
+      if (!state || token !== loadToken || gen !== sessionGen || !Array.isArray(rows)) return;
+      var next = [];
+      rows.forEach(function (row) {
+        var shaped = P.sessionFromRemote(row);
+        if (shaped) next.push(shaped);
+      });
+      state.remoteSessions = next;
+      render();
+    }, function () {});
   }
   function presenceLabel(kind) { return kind === 'trainer' ? 'Trainer present' : 'Solo'; }
   function ico(kind, button) {
@@ -207,14 +339,14 @@
   }
   function check() { return '<span class="pv-check" aria-label="Completed">✓</span>'; }
   function onDay(date) { return P.byStart(entries().filter(function (row) { return row.date === date; })); }
-  function dragAttrs(kind, id, label) {
-    if (!canEdit()) return '';
+  function dragAttrs(kind, id, label, allowed) {
+    if (!allowed) return '';
     return ' data-drag="' + esc(id) + '" data-drag-kind="' + kind + '" data-label="' + esc(label) + '"';
   }
   function workoutCard(w) {
     var n = (w.items || []).length;
     var name = w.name || 'Workout';
-    return '<div class="card pv-pick-card"' + dragAttrs('workout', w.id, name) + ' data-wo="' + esc(w.id) + '"><div class="pv-session-top">' +
+    return '<div class="card pv-pick-card"' + dragAttrs('workout', w.id, name, canEditHere()) + ' data-wo="' + esc(w.id) + '"><div class="pv-session-top">' +
       '<div class="name">' + esc(name) + '</div></div>' +
       '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div></div>';
   }
@@ -223,10 +355,12 @@
     var name = live ? live.name : (row.workoutName || 'Workout');
     var kind = row.presence === 'trainer' ? 'trainer' : 'solo';
     var when = P.formatRange(row.start, row.end);
-    var icon = canEdit() ? ico(kind, { id: row.id }) : ico(kind);
-    return '<div class="card pv-session" data-open-session="' + esc(row.id) + '"' + dragAttrs('session', row.id, name) + '><div class="pv-session-top">' +
+    var who = rowClientLabel(row);
+    var icon = canEditRow(row) ? ico(kind, { id: row.id }) : ico(kind);
+    return '<div class="card pv-session" data-open-session="' + esc(row.id) + '"' + dragAttrs('session', row.id, name, canEditRow(row)) + '><div class="pv-session-top">' +
       icon + '</div>' +
       '<div class="name">' + esc(name) + '</div>' +
+      (who ? '<div class="pv-who" data-client-slot="1">' + esc(who) + '</div>' : '') +
       (when ? '<div class="pv-when">' + esc(when) + '</div>' : '') +
       '<div class="mute">' + esc(presenceLabel(kind)) + '</div></div>';
   }
@@ -265,7 +399,7 @@
       h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '" data-day="' + date + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="pv-today-label mute"> Today</span>' : '') + '</div></div>' +
         (P.dayDone(items, tracked) ? check() : '') + '</div>';
       items.forEach(function (row) { h += sessionCard(row); });
-      if (!items.length && canEdit()) h += '<div class="mute pv-drop">Drop here</div>';
+      if (!items.length && canEditHere()) h += '<div class="mute pv-drop">Drop here</div>';
       h += '</div>';
     }
     return h + '</div></div>';
@@ -288,17 +422,26 @@
       var outside = d.getMonth() !== month;
       var done = P.dayDone(items, tracked);
       var kinds = {};
-      items.forEach(function (row) { kinds[row.presence === 'trainer' ? 'trainer' : 'solo'] = 1; });
+      var names = [];
+      var seenName = {};
+      items.forEach(function (row) {
+        kinds[row.presence === 'trainer' ? 'trainer' : 'solo'] = 1;
+        var who = rowClientLabel(row);
+        if (who && !seenName[who]) { seenName[who] = 1; names.push(who); }
+      });
       var icons = '';
       if (kinds.trainer) icons += ico('trainer');
       if (kinds.solo) icons += ico('solo');
-      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + (items.length ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate()) + '">' +
-        '<span class="pv-num">' + d.getDate() + '</span><span class="pv-marks">' + icons + (done ? check() : '') + '</span></button>';
+      var nameHtml = names.length ? '<span class="pv-names" data-client-slot="1" title="' + esc(names.join(', ')) + '">' + esc(names.join(' · ')) + '</span>' : '';
+      var aria = DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate() + (names.length ? ', ' + names.join(', ') : '') + (done ? ', completed' : '');
+      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + (items.length ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(aria) + '">' +
+        '<span class="pv-num">' + d.getDate() + '</span><span class="pv-marks">' + icons + (done ? check() : '') + '</span>' + nameHtml + '</button>';
     }
     return h + '</div>';
   }
   function noteHtml() {
     if (!state.ready) return '';
+    if (viewingAll()) return '<div class="card" id="pv-role-note"><p style="margin:0">Your calendar and every client you can see.</p></div>';
     if (state.role === 'free_client') return '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer schedules your program</p></div>';
     if (state.role === 'enthusiast' && state.shareOn === true) return '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer can also edit this calendar</p></div>';
     if (state.role === 'enthusiast' && state.shareOn === false) return '<div class="card" id="pv-role-note"><p style="margin:0">Sharing is off. Your trainer cannot see or edit this calendar.</p></div>';
@@ -331,7 +474,7 @@
   function clientPicker() {
     if (!P.isTrainer(state.role)) return '';
     if (!state.clients.length) return '<div class="card"><div class="name">No clients yet</div><p class="mute">Invite a client from Account, then their calendar shows up here.</p></div>';
-    var options = [{ value: '', label: 'My calendar' }];
+    var options = [{ value: 'all', label: 'All clients' }, { value: '', label: 'My calendar' }];
     state.clients.forEach(function (client) {
       options.push({ value: client.id, label: clientVisible(client) + ' · ' + (client.plan || 'Free Client') });
     });
@@ -352,7 +495,7 @@
     list.forEach(function (row) { h += workoutCard(row); });
     h += '</div></section><section class="pv-cal" id="pv-cal" aria-label="Programs"><h2 class="pv-h">Programs</h2>' +
       '<p class="mute">Workouts scheduled on a calendar. A check is a day you actually tracked.</p>' +
-      (canEdit() ? '<p class="mute" id="pv-schedule-hint">Drag a workout onto a day, or tap a day to choose one.</p>' : '') +
+      (canEditHere() ? '<p class="mute" id="pv-schedule-hint">Drag a workout onto a day, or tap a day to choose one.</p>' : '') +
       '<div class="pv-views"><div class="seg" id="pv-range-switch" role="group" aria-label="Week or month"><button type="button" data-cal="week" class="' + (state.view === 'week' ? 'on' : '') + '">Week</button>' +
       '<button type="button" data-cal="month" class="' + (state.view === 'month' ? 'on' : '') + '">Month</button></div>' +
       '<button type="button" id="pv-gcal">Add to Google Calendar</button></div>' +
@@ -426,8 +569,8 @@
     if (!raw || raw.indexOf('@') !== -1) return '';
     return raw.split(/\s+/)[0] || '';
   }
-  // First name only when this workout belongs to a client the trainer is viewing.
-  // My calendar and a client's own calendar leave the slot empty.
+  // First name when a trainer is looking at a client's workout.
+  // The trainer's own entries, and a client's own calendar, leave the slot empty.
   function rowClientLabel(row) {
     if (!state || !P.isTrainer(state.role) || !row) return '';
     var owner = row.ownerId || '';
@@ -463,12 +606,12 @@
     h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3>';
     if (!items.length) h += '<p class="mute" id="pv-empty-day">No workouts scheduled</p>';
     items.forEach(function (row) { h += dayRowHtml(row, tracked); });
-    if (canEdit()) h += '<button type="button" data-sheet="add-day">Add workout</button>';
+    if (canEditHere()) h += '<button type="button" data-sheet="add-day">Add workout</button>';
     return h + '</div></div>';
   }
   function daySheetHtml() {
     var row = entryById(state.sheet.entryId);
-    var actions = P.entryMenu(context());
+    var actions = row ? P.entryMenu(contextForOwner(row.ownerId)) : [];
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">';
     if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
     else h += dayWorkoutHtml(row, actions);
@@ -521,11 +664,30 @@
       timePart(which, 'm', minute, bad.indexOf('m') >= 0) +
       ampmHtml(which, period) + '</div>';
   }
+  function addTargets() {
+    var self = state.userId || 'self';
+    var list = [{ id: self, label: 'Me' }];
+    if (!viewingAll()) return list;
+    (state.clients || []).forEach(function (client) {
+      if (!clientShown(client) || !canEditOwner(client.id)) return;
+      list.push({ id: client.id, label: clientVisible(client) });
+    });
+    return list;
+  }
   function addSheetHtml() {
     var sheet = state.sheet;
     var list = workouts();
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" role="dialog" aria-label="Add a workout">' +
       '<h3 class="name">Add a workout</h3><p class="mute">' + esc(prettyDate(sheet.date)) + '</p>';
+    var targets = addTargets();
+    if (viewingAll() && targets.length > 1) {
+      h += '<label class="mute" for="pv-add-who">Calendar</label><select id="pv-add-who">';
+      targets.forEach(function (person) {
+        var selected = (sheet.ownerId || state.userId || 'self') === person.id ? ' selected' : '';
+        h += '<option value="' + esc(person.id) + '"' + selected + '>' + esc(person.label) + '</option>';
+      });
+      h += '</select>';
+    }
     if (sheet.dropped && sheet.workoutId) {
       var chosen = workoutById(sheet.workoutId);
       h += '<p class="pv-dropped" id="pv-dropped">' + esc(chosen ? (chosen.name || 'Workout') : 'Workout') + '</p>';
@@ -808,6 +970,7 @@
       presence: '',
       error: '',
       bad: null,
+      ownerId: viewingAll() ? (state.userId || 'self') : '',
       returnTo: fromList ? 'list' : ''
     };
     state.hint = '';
@@ -869,9 +1032,15 @@
     if (!times.ok) { sheet.error = times.error; render(); return; }
     var workout = workoutById(sheet.workoutId);
     if (!workout) { sheet.error = 'Pick a workout.'; render(); return; }
+    var owner = ownerId();
+    if (viewingAll()) {
+      var picked = document.getElementById('pv-add-who');
+      owner = (picked && picked.value) || sheet.ownerId || state.userId || 'self';
+    }
+    if (!canEditOwner(owner)) { sheet.error = 'You cannot add to that calendar.'; render(); return; }
     var placed = P.place(data().programs, {
       id: window.WB.uid('pg'),
-      ownerId: ownerId(),
+      ownerId: owner,
       workoutId: workout.id,
       workoutName: workout.name,
       items: workout.items,
@@ -896,6 +1065,7 @@
     readSheetTimes();
     var sheet = state.sheet;
     if (!sheet || sheet.type !== 'day' || !sheet.drafts || !sheet.drafts[id] || !data()) return false;
+    if (!canEditRow(entryById(id))) return false;
     var draft = sheet.drafts[id];
     var result = P.setTimes(data().programs, id, draft.start, draft.end);
     if (result.error) { draft.error = result.error; render(); return false; }
@@ -911,7 +1081,7 @@
   }
   function removeScheduled(id) {
     var sheet = state.sheet;
-    if (!sheet || !data() || !id) return;
+    if (!sheet || !data() || !id || !canEditRow(entryById(id))) return;
     var date = sheet.date;
     var result = P.remove(data().programs, id);
     if (!result.removed) { render(); return; }
@@ -924,9 +1094,13 @@
     render();
   }
   function dropOn(kind, id, date) {
-    if (!canEdit() || !date || !data()) return;
+    if (!date || !data()) return;
     if (kind === 'session') {
+      var current = entryById(id);
+      if (!current || !canEditRow(current)) return;
+      var owner = current.ownerId;
       var result = P.move(data().programs, id, date);
+      if (result.moved && result.moved.ownerId !== owner) return;
       if (result.duplicate) {
         state.hint = 'That workout is already on this day.';
         render();
@@ -939,6 +1113,7 @@
       else render();
       return;
     }
+    if (!canEditHere()) return;
     var workout = workoutById(id);
     if (!workout) return;
     openAdd(date, workout.id, true);
@@ -984,7 +1159,7 @@
     return under.closest('.pv-day') || under.closest('.pv-cell[data-date]');
   }
   function onPointerDown(e) {
-    if (!canEdit() || (e.button != null && e.button !== 0)) return;
+    if (e.button != null && e.button !== 0) return;
     if (e.target.closest('[data-presence], #pv-sheet, input, select, textarea, button')) return;
     var handle = e.target.closest('[data-drag]');
     if (!handle) return;
@@ -1064,7 +1239,7 @@
         render();
         return;
       }
-      if (state.sheet.type === 'day' && canEdit()) {
+      if (state.sheet.type === 'day' && canEditRow(entryById(radio.getAttribute('data-entry')))) {
         var id = radio.getAttribute('data-entry');
         var flipped = P.setPresence(data().programs, id, radio.value);
         if (flipped.changed) {
@@ -1075,9 +1250,14 @@
       }
       return;
     }
+    if (e.target.id === 'pv-add-who' && state.sheet && state.sheet.type === 'add') {
+      state.sheet.ownerId = e.target.value;
+      return;
+    }
     if (e.target.id !== 'pv-client') return;
     state.clientId = e.target.value;
     state.clientShare = null;
+    state.remoteSessions = [];
     state.hint = '';
     state.sheet = null;
     state.screen = 'home';
@@ -1475,7 +1655,7 @@
       if (action === 'times') { saveEntryTimes(sheetBtn.getAttribute('data-entry')); return; }
       if (action === 'remove') { removeScheduled(sheetBtn.getAttribute('data-entry')); return; }
       if (action === 'add-day') {
-        if (!canEdit() || !state.sheet || !state.sheet.date) return;
+        if (!canEditHere() || !state.sheet || !state.sheet.date) return;
         openAdd(state.sheet.date, '', false, true);
         return;
       }
@@ -1523,7 +1703,7 @@
       return;
     }
     var presenceBtn = e.target.closest('[data-presence]');
-    if (presenceBtn && canEdit()) {
+    if (presenceBtn && canEditRow(entryById(presenceBtn.getAttribute('data-presence')))) {
       var current = entryById(presenceBtn.getAttribute('data-presence'));
       if (!current) return;
       var flipped = P.setPresence(data().programs, current.id, current.presence === 'trainer' ? 'solo' : 'trainer');
@@ -1544,9 +1724,38 @@
     var run = e.target.closest('[data-run]');
     if (run) playFrom(run, 'run');
   }
+  function showCalendar() {
+    if (!state) return;
+    state.ready = true;
+    render();
+    pullRemote();
+    pullSessions();
+  }
+  function enthusiastClients() {
+    return (state.clients || []).filter(isEnthusiastClient);
+  }
+  function loadAllShares(token) {
+    var people = enthusiastClients();
+    if (!people.length || !options.loadClient) { showCalendar(); return; }
+    Promise.all(people.map(function (client) {
+      return Promise.resolve().then(function () { return options.loadClient(client.id); }).then(function (status) {
+        return { id: client.id, status: status || null };
+      }, function () {
+        return { id: client.id, status: null };
+      });
+    })).then(function (rows) {
+      if (!state || token !== loadToken) return;
+      var shares = {};
+      rows.forEach(function (row) { shares[row.id] = row.status; });
+      state.shares = shares;
+      showCalendar();
+    });
+  }
   function loadClientShare(token) {
-    if (!state || !P.isTrainer(state.role) || !state.clientId || !options.loadClient) {
-      if (state && token === loadToken) { state.ready = true; render(); pullRemote(); }
+    if (!state || token !== loadToken) return;
+    if (viewingAll()) { loadAllShares(token); return; }
+    if (!P.isTrainer(state.role) || !state.clientId || !options.loadClient) {
+      showCalendar();
       return;
     }
     Promise.resolve().then(function () { return options.loadClient(state.clientId); }).then(function (status) {
@@ -1554,13 +1763,14 @@
       state.clientShare = status || { shared: false, enthusiast: false, linked: true };
       state.ready = true;
       render();
-      if (canSee()) pullRemote();
+      if (canSee()) { pullRemote(); pullSessions(); }
     }, function () {
       if (!state || token !== loadToken) return;
       state.clientShare = null;
       state.ready = true;
       render();
       pullRemote();
+      pullSessions();
     });
   }
   function refresh() {
@@ -1579,8 +1789,12 @@
           if (!state || token !== loadToken) return;
           var clients = roster && Array.isArray(roster.clients) ? roster.clients : [];
           state.clients = clients;
-          if (state.clientId && !clients.some(function (row) { return row.id === state.clientId; })) {
-            state.clientId = '';
+          if (state.clientId === 'all') {
+            if (!clients.length) state.clientId = '';
+          } else if (state.clientId && !clients.some(function (row) { return row.id === state.clientId; })) {
+            state.clientId = clients.length ? 'all' : '';
+          } else if (!state.clientId && clients.length) {
+            state.clientId = 'all';
           }
           loadClientShare(token);
         });
@@ -1589,19 +1803,13 @@
         return Promise.resolve().then(options.loadShare).then(function (row) {
           if (!state || token !== loadToken) return;
           state.shareOn = row && typeof row.on === 'boolean' ? row.on : null;
-          state.ready = true;
-          render();
-          pullRemote();
+          showCalendar();
         }, function () {
           if (!state || token !== loadToken) return;
-          state.ready = true;
-          render();
-          pullRemote();
+          showCalendar();
         });
       }
-      state.ready = true;
-      render();
-      pullRemote();
+      showCalendar();
     }, function () {
       if (!state || token !== loadToken) return;
       state.ready = true;

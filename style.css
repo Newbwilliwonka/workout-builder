@@ -380,6 +380,8 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-legend>span{display:inline-flex;align-items:center;gap:6px;color:var(--mute);font-size:13px}
 .pv-session{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:8px}
 .pv-session-top{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.pv-who{font-size:12px;font-weight:700;line-height:1.2;color:var(--ink)}
+.pv-who:empty{display:none}
 .pv-wo{display:flex;gap:4px;align-items:flex-start}
 .pv-when{display:block;font-size:13px;font-weight:700;color:var(--pri);line-height:1.2}
 [data-drag]{cursor:grab;user-select:none}
@@ -431,6 +433,9 @@ button.pv-cell.is-out{opacity:.4}
 .pv-cell .pv-ico{width:12px;height:12px;min-width:12px;min-height:12px}
 .pv-cell .pv-ico svg{width:12px;height:12px}
 .pv-cell .pv-check{font-size:13px}
+.pv-marks{display:flex;align-items:center;gap:2px;max-width:100%;min-width:0}
+.pv-names{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:700;line-height:1.15;color:var(--ink)}
+.pv-marks .pv-check{flex:none}
 .pv-stage{position:relative;border-radius:20px;background:radial-gradient(120% 90% at 30% 20%,#1e293b 0%,#0f172a 55%,#020617 100%);min-height:220px;padding:16px;color:#fff;box-shadow:inset 0 0 0 1px #1f2937}
 .pv-ptop{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .pv-ex{margin-top:28px;font-size:22px;font-weight:700}
@@ -444,7 +449,8 @@ button.pv-cell.is-out{opacity:.4}
   .pv-day{flex:0 0 calc((100cqw - 16px) / 5);width:calc((100cqw - 16px) / 5);scroll-snap-align:start;overflow:hidden;background:#fff;border-radius:10px;padding:4px 2px}
   .pv-day-h{padding:4px 2px;margin-bottom:4px;box-shadow:none}
   .pv-day .name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;overflow-wrap:break-word;word-break:normal;font-size:13px;line-height:1.25}
-  .pv-day .pv-when,.pv-day .mute{font-size:11px;overflow-wrap:break-word;word-break:normal}
+  .pv-day .pv-when,.pv-day .mute,.pv-day .pv-who{font-size:11px;overflow-wrap:break-word;word-break:normal}
+  .pv-day .pv-who{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pv-day .pv-session{padding:2px 0;touch-action:pan-x}
   .pv-dow{font-size:11px}
   .pv-num{font-size:16px}

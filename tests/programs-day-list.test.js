@@ -325,6 +325,11 @@ async function stub(page, extra) {
   await trainer.waitForSelector('#programs-open');
   await trainer.click('#programs-open');
   await trainer.waitForSelector('#pv-client');
+  await trainer.select('#pv-client', '');
+  await trainer.waitForFunction(function () {
+    var today = document.querySelector('.pv-day.today');
+    return document.getElementById('pv-client').value === '' && today && today.textContent.indexOf('Morning lift') !== -1;
+  });
   await openToday(trainer);
   assert.deepStrictEqual((await rows(trainer)).map(function (row) { return row.client; }), ['']);
   await trainer.click('#back');

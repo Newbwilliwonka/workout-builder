@@ -146,6 +146,12 @@ function today() {
   assert.strictEqual(await page.$('#pv-root'), null);
 
   await openPrograms();
+  await page.select('#pv-client', '');
+  await page.waitForFunction(() => {
+    const sel = document.getElementById('pv-client');
+    const today = document.querySelector('.pv-day.today');
+    return sel && sel.value === '' && today && today.textContent.indexOf('Morning lift') !== -1 && today.textContent.indexOf('Sam') === -1;
+  });
   await page.click('.pv-day.today .pv-day-h');
   await page.waitForSelector('#pv-day-sheet .pv-day-row');
   await page.click('#pv-day-sheet .pv-day-row');

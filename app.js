@@ -3322,6 +3322,8 @@
       loadShare: function () { return WBAuth.shareSetting ? WBAuth.shareSetting() : Promise.resolve(null); },
       loadClient: function (id) { return WBAuth.clientStatus ? WBAuth.clientStatus(id) : Promise.resolve(null); },
       loadEntries: function (ownerId) { return WBAuth.programEntries ? WBAuth.programEntries(ownerId) : Promise.reject(new Error('programs')); },
+      loadEntriesFor: function (ownerIds) { return WBAuth.programEntriesFor ? WBAuth.programEntriesFor(ownerIds) : Promise.reject(new Error('programs')); },
+      loadSessions: function (ownerIds) { return WBAuth.calendarSessions ? WBAuth.calendarSessions(ownerIds) : Promise.resolve([]); },
       saveEntry: function (entry) { return WBAuth.saveProgramEntry ? WBAuth.saveProgramEntry(entry) : Promise.reject(new Error('programs')); },
       deleteEntry: function (entry) { return WBAuth.deleteProgramEntry ? WBAuth.deleteProgramEntry(entry.ownerId, entry.id) : Promise.reject(new Error('programs')); },
       loadCalendar: function (zone, token) { return WBAuth.calendarFeed ? WBAuth.calendarFeed(zone, token) : Promise.reject(Object.assign(new Error('local'), { local: true })); },
