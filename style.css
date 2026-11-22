@@ -403,7 +403,14 @@ p.pv-dropped{margin:0;font-size:17px;font-weight:600;overflow-wrap:anywhere}
 .pv-picks{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
 button.pv-pick{width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:64px;padding:10px 12px}
 button.pv-pick.on{border-color:var(--pri);background:#eff6ff;box-shadow:0 0 0 1px var(--pri)}
-button.pv-day-row{width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:56px;padding:10px 12px}
+button.pv-day-row{width:100%;text-align:left;background:#fff;border:1px solid #d1d5db;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;min-height:56px;padding:10px 12px}
+.pv-day-row .pv-row-main{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;flex:1 1 auto}
+.pv-day-row .name{font-size:16px;line-height:1.25}
+.pv-day-row .pv-when{font-size:13px}
+.pv-row-end{display:flex;align-items:center;gap:8px;margin-left:auto;flex:none;max-width:46%}
+.pv-row-client{font-size:13px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pv-row-client:empty{display:none}
+body:has(#pv-sheet) .bar{z-index:45}
 .pv-cell.pv-over{box-shadow:0 0 0 2px var(--pri)}
 button.pv-link,button.pv-session-open{background:transparent;min-height:0;padding:0;text-align:left;color:inherit}
 button.pv-link{display:block;width:100%}

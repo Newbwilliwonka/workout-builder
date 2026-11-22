@@ -157,6 +157,10 @@ async function stub(page, extra) {
   assert.ok(icon.d.indexOf('M12') === 0 || icon.d.indexOf('M9') === 0);
   assert.strictEqual(icon.tag, 'BUTTON');
   await enthusiast.click('.pv-day:not(.today) .pv-day-h');
+  await enthusiast.waitForSelector('#pv-empty-day');
+  assert.strictEqual(await enthusiast.$eval('#pv-empty-day', function (el) { return el.textContent; }), 'No workouts scheduled');
+  assert.ok(await enthusiast.$('[data-sheet=add-day]'));
+  await enthusiast.click('[data-sheet=add-day]');
   await enthusiast.waitForSelector('#pv-start-h');
   await enthusiast.waitForSelector('#pv-start-m');
   await enthusiast.waitForSelector('#pv-end-h');
@@ -167,6 +171,8 @@ async function stub(page, extra) {
   assert.strictEqual(await enthusiast.$eval('#pv-start-h', function (el) { return el.getAttribute('inputmode'); }), 'numeric');
   assert.strictEqual(await enthusiast.$eval('#pv-start-m', function (el) { return el.getAttribute('inputmode'); }), 'numeric');
   await enthusiast.click('[data-sheet=cancel]');
+  await enthusiast.waitForSelector('#pv-empty-day');
+  await enthusiast.evaluate(function () { document.getElementById('pv-sheet').click(); });
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
   assert.strictEqual(await enthusiast.$('.pv-handle'), null);
@@ -273,8 +279,10 @@ async function stub(page, extra) {
   assert.deepStrictEqual(remembered['someone-else'], { start: '18:00', end: '19:00' });
 
   await enthusiast.click('[data-open-session]');
-  await enthusiast.waitForSelector('#pv-sheet');
-  assert.deepStrictEqual(await enthusiast.$$eval('#pv-sheet button', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['Run', 'View', 'Save times', 'Remove workout', 'Add workout']);
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
+  await enthusiast.click('#pv-day-sheet .pv-day-row');
+  await enthusiast.waitForSelector('[data-view-wo]');
+  assert.deepStrictEqual(await enthusiast.$$eval('#pv-sheet button', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['Run', 'View', 'Save times', 'Remove workout']);
   await enthusiast.click('[data-view-wo]');
   await enthusiast.waitForSelector('.pl-screen');
   await enthusiast.waitForSelector('#pv-not-tracked');
@@ -287,6 +295,8 @@ async function stub(page, extra) {
   assert.strictEqual(await enthusiast.evaluate(function () { return (JSON.parse(localStorage.getItem('wb.data.v1')).sessions || []).length; }), 1);
 
   await enthusiast.click('[data-open-session]');
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
+  await enthusiast.click('#pv-day-sheet .pv-day-row');
   await enthusiast.waitForSelector('[data-run]');
   await enthusiast.click('[data-run]');
   await enthusiast.waitForSelector('.pl-screen');
@@ -310,9 +320,27 @@ async function stub(page, extra) {
       when: when ? when.textContent : ''
     };
   }
+  function listSig() {
+    var card = document.getElementById('pv-day-sheet');
+    return {
+      title: card.querySelector('h3') ? card.querySelector('h3').textContent : '',
+      rows: Array.prototype.map.call(card.querySelectorAll('.pv-day-row'), function (node) {
+        return node.innerText.replace(/\s+/g, ' ').trim();
+      }),
+      add: !!card.querySelector('[data-sheet=add-day]'),
+      slots: card.querySelectorAll('[data-client-slot]').length,
+      names: card.querySelectorAll('.pv-row-client').length
+    };
+  }
   await enthusiast.click('.pv-day.today .pv-day-h');
-  await enthusiast.waitForSelector('#pv-day-sheet');
-  const fromWeek = await enthusiast.evaluate(sheetSig);
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
+  const fromWeek = await enthusiast.evaluate(listSig);
+  await enthusiast.click('#pv-day-sheet .pv-day-row');
+  await enthusiast.waitForSelector('#pv-day-sheet [data-time="start"]');
+  const fromWeekEdit = await enthusiast.evaluate(sheetSig);
+  assert.deepStrictEqual(fromWeekEdit.buttons, ['Run', 'View', 'Save times', 'Remove workout']);
+  await enthusiast.click('#back');
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
   await enthusiast.evaluate(function () { document.getElementById('pv-sheet').click(); });
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
@@ -331,14 +359,21 @@ async function stub(page, extra) {
   await enthusiast.waitForSelector('.pv-month');
   await enthusiast.click('[data-shift="-1"][data-unit="month"]');
   await enthusiast.click('.pv-cell.today');
-  await enthusiast.waitForSelector('#pv-day-sheet');
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
   assert.ok(await enthusiast.$('.pv-month'));
   assert.strictEqual(await enthusiast.$('.pv-week'), null);
   const dayText = await enthusiast.$eval('#pv-day-sheet', function (el) { return el.innerText; });
   assert.ok(dayText.indexOf('Morning lift') !== -1);
-  const fromMonth = await enthusiast.evaluate(sheetSig);
+  const fromMonth = await enthusiast.evaluate(listSig);
   assert.deepStrictEqual(fromMonth, fromWeek);
-  assert.deepStrictEqual(fromMonth.buttons, ['Run', 'View', 'Save times', 'Remove workout', 'Add workout']);
+  assert.strictEqual(fromMonth.add, true);
+  assert.strictEqual(fromMonth.slots, fromMonth.rows.length);
+  assert.ok(fromMonth.rows[0].indexOf('9:00') !== -1);
+  await enthusiast.click('#pv-day-sheet .pv-day-row');
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-presence');
+  const fromMonthEdit = await enthusiast.evaluate(sheetSig);
+  assert.deepStrictEqual(fromMonthEdit, fromWeekEdit);
+  assert.deepStrictEqual(fromMonthEdit.buttons, ['Run', 'View', 'Save times', 'Remove workout']);
   assert.ok(await enthusiast.$('#pv-day-sheet .pv-slot-title .pv-ico.solo'));
   assert.strictEqual(await enthusiast.$eval('#pv-day-sheet .pv-presence input[value="solo"]', function (el) { return el.checked; }), true);
   await enthusiast.click('#pv-day-sheet .pv-presence input[value="trainer"]');
@@ -347,17 +382,24 @@ async function stub(page, extra) {
     return row && row.presence === 'trainer';
   });
   assert.ok(await enthusiast.$('#pv-day-sheet .pv-slot-title .pv-ico.trainer'));
-  assert.strictEqual(fromMonth.start, '09:00');
-  assert.strictEqual(fromMonth.end, '10:30');
+  assert.strictEqual(fromMonthEdit.start, '09:00');
+  assert.strictEqual(fromMonthEdit.end, '10:30');
   assert.strictEqual(await enthusiast.$eval('#pv-day-sheet [data-time="start"]', function (el) { return el.type; }), 'time');
   assert.strictEqual(await enthusiast.$eval('#pv-day-sheet [data-time="end"]', function (el) { return el.type; }), 'time');
-  await enthusiast.evaluate(function () { document.getElementById('pv-sheet').click(); });
+  await enthusiast.click('#back');
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
+  await enthusiast.click('#back');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await enthusiast.click('.pv-cell:not(.today):not(.is-out)');
+  await enthusiast.waitForSelector('#pv-empty-day');
+  assert.strictEqual(await enthusiast.$eval('#pv-empty-day', function (el) { return el.textContent; }), 'No workouts scheduled');
+  await enthusiast.click('[data-sheet=add-day]');
   await enthusiast.waitForSelector('#pv-start-h');
   await enthusiast.waitForSelector('#pv-end-h');
   assert.ok(await enthusiast.$('.pv-month'));
   await enthusiast.click('[data-sheet=cancel]');
+  await enthusiast.waitForSelector('#pv-empty-day');
+  await enthusiast.click('#back');
   await enthusiast.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   const monthCard = await enthusiast.$('#pv-workouts .pv-pick-card');
   const monthFrom = await monthCard.boundingBox();
@@ -391,6 +433,8 @@ async function stub(page, extra) {
   await enthusiast.click('[data-cal=month]');
   await enthusiast.waitForSelector('.pv-cell[data-date="' + blankDate + '"]');
   await enthusiast.click('.pv-cell[data-date="' + blankDate + '"]');
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
+  await enthusiast.click('#pv-day-sheet .pv-day-row');
   await enthusiast.waitForSelector('#pv-day-sheet [data-time="start"]');
   const blankInputs = await enthusiast.evaluate(function () {
     return {
@@ -557,34 +601,47 @@ async function stub(page, extra) {
   await client.evaluate(function () { document.querySelector('.pv-week-scroll').scrollLeft = 0; });
   await client.click('.pv-day:not(.today) .pv-day-h');
   await client.waitForSelector('#pv-empty-day');
-  assert.strictEqual(await client.$eval('#pv-empty-day', function (el) { return el.textContent; }), 'Nothing scheduled');
+  assert.strictEqual(await client.$eval('#pv-empty-day', function (el) { return el.textContent; }), 'No workouts scheduled');
+  assert.strictEqual(await client.$('[data-sheet=add-day]'), null);
   await client.evaluate(function () { document.getElementById('pv-sheet').click(); });
   await client.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await client.click('.pv-day.today .pv-day-h');
-  await client.waitForSelector('#pv-day-sheet');
-  const clientWeek = await client.evaluate(sheetSig);
-  assert.deepStrictEqual(clientWeek.buttons, ['Run', 'View']);
-  assert.strictEqual(clientWeek.when.indexOf('9:00') !== -1, true);
-  assert.ok(await client.$('#pv-day-sheet .pv-slot-title .pv-ico.solo'));
+  await client.waitForSelector('#pv-day-sheet .pv-day-row');
+  const clientWeek = await client.evaluate(listSig);
+  assert.strictEqual(clientWeek.add, false);
+  assert.ok(clientWeek.rows[0].indexOf('Morning lift') !== -1);
+  assert.ok(clientWeek.rows[0].indexOf('9:00') !== -1);
+  assert.ok(await client.$('#pv-day-sheet .pv-day-row .pv-ico.solo'));
   assert.strictEqual(await client.$('#pv-day-sheet .pv-presence'), null);
   assert.strictEqual(await client.$('[data-sheet=remove]'), null);
-  assert.strictEqual(await client.$('[data-sheet=add]'), null);
+  assert.strictEqual(await client.$('[data-sheet=add-day]'), null);
+  await client.click('#pv-day-sheet .pv-day-row');
+  const clientEdit = await client.evaluate(sheetSig);
+  assert.deepStrictEqual(clientEdit.buttons, ['Run', 'View']);
+  assert.strictEqual(clientEdit.when.indexOf('9:00') !== -1, true);
+  assert.ok(await client.$('#pv-day-sheet .pv-slot-title .pv-ico.solo'));
+  await client.click('#back');
+  await client.waitForSelector('#pv-day-sheet .pv-day-row');
   await client.evaluate(function () { document.getElementById('pv-sheet').click(); });
   await client.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await client.click('[data-cal=month]');
   await client.waitForSelector('.pv-month');
   await client.click('.pv-cell.today');
-  await client.waitForSelector('#pv-day-sheet');
-  const clientMonth = await client.evaluate(sheetSig);
+  await client.waitForSelector('#pv-day-sheet .pv-day-row');
+  const clientMonth = await client.evaluate(listSig);
   assert.deepStrictEqual(clientMonth, clientWeek);
   assert.ok((await client.$eval('#pv-day-sheet', function (el) { return el.innerText; })).indexOf('Morning lift') !== -1);
   assert.strictEqual(await client.$('#pv-day-sheet [data-sheet=add-day]'), null);
-  assert.deepStrictEqual(clientMonth.buttons, ['Run', 'View']);
+  await client.click('#pv-day-sheet .pv-day-row');
+  assert.deepStrictEqual(await client.evaluate(sheetSig), clientEdit);
+  await client.click('#back');
+  await client.waitForSelector('#pv-day-sheet .pv-day-row');
   await client.evaluate(function () { document.getElementById('pv-sheet').click(); });
   await client.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await client.click('.pv-cell:not(.today):not(.is-out)');
   await client.waitForSelector('#pv-empty-day');
-  assert.strictEqual(await client.$eval('#pv-empty-day', function (el) { return el.textContent; }), 'Nothing scheduled');
+  assert.strictEqual(await client.$eval('#pv-empty-day', function (el) { return el.textContent; }), 'No workouts scheduled');
+  assert.strictEqual(await client.$('[data-sheet=add-day]'), null);
   assert.strictEqual(await client.$('#pv-start'), null);
 
   await client.evaluate(function (key) {
@@ -690,6 +747,8 @@ async function stub(page, extra) {
   assert.ok(await trainer.$('#pv-schedule-hint'));
   assert.strictEqual(await trainer.$('#pv-role-note'), null);
   await trainer.click('.pv-day.today .pv-day-h');
+  await trainer.waitForSelector('#pv-day-sheet .pv-day-row');
+  await trainer.click('#pv-day-sheet .pv-day-row');
   await trainer.waitForSelector('#pv-day-sheet .pv-presence');
   await trainer.click('#pv-day-sheet .pv-presence input[value="trainer"]');
   await trainer.waitForFunction(function () {
@@ -721,6 +780,8 @@ async function stub(page, extra) {
   assert.strictEqual(await lone.$('#pv-client'), null);
   assert.ok((await lone.$eval('#app', function (el) { return el.innerText; })).indexOf('No clients yet') !== -1);
   await lone.click('.pv-day.today .pv-day-h');
+  await lone.waitForSelector('#pv-empty-day');
+  await lone.click('[data-sheet=add-day]');
   await lone.waitForSelector('#pv-sheet .pv-presence input[value="solo"]');
   assert.strictEqual(await lone.evaluate(function () {
     return document.querySelectorAll('#pv-sheet .pv-presence input:checked').length;

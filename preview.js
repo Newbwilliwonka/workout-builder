@@ -5,9 +5,9 @@
   var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   var DOWS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var app = null, titleEl = null, backBtn = null, options = null, state = null, drag = null, loadToken = 0;
-  // One history entry while a day window or the player is open, so phone back
-  // closes that layer and stays on this calendar instead of leaving Programs.
-  var historyTrap = 0, ignorePop = 0;
+  // History steps while a day list, a workout or add window opened from that list,
+  // or the player is open. Phone back closes one layer and stays on this calendar.
+  var historyDepth = 0, ignorePop = 0;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -368,6 +368,7 @@
   function sheetHtml() {
     if (!state.sheet) return '';
     if (state.sheet.type === 'add') return addSheetHtml();
+    if (state.sheet.type === 'list') return dayListHtml();
     if (state.sheet.type === 'day') return daySheetHtml();
     if (state.sheet.type === 'gcal') return gcalSheetHtml();
     return '';
@@ -420,16 +421,57 @@
   function resetConfirmHtml() {
     return '<div class="pl-modal" id="pv-gcal-reset-confirm" role="dialog" aria-label="Reset your calendar link?"><div class="card"><h3>Reset your calendar link?</h3><p class="mute">Your current link will stop working, and anyone who has it will no longer see your schedule. You\'ll need to add it to Google Calendar again on a computer.</p><button type="button" class="pri" id="pv-gcal-reset-yes" data-gcal="reset-yes">Yes, reset</button><button type="button" id="pv-gcal-reset-cancel" data-gcal="reset-cancel">Cancel</button></div></div>';
   }
-  function daySheetHtml() {
+  function firstWord(value) {
+    var raw = String(value || '').replace(/^\s+|\s+$/g, '');
+    if (!raw || raw.indexOf('@') !== -1) return '';
+    return raw.split(/\s+/)[0] || '';
+  }
+  // First name only when this workout belongs to a client the trainer is viewing.
+  // My calendar and a client's own calendar leave the slot empty.
+  function rowClientLabel(row) {
+    if (!state || !P.isTrainer(state.role) || !row) return '';
+    var owner = row.ownerId || '';
+    var self = state.userId || 'self';
+    if (!owner || owner === self) return '';
+    var client = null;
+    (state.clients || []).forEach(function (item) {
+      if (item && item.id === owner) client = item;
+    });
+    if (!client) return '';
+    return firstWord(client.display_name) || firstWord(client.name);
+  }
+  function dayRowHtml(row, tracked) {
+    var workout = workoutById(row.workoutId);
+    var name = workout ? (workout.name || 'Workout') : (row.workoutName || 'Workout');
+    var when = P.formatRange(row.start, row.end);
+    var kind = row.presence === 'trainer' ? 'trainer' : 'solo';
+    var done = P.entryDone(row, tracked);
+    var who = rowClientLabel(row);
+    var label = name + (when ? ', ' + when : '') + ', ' + presenceLabel(kind) + (who ? ', ' + who : '') + (done ? ', completed' : '');
+    return '<button type="button" class="pv-day-row" data-open-entry="' + esc(row.id) + '" aria-label="' + esc(label) + '">' +
+      ico(kind) +
+      '<span class="pv-row-main"><span class="name">' + esc(name) + '</span>' +
+      (when ? '<span class="pv-when">' + esc(when) + '</span>' : '') + '</span>' +
+      '<span class="pv-row-end"><span class="pv-row-client" data-client-slot="1">' + esc(who) + '</span>' +
+      (done ? check() : '') + '</span></button>';
+  }
+  function dayListHtml() {
     var date = state.sheet.date;
     var items = onDay(date);
-    var actions = P.entryMenu(context());
+    var tracked = sessions();
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">';
-    if (!items.length) {
-      h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3><p class="mute" id="pv-empty-day">Nothing scheduled</p>';
-      return h + '<button type="button" data-sheet="cancel">Close</button></div></div>';
-    }
-    items.forEach(function (row) { h += dayWorkoutHtml(row, actions); });
+    h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3>';
+    if (!items.length) h += '<p class="mute" id="pv-empty-day">No workouts scheduled</p>';
+    items.forEach(function (row) { h += dayRowHtml(row, tracked); });
+    if (canEdit()) h += '<button type="button" data-sheet="add-day">Add workout</button>';
+    return h + '</div></div>';
+  }
+  function daySheetHtml() {
+    var row = entryById(state.sheet.entryId);
+    var actions = P.entryMenu(context());
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">';
+    if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
+    else h += dayWorkoutHtml(row, actions);
     return h + '</div></div>';
   }
   function dayWorkoutHtml(row, actions) {
@@ -451,7 +493,6 @@
     if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">View</button>';
     if (editing) h += '<button type="button" data-sheet="times" data-entry="' + esc(row.id) + '">Save times</button>';
     if (actions.indexOf('remove') >= 0) h += '<button type="button" class="danger" data-sheet="remove" data-entry="' + esc(row.id) + '">Remove workout</button>';
-    if (actions.indexOf('add') >= 0) h += '<button type="button" data-sheet="add" data-entry="' + esc(row.id) + '">Add workout</button>';
     return h + '</div>';
   }
   function ampmHtml(which, selected) {
@@ -607,39 +648,61 @@
     if (titleEl) titleEl.textContent = 'Programs';
     if (backBtn) backBtn.hidden = false;
   }
-  function overlayOpen() {
-    return !!(state && (state.sheet || state.screen === 'player' || state.playerLive));
+  function returnsToList(sheet) {
+    if (!sheet || !sheet.date) return false;
+    if (sheet.type === 'day' && sheet.entryId) return true;
+    if (sheet.type === 'add' && sheet.returnTo === 'list') return true;
+    return false;
+  }
+  function overlayDepth() {
+    if (!state) return 0;
+    if (state.playerLive || state.screen === 'player') return 1;
+    if (!state.sheet) return 0;
+    if (returnsToList(state.sheet)) return 2;
+    return 1;
   }
   function pushTrap() {
     try {
       history.pushState({ wbProgramsOverlay: 1 }, '', location.href);
-      historyTrap = 1;
+      historyDepth++;
     } catch (e) {}
   }
-  function consumeTrap() {
-    if (!historyTrap) return;
-    historyTrap = 0;
+  function consumeOne() {
+    if (!historyDepth) return;
     var ours = false;
     try { ours = !!(history.state && history.state.wbProgramsOverlay === 1); } catch (e) {}
-    if (!ours) return;
+    if (!ours) { historyDepth = 0; return; }
+    historyDepth--;
     ignorePop++;
     try { history.back(); } catch (e2) { ignorePop = Math.max(0, ignorePop - 1); }
   }
   function syncHistory() {
     if (!state) return;
-    if (overlayOpen()) {
-      if (!historyTrap) pushTrap();
-      return;
-    }
-    consumeTrap();
+    var want = overlayDepth();
+    var guard = 0;
+    while (historyDepth < want && guard < 4) { pushTrap(); guard++; }
+    guard = 0;
+    while (historyDepth > want && guard < 4) { consumeOne(); guard++; }
   }
-  // Browser back already popped the overlay entry. An in-progress tracked
+  function showList(date) {
+    state.sheet = { type: 'list', date: date };
+    state.hint = '';
+    render();
+  }
+  function closeSheetLayer() {
+    if (!state || !state.sheet) return;
+    if (returnsToList(state.sheet)) { showList(state.sheet.date); return; }
+    state.sheet = null;
+    render();
+  }
+  // Browser back already popped one overlay entry. An in-progress tracked
   // workout uses the End button's confirm and finish path, then returns to
   // the calendar. Cancel puts the history entry back and leaves the player running.
+  // A workout or add window opened from the day list returns to that list.
   function onProgramsPop() {
     if (ignorePop) { ignorePop--; return; }
-    if (!historyTrap || !state) return;
-    historyTrap = 0;
+    if (!historyDepth || !state) return;
+    historyDepth--;
     if (state.playerLive || state.screen === 'player') {
       var live = window.__wbPlayer;
       if (live && live.track !== false && !live.done && window.WBPlayer) {
@@ -653,10 +716,7 @@
       if (state.playerLive || state.screen === 'player') leavePlayer();
       return;
     }
-    if (state.sheet) {
-      state.sheet = null;
-      render();
-    }
+    if (state.sheet) closeSheetLayer();
   }
   function render() {
     if (!app || !state) return;
@@ -690,19 +750,14 @@
     for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('pv-over');
   }
   function openDay(date) {
-    var items = onDay(date);
-    if (!items.length) {
-      if (canEdit()) { openAdd(date); return; }
-      state.sheet = { type: 'day', date: date, drafts: {} };
-      state.hint = '';
-      render();
-      return;
-    }
+    if (!date) return;
+    showList(date);
+  }
+  function openEntry(row) {
+    if (!row) return;
     var drafts = {};
-    items.forEach(function (row) {
-      drafts[row.id] = { start: row.start || '', end: row.end || '', error: '' };
-    });
-    state.sheet = { type: 'day', date: date, drafts: drafts };
+    drafts[row.id] = { start: row.start || '', end: row.end || '', error: '' };
+    state.sheet = { type: 'day', date: row.date, entryId: row.id, drafts: drafts };
     state.hint = '';
     render();
   }
@@ -735,7 +790,7 @@
     var bits = shown.text.split(':');
     return { h: bits[0] || fallbackH, m: bits[1] || fallbackM, ap: shown.ap || fallbackAp };
   }
-  function openAdd(date, workoutId, dropped) {
+  function openAdd(date, workoutId, dropped, fromList) {
     var remembered = rememberedClock();
     var start = clockParts(remembered.start, '09', '00', 'AM');
     var end = clockParts(remembered.end, '10', '00', 'AM');
@@ -752,7 +807,8 @@
       endAp: end.ap,
       presence: '',
       error: '',
-      bad: null
+      bad: null,
+      returnTo: fromList ? 'list' : ''
     };
     state.hint = '';
     render();
@@ -827,11 +883,13 @@
     if (placed.duplicate) { sheet.error = 'That workout is already on this day.'; render(); return; }
     if (!placed.created) { sheet.error = placed.error || 'Pick a workout.'; render(); return; }
     rememberClock(times.start, times.end);
+    var backTo = sheet.returnTo === 'list' ? sheet.date : '';
     state.sheet = null;
     state.cursor = sheet.date;
     state.month = sheet.date.slice(0, 7);
     savePrograms(placed.programs, 'Saved on this device.');
     pushRemote(placed.created);
+    if (backTo) state.sheet = { type: 'list', date: backTo };
     render();
   }
   function saveEntryTimes(id) {
@@ -854,13 +912,15 @@
   function removeScheduled(id) {
     var sheet = state.sheet;
     if (!sheet || !data() || !id) return;
+    var date = sheet.date;
     var result = P.remove(data().programs, id);
-    state.sheet = null;
     if (!result.removed) { render(); return; }
     pushEpoch[id] = (pushEpoch[id] || 0) + 1;
     noteDrop(id, result.removed.ownerId);
     savePrograms(result.programs, 'Removed from this day.');
     dropRemote(result.removed);
+    if (date) state.sheet = { type: 'list', date: date };
+    else state.sheet = null;
     render();
   }
   function dropOn(kind, id, date) {
@@ -1374,7 +1434,7 @@
   }
   function onClick(e) {
     if (!state) return;
-    if (e.target.id === 'pv-sheet') { state.sheet = null; render(); return; }
+    if (e.target.id === 'pv-sheet') { closeSheetLayer(); return; }
     var ampm = e.target.closest('[data-ampm]');
     if (ampm && state.sheet && state.sheet.type === 'add') {
       readSheetTimes();
@@ -1410,16 +1470,28 @@
     var sheetBtn = e.target.closest('[data-sheet]');
     if (sheetBtn && state.sheet) {
       var action = sheetBtn.getAttribute('data-sheet');
-      if (action === 'cancel') { state.sheet = null; render(); return; }
+      if (action === 'cancel') { closeSheetLayer(); return; }
       if (action === 'save') { confirmAdd(); return; }
       if (action === 'times') { saveEntryTimes(sheetBtn.getAttribute('data-entry')); return; }
       if (action === 'remove') { removeScheduled(sheetBtn.getAttribute('data-entry')); return; }
-      if (action === 'add') {
-        var again = entryById(sheetBtn.getAttribute('data-entry'));
-        if (!again) { state.sheet = null; render(); return; }
-        openAdd(again.date);
+      if (action === 'add-day') {
+        if (!canEdit() || !state.sheet || !state.sheet.date) return;
+        openAdd(state.sheet.date, '', false, true);
         return;
       }
+      if (action === 'add') {
+        var again = entryById(sheetBtn.getAttribute('data-entry'));
+        var addDate = (again && again.date) || state.sheet.date;
+        if (!addDate) { state.sheet = null; render(); return; }
+        openAdd(addDate, '', false, true);
+        return;
+      }
+    }
+    var rowBtn = e.target.closest('[data-open-entry]');
+    if (rowBtn && state.sheet && state.sheet.type === 'list') {
+      var picked = entryById(rowBtn.getAttribute('data-open-entry'));
+      if (picked) openEntry(picked);
+      return;
     }
     var cal = e.target.closest('[data-cal]');
     if (cal) {
@@ -1542,7 +1614,7 @@
       if (window.WBPlayer) WBPlayer.requestEnd();
       return true;
     }
-    if (state.sheet) { state.sheet = null; render(); return true; }
+    if (state.sheet) { closeSheetLayer(); return true; }
     if (state.screen === 'home') return false;
     state.screen = 'home';
     render();
@@ -1550,7 +1622,7 @@
   }
   function mount(opts) {
     window.removeEventListener('popstate', onProgramsPop);
-    historyTrap = 0;
+    historyDepth = 0;
     ignorePop = 0;
     clearDrag();
     options = opts || {};
@@ -1565,7 +1637,7 @@
   }
   function unmount() {
     window.removeEventListener('popstate', onProgramsPop);
-    historyTrap = 0;
+    historyDepth = 0;
     ignorePop = 0;
     loadToken += 1;
     clearDrag();
