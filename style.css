@@ -561,3 +561,31 @@ button.hx-row .name{font-size:16px}
 #trainer-shares h2{margin:0 0 10px;font-size:17px;line-height:1.3;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink)}
 .db-tools{display:flex;justify-content:flex-end;gap:6px;margin:0 0 8px}
 .db-tools button{flex:none}
+
+/* Public landing. While #landing is in the document the app chrome stays out of the way. */
+body:has(#landing) > header.bar,
+body:has(#landing) > #app{display:none !important}
+.landing-bar{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:8px;background:#111827;color:#fff;padding:12px 14px;min-height:56px}
+.landing-brand{flex:1;min-width:0;font-size:17px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-bar a{flex:none;color:#fff;font-size:15px;font-weight:400;text-decoration:none;padding:6px 0 6px 8px;white-space:nowrap}
+.landing-wrap{max-width:1080px;margin:0 auto;padding:18px 16px 48px}
+.landing-feature{margin:0 0 28px}
+.landing-feature h2{font-size:22px;line-height:1.25;margin:0 0 12px;letter-spacing:-.02em;font-weight:700;overflow-wrap:break-word}
+.landing-frame{aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:radial-gradient(120% 90% at 0% 0%,#1e293b 0%,#111827 55%,#0b1220 100%);box-shadow:inset 0 0 0 1px #1f2937}
+.landing-frame img{width:100%;height:100%;object-fit:cover;display:block;background:transparent}
+.landing-frame img.is-missing{display:none}
+.landing-pricing{margin-top:8px}
+.landing-pricing .sales{padding-top:0}
+.landing-pricing .plan-grid{display:flex;flex-direction:column;gap:10px}
+.landing-pricing .plan-grid .card{margin-bottom:0}
+.landing-end{text-align:center;margin:18px 0 0}
+.landing-end a{color:var(--pri);font-weight:600;font-size:16px;text-decoration:underline;text-underline-offset:3px;display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:8px 12px}
+@media (min-width:900px){
+  .landing-brand{font-size:19px}
+  .landing-bar a{font-size:16px}
+  .landing-wrap{padding:28px 28px 64px}
+  .landing-feature{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:28px;align-items:center;margin:0 0 40px}
+  .landing-feature:nth-child(even) h2{order:2}
+  .landing-feature h2{font-size:28px;line-height:1.2;margin:0}
+  .landing-pricing .plan-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+}
