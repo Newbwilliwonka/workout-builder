@@ -108,7 +108,8 @@
       start: start,
       end: end,
       presence: who,
-      updatedAt: entry.updatedAt || Date.now(),
+      updatedAt: stamp(entry.updatedAt) || stamp(entry.dateSetAt) || Date.now(),
+      dateSetAt: stamp(entry.dateSetAt) || stamp(entry.updatedAt) || Date.now(),
       pending: true
     };
     list.push(row);
@@ -127,7 +128,8 @@
     var moved = null;
     var next = list.map(function (row) {
       if (!row || row.id !== id) return row;
-      moved = Object.assign({}, row, { date: date, updatedAt: Date.now(), pending: true });
+      var at = Date.now();
+      moved = Object.assign({}, row, { date: date, updatedAt: at, dateSetAt: at, pending: true });
       return moved;
     });
     return { programs: next, moved: moved, duplicate: false, error: '' };
@@ -306,14 +308,15 @@
     if (!session || session.hasTime === false) return 0;
     return stamp(session.startedAt) || stamp(session.endedAt);
   }
-  // The entry has to already be on this day when the workout starts. A later
-  // edit or move does not claim a run that already happened. No timestamps
-  // means we only know the current day, so a same-day match still counts.
+  // Only the moment the entry was placed on this day matters. Presence and
+  // time edits bump updatedAt and must not uncheck a workout that was already
+  // scheduled. A missing date stamp means this device never saw the day change,
+  // so a same-day match still counts.
   function scheduledBeforeRun(entry, session) {
-    var updated = stamp(entry && entry.updatedAt);
+    var placed = stamp(entry && entry.dateSetAt);
     var when = sessionInstant(session);
-    if (!updated || !when) return true;
-    return updated <= when;
+    if (!placed || !when) return true;
+    return placed <= when;
   }
   // A logged session completes an entry only on the same local day, for the
   // same person. The program id picks that entry, and the same workout on
@@ -444,6 +447,17 @@
       updatedAt: Date.parse(row.updated_at || row.updatedAt) || 0
     };
   }
+  // Keep the day-placement stamp across a sync. A new day on the incoming row
+  // is a move. The same day keeps the stamp this device already recorded, so a
+  // presence or time write cannot pretend the workout was rescheduled.
+  function applyDateStamp(incoming, local) {
+    if (!incoming || !local) return;
+    if (local.date && incoming.date && local.date !== incoming.date) {
+      incoming.dateSetAt = stamp(incoming.updatedAt) || Date.now();
+      return;
+    }
+    if (stamp(local.dateSetAt)) incoming.dateSetAt = stamp(local.dateSetAt);
+  }
   // A timed save can upsert the row and then reject because the times columns are not
   // on the server yet. That rejection still wrote the row, so a removal must undo it.
   function staleWrite(err, dropped, id, programs) {
@@ -483,6 +497,7 @@
         map[row.id] = Object.assign({}, row, { pending: true, synced: true });
         return;
       }
+      applyDateStamp(incoming, row);
       var timesMissing = (!!row.start && !incoming.start) || (!!row.end && !incoming.end);
       if (keepTimes || timesMissing) {
         if (row.start) incoming.start = row.start;
