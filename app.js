@@ -2438,10 +2438,12 @@
     });
   }
   function hideLanding() {
+    document.documentElement.classList.remove('wb-landing');
     if (landingEl && landingEl.parentNode) landingEl.parentNode.removeChild(landingEl);
   }
   function showLanding() {
     if (!landingEl) return;
+    document.documentElement.classList.add('wb-landing');
     if (!landingEl.isConnected) {
       var host = app && app.parentNode;
       if (host) host.insertBefore(landingEl, app);
@@ -3325,13 +3327,13 @@
     var page = hashPage();
     captureInvite();
     showHeaderSignIn(false);
-    // A bare visit with no invite is the public landing. Everything else uses the app chrome.
+    // Keep the marketing page out of the way until a session check says this
+    // is a signed-out visit with no invite and no recovery link.
     var publicRoot = (location.hash === '' || location.hash === '#') && !(linkInviteCode() || inviteArrival);
     var recoveryNow = recoveryPhase === 'checking' || recoveryPhase === 'form' || recoveryPhase === 'retry' ||
       (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) ||
       (!recoverySettled && !recoveryPhase && recoveryLocked());
-    if (publicRoot && !recoveryNow) showLanding();
-    else hideLanding();
+    hideLanding();
     // Recovery links are claimed before any guard replaces the hash or sends
     // a signed-out person to the normal sign-in page.
     if (recoveryPhase === 'checking') return renderReset();

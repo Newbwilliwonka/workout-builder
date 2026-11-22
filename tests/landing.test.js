@@ -166,6 +166,7 @@ Mem.TIERS.forEach(function (tier) {
     assert.strictEqual(seen.bar.brandLeft, true);
     assert.strictEqual(seen.bar.linkRight, true);
     assert.strictEqual(seen.bar.brandFull, true);
+    assert.strictEqual(await page.evaluate(function () { return document.documentElement.classList.contains('wb-landing'); }), true);
     const phoneInset = await page.evaluate(landingInset);
     assert.strictEqual(phoneInset.pad, '20px');
     assert.strictEqual(phoneInset.max, '1100px');
@@ -234,6 +235,42 @@ Mem.TIERS.forEach(function (tier) {
     await signedIn.waitForSelector('[data-a=new]');
     assert.strictEqual(await signedIn.evaluate(function () { return document.getElementById('landing'); }), null);
     assert.ok(await signedIn.$('header.bar'));
+
+    async function neverShowsLanding(setup, url, ready) {
+      const p = await browser.newPage();
+      p.on('pageerror', function (err) { errors.push(String(err)); });
+      await p.evaluateOnNewDocument(function () {
+        window.__landingShown = false;
+        function note() {
+          var el = document.getElementById && document.getElementById('landing');
+          if (el && el.isConnected && getComputedStyle(el).display !== 'none') window.__landingShown = true;
+        }
+        var timer = setInterval(note, 16);
+        function arm() {
+          note();
+          if (!document.documentElement) return;
+          clearInterval(timer);
+          new MutationObserver(note).observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', arm);
+        else arm();
+      });
+      await setup(p);
+      await p.goto(url, { waitUntil: 'domcontentloaded' });
+      await p.waitForFunction(ready);
+      assert.strictEqual(await p.evaluate(function () { return window.__landingShown; }), false);
+      assert.strictEqual(await p.evaluate(function () { return document.documentElement.classList.contains('wb-landing'); }), false);
+      await p.close();
+    }
+    await neverShowsLanding(function (p) { return stubAuth(p); }, URL, function () { return !!document.querySelector('[data-a=new]'); });
+    await neverShowsLanding(function (p) { return stubAuth(p, { session: null }); }, URL + '?invite=ABCD2345', function () {
+      var h = document.querySelector('h2');
+      return location.hash === '#/signin' && h && h.textContent === 'Sign in';
+    });
+    await neverShowsLanding(function (p) { return stubAuth(p, { session: null }); }, URL + '?code=reset-code', function () {
+      return location.hash === '#/reset' && document.body.innerText.indexOf('This reset link is invalid or has expired.') !== -1;
+    });
+
     assert.deepStrictEqual(errors, []);
   } finally {
     await browser.close();
