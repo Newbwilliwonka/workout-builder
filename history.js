@@ -42,6 +42,20 @@
     var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return months[Number(s.slice(5, 7)) - 1] + ' ' + Number(s.slice(8, 10)) + ', ' + s.slice(0, 4);
   }
+  function sessionDay(iso) {
+    var s = String(iso || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+    var d = new Date(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+    if (!isFinite(d.getTime())) return '';
+    var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return days[d.getDay()] + ' ' + months[d.getMonth()] + ' ' + d.getDate();
+  }
+  function sessionLabel(date, name) {
+    var day = sessionDay(date);
+    var title = name || 'Workout';
+    return day ? day + ' · ' + title : title;
+  }
   function clock(ts) {
     var t = typeof ts === 'number' ? ts : Date.parse(ts);
     if (!isFinite(t)) return '';
@@ -440,11 +454,53 @@
     });
     return rows;
   }
+  // One row per tracked session, newest first. The same workout on two days is two rows.
+  function workouts(sets) {
+    var groups = {};
+    var order = [];
+    prepare(sets).forEach(function (s) {
+      if (s.status !== 'completed') return;
+      if (!groups[s.sessionId]) {
+        groups[s.sessionId] = [];
+        order.push(s.sessionId);
+      }
+      groups[s.sessionId].push(s);
+    });
+    var rows = [];
+    order.forEach(function (id) {
+      var all = groups[id];
+      var named = all[0];
+      all.forEach(function (s) { if (newer(s, named)) named = s; });
+      rows.push({
+        id: id,
+        name: named.workoutName || 'Workout',
+        date: named.localDate,
+        label: sessionLabel(named.localDate, named.workoutName),
+        sets: all.length,
+        startedAt: timeOf(named)
+      });
+    });
+    rows.sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+      if (a.startedAt !== b.startedAt) return a.startedAt < b.startedAt ? 1 : -1;
+      if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+      if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+      return 0;
+    });
+    return rows;
+  }
   function filter(rows, query) {
     var q = String(query || '').replace(/^\s+|\s+$/g, '').toLowerCase();
     if (!q) return (rows || []).slice();
     return (rows || []).filter(function (row) {
       return String(row.name || '').toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  function filterWorkouts(rows, query) {
+    var q = String(query || '').replace(/^\s+|\s+$/g, '').toLowerCase();
+    if (!q) return (rows || []).slice();
+    return (rows || []).filter(function (row) {
+      return String(row.label || row.name || '').toLowerCase().indexOf(q) >= 0;
     });
   }
   function decorate(rows, opts) {
@@ -503,6 +559,52 @@
     });
     return { key: key, name: name || 'Exercise', days: days };
   }
+  function viewedSet(set, marks, index) {
+    var view = present(set);
+    view.label = 'Set ' + set.setNumber;
+    view.badges = (index != null && marks.set[index] ? marks.set[index] : []).slice();
+    view.laps.forEach(function (lap) {
+      if (index != null && marks.lap[index] && marks.lap[index][lap.n]) lap.badge = marks.lap[index][lap.n];
+    });
+    view.setNumber = set.setNumber;
+    return view;
+  }
+  function sessionDetail(sets, sessionId) {
+    var prepared = prepare(sets);
+    var id = String(sessionId || '');
+    var mine = prepared.filter(function (s) { return s.sessionId === id; });
+    if (!mine.length) return { id: id, name: 'Workout', label: '', date: '', exercises: [] };
+    var named = mine[0];
+    mine.forEach(function (s) { if (newer(s, named)) named = s; });
+    var ordered = mine.slice().sort(function (a, b) {
+      if (a.setNumber !== b.setNumber) return a.setNumber - b.setNumber;
+      return 0;
+    });
+    var groups = {};
+    var order = [];
+    ordered.forEach(function (s) {
+      if (!groups[s.key]) {
+        groups[s.key] = [];
+        order.push(s.key);
+      }
+      groups[s.key].push(s);
+    });
+    var exercises = order.map(function (key) {
+      var rows = groups[key];
+      var all = prepared.filter(function (s) { return s.key === key; });
+      var marks = records(all);
+      var views = rows.map(function (s) { return viewedSet(s, marks, all.indexOf(s)); });
+      views.sort(function (a, b) { return a.setNumber - b.setNumber; });
+      return { key: key, name: rows[0].exerciseName || 'Exercise', sets: views };
+    });
+    return {
+      id: id,
+      name: named.workoutName || 'Workout',
+      date: named.localDate,
+      label: sessionLabel(named.localDate, named.workoutName),
+      exercises: exercises
+    };
+  }
   function emptyHtml(opts) {
     opts = opts || {};
     var title = opts.unavailable ? 'History is not available yet' : 'No history yet';
@@ -523,12 +625,60 @@
     if (!rows || !rows.length) return '<div class="empty" id="history-none">No exercises match that search.</div>';
     return rows.map(rowHtml).join('');
   }
+  function workoutRowHtml(row) {
+    var count = row.sets === 1 ? '1 set' : row.sets + ' sets';
+    return '<button type="button" class="hx-row" data-session="' + esc(row.id) + '">' +
+      '<span class="grow"><span class="name">' + esc(row.label) + '</span>' +
+      '<span class="mute">' + count + '</span></span></button>';
+  }
+  function workoutItemsHtml(rows) {
+    if (!rows || !rows.length) return '<div class="empty" id="history-none">No workouts match that search.</div>';
+    return rows.map(workoutRowHtml).join('');
+  }
+  function viewToggle(view) {
+    var workoutOn = view !== 'exercise';
+    function button(id, mode, label, on) {
+      return '<button type="button" id="' + id + '" data-history-view="' + mode + '"' +
+        (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + '>' + esc(label) + '</button>';
+    }
+    return '<div class="seg" id="history-views" role="group" aria-label="History list">' +
+      button('history-by-workout', 'workout', 'By workout', workoutOn) +
+      button('history-by-exercise', 'exercise', 'By exercise', !workoutOn) +
+      '</div>';
+  }
   function listHtml(sets, opts) {
     opts = opts || {};
-    var rows = decorate(list(sets), opts);
+    var view = opts.view === 'exercise' ? 'exercise' : 'workout';
+    var rows = view === 'exercise' ? decorate(list(sets), opts) : workouts(sets);
     if (!rows.length) return emptyHtml(opts);
-    return '<input id="history-q" type="search" aria-label="Search exercises" placeholder="Search exercises" autocomplete="off">' +
-      '<div id="history-list">' + itemsHtml(rows) + '</div>';
+    var searchLabel = view === 'exercise' ? 'Search exercises' : 'Search workouts';
+    var items = view === 'exercise' ? itemsHtml(rows) : workoutItemsHtml(rows);
+    return viewToggle(view) +
+      '<input id="history-q" type="search" aria-label="' + searchLabel + '" placeholder="' + searchLabel + '" autocomplete="off">' +
+      '<div id="history-list">' + items + '</div>';
+  }
+  function setBlock(set) {
+    var h = '<div class="hx-set' + (set.skipped ? ' is-skip' : '') + '"><div class="hx-set-top"><span class="hx-set-no">' + esc(set.label) + '</span>';
+    (set.badges || []).forEach(function (badge) { h += '<span class="hx-badge">' + esc(badge) + '</span>'; });
+    h += '</div><div class="hx-actual">' + esc(set.actual) + '</div>';
+    if (set.planned) h += '<div class="hx-plan">planned ' + esc(set.planned) + '</div>';
+    if (set.laps && set.laps.length) {
+      h += '<ul class="hx-laps">';
+      set.laps.forEach(function (lap) {
+        h += '<li class="hx-lap"><span>' + esc(lap.label) + '</span><b>' + esc(lap.time) + '</b>';
+        if (lap.badge) h += '<span class="hx-badge">' + esc(lap.badge) + '</span>';
+        if (lap.total) h += '<i>' + esc(lap.total) + '</i>';
+        h += '</li>';
+      });
+      h += '</ul>';
+    }
+    if (set.counts) h += '<div class="hx-counts">' + esc(set.counts) + '</div>';
+    if (set.events && set.events.length) {
+      h += '<ul class="hx-events">';
+      set.events.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
+      h += '</ul>';
+    }
+    return h + '</div>';
   }
   function detailHtml(view, opts) {
     opts = opts || {};
@@ -540,31 +690,20 @@
         h += '<article class="card hx-session"><div class="row"><div class="name grow">' + esc(session.name) + '</div>';
         if (session.time) h += '<div class="mute">' + esc(session.time) + '</div>';
         h += '</div>';
-        session.sets.forEach(function (set) {
-          h += '<div class="hx-set' + (set.skipped ? ' is-skip' : '') + '"><div class="hx-set-top"><span class="hx-set-no">' + esc(set.label) + '</span>';
-          (set.badges || []).forEach(function (badge) { h += '<span class="hx-badge">' + esc(badge) + '</span>'; });
-          h += '</div><div class="hx-actual">' + esc(set.actual) + '</div>';
-          if (set.planned) h += '<div class="hx-plan">planned ' + esc(set.planned) + '</div>';
-          if (set.laps && set.laps.length) {
-            h += '<ul class="hx-laps">';
-            set.laps.forEach(function (lap) {
-              h += '<li class="hx-lap"><span>' + esc(lap.label) + '</span><b>' + esc(lap.time) + '</b>';
-              if (lap.badge) h += '<span class="hx-badge">' + esc(lap.badge) + '</span>';
-              if (lap.total) h += '<i>' + esc(lap.total) + '</i>';
-              h += '</li>';
-            });
-            h += '</ul>';
-          }
-          if (set.counts) h += '<div class="hx-counts">' + esc(set.counts) + '</div>';
-          if (set.events && set.events.length) {
-            h += '<ul class="hx-events">';
-            set.events.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
-            h += '</ul>';
-          }
-          h += '</div>';
-        });
+        session.sets.forEach(function (set) { h += setBlock(set); });
         h += '</article>';
       });
+    });
+    return h;
+  }
+  function sessionHtml(view, opts) {
+    opts = opts || {};
+    if (!view || !view.exercises || !view.exercises.length) return emptyHtml(opts);
+    var h = '<h2 class="hx-date">' + esc(view.label || view.name || 'Workout') + '</h2>';
+    view.exercises.forEach(function (exercise) {
+      h += '<article class="card hx-session"><div class="row"><div class="name grow">' + esc(exercise.name) + '</div></div>';
+      (exercise.sets || []).forEach(function (set) { h += setBlock(set); });
+      h += '</article>';
     });
     return h;
   }
@@ -605,12 +744,17 @@
     fromRows: fromRows,
     records: records,
     list: list,
+    workouts: workouts,
     filter: filter,
+    filterWorkouts: filterWorkouts,
     decorate: decorate,
     detail: detail,
+    sessionDetail: sessionDetail,
     listHtml: listHtml,
     itemsHtml: itemsHtml,
+    workoutItemsHtml: workoutItemsHtml,
     detailHtml: detailHtml,
+    sessionHtml: sessionHtml,
     emptyHtml: emptyHtml,
     stillUrl: stillUrl,
     collectPages: collectPages,

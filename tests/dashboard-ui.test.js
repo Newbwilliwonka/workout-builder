@@ -374,7 +374,8 @@ async function openPage(browser, membership, payload) {
       status: 'completed'
     };
   }
-  function logged(sessionId, lib, name, unit, kg, reps) {
+  function logged(sessionId, lib, name, unit, kg, reps, plan) {
+    plan = plan || {};
     const row = {
       session_id: sessionId,
       library_exercise_id: lib,
@@ -385,7 +386,7 @@ async function openPage(browser, membership, payload) {
       removed: false,
       display_unit: unit,
       actual_reps: reps,
-      planned_reps: reps
+      planned_reps: plan.reps == null ? reps : plan.reps
     };
     if (unit === 'bodyweight') {
       row.actual_bodyweight = true;
@@ -393,7 +394,7 @@ async function openPage(browser, membership, payload) {
       row.actual_weight_kg = null;
     } else {
       row.actual_weight_kg = kg;
-      row.planned_weight_kg = kg;
+      row.planned_weight_kg = plan.kg == null ? kg : plan.kg;
     }
     return row;
   }
@@ -406,11 +407,11 @@ async function openPage(browser, membership, payload) {
     ],
     sets: [
       logged('sq-old', 'sq', 'Back squat', 'kg', 100, 5),
-      logged('sq-new', 'sq', 'Back squat', 'kg', 110, 5),
+      logged('sq-new', 'sq', 'Back squat', 'kg', 110, 5, { kg: 100 }),
       logged('fs-old', 'fs', 'Front squat', 'lb', 200 * LB, 8),
-      logged('fs-new', 'fs', 'Front squat', 'lb', 220 * LB, 8),
+      logged('fs-new', 'fs', 'Front squat', 'lb', 220 * LB, 8, { kg: 200 * LB }),
       logged('pu-old', 'pu', 'Push-up', 'bodyweight', null, 100),
-      logged('pu-new', 'pu', 'Push-up', 'bodyweight', null, 101)
+      logged('pu-new', 'pu', 'Push-up', 'bodyweight', null, 101, { reps: 100 })
     ],
     exercises: [],
     schedule: [
@@ -468,7 +469,13 @@ async function openPage(browser, membership, payload) {
   assert.ok(shown.bars[2].ratio > 0.08 && shown.bars[2].ratio < 0.14, 'a 1% gain is about one tenth of the track');
   assert.strictEqual(shown.bars[0].color, shown.bars[1].color);
   assert.notStrictEqual(shown.bars[0].color, shown.bars[2].color);
-  assert.ok((await phone.$eval('#dashboard-strength', function (el) { return el.innerText; })).indexOf('200 lb to 220 lb') >= 0);
+  const strengthText = await phone.$eval('#dashboard-strength', function (el) { return el.innerText; });
+  assert.ok(strengthText.indexOf('+20 lb') >= 0);
+  assert.ok(strengthText.indexOf('+10 kg') >= 0);
+  assert.ok(strengthText.indexOf('+1 rep') >= 0);
+  assert.ok(strengthText.indexOf('10%') >= 0);
+  const strengthCard = await phone.$('#dashboard-strength');
+  await strengthCard.screenshot({ path: path.join(OUT, 'strength-capacity-two-gains.png') });
   await shot(phone, 'dashboard-phone-strength.png', true);
   assert.deepStrictEqual(phone.__errors, []);
   await phone.close();
@@ -686,7 +693,7 @@ async function openPage(browser, membership, payload) {
     sessions: [tracked('bn-old', '2026-10-04', 8), tracked('bn-new', '2026-11-04', 8)],
     sets: [
       logged('bn-old', 'bn', 'Bench press', 'kg', 100, 8),
-      logged('bn-new', 'bn', 'Bench press', 'kg', 105, 8)
+      logged('bn-new', 'bn', 'Bench press', 'kg', 105, 8, { kg: 100 })
     ],
     exercises: [],
     schedule: []
@@ -716,9 +723,9 @@ async function openPage(browser, membership, payload) {
     ],
     sets: [
       logged('sq-old', 'sq', 'Back squat', 'kg', 100, 5),
-      logged('sq-new', 'sq', 'Back squat', 'kg', 110, 5),
+      logged('sq-new', 'sq', 'Back squat', 'kg', 110, 5, { kg: 100 }),
       logged('pu-old', 'pu', 'Push-up', 'bodyweight', null, 100),
-      logged('pu-new', 'pu', 'Push-up', 'bodyweight', null, 101)
+      logged('pu-new', 'pu', 'Push-up', 'bodyweight', null, 101, { reps: 100 })
     ],
     exercises: [],
     schedule: []

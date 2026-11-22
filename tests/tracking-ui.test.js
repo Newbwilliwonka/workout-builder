@@ -115,6 +115,7 @@ async function openPage(browser, membership, payload) {
   await shot(page, 'tracking-workout-list.png');
 
   await page.click('#tracking-open');
+  await page.waitForSelector('#history-by-workout.on');
   await page.waitForSelector('#history-list');
   await page.waitForFunction(function () {
     var tab = document.getElementById('tracking-tab-history');
@@ -158,13 +159,22 @@ async function openPage(browser, membership, payload) {
     badgeText: '',
     back: false
   });
-  assert.ok((await page.$eval('#app', function (el) { return el.innerText; })).indexOf('Barbell squat') >= 0);
-  assert.ok((await page.$eval('#app', function (el) { return el.innerText; })).indexOf('Test Person') < 0);
+  const historyText = await page.$eval('#app', function (el) { return el.innerText; });
+  assert.ok(historyText.indexOf('By workout') >= 0);
+  assert.ok(historyText.indexOf('Sat Nov 14 · Conditioning') >= 0);
+  assert.ok(historyText.indexOf('Barbell squat') < 0);
+  assert.ok(historyText.indexOf('Test Person') < 0);
+  await shot(page, 'tracking-history.png');
+  await page.click('#history-by-exercise');
+  await page.waitForFunction(function () {
+    return document.body.innerText.indexOf('Barbell squat') >= 0;
+  });
   await page.waitForFunction(function () {
     var imgs = Array.prototype.slice.call(document.querySelectorAll('.hx-thumb img'));
     return imgs.length >= 4 && imgs.every(function (img) { return img.complete && img.naturalWidth > 0; });
   }, { timeout: 15000 });
-  await shot(page, 'tracking-history.png');
+  await page.click('#history-by-workout');
+  await page.waitForSelector('#history-by-workout.on');
 
   await page.focus('#tracking-tab-history');
   await page.keyboard.press('ArrowRight');

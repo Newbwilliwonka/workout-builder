@@ -170,13 +170,58 @@ H.collectPages(function (after, size) {
   process.exit(1);
 });
 
-const html = H.listHtml(sets, { stillBase: 'https://cdn.example.test/exercises' });
+const html = H.listHtml(sets, { view: 'exercise', stillBase: 'https://cdn.example.test/exercises' });
 assert.ok(html.indexOf('Test account') < 0);
 assert.ok(html.indexOf('https://cdn.example.test/exercises/still2/0101.jpg') >= 0);
 assert.ok(html.indexOf('data-history="lib-0101"') >= 0);
 assert.ok(html.indexOf('No image') < 0);
+assert.ok(html.indexOf('id="history-by-exercise" data-history-view="exercise" class="on"') >= 0);
 const sprintRow = html.slice(html.indexOf('Court sprint') - 200, html.indexOf('Court sprint'));
 assert.ok(sprintRow.indexOf('<img') < 0, 'an exercise with no picture has no thumbnail');
+
+function powerLegs(id, date, started, n) {
+  var rows = [];
+  var i;
+  for (i = 1; i <= n; i++) {
+    rows.push({
+      sessionId: id, localDate: date, startedAt: started, workoutName: 'Power Legs',
+      exerciseName: i === 1 ? 'Squat' : 'Lunge', libraryExerciseId: i === 1 ? '0101' : '1001',
+      mode: 'reps', displayUnit: 'lb', setNumber: i, status: 'completed', removed: false,
+      plannedReps: 5, plannedWeightKg: 100, actualReps: 5, actualWeightKg: 100
+    });
+  }
+  return rows;
+}
+const runs = powerLegs('leg-16', '2026-11-16', 1, 3).concat(powerLegs('leg-18', '2026-11-18', 2, 1));
+const workoutRows = H.workouts(runs);
+assert.deepStrictEqual(workoutRows.map(function (row) { return row.label; }), [
+  'Wed Nov 18 · Power Legs',
+  'Mon Nov 16 · Power Legs'
+]);
+assert.deepStrictEqual(workoutRows.map(function (row) { return row.sets; }), [1, 3]);
+assert.notStrictEqual(workoutRows[0].id, workoutRows[1].id);
+const workoutHtml = H.listHtml(runs);
+assert.ok(workoutHtml.indexOf('id="history-by-workout" data-history-view="workout" class="on"') >= 0);
+assert.ok(workoutHtml.indexOf('By exercise') >= 0);
+assert.ok(workoutHtml.indexOf('Mon Nov 16 · Power Legs') >= 0);
+assert.ok(workoutHtml.indexOf('Wed Nov 18 · Power Legs') >= 0);
+assert.strictEqual((workoutHtml.match(/data-session="/g) || []).length, 2);
+assert.ok(workoutHtml.indexOf('>3 sets<') >= 0);
+assert.ok(workoutHtml.indexOf('>1 set<') >= 0);
+assert.ok(workoutHtml.indexOf('data-history=') < 0);
+const opened = H.sessionDetail(runs, 'leg-16');
+assert.strictEqual(opened.label, 'Mon Nov 16 · Power Legs');
+assert.deepStrictEqual(opened.exercises.map(function (exercise) { return exercise.name; }), ['Squat', 'Lunge']);
+assert.strictEqual(opened.exercises[0].sets.length, 1);
+assert.ok(H.sessionHtml(opened).indexOf('Squat') >= 0);
+assert.ok(H.sessionHtml(opened).indexOf('Lunge') >= 0);
+const squatSession = H.workouts(sets).filter(function (row) { return row.id === 'sq-1112'; })[0];
+assert.strictEqual(squatSession.sets, 2, 'a skipped set is not a set that was done');
+assert.strictEqual(squatSession.label, 'Thu Nov 12 · Lower strength');
+const squatOpen = H.sessionDetail(sets, 'sq-1112');
+assert.strictEqual(squatOpen.exercises[0].sets.length, 3, 'the opened session still shows the skipped set');
+assert.strictEqual(H.listHtml(sets).indexOf('data-session="sp-1114"') >= 0, true);
+assert.ok(H.listHtml(sets).indexOf('Sat Nov 14 · Conditioning') >= 0);
 
 const empty = H.emptyHtml();
 assert.ok(empty.indexOf('No history yet') >= 0);
