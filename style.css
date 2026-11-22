@@ -185,6 +185,9 @@ body.playing .bar{display:none}
 .pl-notes{margin-top:8px;padding:8px;border-radius:10px;background:#0b1220;border:1px solid #1f2937;color:#e5e7eb;font-size:13px;line-height:1.35;white-space:pre-wrap;word-break:break-word}
 .pl-cnt{font-variant-numeric:tabular-nums;color:#94a3b8;font-size:14px}
 .pl-done{text-align:center;padding-top:20px}
+#unscheduled-note{text-align:left;background:#fff;color:#111827;margin:12px 0}
+#unscheduled-note p{margin:0 0 10px;color:#111827}
+#unscheduled-note button{width:100%;margin-top:8px}
 .pl-done h2{margin:8px 0 4px;color:#fff}
 .pl-check{width:64px;height:64px;border-radius:50%;background:#34d399;color:#04121f;font-size:34px;line-height:64px;margin:0 auto}
 .pl-sum{text-align:left;background:#111827;color:#e5e7eb;margin:16px 0}
@@ -363,6 +366,14 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-dow{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
 .pv-num{font-weight:700;font-size:18px}
 .pv-check{color:#059669;font-weight:800;font-size:16px;line-height:1}
+.pv-check.is-extra{color:var(--pri)}
+.pv-session.is-extra .name,.pv-day-row.is-extra .name,.pv-uname{color:var(--mute)}
+.pv-session.is-extra .pv-session-top .name{flex:1;min-width:0}
+.pv-session.is-extra .pv-check{flex:none}
+.pv-extra{display:flex;align-items:center;gap:2px;max-width:100%;min-width:0}
+.pv-uname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;line-height:1.15}
+.pv-extra .pv-who{font-size:10px;flex:none;max-width:42%}
+.pv-extra .pv-check{font-size:12px;flex:none}
 .pv-ico,button.pv-ico{width:14px;height:14px;min-width:14px;min-height:14px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;display:inline-flex;align-items:center;justify-content:center;flex:none;line-height:0}
 .pv-ico.solo{color:#2563eb}
 .pv-ico.trainer{color:#059669}

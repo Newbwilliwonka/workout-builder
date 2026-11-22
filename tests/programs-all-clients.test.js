@@ -26,7 +26,7 @@ function workout(name) {
 function entry(id, ownerId, wo, start, end, presence) {
   return {
     id: id, ownerId: ownerId, workoutId: wo.id, workoutName: wo.name,
-    items: wo.items, date: 'TODAY', presence: presence, start: start, end: end, updatedAt: Date.now()
+    items: wo.items, date: 'TODAY', presence: presence, start: start, end: end, updatedAt: Date.now() - 120000
   };
 }
 

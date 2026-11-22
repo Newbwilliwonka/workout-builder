@@ -65,13 +65,14 @@ async function stub(page, extra) {
     const data = JSON.parse(value);
     const now = new Date();
     const day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    const at = Date.now();
     data.programs = [{
       id: 'pg1', ownerId: 'allow-test', workoutId: data.workouts[0].id, workoutName: 'Morning lift',
-      items: data.workouts[0].items, date: day, presence: 'solo', start: '09:00', end: '10:30', updatedAt: Date.now()
+      items: data.workouts[0].items, date: day, presence: 'solo', start: '09:00', end: '10:30', updatedAt: at - 60000
     }];
     data.sessions = [{
       id: 'ses1', workoutId: data.workouts[0].id, workoutName: 'Morning lift', programId: 'pg1',
-      startedAt: Date.now() - 1000, endedAt: Date.now(), results: [{ logged: true, name: 'Press' }]
+      startedAt: at - 1000, endedAt: at, results: [{ logged: true, name: 'Press' }]
     }];
     localStorage.setItem(key, JSON.stringify(data));
   }, M.STORAGE_KEY, JSON.stringify(base));

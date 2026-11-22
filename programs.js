@@ -284,25 +284,111 @@
     if (!Array.isArray(results) || !results.length) return false;
     return results.some(function (row) { return row && row.logged !== false; });
   }
-  // Which entry a session completes stays the same: its program id, or the
-  // same workout on the same local day. A database row only counts for the
-  // person who logged it. A session saved on this device has no person, so it
-  // still counts and nothing that shows today disappears.
+  function stamp(value) {
+    if (typeof value === 'number' && isFinite(value) && value > 0) return value;
+    if (typeof value === 'string' && value) {
+      var parsed = Date.parse(value);
+      if (isFinite(parsed)) return parsed;
+    }
+    return 0;
+  }
+  // The day the workout was actually done. A saved local_date wins over the
+  // viewer's clock, so a client and their trainer see the same day.
+  function sessionDay(session) {
+    if (!session) return '';
+    var explicit = String(session.localDate || session.local_date || '').slice(0, 10);
+    if (isDay(explicit)) return explicit;
+    return localDay(session.endedAt || session.startedAt);
+  }
+  // When the workout started. A row with only a calendar day has no start, so
+  // the same-day match still stands.
+  function sessionInstant(session) {
+    if (!session || session.hasTime === false) return 0;
+    return stamp(session.startedAt) || stamp(session.endedAt);
+  }
+  // The entry has to already be on this day when the workout starts. A later
+  // edit or move does not claim a run that already happened. No timestamps
+  // means we only know the current day, so a same-day match still counts.
+  function scheduledBeforeRun(entry, session) {
+    var updated = stamp(entry && entry.updatedAt);
+    var when = sessionInstant(session);
+    if (!updated || !when) return true;
+    return updated <= when;
+  }
+  // A logged session completes an entry only on the same local day, for the
+  // same person. The program id picks that entry, and the same workout on
+  // that day counts too. An earlier run does not check the original scheduled
+  // day. A database row only counts for the person who logged it. A session
+  // saved on this device has no person, so it still counts.
   function sessionMatchesEntry(entry, session) {
     if (!entry || !session) return false;
     if (session.remote || session.clientId) {
       if (!session.clientId || session.clientId !== entry.ownerId) return false;
     }
     if (!loggedSession(session)) return false;
+    var day = sessionDay(session);
+    if (!day || day !== entry.date) return false;
+    if (!scheduledBeforeRun(entry, session)) return false;
     if (session.programId && session.programId === entry.id) return true;
-    return session.workoutId === entry.workoutId && localDay(session.endedAt || session.startedAt) === entry.date;
+    return !!session.workoutId && session.workoutId === entry.workoutId;
   }
   function entryDone(entry, sessions) {
     if (!entry) return false;
     return (sessions || []).some(function (session) { return sessionMatchesEntry(entry, session); });
   }
+  // Finished runs that were not scheduled for the day they were done.
+  // scope.owners is who is on screen. A device log with no person shows only
+  // on the signed-in person's own calendar.
+  function unscheduledOn(date, entries, sessions, scope) {
+    if (!isDay(date)) return [];
+    scope = scope || {};
+    var owners = {};
+    (scope.owners || []).forEach(function (id) { if (id) owners[id] = 1; });
+    var selfId = scope.selfId || '';
+    var seen = {};
+    var out = [];
+    (sessions || []).forEach(function (session) {
+      if (!session || sessionDay(session) !== date || !loggedSession(session)) return;
+      var matched = (entries || []).some(function (entry) { return sessionMatchesEntry(entry, session); });
+      if (matched) return;
+      var owner = session.clientId || '';
+      if (session.remote || owner) {
+        if (!owner || !owners[owner]) return;
+      } else if (!selfId || !owners[selfId]) {
+        return;
+      } else {
+        owner = selfId;
+      }
+      var id = String(session.id || '');
+      if (!id) id = 'log-' + owner + '-' + date + '-' + (session.workoutId || '') + '-' + (session.programId || '');
+      if (seen[id]) return;
+      seen[id] = 1;
+      out.push({
+        id: id,
+        ownerId: owner,
+        workoutId: session.workoutId || '',
+        workoutName: session.workoutName || '',
+        programId: session.programId || '',
+        date: date
+      });
+    });
+    out.sort(function (a, b) {
+      var name = String(a.workoutName || '').localeCompare(String(b.workoutName || ''));
+      if (name) return name;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    return out;
+  }
+  // Clients and Enthusiasts get a reschedule note. Trainers move their own
+  // workouts by dragging, so a trainer's own run stays quiet.
+  function shouldSuggestReschedule(role, session, entries) {
+    if (role !== 'free_client' && role !== 'enthusiast') return false;
+    if (!loggedSession(session)) return false;
+    if (!sessionDay(session)) return false;
+    return !(entries || []).some(function (entry) { return sessionMatchesEntry(entry, session); });
+  }
   // Turn a workout_sessions row into the shape entryDone already understands.
-  // Noon on local_date keeps the same-day match in the viewer's time zone.
+  // Noon on local_date keeps the same-day match when the row has no clock.
   function sessionFromRemote(row) {
     if (!row || typeof row !== 'object') return null;
     var status = row.status || '';
@@ -313,20 +399,26 @@
     var clientId = String(row.client_id || row.clientId || '');
     if (!clientId || (!programId && !workoutId)) return null;
     if (!isDay(day) && !programId) return null;
-    var when = 0;
-    if (isDay(day)) {
+    var started = stamp(row.started_at || row.startedAt);
+    var ended = stamp(row.ended_at || row.endedAt);
+    var hasTime = !!(started || ended);
+    var when = ended || started;
+    if (!when && isDay(day)) {
       var parts = day.split('-');
       when = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0, 0).getTime();
-    } else {
-      when = Date.parse(row.ended_at || row.endedAt || row.started_at || row.startedAt) || 0;
+    } else if (!when) {
+      when = 0;
     }
     return {
       id: String(row.local_id || row.localId || row.id || ''),
       clientId: clientId,
       programId: programId,
       workoutId: workoutId,
-      startedAt: when,
-      endedAt: when,
+      workoutName: String(row.workout_name || row.workoutName || ''),
+      localDate: isDay(day) ? day : '',
+      startedAt: started || when,
+      endedAt: ended || when,
+      hasTime: hasTime,
       status: status,
       remote: true
     };
@@ -447,6 +539,9 @@
     setTimes: setTimes,
     entryDone: entryDone,
     dayDone: dayDone,
+    sessionDay: sessionDay,
+    unscheduledOn: unscheduledOn,
+    shouldSuggestReschedule: shouldSuggestReschedule,
     sessionFromRemote: sessionFromRemote,
     fromRemote: fromRemote,
     merge: merge,
