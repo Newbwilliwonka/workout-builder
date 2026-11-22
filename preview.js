@@ -5,6 +5,9 @@
   var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   var DOWS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var app = null, titleEl = null, backBtn = null, options = null, state = null, drag = null, loadToken = 0;
+  // One history entry while a day window or the player is open, so phone back
+  // closes that layer and stays on this calendar instead of leaving Programs.
+  var historyTrap = 0, ignorePop = 0;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -604,12 +607,64 @@
     if (titleEl) titleEl.textContent = 'Programs';
     if (backBtn) backBtn.hidden = false;
   }
+  function overlayOpen() {
+    return !!(state && (state.sheet || state.screen === 'player' || state.playerLive));
+  }
+  function pushTrap() {
+    try {
+      history.pushState({ wbProgramsOverlay: 1 }, '', location.href);
+      historyTrap = 1;
+    } catch (e) {}
+  }
+  function consumeTrap() {
+    if (!historyTrap) return;
+    historyTrap = 0;
+    var ours = false;
+    try { ours = !!(history.state && history.state.wbProgramsOverlay === 1); } catch (e) {}
+    if (!ours) return;
+    ignorePop++;
+    try { history.back(); } catch (e2) { ignorePop = Math.max(0, ignorePop - 1); }
+  }
+  function syncHistory() {
+    if (!state) return;
+    if (overlayOpen()) {
+      if (!historyTrap) pushTrap();
+      return;
+    }
+    consumeTrap();
+  }
+  // Browser back already popped the overlay entry. An in-progress tracked
+  // workout uses the End button's confirm and finish path, then returns to
+  // the calendar. Cancel puts the history entry back and leaves the player running.
+  function onProgramsPop() {
+    if (ignorePop) { ignorePop--; return; }
+    if (!historyTrap || !state) return;
+    historyTrap = 0;
+    if (state.playerLive || state.screen === 'player') {
+      var live = window.__wbPlayer;
+      if (live && live.track !== false && !live.done && window.WBPlayer) {
+        WBPlayer.requestEnd();
+        live = window.__wbPlayer;
+        if (state.playerLive && live && !live.done) {
+          pushTrap();
+          return;
+        }
+      }
+      if (state.playerLive || state.screen === 'player') leavePlayer();
+      return;
+    }
+    if (state.sheet) {
+      state.sheet = null;
+      render();
+    }
+  }
   function render() {
     if (!app || !state) return;
     document.body.classList.add('pv-on');
     if (state.screen === 'player') {
       openRealPlayer(state.playerMode !== 'view');
       applyChrome();
+      if (state.screen === 'player') syncHistory();
       return;
     }
     closeRealPlayer();
@@ -619,6 +674,7 @@
     app.onchange = onChange;
     app.oninput = onInput;
     app.onpointerdown = onPointerDown;
+    syncHistory();
   }
   function clearDrag() {
     if (drag) {
@@ -1493,6 +1549,9 @@
     return true;
   }
   function mount(opts) {
+    window.removeEventListener('popstate', onProgramsPop);
+    historyTrap = 0;
+    ignorePop = 0;
     clearDrag();
     options = opts || {};
     app = options.app;
@@ -1500,10 +1559,14 @@
     backBtn = options.backBtn;
     state = fresh();
     if (data() && !Array.isArray(data().programs)) data().programs = [];
+    window.addEventListener('popstate', onProgramsPop);
     render();
     refresh();
   }
   function unmount() {
+    window.removeEventListener('popstate', onProgramsPop);
+    historyTrap = 0;
+    ignorePop = 0;
     loadToken += 1;
     clearDrag();
     if (state && state.playerLive && window.WBPlayer) WBPlayer.unmount();
