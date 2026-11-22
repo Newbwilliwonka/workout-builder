@@ -343,96 +343,118 @@
     return { label: 'Alien', color: gainColor('Elite') };
   }
   function pctRound(pct) { return Math.round(Number(pct) * 10000) / 10000; }
+  function readNum(set, camel, snake) {
+    if (!set) return null;
+    if (set[camel] != null && set[camel] !== '') return num(set[camel]);
+    if (set[snake] != null && set[snake] !== '') return num(set[snake]);
+    return null;
+  }
+  function readFlag(set, camel, snake) {
+    if (!set) return false;
+    return set[camel] === true || set[camel] === 'true' || set[snake] === true || set[snake] === 'true';
+  }
+  function displayUnitOf(set) {
+    var unit = set && (set.displayUnit || set.display_unit);
+    if (unit === 'lb' || unit === 'bodyweight') return unit;
+    return 'kg';
+  }
   function loggedWeight(set) {
     if (!set || set.status !== 'completed') return null;
-    var kg = num(set.actualWeightKg);
+    if (displayUnitOf(set) === 'bodyweight' || readFlag(set, 'actualBodyweight', 'actual_bodyweight')) return null;
+    var kg = readNum(set, 'actualWeightKg', 'actual_weight_kg');
     return kg > 0 ? kg : null;
   }
   function loggedReps(set) {
     if (!set || set.status !== 'completed') return null;
-    var reps = num(set.actualReps);
+    var reps = readNum(set, 'actualReps', 'actual_reps');
     return reps > 0 ? reps : null;
   }
-  function displayUnitOf(set) {
-    if (!set || set.displayUnit === 'bodyweight') return 'kg';
-    return set.displayUnit === 'lb' ? 'lb' : 'kg';
+  function plannedWeight(set) {
+    if (!set || displayUnitOf(set) === 'bodyweight') return null;
+    if (readFlag(set, 'plannedBodyweight', 'planned_bodyweight') || readFlag(set, 'actualBodyweight', 'actual_bodyweight')) return null;
+    var kg = readNum(set, 'plannedWeightKg', 'planned_weight_kg');
+    return kg > 0 ? kg : null;
   }
-  function bestMetric(rows, read) {
-    var best = null;
-    var named = null;
-    rows.forEach(function (set) {
-      var value = read(set);
-      if (!(value > 0)) return;
-      var better = best == null || value > best + 1e-9;
-      var tied = best != null && Math.abs(value - best) <= 1e-9;
-      var later = tied && named && (set.localDate > named.localDate || (set.localDate === named.localDate && timeOf(set) >= timeOf(named)));
-      if (better || later) {
-        best = value;
-        named = set;
-      }
-    });
-    return { value: best, set: named };
+  function plannedRepsCount(set) {
+    if (!set) return null;
+    var reps = readNum(set, 'plannedReps', 'planned_reps');
+    return reps > 0 ? reps : null;
   }
-  function weightDetail(prev, cur) {
-    var unit = displayUnitOf(cur.set);
-    var fromKg = prev.value;
-    var toKg = cur.value;
-    var from = unit === 'lb' ? fromKg / LB_TO_KG : fromKg;
-    var to = unit === 'lb' ? toKg / LB_TO_KG : toKg;
-    if (!trim(from) || !trim(to)) return '';
-    return trim(from) + ' ' + unit + ' to ' + trim(to) + ' ' + unit;
+  // The card's window is the calendar month it already titles as "this month".
+  function inStrengthWindow(set, now) {
+    return String(set && set.localDate || '').slice(0, 7) === monthKey(now);
   }
-  function repsDetail(prev, cur) {
-    return trim(prev.value) + ' reps to ' + trim(cur.value) + ' reps';
+  function laterSet(a, b) {
+    if ((a.localDate || '') !== (b.localDate || '')) return (a.localDate || '') > (b.localDate || '');
+    return timeOf(a) >= timeOf(b);
   }
-  function leaders(sets, now, read, detailOf) {
-    var month = monthKey(now);
+  function gainAmount(actual, planned, unit) {
+    var delta = actual - planned;
+    if (unit === 'lb') delta = delta / LB_TO_KG;
+    var text = trim(delta);
+    if (!text || text === '0') return '';
+    if (unit === 'reps') {
+      var n = Number(text);
+      return '+' + text + (n === 1 ? ' rep' : ' reps');
+    }
+    return '+' + text + ' ' + (unit === 'lb' ? 'lb' : 'kg');
+  }
+  // One line per exercise. The best actual set is compared with that set's plan.
+  // A weight above the designed weight is Strength. Reps above the designed reps
+  // are Capacity. Any mode counts when that plan is present. Nothing at or under
+  // the plan is a gain.
+  function leaders(sets, now, readActual, readPlanned, unitOf) {
     var groups = {};
     var order = [];
-    sets.forEach(function (set) {
-      if (!set || set.mode !== 'reps' || set.status !== 'completed') return;
+    (sets || []).forEach(function (set) {
+      if (!set || set.status !== 'completed' || set.removed === true || set.removed === 'true') return;
+      if (!inStrengthWindow(set, now)) return;
+      var actual = readActual(set);
+      var planned = readPlanned(set);
+      if (!(actual > 0) || !(planned > 0)) return;
       var key = historyKey(set);
       if (!key) return;
       if (!groups[key]) {
-        groups[key] = { month: [], prior: [] };
+        groups[key] = [];
         order.push(key);
       }
-      var ym = String(set.localDate || '').slice(0, 7);
-      if (ym === month) groups[key].month.push(set);
-      else if (ym < month) groups[key].prior.push(set);
+      groups[key].push({ set: set, actual: actual, planned: planned });
     });
     var rows = [];
     order.forEach(function (key) {
-      var group = groups[key];
-      if (!group.month.length || !group.prior.length) return;
-      var cur = bestMetric(group.month, read);
-      var prev = bestMetric(group.prior, read);
-      if (!(cur.value > 0) || !(prev.value > 0) || !(cur.value > prev.value)) return;
-      var pct = pctRound(((cur.value - prev.value) / prev.value) * 100);
+      var best = null;
+      groups[key].forEach(function (row) {
+        var better = !best || row.actual > best.actual + 1e-9;
+        var tied = best && Math.abs(row.actual - best.actual) <= 1e-9 && laterSet(row.set, best.set);
+        if (better || tied) best = row;
+      });
+      if (!best || !(best.actual > best.planned)) return;
+      var pct = pctRound(((best.actual - best.planned) / best.planned) * 100);
       var rating = gainRating(pct);
       if (!rating) return;
-      var named = cur.set || prev.set;
+      var detail = gainAmount(best.actual, best.planned, unitOf(best.set));
+      if (!detail) return;
+      var named = best.set;
       rows.push({
         key: key,
-        name: named && named.exerciseName ? named.exerciseName : 'Exercise',
+        name: named && (named.exerciseName || named.exercise_name) ? (named.exerciseName || named.exercise_name) : 'Exercise',
         pct: pct,
         rating: rating,
-        detail: detailOf(prev, cur)
+        detail: detail
       });
     });
-    if (!rows.length) return [];
-    var top = rows[0].pct;
-    rows.forEach(function (row) { if (row.pct > top) top = row.pct; });
-    return rows.filter(function (row) { return Math.abs(row.pct - top) <= 1e-6; }).sort(function (a, b) {
+    rows.sort(function (a, b) {
+      if (a.pct !== b.pct) return a.pct > b.pct ? -1 : 1;
       if (a.name !== b.name) return a.name < b.name ? -1 : 1;
       if (a.key !== b.key) return a.key < b.key ? -1 : 1;
       return 0;
     });
+    return rows;
   }
   function strengthBlock(sets, now) {
     return {
-      weight: leaders(sets, now, loggedWeight, weightDetail),
-      reps: leaders(sets, now, loggedReps, repsDetail)
+      weight: leaders(sets, now, loggedWeight, plannedWeight, displayUnitOf),
+      reps: leaders(sets, now, loggedReps, plannedRepsCount, function () { return 'reps'; })
     };
   }
   function setVolume(set) {
@@ -937,7 +959,7 @@
     rows.forEach(function (row) {
       var rating = row.rating || gainRating(row.pct) || { label: '', color: '#6b7280' };
       var width = barWidth(row.pct);
-      var label = row.name + ', ' + pctText(row.pct) + ' percent, ' + (rating.label || '');
+      var label = row.name + (row.detail ? ', ' + row.detail : '') + ', ' + pctText(row.pct) + ' percent, ' + (rating.label || '');
       h += '<li class="db-gain" data-rating="' + esc(rating.label) + '" data-pct="' + esc(pctText(row.pct)) + '">';
       h += '<div class="db-gain-top"><span class="name">' + esc(row.name) + '</span>';
       h += '<span class="db-gain-pct" style="color:' + esc(rating.color) + '">' + esc(pctText(row.pct)) + '% · ' + esc(rating.label) + '</span></div>';

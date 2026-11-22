@@ -482,12 +482,13 @@ button.pv-cell.is-out{opacity:.4}
   #pv-gcal{flex:0 1 auto}
 }
 
-/* History. One list of the person's own exercises, then each exercise's sets. */
+/* History. By workout or by exercise, then the sets for that row. */
 #home-nav{flex-wrap:nowrap}
 #home-nav button{padding:0 8px;white-space:nowrap}
 #tracking-tabs{margin:0 0 12px}
 #tracking-tabs button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
 #tracking-tabs button:focus-visible{outline:2px solid #111827;outline-offset:2px}
+#history-views{margin:0 0 8px}
 #history-q{margin-top:2px}
 .hx-empty .name{color:var(--ink);margin-bottom:6px}
 button.hx-row{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:#fff;color:var(--ink);border-radius:14px;padding:10px 12px;margin:10px 0 0;box-shadow:0 1px 2px rgba(0,0,0,.06);font-weight:400;min-height:72px}

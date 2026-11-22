@@ -376,89 +376,114 @@ function fillWidths(html) {
   while ((match = re.exec(html))) out.push(match[1]);
   return out;
 }
+function beat(over) {
+  return reps(Object.assign({
+    plannedWeightKg: 100, plannedReps: 10, actualWeightKg: 100, actualReps: 10
+  }, over));
+}
 const movers = model([
-  reps({ sessionId: 'sq-old', localDate: '2026-10-02', libraryExerciseId: 'sq', exerciseName: 'Back squat', actualWeightKg: 100, actualReps: 5 }),
-  reps({ sessionId: 'sq-new', localDate: '2026-11-02', libraryExerciseId: 'sq', exerciseName: 'Back squat', actualWeightKg: 110, actualReps: 5 }),
-  reps({ sessionId: 'fs-old', localDate: '2026-10-03', libraryExerciseId: 'fs', exerciseName: 'Front squat', displayUnit: 'lb', actualWeightKg: 200 * LB, actualReps: 8 }),
-  reps({ sessionId: 'fs-new', localDate: '2026-11-03', libraryExerciseId: 'fs', exerciseName: 'Front squat', displayUnit: 'lb', actualWeightKg: 220 * LB, actualReps: 8 }),
-  reps({ sessionId: 'row-old', localDate: '2026-10-04', libraryExerciseId: 'row', exerciseName: 'Row', actualWeightKg: 50, actualReps: 10 }),
-  reps({ sessionId: 'row-new', localDate: '2026-11-04', libraryExerciseId: 'row', exerciseName: 'Row', actualWeightKg: 51, actualReps: 10 }),
-  reps({ sessionId: 'dl-old', localDate: '2026-10-05', libraryExerciseId: 'dl', exerciseName: 'Deadlift', actualWeightKg: 140, actualReps: 3 }),
-  reps({ sessionId: 'dl-new', localDate: '2026-11-05', libraryExerciseId: 'dl', exerciseName: 'Deadlift', actualWeightKg: 130, actualReps: 3 }),
-  reps({ sessionId: 'lu-new', localDate: '2026-11-06', libraryExerciseId: 'lu', exerciseName: 'Lunge', actualWeightKg: 40, actualReps: 12 }),
-  reps({ sessionId: 'zero-old', localDate: '2026-10-07', libraryExerciseId: 'zero', exerciseName: 'Zero', actualWeightKg: 0, actualReps: 5 }),
-  reps({ sessionId: 'zero-new', localDate: '2026-11-07', libraryExerciseId: 'zero', exerciseName: 'Zero', actualWeightKg: 40, actualReps: 5 }),
-  reps({ sessionId: 'tm-old', localDate: '2026-10-08', libraryExerciseId: 'tm', exerciseName: 'Timer press', mode: 'timer', actualWeightKg: 10, actualReps: 10 }),
-  reps({ sessionId: 'tm-new', localDate: '2026-11-08', libraryExerciseId: 'tm', exerciseName: 'Timer press', mode: 'timer', actualWeightKg: 80, actualReps: 40 }),
-  reps({ sessionId: 'iv-old', localDate: '2026-10-08', libraryExerciseId: 'iv', exerciseName: 'Intervals', mode: 'intervals', actualWeightKg: 10, actualReps: 10 }),
-  reps({ sessionId: 'iv-new', localDate: '2026-11-08', libraryExerciseId: 'iv', exerciseName: 'Intervals', mode: 'intervals', actualWeightKg: 80, actualReps: 40 }),
-  reps({ sessionId: 'sw-old', localDate: '2026-10-08', libraryExerciseId: 'sw', exerciseName: 'Sprint', mode: 'stopwatch', actualWeightKg: null, actualReps: null }),
-  reps({ sessionId: 'sw-new', localDate: '2026-11-08', libraryExerciseId: 'sw', exerciseName: 'Sprint', mode: 'stopwatch', actualWeightKg: null, actualReps: 30 }),
-  reps({
-    sessionId: 'pu-old', localDate: '2026-10-09', libraryExerciseId: 'pu', exerciseName: 'Push-up',
-    displayUnit: 'bodyweight', plannedBodyweight: true, actualBodyweight: true, actualWeightKg: null, actualReps: 100
-  }),
-  reps({
-    sessionId: 'pu-new', localDate: '2026-11-09', libraryExerciseId: 'pu', exerciseName: 'Push-up',
-    displayUnit: 'bodyweight', plannedBodyweight: true, actualBodyweight: true, actualWeightKg: null, actualReps: 101
-  }),
-  reps({ sessionId: 'nm-old', localDate: '2026-10-01', libraryExerciseId: 'same', exerciseName: 'Old name', actualWeightKg: 80, actualReps: 6 }),
-  reps({ sessionId: 'nm-new', localDate: '2026-11-01', libraryExerciseId: 'same', exerciseName: 'New name', actualWeightKg: 80, actualReps: 6 }),
-  reps({ sessionId: 'cap-old', localDate: '2026-10-11', libraryExerciseId: 'cap', exerciseName: 'Curl', actualWeightKg: 20, actualReps: 8 }),
-  reps({ sessionId: 'cap-new', localDate: '2026-11-11', libraryExerciseId: 'cap', exerciseName: 'Curl', actualWeightKg: 20, actualReps: 12 })
-], [session('movers', '2026-11-11')]);
-assert.deepStrictEqual(movers.strength.weight.map(function (row) { return row.name; }), ['Back squat', 'Front squat']);
-assert.ok(movers.strength.weight.every(function (row) { return row.pct === 10 && row.rating.label === 'Elite'; }));
-assert.ok(movers.strength.weight.some(function (row) { return row.detail === '100 kg to 110 kg'; }));
-assert.ok(movers.strength.weight.some(function (row) { return row.detail === '200 lb to 220 lb'; }));
-assert.ok(!movers.strength.weight.some(function (row) { return row.name === 'Row' || row.name === 'Deadlift' || row.name === 'Lunge' || row.name === 'Zero' || row.name === 'Push-up' || row.name === 'Timer press'; }));
-assert.deepStrictEqual(movers.strength.reps.map(function (row) { return [row.name, row.pct, row.rating.label]; }), [['Curl', 50, 'Alien']]);
+  beat({ sessionId: 'sq', libraryExerciseId: 'sq', exerciseName: 'Back squat', actualWeightKg: 110 }),
+  beat({ sessionId: 'fs', libraryExerciseId: 'fs', exerciseName: 'Front squat', displayUnit: 'lb', plannedWeightKg: 200 * LB, actualWeightKg: 220 * LB }),
+  beat({ sessionId: 'curl', libraryExerciseId: 'cap', exerciseName: 'Curl', actualReps: 12 }),
+  beat({ sessionId: 'flat', libraryExerciseId: 'flat', exerciseName: 'Flat bench' }),
+  beat({ sessionId: 'dl', libraryExerciseId: 'dl', exerciseName: 'Deadlift', actualWeightKg: 90, actualReps: 8 }),
+  beat({ sessionId: 'row', libraryExerciseId: 'row', exerciseName: 'Row', actualWeightKg: 110, actualReps: 12 }),
+  beat({ sessionId: 'bp-light', libraryExerciseId: 'bp', exerciseName: 'Bench press', setNumber: 1, plannedWeightKg: 50, actualWeightKg: 80 }),
+  beat({ sessionId: 'bp-heavy', libraryExerciseId: 'bp', exerciseName: 'Bench press', setNumber: 2, plannedWeightKg: 100, actualWeightKg: 110 }),
+  beat({ sessionId: 'miss-light', libraryExerciseId: 'miss', exerciseName: 'Miss', setNumber: 1, plannedWeightKg: 40, actualWeightKg: 80 }),
+  beat({ sessionId: 'miss-heavy', libraryExerciseId: 'miss', exerciseName: 'Miss', setNumber: 2, plannedWeightKg: 100, actualWeightKg: 100 }),
+  beat({ sessionId: 'tm', libraryExerciseId: 'tm', exerciseName: 'Timer press', mode: 'timer', actualWeightKg: 120 }),
+  beat({ sessionId: 'old', localDate: '2026-10-02', libraryExerciseId: 'old', exerciseName: 'October lift', actualWeightKg: 180 }),
+  beat({
+    sessionId: 'pu', libraryExerciseId: 'pu', exerciseName: 'Push-up', displayUnit: 'bodyweight',
+    plannedBodyweight: true, actualBodyweight: true, plannedWeightKg: null, actualWeightKg: null, actualReps: 12
+  })
+], [
+  session('sq', '2026-11-02'), session('fs', '2026-11-03'), session('curl', '2026-11-04'),
+  session('flat', '2026-11-05'), session('dl', '2026-11-05'), session('row', '2026-11-06'),
+  session('bp-heavy', '2026-11-07'), session('tm', '2026-11-08'), session('old', '2026-10-02'),
+  session('pu', '2026-11-09')
+]);
+assert.deepStrictEqual(movers.strength.weight.map(function (row) { return [row.name, row.detail, row.pct, row.rating.label]; }), [
+  ['Timer press', '+20 kg', 20, 'Alien'],
+  ['Back squat', '+10 kg', 10, 'Elite'],
+  ['Bench press', '+10 kg', 10, 'Elite'],
+  ['Front squat', '+20 lb', 10, 'Elite'],
+  ['Row', '+10 kg', 10, 'Elite']
+]);
+assert.ok(!movers.strength.weight.some(function (row) {
+  return row.name === 'Curl' || row.name === 'Flat bench' || row.name === 'Deadlift' || row.name === 'Miss' || row.name === 'October lift' || row.name === 'Push-up';
+}), 'equal, below, outside the month, and a lighter set do not add a strength line');
+assert.deepStrictEqual(movers.strength.reps.map(function (row) { return [row.name, row.detail, row.pct, row.rating.label]; }), [
+  ['Curl', '+2 reps', 20, 'Alien'],
+  ['Push-up', '+2 reps', 20, 'Alien'],
+  ['Row', '+2 reps', 20, 'Alien']
+]);
 assert.strictEqual(movers.strength.reps[0].rating.color, '#0F766E');
-assert.ok(movers.strength.reps[0].detail.indexOf('8 reps to 12 reps') >= 0);
+assert.ok(!movers.strength.reps.some(function (row) { return row.name === 'Back squat' || row.name === 'Flat bench' || row.name === 'Deadlift'; }));
 const moveHtml = D.html(movers);
-assert.deepStrictEqual(fillWidths(moveHtml), ['100', '100', '100'], '10% fills the bar, and a gain past 10% stays full');
+assert.strictEqual((moveHtml.match(/class="db-gain"/g) || []).length, 8, 'each gain is its own line');
+assert.deepStrictEqual(fillWidths(moveHtml), ['100', '100', '100', '100', '100', '100', '100', '100'], '10% fills the bar, and a gain past 10% stays full');
 assert.ok(moveHtml.indexOf('width:50%') < 0);
 assert.ok(moveHtml.indexOf('>10% · Elite<') >= 0);
-assert.ok(moveHtml.indexOf('>50% · Alien<') >= 0);
+assert.ok(moveHtml.indexOf('>20% · Alien<') >= 0);
+assert.ok(moveHtml.indexOf('+20 lb') >= 0);
+assert.ok(moveHtml.indexOf('+2 reps') >= 0);
 assert.ok(moveHtml.indexOf('No gains yet this month') < 0);
+const weightList = moveHtml.slice(moveHtml.indexOf('id="dashboard-strength-weight-list"'), moveHtml.indexOf('id="dashboard-strength-reps-title"'));
+const repsList = moveHtml.slice(moveHtml.indexOf('id="dashboard-strength-reps-list"'));
+assert.ok(weightList.indexOf('Back squat') >= 0 && weightList.indexOf('Front squat') >= 0);
+assert.ok(weightList.indexOf('Curl') < 0, 'a reps-only gain stays under Capacity');
+assert.ok(repsList.indexOf('Curl') >= 0 && repsList.indexOf('+2 reps') >= 0);
 const quietGains = model([
-  reps({ sessionId: 'flat-old', localDate: '2026-10-02', libraryExerciseId: 'flat', actualWeightKg: 40, actualReps: 8 }),
-  reps({ sessionId: 'flat-new', localDate: '2026-11-02', libraryExerciseId: 'flat', actualWeightKg: 40, actualReps: 8 })
-], [session('flat', '2026-11-02')]);
+  reps({ sessionId: 'flat-new', localDate: '2026-11-02', libraryExerciseId: 'flat', actualWeightKg: 20, actualReps: 5 }),
+  reps({ sessionId: 'under', localDate: '2026-11-03', libraryExerciseId: 'under', exerciseName: 'Under', actualWeightKg: 18, actualReps: 4 })
+], [session('flat', '2026-11-02'), session('under', '2026-11-03')]);
 const quietHtml = D.html(quietGains);
 assert.ok(quietHtml.indexOf('id="dashboard-strength-weight-empty"') >= 0);
 assert.ok(quietHtml.indexOf('id="dashboard-strength-reps-empty"') >= 0);
 assert.strictEqual((quietHtml.match(/No gains yet this month/g) || []).length, 2);
 const onePct = model([
-  reps({ sessionId: 'g-old', localDate: '2026-10-01', libraryExerciseId: 'g', exerciseName: 'Good lift', actualWeightKg: 100, actualReps: 100 }),
-  reps({ sessionId: 'g-new', localDate: '2026-11-01', libraryExerciseId: 'g', exerciseName: 'Good lift', actualWeightKg: 101, actualReps: 101 })
+  reps({
+    sessionId: 'g-new', localDate: '2026-11-01', libraryExerciseId: 'g', exerciseName: 'Good lift',
+    plannedWeightKg: 100, actualWeightKg: 101, plannedReps: 100, actualReps: 101
+  })
 ], [session('g', '2026-11-01')]);
 assert.strictEqual(onePct.strength.weight[0].pct, 1);
+assert.strictEqual(onePct.strength.weight[0].detail, '+1 kg');
 assert.strictEqual(onePct.strength.weight[0].rating.label, 'Good');
+assert.strictEqual(onePct.strength.reps[0].detail, '+1 rep');
 assert.strictEqual(onePct.strength.reps[0].rating.label, 'Good');
 assert.deepStrictEqual(fillWidths(D.html(onePct)), ['10', '10'], '1% is one tenth of the bar');
 const fivePct = model([
-  reps({ sessionId: 'e-old', localDate: '2026-10-01', libraryExerciseId: 'e', exerciseName: 'Excellent lift', actualWeightKg: 200, actualReps: 20 }),
-  reps({ sessionId: 'e-new', localDate: '2026-11-01', libraryExerciseId: 'e', exerciseName: 'Excellent lift', actualWeightKg: 210, actualReps: 21 })
+  reps({
+    sessionId: 'e-new', localDate: '2026-11-01', libraryExerciseId: 'e', exerciseName: 'Excellent lift',
+    plannedWeightKg: 200, actualWeightKg: 210, plannedReps: 20, actualReps: 21
+  })
 ], [session('e', '2026-11-01')]);
 assert.strictEqual(fivePct.strength.weight[0].pct, 5);
+assert.strictEqual(fivePct.strength.weight[0].detail, '+10 kg');
 assert.strictEqual(fivePct.strength.weight[0].rating.label, 'Excellent');
 assert.strictEqual(fivePct.strength.reps[0].rating.label, 'Excellent');
 assert.deepStrictEqual(fillWidths(D.html(fivePct)), ['50', '50'], '5% is half the bar');
 const ownKey = model([
-  reps({ sessionId: 'p-old', localDate: '2026-10-01', personalExerciseId: 'pex', exerciseName: 'My row', actualWeightKg: 40, actualReps: 10, libraryExerciseId: '' }),
-  reps({ sessionId: 'p-new', localDate: '2026-11-01', personalExerciseId: 'pex', exerciseName: 'My row', actualWeightKg: 44, actualReps: 10, libraryExerciseId: '' })
+  reps({
+    sessionId: 'p-new', localDate: '2026-11-01', personalExerciseId: 'pex', exerciseName: 'My row',
+    plannedWeightKg: 40, actualWeightKg: 44, plannedReps: 10, actualReps: 10, libraryExerciseId: ''
+  })
 ], [session('p', '2026-11-01')]);
 assert.strictEqual(ownKey.strength.weight[0].name, 'My row');
 assert.strictEqual(ownKey.strength.weight[0].pct, 10);
+assert.strictEqual(ownKey.strength.weight[0].detail, '+4 kg');
+assert.deepStrictEqual(ownKey.strength.reps, []);
 const frozenMoves = D.freeze(movers, ['strength'], { asOf: '2026-11-16', trainerName: 'Coach Lee' });
 movers.strength.weight = [];
-assert.strictEqual(frozenMoves.cards[0].strength.weight.length, 2);
+assert.strictEqual(frozenMoves.cards[0].strength.weight.length, 5);
 const frozenMoveHtml = D.snapshotHtml(frozenMoves);
 assert.ok(frozenMoveHtml.indexOf('Front squat') >= 0);
-assert.ok(frozenMoveHtml.indexOf('200 lb to 220 lb') >= 0);
-assert.deepStrictEqual(fillWidths(frozenMoveHtml), ['100', '100', '100'], 'a saved snapshot scales its bars when it is drawn');
-assert.ok(frozenMoveHtml.indexOf('>50% · Alien<') >= 0);
+assert.ok(frozenMoveHtml.indexOf('+20 lb') >= 0);
+assert.deepStrictEqual(fillWidths(frozenMoveHtml), ['100', '100', '100', '100', '100', '100', '100', '100'], 'a saved snapshot scales its bars when it is drawn');
+assert.ok(frozenMoveHtml.indexOf('>20% · Alien<') >= 0);
 const stored = {
   asOf: '2026-11-16',
   trainerName: 'Coach Lee',

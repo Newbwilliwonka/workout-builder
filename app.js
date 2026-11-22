@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key>  |  #/hub  |  #/hub/new  |  #/hub/<id>
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>
    A signed-out visit with no hash shows the public landing page. */
 (function () {
   'use strict';
@@ -3485,17 +3485,33 @@
   var trainerModel = null;
   var dashboardEditing = false;
   var editDraft = null;
+  var historyListView = 'workout';
+  var historySets = [];
+  var historyUnavailable = false;
+  function historySessionId() {
+    if (hashPage() !== 'history') return '';
+    var parts = hashBody().split('/');
+    if (parts[1] !== 'session' || !parts[2]) return '';
+    var raw = parts.slice(2).join('/');
+    try { return decodeURIComponent(raw); } catch (e) { return raw; }
+  }
   function historyRouteKey() {
     if (hashPage() !== 'history') return '';
+    if (historySessionId()) return '';
     return hashBody().split('/')[1] || '';
   }
+  function historyFocusKey() {
+    var sessionId = historySessionId();
+    if (sessionId) return 'session:' + sessionId;
+    return historyRouteKey();
+  }
   function showingHistoryList() {
-    if (hashPage() === 'history') return !historyRouteKey();
+    if (hashPage() === 'history') return !historyFocusKey();
     return hashPage() === 'tracking' && hashBody().split('/')[1] !== 'dashboard';
   }
   function historyViewCurrent(token, key) {
     if (token !== routeToken) return false;
-    if (key) return hashPage() === 'history' && historyRouteKey() === key;
+    if (key) return hashPage() === 'history' && historyFocusKey() === key;
     return showingHistoryList();
   }
   function trackingTabHtml(id, label, on, extra) {
@@ -3579,6 +3595,20 @@
       if (onTrackingClick(e)) return;
       if (onDashboardClick(e)) return;
       if (which !== 'history') return;
+      var viewBtn = e.target.closest('[data-history-view]');
+      if (viewBtn) {
+        var nextView = viewBtn.getAttribute('data-history-view') === 'exercise' ? 'exercise' : 'workout';
+        if (nextView !== historyListView) {
+          historyListView = nextView;
+          paintHistory('', historySets, historyUnavailable);
+        }
+        return;
+      }
+      var sessionBtn = e.target.closest('[data-session]');
+      if (sessionBtn) {
+        go('#/history/session/' + encodeURIComponent(sessionBtn.getAttribute('data-session') || ''));
+        return;
+      }
       var button = e.target.closest('[data-history]');
       if (!button) return;
       go('#/history/' + button.getAttribute('data-history'));
@@ -4235,6 +4265,8 @@
   }
   function paintHistory(key, sets, unavailable) {
     if (!key && !showingHistoryList()) return;
+    historySets = sets || [];
+    historyUnavailable = !!unavailable;
     if (!window.WBHistory) {
       if (!key) paintTracking('history', '<div class="empty">History is not available yet.</div>', true);
       else {
@@ -4246,7 +4278,8 @@
     var opts = historyOpts();
     if (unavailable) opts.unavailable = true;
     if (!key) {
-      var rows = WBHistory.list(sets);
+      opts.view = historyListView === 'exercise' ? 'exercise' : 'workout';
+      var rows = opts.view === 'exercise' ? WBHistory.list(sets) : WBHistory.workouts(sets);
       var body = rows.length ? WBHistory.listHtml(sets, opts) : WBHistory.emptyHtml(opts);
       paintTracking('history', body, true);
       bindHistoryImages();
@@ -4254,9 +4287,21 @@
       if (box) box.oninput = function () {
         var list = document.getElementById('history-list');
         if (!list) return;
-        list.innerHTML = WBHistory.itemsHtml(WBHistory.decorate(WBHistory.filter(WBHistory.list(sets), box.value), opts));
+        if (historyListView === 'exercise') {
+          list.innerHTML = WBHistory.itemsHtml(WBHistory.decorate(WBHistory.filter(WBHistory.list(sets), box.value), opts));
+        } else {
+          list.innerHTML = WBHistory.workoutItemsHtml(WBHistory.filterWorkouts(WBHistory.workouts(sets), box.value));
+        }
         bindHistoryImages();
       };
+      return;
+    }
+    if (key.indexOf('session:') === 0) {
+      var sessionView = WBHistory.sessionDetail(sets, key.slice(8));
+      titleEl.textContent = sessionView.name || 'History';
+      app.innerHTML = WBHistory.sessionHtml(sessionView, opts);
+      app.onclick = null;
+      app.oninput = null;
       return;
     }
     var view = WBHistory.detail(sets, key);
@@ -4271,7 +4316,7 @@
     app.oninput = null;
     app.onchange = null;
     if (countsShares()) refreshShareCount(token);
-    var key = historyRouteKey();
+    var key = historyFocusKey();
     if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {
       if (!key) paintTracking('history', '<div class="empty">History is not available yet.</div>', true);
