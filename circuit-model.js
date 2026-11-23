@@ -388,6 +388,112 @@
     }
     return { ok: true, errors: [], value: value };
   }
+  function cellAt(cells, col, row) {
+    if (!cells) return null;
+    if (col != null && row != null && cells[col + ',' + row]) return cells[col + ',' + row];
+    var found = null;
+    Object.keys(cells).forEach(function (key) {
+      var cell = cells[key];
+      if (!cell) return;
+      if (row != null && cell.row !== row) return;
+      if (col != null && cell.col !== col) return;
+      found = cell;
+    });
+    return found;
+  }
+  function rowGapY(cells, row) {
+    var upper = cellAt(cells, null, row);
+    var lower = cellAt(cells, null, row + 1);
+    if (upper && lower) return (upper.bottom + lower.top) / 2;
+    if (upper) return upper.bottom + Math.max(4, (upper.bottom - upper.top) * 0.08);
+    if (lower) return lower.top - Math.max(4, (lower.bottom - lower.top) * 0.08);
+    return 0;
+  }
+  function colGapX(cells, col) {
+    var left = cellAt(cells, col, null);
+    var right = cellAt(cells, col + 1, null);
+    if (left && right) return (left.right + right.left) / 2;
+    if (left) return left.right + Math.max(4, (left.right - left.left) * 0.08);
+    if (right) return right.left - Math.max(4, (right.right - right.left) * 0.08);
+    return 0;
+  }
+  function clampNum(n, lo, hi) {
+    if (hi < lo) return (lo + hi) / 2;
+    return Math.max(lo, Math.min(hi, n));
+  }
+  function dedupePoints(points) {
+    var out = [];
+    (points || []).forEach(function (p) {
+      var prev = out[out.length - 1];
+      if (!prev || Math.abs(prev[0] - p[0]) > 0.4 || Math.abs(prev[1] - p[1]) > 0.4) out.push(p);
+    });
+    return out;
+  }
+  function pullTip(points) {
+    var last = points.length - 1;
+    if (last < 1) return points;
+    var prev = points[last - 1];
+    var tip = points[last];
+    var dx = tip[0] - prev[0];
+    var dy = tip[1] - prev[1];
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var back = Math.min(7, len * 0.45);
+    points[last] = [tip[0] - dx / len * back, tip[1] - dy / len * back];
+    return points;
+  }
+  // Orthogonal route that stays in the gutters between cells.
+  // a and b are the cells the stations occupy. The line leaves one's edge,
+  // travels the gaps, and arrives at the other's edge.
+  function arrowPoints(a, b, cells, close) {
+    if (!a || !b) return [];
+    var shift = close ? 5 : -5;
+    if (a.row === b.row && Math.abs(a.col - b.col) === 1) {
+      var y = clampNum((a.cy + b.cy) / 2 + shift, Math.max(a.top, b.top) + 6, Math.min(a.bottom, b.bottom) - 6);
+      if (a.col < b.col) return [[a.right, y], [b.left, y]];
+      return [[a.left, y], [b.right, y]];
+    }
+    if (a.col === b.col && Math.abs(a.row - b.row) === 1) {
+      var x = clampNum((a.cx + b.cx) / 2 + shift, Math.max(a.left, b.left) + 6, Math.min(a.right, b.right) - 6);
+      if (a.row < b.row) return [[x, a.bottom], [x, b.top]];
+      return [[x, a.top], [x, b.bottom]];
+    }
+    // The return trip on a shared column goes up the outside gutter, so it is
+    // not hidden behind the stations sitting between the last square and the first.
+    if (close && a.col === b.col) {
+      var onLeft = !cellAt(cells, a.col - 1, a.row);
+      var laneX = onLeft ? a.left - Math.max(6, (a.right - a.left) * 0.08) : (colGapX(cells, a.col) || a.right + 8);
+      var yA = clampNum(a.cy + shift, a.top + 8, a.bottom - 8);
+      var yB = clampNum(b.cy - shift, b.top + 8, b.bottom - 8);
+      var edgeA = onLeft ? a.left : a.right;
+      var edgeB = onLeft ? b.left : b.right;
+      return pullTip(dedupePoints([
+        [edgeA, yA],
+        [laneX, yA],
+        [laneX, yB],
+        [edgeB, yB]
+      ]));
+    }
+    var up = b.row < a.row;
+    var exitY = up ? a.top : a.bottom;
+    var enterY = a.row < b.row ? b.top : b.bottom;
+    var gyA = up ? rowGapY(cells, a.row - 1) : rowGapY(cells, a.row);
+    var gyB = a.row < b.row ? rowGapY(cells, b.row - 1) : (a.row > b.row ? rowGapY(cells, b.row) : gyA);
+    var lane = close ? 3 : -3;
+    gyA += lane;
+    gyB += lane;
+    var exitX = clampNum(a.cx + shift, a.left + 8, a.right - 8);
+    var enterX = clampNum(b.cx - shift, b.left + 8, b.right - 8);
+    var vx = a.col === b.col ? colGapX(cells, a.col) : colGapX(cells, Math.min(a.col, b.col));
+    if (!vx) vx = a.left - 8;
+    return pullTip(dedupePoints([
+      [exitX, exitY],
+      [exitX, gyA],
+      [vx, gyA],
+      [vx, gyB],
+      [enterX, gyB],
+      [enterX, enterY]
+    ]));
+  }
   function toPayload(doc) {
     var checked = guard(doc);
     if (!checked.ok) return checked;
@@ -446,6 +552,7 @@
     stationNumber: stationNumber,
     loopComplete: loopComplete,
     loopEdges: loopEdges,
+    arrowPoints: arrowPoints,
     linkedClient: linkedClient,
     toggleLinked: toggleLinked,
     addManualClient: addManualClient,

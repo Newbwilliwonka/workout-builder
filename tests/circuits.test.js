@@ -206,4 +206,71 @@ const emptyExercise = build(1);
 emptyExercise.stations[0].exercise = null;
 assert.ok(C.guard(emptyExercise).errors.indexOf('Choose an exercise for every station.') >= 0);
 
+function cellGrid(cols, rows) {
+  const size = 100;
+  const gap = 16;
+  const cells = {};
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const left = c * (size + gap);
+      const top = r * (size + gap);
+      cells[c + ',' + r] = {
+        col: c, row: r, left: left, top: top, right: left + size, bottom: top + size,
+        cx: left + size / 2, cy: top + size / 2
+      };
+    }
+  }
+  return cells;
+}
+function interiorHits(points, cells) {
+  const hits = [];
+  for (let i = 1; i < points.length; i++) {
+    const ax = points[i - 1][0];
+    const ay = points[i - 1][1];
+    const bx = points[i][0];
+    const by = points[i][1];
+    assert.ok(Math.abs(ax - bx) < 0.6 || Math.abs(ay - by) < 0.6, 'segment is not orthogonal');
+    for (let step = 1; step <= 24; step++) {
+      const t = step / 24;
+      const x = ax + (bx - ax) * t;
+      const y = ay + (by - ay) * t;
+      Object.keys(cells).forEach(function (key) {
+        const cell = cells[key];
+        if (x > cell.left + 0.6 && x < cell.right - 0.6 && y > cell.top + 0.6 && y < cell.bottom - 0.6) {
+          hits.push(key);
+        }
+      });
+    }
+  }
+  return hits;
+}
+function checkLoop(placed, cells, label) {
+  const order = placed.map(function (_, i) { return 's' + i; });
+  const edges = C.loopEdges(order);
+  edges.forEach(function (edge) {
+    const a = cells[placed[Number(edge.from.slice(1))].join(',')];
+    const b = cells[placed[Number(edge.to.slice(1))].join(',')];
+    const points = C.arrowPoints(a, b, cells, edge.close);
+    assert.ok(points.length >= 2, label + ' missing arrow');
+    const hits = interiorHits(points, cells);
+    assert.deepStrictEqual(hits, [], label + ' ' + edge.from + '->' + edge.to + ' crosses ' + hits.join(','));
+    if (edge.close) {
+      const tip = points[points.length - 1];
+      const near = [b.left, b.right, b.top, b.bottom].some(function (edgePos, i) {
+        return i < 2 ? Math.abs(tip[0] - edgePos) < 12 : Math.abs(tip[1] - edgePos) < 12;
+      });
+      assert.ok(near, label + ' closing arrow does not reach the first station');
+      if (label === 'six') {
+        assert.ok(points.some(function (p) { return p[0] < cells['0,0'].left - 2; }), 'closing arrow stays behind the first column');
+      }
+    }
+  });
+}
+// The screenshot: six stations, Jacks dragged down under Squat, loop back to station 1.
+const shotCells = cellGrid(3, 4);
+checkLoop([[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [0, 2]], shotCells, 'six');
+// Eight stations packed on three columns. The closing edge skips a column and two rows.
+const packedCells = cellGrid(3, 4);
+checkLoop([[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2]], packedCells, 'eight');
+
 console.log('CIRCUITS OK');

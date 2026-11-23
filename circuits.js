@@ -272,95 +272,6 @@
       row: Number(el.getAttribute('data-row'))
     };
   }
-  function clamp(n, lo, hi) {
-    if (hi < lo) return (lo + hi) / 2;
-    return Math.max(lo, Math.min(hi, n));
-  }
-  function rowGapY(cells, row) {
-    var upper = null;
-    var lower = null;
-    Object.keys(cells).forEach(function (key) {
-      var cell = cells[key];
-      if (cell.row === row) upper = cell;
-      if (cell.row === row + 1) lower = cell;
-    });
-    if (upper && lower) return (upper.bottom + lower.top) / 2;
-    if (upper) return upper.bottom + 8;
-    if (lower) return lower.top - 8;
-    return 0;
-  }
-  function colGapX(cells, col) {
-    var left = null;
-    var right = null;
-    Object.keys(cells).forEach(function (key) {
-      var cell = cells[key];
-      if (cell.col === col) left = cell;
-      if (cell.col === col + 1) right = cell;
-    });
-    if (left && right) return (left.right + right.left) / 2;
-    if (left) return left.right + 8;
-    if (right) return right.left - 8;
-    return 0;
-  }
-  function pullTip(points) {
-    var last = points.length - 1;
-    var prev = points[last - 1];
-    var tip = points[last];
-    var dx = tip[0] - prev[0];
-    var dy = tip[1] - prev[1];
-    var len = Math.sqrt(dx * dx + dy * dy) || 1;
-    var back = Math.min(8, len * 0.45);
-    points[last] = [tip[0] - dx / len * back, tip[1] - dy / len * back];
-    return points;
-  }
-  // Arrows travel in the gaps, from the edge of one tile to the edge of the next.
-  function arrowPoints(a, b, cells, close) {
-    var shift = close ? 7 : -7;
-    if (a.row === b.row && Math.abs(a.col - b.col) === 1) {
-      var yMin = Math.max(a.top, b.top) + 16;
-      var yMax = Math.min(a.bottom, b.bottom) - 16;
-      var y = clamp((a.cy + b.cy) / 2 + shift, yMin, yMax);
-      var forward = a.col < b.col;
-      return pullTip([
-        [forward ? a.right + 2 : a.left - 2, y],
-        [forward ? b.left - 2 : b.right + 2, y]
-      ]);
-    }
-    if (a.col === b.col && Math.abs(a.row - b.row) === 1) {
-      var xMin = Math.max(a.left, b.left) + 16;
-      var xMax = Math.min(a.right, b.right) - 16;
-      var x = clamp((a.cx + b.cx) / 2 + shift, xMin, xMax);
-      var down = a.row < b.row;
-      return pullTip([
-        [x, down ? a.bottom + 2 : a.top - 2],
-        [x, down ? b.top - 2 : b.bottom + 2]
-      ]);
-    }
-    var yLeave = b.row >= a.row ? a.bottom + 2 : a.top - 2;
-    var yEnter = b.row >= a.row ? b.top - 2 : b.bottom + 2;
-    if (a.row === b.row) {
-      yLeave = a.bottom + 2;
-      yEnter = b.bottom + 2;
-    }
-    var xLeave = clamp(a.cx + shift, a.left + 16, a.right - 16);
-    var xEnter = clamp(b.cx - shift, b.left + 16, b.right - 16);
-    // A straight run down a column would cross the stations in between.
-    // Step out into the column gap, travel there, then come back to the tile edge.
-    if (a.col === b.col && Math.abs(a.row - b.row) > 1) {
-      var side = colGapX(cells, a.col) || (a.right + 8);
-      var edgeY = b.row > a.row ? b.top : b.bottom;
-      var outerY = b.row > a.row ? b.top - 14 : b.bottom + 14;
-      return pullTip([
-        [xLeave, yLeave],
-        [side, yLeave],
-        [side, outerY],
-        [xEnter, outerY],
-        [xEnter, edgeY]
-      ]);
-    }
-    var channel = rowGapY(cells, a.row === b.row ? a.row : Math.min(a.row, b.row)) || ((a.cy + b.cy) / 2);
-    return pullTip([[xLeave, yLeave], [xLeave, channel], [xEnter, channel], [xEnter, yEnter]]);
-  }
   function paintArrows() {
     var board = document.getElementById('circuit-board');
     var C = model();
@@ -377,17 +288,14 @@
       cells[spot.col + ',' + spot.row] = spot;
       var tile = cell.querySelector('.wb-tile');
       if (!tile) return;
-      var body = boardPoint(tile, board);
-      body.col = spot.col;
-      body.row = spot.row;
-      tiles[tile.getAttribute('data-grid-id')] = body;
+      tiles[tile.getAttribute('data-grid-id')] = spot;
     });
     var html = '<defs><marker id="circuit-arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#2563eb"></path></marker></defs>';
     C.loopEdges(draft.order).forEach(function (edge) {
       var a = tiles[edge.from];
       var b = tiles[edge.to];
       if (!a || !b) return;
-      var points = arrowPoints(a, b, cells, edge.close);
+      var points = C.arrowPoints(a, b, cells, edge.close);
       if (!points || points.length < 2) return;
       html += '<polyline points="' + points.map(function (p) {
         return p[0].toFixed(1) + ',' + p[1].toFixed(1);
