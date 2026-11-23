@@ -145,7 +145,14 @@ function remoteSession(clientId, programId, workoutId) {
           };
           value.clientAccountWorkouts = function (id) {
             window.__wbClientLoads.push(id);
-            return Promise.resolve({ permission: 'edit', workouts: (pack.libraries && pack.libraries[id]) || [] });
+            var result = { permission: 'edit', workouts: (pack.libraries && pack.libraries[id]) || [] };
+            if (window.__wbHoldLoads && window.__wbHoldLoads[id]) {
+              return new Promise(function (resolve) {
+                window.__wbReleaseLoads = window.__wbReleaseLoads || {};
+                window.__wbReleaseLoads[id] = function () { resolve(result); };
+              });
+            }
+            return Promise.resolve(result);
           };
           value.clientSentWorkouts = function () { return Promise.resolve([]); };
           value.clientWorkouts = function () { return Promise.resolve([]); };
@@ -429,6 +436,48 @@ function remoteSession(clientId, programId, workoutId) {
   assert.strictEqual(await trainer.evaluate(function () {
     return (JSON.parse(localStorage.getItem('wb.data.v1')).sessions || []).length;
   }), 1);
+
+  await trainer.evaluate(function (id) {
+    window.__wbHoldLoads = {};
+    window.__wbHoldLoads[id] = true;
+  }, MIA);
+  await openNamed('Mia legs');
+  await trainer.waitForFunction(function (id) {
+    return window.__wbClientLoads.indexOf(id) >= 0 && !document.querySelector('.pl-name');
+  }, {}, MIA);
+  await trainer.click('#back');
+  await trainer.waitForSelector('#pv-day-sheet .pv-day-row.is-extra');
+  await trainer.evaluate(function (id) {
+    return new Promise(function (resolve) {
+      if (window.__wbReleaseLoads && window.__wbReleaseLoads[id]) window.__wbReleaseLoads[id]();
+      setTimeout(resolve, 80);
+    });
+  }, MIA);
+  assert.strictEqual(await trainer.$('.pl-name'), null);
+  assert.ok(await trainer.$('#pv-day-sheet .pv-day-row'));
+
+  await trainer.evaluate(function (id) {
+    window.__wbHoldLoads = {};
+    window.__wbHoldLoads[id] = true;
+  }, NINA);
+  await openNamed('Nina extra');
+  await trainer.waitForFunction(function (id) {
+    return window.__wbReleaseLoads && window.__wbReleaseLoads[id] && !document.querySelector('.pl-name');
+  }, {}, NINA);
+  await trainer.click('#back');
+  await trainer.waitForSelector('#pv-day-sheet .pv-day-row');
+  await openNamed('Mia legs');
+  const kept = await expectPlayer('Mia curl');
+  assert.strictEqual(kept.id, miaWo.id);
+  await trainer.evaluate(function (id) {
+    return new Promise(function (resolve) {
+      if (window.__wbReleaseLoads && window.__wbReleaseLoads[id]) window.__wbReleaseLoads[id]();
+      setTimeout(resolve, 80);
+    });
+  }, NINA);
+  const still = await expectPlayer('Mia curl');
+  assert.strictEqual(still.id, miaWo.id);
+  await backToDay();
 
   await trainer.click('[data-sheet=add-day]');
   await trainer.waitForSelector('#pv-add-who');

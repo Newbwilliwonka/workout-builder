@@ -1409,7 +1409,6 @@
     }
     if (e.target.id !== 'pv-client') return;
     clientViewToken++;
-    state.openingClient = false;
     state.clientId = e.target.value;
     state.clientShare = null;
     state.clientShareFresh = false;
@@ -1509,38 +1508,42 @@
     state.playerMode = 'view';
     state.screen = 'player';
     state.sheet = null;
-    state.openingClient = false;
     render();
   }
   function openClientCompleted(row) {
-    if (!row || state.openingClient || !state.sheet) return;
+    if (!row || !state || !state.sheet || state.sheet.type !== 'day') return;
     var entryId = state.sheet.entryId || '';
     if (entryId && canEditRow(row)) {
       readSheetTimes();
       var draft = state.sheet.drafts && state.sheet.drafts[entryId];
       var edited = draft && ((draft.start || '') !== (row.start || '') || (draft.end || '') !== (row.end || ''));
       if (edited && !saveEntryTimes(entryId)) return;
+      if (!state.sheet || state.sheet.type !== 'day') return;
     }
+    var request = ++clientViewToken;
+    var generation = loadToken;
+    var loggedId = state.sheet.loggedId || '';
+    var date = state.sheet.date || '';
+    state.sheet.viewRequest = request;
+    state.sheet.openError = '';
     var owner = row.ownerId;
     var workoutId = String(row.workoutId || '');
-    var token = ++clientViewToken;
-    state.openingClient = true;
-    state.sheet.openError = '';
     var load = options && options.loadClientWorkout;
     var pending = load
       ? Promise.resolve().then(function () { return load(owner, workoutId); })
       : Promise.resolve(null);
     function finish(workout) {
-      if (!state || token !== clientViewToken) return;
-      state.openingClient = false;
-      if (!viewingAll() || !state.sheet || state.sheet.type !== 'day') return;
+      if (!state || request !== clientViewToken || generation !== loadToken) return;
+      var sheet = state.sheet;
+      if (!viewingAll() || !sheet || sheet.type !== 'day' || sheet.viewRequest !== request) return;
+      if ((sheet.entryId || '') !== entryId || (sheet.loggedId || '') !== loggedId || (sheet.date || '') !== date) return;
       var play = playableCopy(workout, workoutId, row.workoutName) || playableCopy({
         id: row.workoutId,
         name: row.workoutName,
         items: row.items
       }, workoutId, row.workoutName) || clientEntrySnapshot(owner, workoutId);
       if (!play) {
-        state.sheet.openError = 'Could not open that workout.';
+        sheet.openError = 'Could not open that workout.';
         render();
         return;
       }
@@ -2103,6 +2106,7 @@
     historyDepth = 0;
     ignorePop = 0;
     loadToken += 1;
+    clientViewToken += 1;
     clearDrag();
     if (state && state.playerLive && window.WBPlayer) WBPlayer.unmount();
     document.body.classList.remove('playing');
