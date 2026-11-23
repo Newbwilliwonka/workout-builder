@@ -98,6 +98,18 @@ async function openPage(browser, cfg) {
         value.mySchedule = function () { return Promise.resolve({ entries: cfg.schedule || [] }); };
         value.myConnection = function () { return Promise.resolve(cfg.connection || null); };
         value.roster = function () { return Promise.resolve(cfg.roster || { role: null, clients: [] }); };
+        value.clientStatus = function (id) {
+          var row = null;
+          ((cfg.roster && cfg.roster.clients) || []).forEach(function (c) { if (c && c.id === id) row = c; });
+          var blob = row ? String(row.plan || '') + ' ' + String(row.membership || '') : '';
+          var enthusiast = /enthusiast/i.test(blob);
+          return Promise.resolve({
+            linked: !!row,
+            enthusiast: enthusiast,
+            shared: enthusiast,
+            plan: enthusiast ? 'Enthusiast' : 'Free Client'
+          });
+        };
         value.myShares = function () {
           if (window.__sharesError) return Promise.resolve({ error: true, shares: [] });
           return Promise.resolve({ shares: window.__shares || [] });

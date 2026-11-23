@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/dashboard  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/client/<id>  |  #/tracking/dashboard  |  #/tracking/dashboard/client/<id>  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>
    A signed-out visit with no hash shows the public landing page. */
 (function () {
   'use strict';
@@ -100,7 +100,7 @@
       return go('#/');
     }
     if (page === 'history') {
-      if (hashBody().split('/')[1]) return go('#/tracking');
+      if (hashBody().split('/')[1]) return go(historyListHash());
       return go('#/');
     }
     var p = location.hash.split('/');
@@ -3523,6 +3523,9 @@
   var shareLoadError = false;
   var trainerRoster = { clients: [] };
   var editorClient = '';
+  var trackingClient = '';
+  var clientShareMap = {};
+  var clientShareGen = 0;
   var trainerOrder = null;
   var trainerModel = null;
   var dashboardEditing = false;
@@ -3620,7 +3623,8 @@
   function onTrackingClick(e) {
     var tab = e.target.closest('[data-track]');
     if (!tab) return false;
-    var dest = tab.getAttribute('data-track') === 'dashboard' ? '#/tracking/dashboard' : '#/tracking';
+    var which = tab.getAttribute('data-track') === 'dashboard' ? 'dashboard' : 'history';
+    var dest = trackingHash(which, trainerAccount() ? activeTrackingClient() : '');
     if (location.hash === dest) trackingKeyFocus = '';
     else {
       trackingKeyFocus = tab.id;
@@ -3715,21 +3719,36 @@
     paintDashboardCount(shareUnread);
     return { rows: shareRows.slice(), error: true };
   }
+  // An Enthusiast is membership or intended plan, or the roster plan label.
+  // Free Clients stay Free Clients. Same rule as the All-clients calendar.
+  function enthusiastClient(c) {
+    if (!c) return false;
+    if (c.enthusiast === true) return true;
+    if (window.WBPrograms && WBPrograms.ownerPlanOf(c) === 'enthusiast') return true;
+    var membership = String(c.membership || '').toLowerCase();
+    var intended = String(c.intended_plan || c.intendedPlan || '').toLowerCase();
+    return membership.indexOf('enthusiast') !== -1 || intended === 'enthusiast';
+  }
   function clientChoices() {
-    var out = [];
+    var free = [];
+    var fans = [];
     var rows = trainerRoster && Array.isArray(trainerRoster.clients) ? trainerRoster.clients : [];
     rows.forEach(function (c) {
       if (!c || !window.WBShares || !WBShares.isUuid(c.id)) return;
+      var enthusiast = enthusiastClient(c);
       var name = personLabel(c);
-      if (!name) name = /enthusiast/i.test(String(c.plan || c.membership || '')) ? 'Enthusiast' : 'Client';
-      out.push({
+      if (!name) name = enthusiast ? 'Enthusiast' : 'Client';
+      var choice = {
         id: String(c.id),
         name: name,
         plan: c.plan || '',
-        membership: c.membership || ''
-      });
+        membership: c.membership || '',
+        enthusiast: enthusiast
+      };
+      if (enthusiast) fans.push(choice);
+      else free.push(choice);
     });
-    return out;
+    return free.concat(fans);
   }
   function clientRecord(id) {
     var found = null;
@@ -3741,9 +3760,68 @@
   function receivesShares(client) {
     return !!(client && client.id);
   }
+  function clientShareStatus(id) {
+    if (!Object.prototype.hasOwnProperty.call(clientShareMap, id)) return undefined;
+    return clientShareMap[id];
+  }
+  // Free Clients are always visible. An Enthusiast is visible only while
+  // share_status says sharing is on. A missing answer stays hidden.
+  function clientShared(choice) {
+    if (!choice || !choice.enthusiast) return true;
+    var status = clientShareStatus(choice.id);
+    if (!status || typeof status.shared !== 'boolean' || typeof status.enthusiast !== 'boolean') return false;
+    if (status.enthusiast !== true) return true;
+    return status.shared === true;
+  }
+  function clientMenuLabel(choice) {
+    if (choice && choice.enthusiast && !clientShared(choice)) return choice.name + ' · Not shared';
+    return choice ? choice.name : '';
+  }
+  function notSharedHtml() {
+    return '<div class="card" id="tracking-private"><div class="name">Not shared</div><p class="mute">This Enthusiast has turned off sharing.</p></div>';
+  }
+  function clientMissingHtml() {
+    return '<div class="card" id="client-missing"><div class="name">That client is not connected.</div></div>';
+  }
+  function decodeHashPart(value) {
+    try { return decodeURIComponent(value || ''); } catch (e) { return value || ''; }
+  }
+  // Null means this hash does not name the person (a history detail).
+  // An empty string is the trainer's own tracking.
+  function trackingClientFromHash() {
+    var parts = hashBody().split('/');
+    if (hashPage() !== 'tracking') return null;
+    if (parts[1] === 'dashboard') {
+      if (parts[2] === 'client') return decodeHashPart(parts[3] || '');
+      return '';
+    }
+    if (parts[1] === 'client') return decodeHashPart(parts[2] || '');
+    return '';
+  }
+  function activeTrackingClient() {
+    var fromHash = trackingClientFromHash();
+    if (fromHash != null) {
+      trackingClient = fromHash;
+      return fromHash;
+    }
+    return trackingClient || '';
+  }
+  function trackingHash(which, clientId) {
+    var id = clientId || '';
+    if (!id || !window.WBShares || !WBShares.isUuid(id)) id = '';
+    if (which === 'dashboard') {
+      return id ? '#/tracking/dashboard/client/' + encodeURIComponent(id) : '#/tracking/dashboard';
+    }
+    return id ? '#/tracking/client/' + encodeURIComponent(id) : '#/tracking';
+  }
+  function historyListHash() {
+    var id = trainerAccount() ? (trackingClient || '') : '';
+    return trackingHash('history', id);
+  }
   function pickerHtml(selected) {
+    if (!trainerAccount() || !window.WBPreview) return '';
     var options = [{ value: '', label: selfOptionLabel() }];
-    clientChoices().forEach(function (c) { options.push({ value: c.id, label: c.name }); });
+    clientChoices().forEach(function (c) { options.push({ value: c.id, label: clientMenuLabel(c) }); });
     return '<div id="client-pick-wrap">' + WBPreview.clientSelectHtml({
       id: 'client-pick',
       label: 'Client',
@@ -3763,13 +3841,40 @@
       return trainerRoster;
     });
   }
+  function loadClientShares() {
+    var gen = ++clientShareGen;
+    return readRoster().then(function () {
+      if (gen !== clientShareGen) return clientShareMap;
+      var people = clientChoices().filter(function (c) { return c.enthusiast; });
+      if (!people.length || !window.WBAuth || typeof WBAuth.clientStatus !== 'function') {
+        var locked = {};
+        people.forEach(function (c) { locked[c.id] = null; });
+        if (gen === clientShareGen) clientShareMap = locked;
+        return clientShareMap;
+      }
+      return Promise.all(people.map(function (c) {
+        return Promise.resolve().then(function () { return WBAuth.clientStatus(c.id); }).then(function (status) {
+          if (!status || typeof status.shared !== 'boolean' || typeof status.enthusiast !== 'boolean') return { id: c.id, status: null };
+          return { id: c.id, status: status };
+        }, function () {
+          return { id: c.id, status: null };
+        });
+      })).then(function (rows) {
+        if (gen !== clientShareGen) return clientShareMap;
+        var next = {};
+        rows.forEach(function (row) { next[row.id] = row.status; });
+        clientShareMap = next;
+        return clientShareMap;
+      });
+    });
+  }
   function bindPicker() {
     var sel = document.getElementById('client-pick');
     if (!sel) return;
     sel.onchange = function () {
       var clientId = sel.value;
-      if (!clientId) go('#/tracking/dashboard');
-      else go('#/tracking/dashboard/client/' + encodeURIComponent(clientId));
+      var which = hashPage() === 'tracking' && hashBody().split('/')[1] === 'dashboard' ? 'dashboard' : 'history';
+      go(trackingHash(which, clientId));
     };
   }
   function selfOptionLabel() {
@@ -4118,7 +4223,7 @@
     }, function () {
       return { unavailable: true, entries: [] };
     });
-    var rosterReady = trainerAccount() ? readRoster() : Promise.resolve(null);
+    var rosterReady = trainerAccount() ? loadClientShares() : Promise.resolve(null);
     var shareReady = paidEnthusiast() ? refreshShareCount(token) : Promise.resolve(null);
     var layoutReady = trainerAccount() ? whenLayoutWritesFinish().then(readOwnLayout) : Promise.resolve(null);
     Promise.all([historyReady, scheduleReady, rosterReady, shareReady, layoutReady]).then(function (pair) {
@@ -4222,16 +4327,16 @@
   function renderClientDashboard(token, clientId) {
     if (!window.WBShares || !WBShares.isUuid(clientId)) return go('#/tracking/dashboard');
     paintTracking('dashboard', '<p class="mute">Loading…</p>', false);
-    readRoster().then(function () {
+    loadClientShares().then(function () {
       if (!onDashboard(token) || trackingTail().id !== clientId) return;
-      var known = null;
-      clientChoices().forEach(function (c) { if (c.id === clientId) known = c; });
+      trackingClient = clientId;
+      var known = clientRecord(clientId);
       if (!known) {
         editorClient = '';
         trainerModel = null;
         dashboardEditing = false;
         editDraft = null;
-        paintTracking('dashboard', pickerHtml('') + '<div class="card" id="client-missing"><div class="name">That client is not connected.</div></div>', true);
+        paintTracking('dashboard', pickerHtml('') + clientMissingHtml(), true);
         return;
       }
       if (editorClient !== clientId) {
@@ -4240,6 +4345,13 @@
         trainerModel = null;
         dashboardEditing = false;
         editDraft = null;
+      }
+      if (!clientShared(known)) {
+        trainerModel = null;
+        dashboardEditing = false;
+        editDraft = null;
+        paintTracking('dashboard', pickerHtml(clientId) + notSharedHtml(), true);
+        return;
       }
       var historyP;
       var scheduleP;
@@ -4323,7 +4435,7 @@
       opts.view = historyListView === 'exercise' ? 'exercise' : 'workout';
       var rows = opts.view === 'exercise' ? WBHistory.list(sets) : WBHistory.workouts(sets);
       var body = rows.length ? WBHistory.listHtml(sets, opts) : WBHistory.emptyHtml(opts);
-      paintTracking('history', body, true);
+      paintTracking('history', pickerHtml(activeTrackingClient()) + body, true);
       bindHistoryImages();
       var box = document.getElementById('history-q');
       if (box) box.oninput = function () {
@@ -4358,6 +4470,9 @@
     app.oninput = null;
     app.onchange = null;
     if (countsShares()) refreshShareCount(token);
+    var fromHash = trackingClientFromHash();
+    if (fromHash && !trainerAccount()) return go('#/tracking');
+    if (fromHash && (!window.WBShares || !WBShares.isUuid(fromHash))) return go('#/tracking');
     var key = historyFocusKey();
     if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {
@@ -4368,21 +4483,49 @@
       }
       return;
     }
-    if (!key) paintTracking('history', '<p class="mute">Loading…</p>', false);
+    if (!key) paintTracking('history', (trainerAccount() ? '<div id="client-pick-wrap"></div>' : '') + '<p class="mute">Loading…</p>', false);
     else {
       titleEl.textContent = 'History';
       app.innerHTML = '<p class="mute">Loading…</p>';
     }
-    var pending;
-    try { pending = WBAuth.myHistory ? WBAuth.myHistory() : Promise.resolve({ sets: [], sessions: [], exercises: [] }); }
-    catch (e) { pending = Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] }); }
-    Promise.resolve(pending).then(function (res) {
+    var prepare = trainerAccount() ? loadClientShares() : Promise.resolve(null);
+    prepare.then(function () {
       if (!historyViewCurrent(token, key)) return;
-      var sets = WBHistory.fromRows(res && res.sessions, res && res.sets, res && res.exercises);
-      paintHistory(key, sets, !!(res && (res.unavailable || res.error) && !sets.length));
-    }, function () {
-      if (!historyViewCurrent(token, key)) return;
-      paintHistory(key, [], true);
+      var clientId = trainerAccount() ? activeTrackingClient() : '';
+      if (clientId) {
+        var known = clientRecord(clientId);
+        if (!known) {
+          historySets = [];
+          if (!key) paintTracking('history', pickerHtml('') + clientMissingHtml(), true);
+          else {
+            titleEl.textContent = 'History';
+            app.innerHTML = clientMissingHtml();
+          }
+          return;
+        }
+        if (!clientShared(known)) {
+          historySets = [];
+          if (!key) paintTracking('history', pickerHtml(clientId) + notSharedHtml(), true);
+          else {
+            titleEl.textContent = 'History';
+            app.innerHTML = notSharedHtml();
+          }
+          return;
+        }
+      }
+      var pending;
+      try {
+        if (clientId) pending = WBAuth.clientTracking ? WBAuth.clientTracking(clientId) : Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] });
+        else pending = WBAuth.myHistory ? WBAuth.myHistory() : Promise.resolve({ sets: [], sessions: [], exercises: [] });
+      } catch (e) { pending = Promise.resolve({ error: true, sets: [], sessions: [], exercises: [] }); }
+      Promise.resolve(pending).then(function (res) {
+        if (!historyViewCurrent(token, key)) return;
+        var sets = WBHistory.fromRows(res && res.sessions, res && res.sets, res && res.exercises);
+        paintHistory(key, sets, !!(res && (res.unavailable || res.error) && !sets.length));
+      }, function () {
+        if (!historyViewCurrent(token, key)) return;
+        paintHistory(key, [], true);
+      });
     });
   }
 
