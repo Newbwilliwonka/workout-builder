@@ -212,6 +212,48 @@ const CLIENT_NOTE = 'Your exact pin is private. It is only used to find trainers
   await p.waitForSelector('#find-near');
   const beforeNear = await p.evaluate(function () { return window.__search && window.__search.mode; });
   assert.strictEqual(beforeNear, 'online');
+  await p.evaluate(function () {
+    window.__releasePin = null;
+    window.__geoDenied = false;
+    window.WBAuth.myClientLocation = function () {
+      return new Promise(function (resolve) {
+        window.__releasePin = function () { resolve(window.__clientPin); };
+      });
+    };
+    window.__realGeo = navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);
+    navigator.geolocation.getCurrentPosition = function (ok, err) {
+      window.__geoDenied = true;
+      if (err) err({ code: 1 });
+    };
+  });
+  await p.click('#find-near');
+  await p.waitForSelector('#find-locate');
+  await p.click('#find-locate');
+  await p.waitForFunction(function () {
+    var err = document.getElementById('find-near-error');
+    return window.__geoDenied && err && !err.hidden && err.textContent.indexOf('Location permission is off') !== -1
+      && window.__search && window.__search.mode === 'online';
+  });
+  await p.evaluate(function () { document.getElementById('find-city').value = ' '; });
+  await p.click('#find-city-go');
+  await p.waitForFunction(function () {
+    var err = document.getElementById('find-near-error');
+    return err && !err.hidden && err.textContent.indexOf('Enter a city or address') !== -1
+      && window.__search && window.__search.mode === 'online'
+      && typeof window.__releasePin === 'function';
+  });
+  await p.evaluate(function () { window.__releasePin(); });
+  await p.waitForFunction(function () {
+    return window.__search && window.__search.mode === 'near'
+      && Math.abs(window.__search.lat - 30.2672) < 0.001
+      && document.getElementById('find-near-saved');
+  });
+  await p.evaluate(function () {
+    navigator.geolocation.getCurrentPosition = window.__realGeo;
+    window.WBAuth.myClientLocation = function () { return Promise.resolve(window.__clientPin); };
+  });
+  await p.click('#find-online');
+  await p.waitForSelector('#find-near');
   await p.click('#find-near');
   await p.waitForFunction(function () {
     return window.__search && window.__search.mode === 'near'

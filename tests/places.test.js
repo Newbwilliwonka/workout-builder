@@ -38,6 +38,17 @@ assert.ok(src.indexOf('removeClientLocation') !== -1);
 assert.ok(src.indexOf("getAttribute('data-pin-kind')") !== -1);
 assert.ok(src.indexOf('saveServiceLocation') !== -1);
 
+const auth = fs.readFileSync(path.join(__dirname, '..', 'auth.js'), 'utf8');
+const clientMissing = auth.indexOf('Location is not available yet. Apply the client pin SQL in the Supabase SQL editor.');
+const serviceMissing = auth.indexOf('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');
+const searchMissing = auth.indexOf('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.');
+assert.ok(clientMissing !== -1);
+assert.ok(serviceMissing !== -1);
+assert.ok(clientMissing < serviceMissing);
+assert.ok(serviceMissing < searchMissing);
+assert.ok(auth.indexOf("fn.indexOf('client_location')") !== -1);
+assert.ok(auth.indexOf("fn.indexOf('service_location')") !== -1);
+
 const profile = fs.readFileSync(path.join(__dirname, '..', 'profile.js'), 'utf8');
 assert.ok(profile.indexOf('id="pin-city"') === -1);
 assert.ok(profile.indexOf('id="pin-state"') === -1);

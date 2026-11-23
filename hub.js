@@ -625,7 +625,7 @@
   }
   function useMyLocation() {
     var geo = root.navigator && root.navigator.geolocation;
-    var seq = ++findSeq;
+    var seq = findSeq;
     var myGen = gen;
     if (!geo || !geo.getCurrentPosition) {
       showError('find-near-error', 'This browser has no location. Type a city instead.');
@@ -636,15 +636,14 @@
     geo.getCurrentPosition(function (pos) {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       var coords = pos && pos.coords;
-      var lat = coords && coords.latitude;
-      var lng = coords && coords.longitude;
-      if (!isFinite(lat) || !isFinite(lng)) {
+      var point = nearPoint({ latitude: coords && coords.latitude, longitude: coords && coords.longitude });
+      if (!point) {
         var again = document.getElementById('find-locate');
         if (again) again.disabled = false;
         showError('find-near-error', 'Location permission is off. Type a city instead.');
         return;
       }
-      runNear(lat, lng);
+      runNear(point.latitude, point.longitude);
     }, function () {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       var again = document.getElementById('find-locate');
@@ -655,7 +654,7 @@
   function searchNearCity() {
     var input = document.getElementById('find-city');
     var button = document.getElementById('find-city-go');
-    var seq = ++findSeq;
+    var seq = findSeq;
     var myGen = gen;
     if (!input || !ctx || !onFindList()) return;
     var places = root.WBPlaces;
@@ -667,7 +666,14 @@
     var query = input.value;
     places.searchPlace(query).then(function (hit) {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
-      runNear(hit.latitude, hit.longitude);
+      var point = nearPoint({ latitude: hit && hit.latitude, longitude: hit && hit.longitude });
+      if (!point) {
+        var again = document.getElementById('find-city-go');
+        if (again) again.disabled = false;
+        showError('find-near-error', 'No place found. Try a city name.');
+        return;
+      }
+      runNear(point.latitude, point.longitude);
     }, function (err) {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       var again = document.getElementById('find-city-go');

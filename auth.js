@@ -1368,8 +1368,12 @@
   function findError(err, name) {
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
     if (/schema cache|could not find|does not exist|PGRST202|PGRST205|42P01/i.test(msg)) {
-      if (name && String(name).indexOf('client_location') !== -1) {
+      var fn = String(name || '');
+      if (fn.indexOf('client_location') !== -1) {
         return new Error('Location is not available yet. Apply the client pin SQL in the Supabase SQL editor.');
+      }
+      if (fn.indexOf('service_location') !== -1) {
+        return new Error('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');
       }
       return new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.');
     }
