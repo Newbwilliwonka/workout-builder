@@ -522,6 +522,285 @@
     });
   }
 
+  // ---------- live session: placement, rotation, time ----------
+  var AVATAR_COLORS = ['#2563eb', '#7c3aed', '#d97706', '#0d9488', '#db2777', '#4f46e5', '#64748b', '#059669'];
+  var STAND_MS = 5000;
+
+  function personKey(client) {
+    if (!client) return '';
+    if (client.source === 'linked') return 'l:' + String(client.id || '');
+    return 'm:' + clean(client.name).toLowerCase();
+  }
+  function initials(value) {
+    var text = publicName(value);
+    var parts = text.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+    return (parts[0] || text || 'C').charAt(0).toUpperCase();
+  }
+  function firstName(value) {
+    var text = publicName(value);
+    var parts = text.split(/\s+/).filter(Boolean);
+    return parts[0] || text;
+  }
+  function avatarColor(value) {
+    var text = publicName(value);
+    var n = 0;
+    for (var i = 0; i < text.length; i++) n = (n * 33 + text.charCodeAt(i)) >>> 0;
+    return AVATAR_COLORS[n % AVATAR_COLORS.length];
+  }
+  // Round r (1-based) stands on loop[(start + r - 1) mod N].
+  function stationAt(order, startIndex, round) {
+    var n = (order || []).length;
+    if (!n) return -1;
+    var start = Math.floor(Number(startIndex) || 0);
+    var r = Math.floor(Number(round) || 1);
+    if (r < 1) r = 1;
+    return ((start + r - 1) % n + n) % n;
+  }
+  function assignmentReady(clients, assigned) {
+    var list = clients || [];
+    if (!list.length) return false;
+    for (var i = 0; i < list.length; i++) {
+      var spot = assigned && assigned[personKey(list[i])];
+      if (!spot) return false;
+      if (spot.bench) continue;
+      if (!spot.stationId) return false;
+    }
+    return true;
+  }
+  function phaseInfo(elapsedMs, clock) {
+    var t = Math.max(0, Number(elapsedMs) || 0);
+    var stand = STAND_MS;
+    var work = Math.max(0, Number(clock && clock.workSec) || 0) * 1000;
+    var move = Math.max(0, Number(clock && clock.moveSec) || 0) * 1000;
+    var n = Math.max(0, Math.floor(Number(clock && clock.rounds) || 0));
+    function pack(name, round, start, end) {
+      return { name: name, round: round, phaseStart: start, phaseEnd: end, dur: Math.max(0, end - start) };
+    }
+    if (n < 1) return pack('done', 0, t, t);
+    if (t < stand) return pack('standoff', 1, 0, stand);
+    var u = t - stand;
+    var total = move > 0 ? (n - 1) * (work + move) + work : n * work;
+    if (u >= total) return pack('done', n, stand + total, stand + total);
+    if (!(move > 0)) {
+      var step = work > 0 ? work : total;
+      var r0 = step > 0 ? Math.floor(u / step) + 1 : 1;
+      var start0 = stand + (r0 - 1) * step;
+      return pack('work', r0, start0, start0 + step);
+    }
+    var pre = (n - 1) * (work + move);
+    if (u >= pre) return pack('work', n, stand + pre, stand + pre + work);
+    var cycle = work + move;
+    var r = Math.floor(u / cycle) + 1;
+    var into = u - (r - 1) * cycle;
+    var base = stand + (r - 1) * cycle;
+    if (into < work) return pack('work', r, base, base + work);
+    return pack('move', r, base + work, base + cycle);
+  }
+  function cloneState(state) {
+    return JSON.parse(JSON.stringify(state));
+  }
+  function personBy(state, key) {
+    var people = state.people || [];
+    for (var i = 0; i < people.length; i++) if (people[i].key === key) return people[i];
+    return null;
+  }
+  function stationIdFor(state, person, round) {
+    var idx = stationAt(state.order, person.startIndex, round);
+    return idx < 0 ? '' : state.order[idx];
+  }
+  function closeSlice(person, atMs) {
+    if (!person || !person.slice) return;
+    var add = Math.max(0, atMs - person.slice.from);
+    var id = person.slice.stationId;
+    if (id && add > 0) person.ms[id] = (person.ms[id] || 0) + add;
+    person.slice = null;
+  }
+  function openSlice(person, stationId, atMs) {
+    if (!person || person.benched || person.slice || !stationId) return;
+    person.slice = { stationId: stationId, from: atMs };
+  }
+  function ensureWork(state, info, atMs) {
+    (state.people || []).forEach(function (p) {
+      if (p.benched || p.slice) return;
+      openSlice(p, stationIdFor(state, p, info.round), Math.max(atMs, info.phaseStart));
+    });
+  }
+  function advanceSession(state, elapsedMs) {
+    var next = cloneState(state);
+    var target = Math.max(next.elapsedMs || 0, Number(elapsedMs) || 0);
+    var guard = 0;
+    while (guard++ < 1000 && !next.done && next.elapsedMs < target) {
+      var info = phaseInfo(next.elapsedMs, next.clock);
+      if (info.name === 'done') break;
+      if (info.dur <= 0) {
+        next.elapsedMs = Math.max(info.phaseEnd, next.elapsedMs + 1);
+        continue;
+      }
+      if (target < info.phaseEnd) {
+        if (info.name === 'work') ensureWork(next, info, next.elapsedMs);
+        next.elapsedMs = target;
+        break;
+      }
+      if (info.name === 'work') {
+        ensureWork(next, info, next.elapsedMs);
+        next.people.forEach(function (p) { closeSlice(p, info.phaseEnd); });
+      }
+      next.elapsedMs = info.phaseEnd;
+    }
+    var nowInfo = phaseInfo(next.elapsedMs, next.clock);
+    next.phase = nowInfo.name;
+    next.round = nowInfo.round || next.round;
+    if (nowInfo.name === 'done') {
+      next.people.forEach(function (p) { closeSlice(p, next.elapsedMs); });
+      next.done = true;
+      next.running = false;
+    } else if (nowInfo.name === 'work') ensureWork(next, nowInfo, next.elapsedMs);
+    else next.people.forEach(function (p) { closeSlice(p, next.elapsedMs); });
+    return next;
+  }
+  function beginRun(doc, assigned) {
+    var order = (doc.order || []).slice();
+    var people = (doc.clients || []).map(function (c) {
+      var key = personKey(c);
+      var spot = (assigned && assigned[key]) || {};
+      var startIndex = 0;
+      if (spot.stationId) {
+        var at = order.indexOf(spot.stationId);
+        if (at >= 0) startIndex = at;
+      }
+      return {
+        key: key,
+        source: c.source,
+        id: c.source === 'linked' ? c.id : null,
+        name: publicName(c.name),
+        startIndex: startIndex,
+        benched: !!spot.bench,
+        ms: {},
+        slice: null
+      };
+    });
+    return {
+      phase: 'standoff',
+      round: 1,
+      elapsedMs: 0,
+      running: true,
+      done: false,
+      people: people,
+      clock: {
+        workSec: doc.clock.workSec,
+        moveSec: doc.clock.moveSec,
+        rounds: doc.clock.rounds
+      },
+      order: order
+    };
+  }
+  function benchPerson(state, key, elapsedMs) {
+    var next = advanceSession(state, elapsedMs);
+    var person = personBy(next, key);
+    if (!person || person.benched) return next;
+    closeSlice(person, next.elapsedMs);
+    person.benched = true;
+    return next;
+  }
+  function rejoinPerson(state, key, elapsedMs) {
+    var next = advanceSession(state, elapsedMs);
+    var person = personBy(next, key);
+    if (!person || !person.benched) return next;
+    person.benched = false;
+    var info = phaseInfo(next.elapsedMs, next.clock);
+    if (info.name === 'work') openSlice(person, stationIdFor(next, person, info.round), next.elapsedMs);
+    return next;
+  }
+  function jumpSession(state, elapsedMs) {
+    var next = cloneState(state);
+    next.people.forEach(function (p) { closeSlice(p, next.elapsedMs); });
+    next.elapsedMs = Math.max(next.elapsedMs, Number(elapsedMs) || 0);
+    var info = phaseInfo(next.elapsedMs, next.clock);
+    next.phase = info.name;
+    next.round = info.round || next.round;
+    if (info.name === 'done') {
+      next.done = true;
+      next.running = false;
+    } else if (info.name === 'work') ensureWork(next, info, next.elapsedMs);
+    return next;
+  }
+  function skipPhase(state, elapsedMs) {
+    var at = advanceSession(state, elapsedMs);
+    var info = phaseInfo(at.elapsedMs, at.clock);
+    if (info.name === 'done' || info.dur <= 0) return at;
+    return jumpSession(at, info.phaseEnd);
+  }
+  function finishSession(state, elapsedMs) {
+    var next = advanceSession(state, elapsedMs);
+    next.people.forEach(function (p) { closeSlice(p, next.elapsedMs); });
+    next.done = true;
+    next.phase = 'done';
+    next.running = false;
+    return next;
+  }
+  function spotStation(state, person) {
+    var round = state && state.phase === 'standoff' ? 1 : (state.round || 1);
+    return stationIdFor(state, person, round);
+  }
+  function sessionSummary(state, stations) {
+    var names = {};
+    (stations || []).forEach(function (s) {
+      if (s && s.id) names[s.id] = (s.exercise && s.exercise.name) || 'Station';
+    });
+    var orderIndex = {};
+    (state.order || []).forEach(function (id, i) { orderIndex[id] = i; });
+    return {
+      people: (state.people || []).map(function (p) {
+        var rows = [];
+        var totalMs = 0;
+        Object.keys(p.ms || {}).forEach(function (id) {
+          var ms = p.ms[id] || 0;
+          if (p.slice && p.slice.stationId === id) ms += 0;
+          totalMs += ms;
+          var seconds = Math.round(ms / 1000);
+          if (seconds <= 0) return;
+          rows.push({ stationId: id, name: names[id] || 'Station', seconds: seconds });
+        });
+        rows.sort(function (a, b) { return (orderIndex[a.stationId] || 0) - (orderIndex[b.stationId] || 0); });
+        var total = 0;
+        rows.forEach(function (row) { total += row.seconds; });
+        return { key: p.key, source: p.source, id: p.id || null, name: p.name, stations: rows, total: total };
+      })
+    };
+  }
+  function sessionRecord(doc, state, startedAt, endedAt) {
+    var summary = sessionSummary(state, doc && doc.stations);
+    return {
+      circuitId: doc && doc.id ? String(doc.id) : '',
+      name: doc && doc.name ? String(doc.name) : '',
+      startedAt: startedAt == null ? null : startedAt,
+      endedAt: endedAt == null ? null : endedAt,
+      clock: {
+        workSec: state.clock.workSec,
+        moveSec: state.clock.moveSec,
+        rounds: state.clock.rounds
+      },
+      people: summary.people
+    };
+  }
+  // timerSchedule(work, move, rounds, true) includes a trailing move. A circuit has no move after the last round.
+  function withoutFinalMove(schedule, workSec, moveSec, rounds) {
+    var work = Number(workSec) || 0;
+    var move = Number(moveSec) || 0;
+    var n = Math.floor(Number(rounds) || 0);
+    var copy = (schedule || []).map(function (ev) { return { t: ev.t, kind: ev.kind }; });
+    if (!(move > 0) || n < 1) return copy;
+    var end = 5 + (n - 1) * (work + move) + work;
+    var out = [];
+    copy.forEach(function (ev) {
+      if (ev.t > end + 0.001) return;
+      if (Math.abs(ev.t - end) < 0.001 && ev.kind === 'go') out.push({ t: ev.t, kind: 'done' });
+      else out.push(ev);
+    });
+    return out;
+  }
+
   var api = {
     COLS: COLS,
     ROWS: ROWS,
@@ -560,7 +839,24 @@
     summary: summary,
     guard: guard,
     toPayload: toPayload,
-    fromRow: fromRow
+    fromRow: fromRow,
+    personKey: personKey,
+    initials: initials,
+    firstName: firstName,
+    avatarColor: avatarColor,
+    stationAt: stationAt,
+    assignmentReady: assignmentReady,
+    phaseInfo: phaseInfo,
+    beginRun: beginRun,
+    advanceSession: advanceSession,
+    benchPerson: benchPerson,
+    rejoinPerson: rejoinPerson,
+    skipPhase: skipPhase,
+    finishSession: finishSession,
+    spotStation: spotStation,
+    sessionSummary: sessionSummary,
+    sessionRecord: sessionRecord,
+    withoutFinalMove: withoutFinalMove
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.WBCircuit = api;

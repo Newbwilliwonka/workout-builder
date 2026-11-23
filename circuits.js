@@ -1,4 +1,4 @@
-/* Group Circuit Training. List and set-up only. The live clock is a later step.
+/* Group Circuit Training. List, set-up, and the handoff into a live session.
    Browser: window.WBCircuits. */
 (function (root) {
   'use strict';
@@ -201,7 +201,8 @@
     return '<span class="' + (n ? 'circuit-num' : 'circuit-num is-open') + '">' + (n ? String(n) : '·') + '</span>' +
       '<button type="button" class="circuit-x" data-act="remove" data-id="' + esc(station.id) + '" aria-label="Remove station"' + off() + '>×</button>' +
       '<div class="circuit-ex"><span class="circuit-name">' + esc(name) + '</span>' + manual + '</div>' +
-      '<button type="button" class="circuit-change" data-act="change" data-id="' + esc(station.id) + '"' + off() + '>Change</button>';
+      '<button type="button" class="circuit-change" data-act="change" data-id="' + esc(station.id) + '" aria-label="Change exercise"' + off() + '>' +
+      '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>';
   }
   function pickerHtml() {
     if (!picking || !draft) return '';
@@ -216,26 +217,29 @@
       '<input id="circuit-ex-name" value="' + esc(manualExercise) + '" placeholder="Exercise name" maxlength="80" autocomplete="off"' + off() + '>' +
       '<button type="button" class="pri" data-act="manual-exercise" style="width:100%;margin-top:8px"' + off() + '>Use this name</button></div>';
   }
-  function clientsHtml() {
+  function faceHtml(name, manual) {
     var C = model();
+    var shown = C.publicName(name);
+    var color = manual ? '' : C.avatarColor(shown);
+    return '<span class="c-ava' + (manual ? ' is-manual' : '') + '"' + (color ? ' style="background:' + color + '"' : '') + ' aria-hidden="true">' + esc(C.initials(shown)) + '</span>' +
+      '<span class="circuit-person-name">' + esc(C.firstName(shown)) + '</span>' +
+      (manual ? '<span class="circuit-tag">manual</span>' : '');
+  }
+  function clientsHtml() {
     var h = '<div class="circuit-people" id="circuit-people">';
     rosterRows().forEach(function (person) {
       var on = (draft.clients || []).some(function (c) { return c && c.source === 'linked' && c.id === person.id; });
-      h += '<button type="button" class="circuit-person' + (on ? ' on' : '') + '" data-act="client" data-id="' + esc(person.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' + off() + '>' +
-        '<span class="ava" aria-hidden="true">' + esc(C.initial(person.name)) + '</span>' +
-        '<span class="circuit-person-name">' + esc(person.name) + '</span></button>';
+      h += '<button type="button" class="circuit-person' + (on ? ' on' : '') + '" data-act="client" data-id="' + esc(person.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(person.name) + '"' + off() + '>' +
+        faceHtml(person.name, false) + '</button>';
     });
     (draft.clients || []).forEach(function (client) {
       if (!client || client.source !== 'manual') return;
-      h += '<button type="button" class="circuit-person on" data-act="manual-chip" data-name="' + esc(client.name) + '" aria-label="Remove ' + esc(client.name) + '"' + off() + '>' +
-        '<span class="ava" aria-hidden="true">' + esc(C.initial(client.name)) + '</span>' +
-        '<span class="circuit-person-name">' + esc(client.name) + '</span>' +
-        '<span class="circuit-tag">manual</span></button>';
+      h += '<button type="button" class="circuit-person on is-manual" data-act="manual-chip" data-name="' + esc(client.name) + '" aria-label="Remove ' + esc(client.name) + '"' + off() + '>' +
+        faceHtml(client.name, true) + '</button>';
     });
     h += '</div>';
     if (!rosterRows().length && !rosterError) h += '<p class="mute">No linked clients yet.</p>';
     if (rosterError) h += '<p class="mute">' + esc(rosterError) + '</p>';
-    h += '<button type="button" data-act="manual-open"' + off() + '>+ Manual client</button>';
     if (manualOpen) {
       h += '<label for="circuit-client-name">Client name</label>' +
         '<input id="circuit-client-name" value="' + esc(manualName) + '" placeholder="Name" maxlength="80" autocomplete="name"' + off() + '>' +
@@ -244,7 +248,7 @@
     return h;
   }
   function phaseHtml(kind, label, minId, secId, minVal, secVal) {
-    return '<div class="circuit-phase ' + kind + '"><div class="kicker">' + label + '</div><div class="time">' +
+    return '<div class="circuit-phase ' + kind + '"><div class="kicker">' + label + '</div><div class="time wb-digits">' +
       '<input id="' + minId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' minutes" value="' + esc(minVal) + '" autocomplete="off"' + off() + '>' +
       '<span>:</span>' +
       '<input id="' + secId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' seconds" value="' + esc(secVal) + '" autocomplete="off"' + off() + '>' +
@@ -272,6 +276,20 @@
       row: Number(el.getAttribute('data-row'))
     };
   }
+  function retractEnds(points, px) {
+    if (!points || points.length < 2) return points;
+    function pull(from, to) {
+      var dx = to[0] - from[0];
+      var dy = to[1] - from[1];
+      var len = Math.sqrt(dx * dx + dy * dy) || 1;
+      var back = Math.min(px, len * 0.35);
+      return [to[0] - dx / len * back, to[1] - dy / len * back];
+    }
+    var copy = points.map(function (p) { return [p[0], p[1]]; });
+    copy[0] = pull(copy[1], copy[0]);
+    copy[copy.length - 1] = pull(copy[copy.length - 2], copy[copy.length - 1]);
+    return copy;
+  }
   function paintArrows() {
     var board = document.getElementById('circuit-board');
     var C = model();
@@ -288,18 +306,21 @@
       cells[spot.col + ',' + spot.row] = spot;
       var tile = cell.querySelector('.wb-tile');
       if (!tile) return;
-      tiles[tile.getAttribute('data-grid-id')] = spot;
+      var box = boardPoint(tile, board);
+      box.col = spot.col;
+      box.row = spot.row;
+      tiles[tile.getAttribute('data-grid-id')] = box;
     });
-    var html = '<defs><marker id="circuit-arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#2563eb"></path></marker></defs>';
+    var html = '<defs><marker id="circuit-arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#1e293b"></path></marker></defs>';
     C.loopEdges(draft.order).forEach(function (edge) {
       var a = tiles[edge.from];
       var b = tiles[edge.to];
       if (!a || !b) return;
-      var points = C.arrowPoints(a, b, cells, edge.close);
+      var points = retractEnds(C.arrowPoints(a, b, cells, edge.close), 6);
       if (!points || points.length < 2) return;
       html += '<polyline points="' + points.map(function (p) {
         return p[0].toFixed(1) + ',' + p[1].toFixed(1);
-      }).join(' ') + '" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#circuit-arrowhead)"></polyline>';
+      }).join(' ') + '" fill="none" stroke="#1e293b" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#circuit-arrowhead)"></polyline>';
     });
     svg.innerHTML = html;
   }
@@ -329,7 +350,8 @@
       var info = C.summary({ name: row.name, stations: data.stations, clients: data.clients });
       h += '<div class="card" data-circuit="' + esc(row.id) + '"><div class="name">' + esc(row.name || 'Circuit') + '</div>' +
         '<div class="mute">' + esc(countLabel(info.stations, 'station')) + ' · ' + esc(countLabel(info.clients, 'client')) + '</div>' +
-        '<div class="actions"><button type="button" class="pri sm" data-act="open" data-id="' + esc(row.id) + '">Open</button>' +
+        '<div class="actions"><button type="button" class="pri sm" data-act="run" data-id="' + esc(row.id) + '">Run</button>' +
+        '<button type="button" class="sm" data-act="open" data-id="' + esc(row.id) + '">Open</button>' +
         '<button type="button" class="sm danger" data-act="del" data-id="' + esc(row.id) + '">Delete</button></div></div>';
     });
     ctx.app.innerHTML = h;
@@ -352,24 +374,29 @@
     ctx.titleEl.textContent = 'Set up circuit';
     ctx.backBtn.hidden = false;
     if (!clockText) clockText = clockTextFrom(draft.clock);
-    var h = errorsHtml();
-    h += '<div class="card"><label for="circuit-name">Circuit name</label>' +
-      '<input id="circuit-name" value="' + esc(draft.name) + '" maxlength="80" autocomplete="off" placeholder="Morning circuit"' + off() + '></div>';
-    h += '<div class="card"><div class="row">' +
-      '<button type="button" class="pri grow" data-act="add"' + off() + '>+ Add station</button>' +
-      '<button type="button" id="circuit-clear" data-act="clear"' + (busy || !draft.order.length ? ' disabled' : '') + '>Clear order</button></div>' +
-      '<p class="mute" id="circuit-hint">Tap stations in order to draw the loop.</p>' +
-      '<div class="circuit-board' + (busy ? ' is-busy' : '') + '" id="circuit-board"><svg class="circuit-arrows" aria-hidden="true"></svg><div id="circuit-grid"></div></div></div>';
+    var h = '<div class="circuit-setup">' + errorsHtml();
+    h += '<label class="circuit-name-label" for="circuit-name">Circuit name</label>' +
+      '<input id="circuit-name" class="circuit-name-input" value="' + esc(draft.name) + '" maxlength="80" autocomplete="off" placeholder="Morning circuit"' + off() + '>';
+    h += '<div class="circuit-hint" id="circuit-hint">Tap stations in order to draw the loop.</div>';
+    h += '<div class="circuit-section"><h2>Stations</h2>' +
+      '<button type="button" class="circuit-sm ghost" data-act="add"' + off() + '>+ Add station</button>' +
+      '<button type="button" class="circuit-sm" id="circuit-clear" data-act="clear"' + (busy || !draft.order.length ? ' disabled' : '') + '>Clear order</button></div>';
+    h += '<div class="circuit-board' + (busy ? ' is-busy' : '') + '" id="circuit-board"><svg class="circuit-arrows" aria-hidden="true"></svg><div id="circuit-grid"></div></div>';
     h += pickerHtml();
-    h += '<div class="card"><div class="name">Clients</div>' + clientsHtml() + '</div>';
-    h += '<div class="card"><div class="name">Clock</div><div class="circuit-clock">' +
+    h += '<div class="circuit-clients"><div class="circuit-section"><h2>Clients</h2>' +
+      '<button type="button" class="circuit-sm ghost" data-act="manual-open"' + off() + '>+ Manual client</button></div>' +
+      clientsHtml() + '</div>';
+    h += '<div class="circuit-clock">' +
       phaseHtml('work', 'Work', 'circuit-work-m', 'circuit-work-s', clockText.wm, clockText.ws) +
       phaseHtml('move', 'Move', 'circuit-move-m', 'circuit-move-s', clockText.mm, clockText.ms) +
-      '<div class="circuit-phase rounds"><label for="circuit-rounds">Rounds</label>' +
-      '<input id="circuit-rounds" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
-      '<p class="mute" id="circuit-track">Tracking: time per station (automatic)</p></div>';
-    h += '<div class="row"><button type="button" class="pri grow" data-act="save"' + (busy ? ' disabled' : '') + '>Save</button>' +
-      '<button type="button" class="grow" data-act="cancel"' + (busy ? ' disabled' : '') + '>Cancel</button></div>';
+      '<div class="circuit-phase rounds"><label class="kicker" for="circuit-rounds">Rounds</label>' +
+      '<input id="circuit-rounds" class="wb-digits" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
+      '<p class="circuit-track" id="circuit-track">Tracking: time per station (automatic)</p>';
+    var showStart = !!(draft.id && !dirty());
+    if (draft.id) h += '<button type="button" id="circuit-start" class="pri circuit-start" data-act="run"' + (showStart ? '' : ' hidden') + (busy ? ' disabled' : '') + '>Start session</button>';
+    h += '<div class="circuit-actions' + (showStart ? ' is-after-start' : '') + '">' +
+      '<button type="button" class="' + (draft.id ? 'circuit-quiet' : 'pri circuit-start') + '" data-act="save"' + (busy ? ' disabled' : '') + '>Save</button>' +
+      '<button type="button" class="circuit-quiet" data-act="cancel"' + (busy ? ' disabled' : '') + '>Cancel</button></div></div>';
     ctx.app.innerHTML = h;
     ctx.app.onclick = onClick;
     ctx.app.oninput = onInput;
@@ -548,11 +575,19 @@
       paintList();
     });
   }
+  function onRun(id) {
+    if (!ctx) return;
+    if (id) return ctx.go('#/circuits/' + id + '/run');
+    if (!draft || !draft.id) return;
+    if (dirty()) { ctx.toast('Save this circuit before starting.'); return; }
+    ctx.go('#/circuits/' + draft.id + '/run');
+  }
   function onClick(e) {
     var button = e.target.closest ? e.target.closest('[data-act]') : null;
     if (!button || button.disabled || busy) return;
     var act = button.getAttribute('data-act');
     if (act === 'new') return ctx.go('#/circuits/new');
+    if (act === 'run') return onRun(button.getAttribute('data-id'));
     if (act === 'open') return ctx.go('#/circuits/' + button.getAttribute('data-id'));
     if (act === 'del') return onDelete(button.getAttribute('data-id'));
     if (act === 'add') return onAdd();
@@ -574,10 +609,17 @@
     if (act === 'save') return onSave();
     if (act === 'cancel') return onCancel();
   }
+  function syncStart() {
+    var show = !!(draft && draft.id && !dirty());
+    var button = document.getElementById('circuit-start');
+    if (button) button.hidden = !show;
+    var actions = document.querySelector('.circuit-actions');
+    if (actions) actions.classList.toggle('is-after-start', show);
+  }
   function onInput(e) {
     var field = e.target;
     if (busy || !field || !draft) return;
-    if (field.id === 'circuit-name') { draft.name = field.value; return; }
+    if (field.id === 'circuit-name') { draft.name = field.value; syncStart(); return; }
     if (!clockText) clockText = clockTextFrom(draft.clock);
     if (field.id === 'circuit-work-m' || field.id === 'circuit-work-s' || field.id === 'circuit-move-m' || field.id === 'circuit-move-s') {
       if (field.id === 'circuit-work-m') clockText.wm = field.value;
@@ -588,6 +630,7 @@
       var move = model().joinClock(clockText.mm, clockText.ms);
       if (work != null) draft.clock.workSec = work;
       if (move != null) draft.clock.moveSec = move;
+      syncStart();
       return;
     }
     if (field.id === 'circuit-rounds') {
@@ -595,6 +638,7 @@
       roundsFollows = false;
       var roundsRaw = String(field.value || '').replace(/^\s+|\s+$/g, '');
       if (/^\d+$/.test(roundsRaw)) draft.clock.rounds = Number(roundsRaw);
+      syncStart();
       return;
     }
     if (field.id === 'circuit-lib-q') { libQuery = field.value; scheduleSearch(); return; }
@@ -696,9 +740,12 @@
       paintMissing();
     });
   }
+  function markPage() { try { document.body.classList.add('circuit-on'); } catch (e) {} }
+  function clearPage() { try { document.body.classList.remove('circuit-on'); } catch (e2) {} }
   function mount(next) {
     stop();
     ctx = next || null;
+    markPage();
     if (!ctx) return;
     ctx.backBtn.hidden = false;
     if (!root.WBCircuit || !root.WBGrid) {
@@ -712,6 +759,7 @@
     return loadEditor(parts[1]);
   }
   function stop() {
+    clearPage();
     loadToken++;
     libToken++;
     if (libTimer) { clearTimeout(libTimer); libTimer = null; }
