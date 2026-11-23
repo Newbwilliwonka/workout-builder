@@ -222,7 +222,7 @@
     else next.access_approved = false;
     cachedProfile = next;
   }
-  var inviteRedeemFlight = null, inviteSettled = '', inviteAttempted = '';
+  var inviteRedeemFlight = null, inviteSettled = '', inviteTriedRoute = -1, inviteTriedCode = '';
   function inviteCodeFromSession(session) {
     var user = session && session.user;
     var meta = user && (user.user_metadata || user.raw_user_meta_data);
@@ -240,12 +240,15 @@
     var stored = pendingCode();
     var code = stored || inviteCodeFromSession(session);
     if (!code || !WBAuth.redeemInvite) return Promise.resolve();
-    if (inviteAttempted === code) return Promise.resolve();
     if (inviteSettled === code) {
       if (!stored) return forgetServerInvite();
       return Promise.resolve();
     }
+    // One automatic try per route change, so a 500 cannot spin in place.
+    if (inviteTriedRoute === routeToken && inviteTriedCode === code) return Promise.resolve();
     if (inviteRedeemFlight) return inviteRedeemFlight;
+    inviteTriedRoute = routeToken;
+    inviteTriedCode = code;
     var flight;
     flight = Promise.resolve().then(function () {
       return WBAuth.redeemInvite(code);
@@ -255,13 +258,8 @@
       return forgetServerInvite();
     }, function (err) {
       var kind = inviteFailureKind(err);
-      if (kind === 'retry') {
+      if (kind !== 'terminal') {
         if (!inviteWaiting(err)) pendingInviteNotice = { text: inviteMessage(err) || 'Could not use that invite.', isError: true };
-        return;
-      }
-      if (kind === 'once') {
-        inviteAttempted = code;
-        pendingInviteNotice = { text: inviteMessage(err) || 'Could not use that invite.', isError: true };
         return;
       }
       inviteSettled = code;

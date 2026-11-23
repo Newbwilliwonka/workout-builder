@@ -376,7 +376,7 @@ const ART = '/opt/cursor/artifacts';
   });
   await odd.evaluate(function () { location.hash = '#/?odd-again=1'; });
   await odd.waitForFunction(function () {
-    return location.hash === '#/?odd-again=1' && window.__tries === 1 && sessionStorage.getItem('wb.invite') === 'ABCD2345';
+    return location.hash === '#/?odd-again=1' && window.__tries === 2 && window.__forgot == null && sessionStorage.getItem('wb.invite') === 'ABCD2345';
   });
   await odd.close();
 

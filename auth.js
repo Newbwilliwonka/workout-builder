@@ -775,12 +775,17 @@
           if (res.error && withShare && shareArgMissing(res.error)) {
             return c.rpc('invite_redeem', { p_code: code }).then(function (again) {
               return { res: again, stored: false };
+            }, function (err) {
+              throw inviteError(err, { status: 0, statusText: err && err.message });
             });
           }
           return { res: res, stored: withShare && !res.error };
+        }, function (err) {
+          throw inviteError(err, { status: 0, statusText: err && err.message });
         });
       }).then(function (out) {
-        if (out.res.error) throw inviteError(out.res.error);
+        var failed = inviteError(out.res && out.res.error, out.res);
+        if (failed) throw failed;
         var data = out.res.data;
         if (out.stored && data && typeof data === 'object') data = Object.assign({}, data, { shareStored: true });
         return data;
@@ -1293,8 +1298,11 @@
   }
   function rpc(name, args) {
     return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
-      if (res.error) throw inviteError(res.error);
+      var failed = inviteError(res && res.error, res);
+      if (failed) throw failed;
       return res.data;
+    }, function (err) {
+      throw inviteError(err, { status: 0, statusText: err && err.message });
     });
   }
   function messageRpc(name, args) {
@@ -1516,13 +1524,22 @@
     }
     return new Error(msg || 'Could not update sharing.');
   }
-  function inviteError(err) {
-    if (root.WBInvites && root.WBInvites.wrapInviteError) return root.WBInvites.wrapInviteError(err);
-    var msg = (err && (err.message || err.details)) || '';
-    var out = new Error(msg || 'Could not use invites');
+  function inviteError(err, res) {
+    res = res || {};
+    if (!err && res.error) err = res.error;
+    var status = typeof res.status === 'number' ? res.status : undefined;
+    if (!err && !(status === 0 || (typeof status === 'number' && status >= 400))) return null;
+    var payload = {
+      error: err || null,
+      status: status,
+      statusText: res.statusText || (err && err.message) || ''
+    };
+    if (root.WBInvites && root.WBInvites.redeemResponseError) return root.WBInvites.redeemResponseError(payload);
+    if (root.WBInvites && root.WBInvites.wrapInviteError) return root.WBInvites.wrapInviteError(payload.error, payload);
+    var out = new Error((err && err.message) || 'Could not use invites');
+    if (typeof status === 'number') out.status = status;
+    if (status === 0) out.offline = true;
     try { out.cause = err; } catch (e) {}
-    if (err && typeof err.status === 'number') out.status = err.status;
-    if (err && err.offline === true) out.offline = true;
     return out;
   }
   root.WBAuth = api;
