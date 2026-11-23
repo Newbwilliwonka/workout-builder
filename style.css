@@ -715,7 +715,8 @@ body.circuit-on .circuit-loop-row .circuit-num{margin:0}
 body.circuit-on .circuit-loop-main{flex:1;min-width:0}
 body.circuit-on .circuit-loop-main .circuit-name{text-align:left;font-size:15px}
 body.circuit-on .circuit-loop-main .c-faces{justify-content:flex-start;min-height:0;margin-top:6px}
-body.circuit-on button.circuit-end{width:100%;min-height:40px;background:transparent;color:var(--danger);font-weight:700}
+body.circuit-on .circuit-end-slot{margin-top:48px}
+body.circuit-on button.circuit-end{width:100%;min-height:40px;margin:0;background:transparent;color:var(--danger);font-weight:700}
 body.circuit-on .circuit-summary{display:flex;flex-direction:column;gap:8px}
 body.circuit-on .circuit-sum-title{margin:0;font-size:20px;font-weight:800}
 body.circuit-on .circuit-sum{margin:0}

@@ -294,7 +294,7 @@
     if (mode === 'place') {
       h += '<button type="button" class="pri circuit-start" data-act="start"' + (ready() ? '' : ' disabled') + '>Start</button>';
     } else {
-      h += '<button type="button" class="circuit-end" data-act="end">End session</button>';
+      h += '<div class="circuit-end-slot"><button type="button" class="circuit-end" data-act="end">End session</button></div>';
     }
     h += '</div>';
     ctx.app.innerHTML = h;
@@ -566,8 +566,44 @@
     persist();
     paint();
   }
+  function swallowClick() {
+    function eat(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      document.removeEventListener('click', eat, true);
+    }
+    document.addEventListener('click', eat, true);
+    setTimeout(function () { document.removeEventListener('click', eat, true); }, 700);
+  }
+  function nearBench(x, y) {
+    var bench = document.querySelector('.circuit-live [data-bench]');
+    if (!bench) return false;
+    var rect = bench.getBoundingClientRect();
+    return x >= rect.left - 12 && x <= rect.right + 12 && y >= rect.top - 12 && y <= rect.bottom + 36;
+  }
+  function trackEndTap(e) {
+    var pointerId = e.pointerId;
+    var startX = e.clientX;
+    var startY = e.clientY;
+    function finish(ev) {
+      if (ev.pointerId !== pointerId) return;
+      document.removeEventListener('pointerup', finish);
+      document.removeEventListener('pointercancel', finish);
+      if (ev.type === 'pointercancel') return;
+      var dist = Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY);
+      if (dist >= 8) { swallowClick(); return; }
+      if (nearBench(ev.clientX, ev.clientY) || nearBench(startX, startY)) return;
+      var under = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (!under || !under.closest || !under.closest('[data-act=end]')) return;
+      onEnd();
+    }
+    document.addEventListener('pointerup', finish);
+    document.addEventListener('pointercancel', finish);
+  }
   function onPointerDown(e) {
     if (e.button != null && e.button !== 0) return;
+    var endBtn = e.target.closest ? e.target.closest('[data-act=end]') : null;
+    if (endBtn && ctx && ctx.app.contains(endBtn)) { trackEndTap(e); return; }
     var chip = e.target.closest ? e.target.closest('[data-person]') : null;
     if (!chip || !ctx || !ctx.app.contains(chip)) return;
     if (drag) return;
@@ -601,11 +637,12 @@
       var under = moved ? document.elementFromPoint(ev.clientX, ev.clientY) : null;
       if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
       if (!moved) return;
-      suppressClick = true;
-      setTimeout(function () { suppressClick = false; }, 0);
+      swallowClick();
       if (!under || !under.closest) return;
       if (under.closest('[data-bench]')) return benchKey(key);
+      if (under.closest('[data-act=end]')) return;
       var station = under.closest('[data-station]');
+      if (nearBench(ev.clientX, ev.clientY) && !station) return;
       if (mode === 'place' && station) return placeKey(key, station.getAttribute('data-station'));
       if (mode === 'live') {
         var person = findLive(key);
@@ -626,7 +663,7 @@
       if (act === 'start') return onStart();
       if (act === 'pause') return onPause();
       if (act === 'skip') return onSkip();
-      if (act === 'end') return onEnd();
+      if (act === 'end') return;
       if (act === 'done') { if (ctx) ctx.go('#/circuits'); return; }
       return;
     }
