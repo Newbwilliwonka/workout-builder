@@ -422,7 +422,7 @@
     }).join('');
   }
 
-  var ctx = null, gen = 0, editingReply = '', replyDrafts = {}, postAttempt = null, replyAttempt = null, openCache = null, findCache = null, findSeq = 0;
+  var ctx = null, gen = 0, editingReply = '', replyDrafts = {}, postAttempt = null, replyAttempt = null, openCache = null, findCache = null, findSeq = 0, pinSeq = 0;
 
   function ask(message) {
     if (root && typeof root.confirm === 'function') return root.confirm(message);
@@ -583,13 +583,14 @@
   }
   function showNearPrompt() {
     var seq = ++findSeq;
+    var pins = ++pinSeq;
     var myGen = gen;
     if (!ctx || !onFindList()) return;
     paintFind({ mode: 'near', trainers: [], searched: false });
     var auth = root.WBAuth;
     if (!auth || typeof auth.myClientLocation !== 'function') return;
     Promise.resolve().then(function () { return auth.myClientLocation(); }).then(function (pin) {
-      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
+      if (!ctx || myGen !== gen || seq !== findSeq || pins !== pinSeq || !onFindList()) return;
       var point = nearPoint(pin);
       if (!point) return;
       runNear(point.latitude, point.longitude, 'pin');
@@ -631,6 +632,9 @@
       showError('find-near-error', 'This browser has no location. Type a city instead.');
       return;
     }
+    // Drop a pin lookup that has not started a search. findSeq stays put, so a
+    // search that is already running remains until this one has coordinates.
+    pinSeq += 1;
     var button = document.getElementById('find-locate');
     if (button) button.disabled = true;
     geo.getCurrentPosition(function (pos) {
@@ -664,6 +668,7 @@
     }
     if (button) button.disabled = true;
     var query = input.value;
+    if (String(query == null ? '' : query).replace(/^\s+|\s+$/g, '').length >= 2) pinSeq += 1;
     places.searchPlace(query).then(function (hit) {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       var point = nearPoint({ latitude: hit && hit.latitude, longitude: hit && hit.longitude });

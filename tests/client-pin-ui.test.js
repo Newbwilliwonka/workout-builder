@@ -214,26 +214,15 @@ const CLIENT_NOTE = 'Your exact pin is private. It is only used to find trainers
   assert.strictEqual(beforeNear, 'online');
   await p.evaluate(function () {
     window.__releasePin = null;
-    window.__geoDenied = false;
+    window.__realGeo = navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);
     window.WBAuth.myClientLocation = function () {
       return new Promise(function (resolve) {
         window.__releasePin = function () { resolve(window.__clientPin); };
       });
     };
-    window.__realGeo = navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);
-    navigator.geolocation.getCurrentPosition = function (ok, err) {
-      window.__geoDenied = true;
-      if (err) err({ code: 1 });
-    };
   });
   await p.click('#find-near');
   await p.waitForSelector('#find-locate');
-  await p.click('#find-locate');
-  await p.waitForFunction(function () {
-    var err = document.getElementById('find-near-error');
-    return window.__geoDenied && err && !err.hidden && err.textContent.indexOf('Location permission is off') !== -1
-      && window.__search && window.__search.mode === 'online';
-  });
   await p.evaluate(function () { document.getElementById('find-city').value = ' '; });
   await p.click('#find-city-go');
   await p.waitForFunction(function () {
@@ -247,6 +236,60 @@ const CLIENT_NOTE = 'Your exact pin is private. It is only used to find trainers
     return window.__search && window.__search.mode === 'near'
       && Math.abs(window.__search.lat - 30.2672) < 0.001
       && document.getElementById('find-near-saved');
+  });
+  await p.evaluate(function () {
+    window.__geoDenied = false;
+    navigator.geolocation.getCurrentPosition = function (ok, err) {
+      window.__geoDenied = true;
+      if (err) err({ code: 1 });
+    };
+  });
+  await p.click('#find-locate');
+  await p.waitForFunction(function () {
+    var err = document.getElementById('find-near-error');
+    return window.__geoDenied && err && !err.hidden
+      && err.textContent.indexOf('Location permission is off') !== -1
+      && window.__search && Math.abs(window.__search.lat - 30.2672) < 0.001
+      && document.getElementById('find-near-saved');
+  });
+  await p.evaluate(function () { document.getElementById('find-city').value = ' '; });
+  await p.click('#find-city-go');
+  await p.waitForFunction(function () {
+    var err = document.getElementById('find-near-error');
+    return err && !err.hidden && err.textContent.indexOf('Enter a city or address') !== -1
+      && document.getElementById('find-near-saved')
+      && window.__search && Math.abs(window.__search.lat - 30.2672) < 0.001;
+  });
+  await p.evaluate(function () {
+    window.__releasePin = null;
+    window.__geoOk = null;
+    window.WBAuth.myClientLocation = function () {
+      return new Promise(function (resolve) {
+        window.__releasePin = function () { resolve(window.__clientPin); };
+      });
+    };
+    navigator.geolocation.getCurrentPosition = function (ok) {
+      window.__geoOk = ok;
+    };
+  });
+  await p.click('#find-online');
+  await p.waitForSelector('#find-near');
+  await p.click('#find-near');
+  await p.waitForSelector('#find-locate');
+  await p.click('#find-locate');
+  await p.waitForFunction(function () {
+    return typeof window.__geoOk === 'function' && typeof window.__releasePin === 'function';
+  });
+  await p.evaluate(function () { window.__releasePin(); });
+  await new Promise(function (resolve) { setTimeout(resolve, 80); });
+  const held = await p.evaluate(function () { return window.__search && window.__search.mode; });
+  assert.strictEqual(held, 'online');
+  await p.evaluate(function () {
+    window.__geoOk({ coords: { latitude: 40.7128, longitude: -74.006 } });
+  });
+  await p.waitForFunction(function () {
+    return window.__search && Math.abs(window.__search.lat - 40.7128) < 0.001
+      && !document.getElementById('find-near-saved');
   });
   await p.evaluate(function () {
     navigator.geolocation.getCurrentPosition = window.__realGeo;
