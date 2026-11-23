@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/client/<id>  |  #/tracking/dashboard  |  #/tracking/dashboard/client/<id>  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/history/client/<id>/<key>  |  #/history/client/<id>/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/client/<id>  |  #/tracking/dashboard  |  #/tracking/dashboard/client/<id>  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/history/client/<id>/<key>  |  #/history/client/<id>/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>  |  #/circuits  |  #/circuits/new  |  #/circuits/<id>
    A signed-out visit with no hash shows the public landing page. */
 (function () {
   'use strict';
@@ -114,6 +114,10 @@
       if (hubBits[2] === 'edit' && hubBits[1]) return go('#/hub/' + hubBits[1]);
       if (hubBits[1] === 'find' && hubBits[2]) return go('#/hub/find');
       if (hubBits[1]) return go('#/hub');
+      return go('#/');
+    }
+    if (page === 'circuits') {
+      if (window.WBCircuits && WBCircuits.back()) return;
       return go('#/');
     }
     if (page === 'send') return go('#/');
@@ -1618,6 +1622,10 @@
         if (page === 'client') {
           if (!window.WBPrograms || !WBPrograms.isTrainer(WBPrograms.roleOf(profile))) return renderLevelNote(profile);
           return openClient(token);
+        }
+        if (page === 'circuits') {
+          if (!window.WBPrograms || !WBPrograms.isTrainer(WBPrograms.roleOf(profile))) return renderLevelNote(profile);
+          return openCircuits(token);
         }
         if (page === 'send') {
           if (!levelCan(profile, 'send')) return renderLevelNote(profile);
@@ -3170,6 +3178,19 @@
       go('#/signin');
     });
   }
+  function openCircuits(token) {
+    if (token !== routeToken) return;
+    backBtn.hidden = false;
+    app.onclick = null;
+    app.oninput = null;
+    app.onchange = null;
+    if (!window.WBCircuits) {
+      titleEl.textContent = 'Group Circuit Training';
+      app.innerHTML = '<div class="card" id="circuit-wait"><div class="name">Not available yet</div><p class="mute">Group circuits are not available yet.</p></div>';
+      return;
+    }
+    WBCircuits.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast });
+  }
   function guestStampOf(w) {
     var stamp = (w.name || '') + '|' + (w.updatedAt || 0);
     try { stamp += JSON.stringify(w.items || []); } catch (e) {}
@@ -3450,6 +3471,7 @@
     window.WBMessages && WBMessages.stop();
     window.WBHub && WBHub.stop();
     window.WBSends && WBSends.stop();
+    window.WBCircuits && WBCircuits.stop();
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
     var page = hashPage();
@@ -4635,6 +4657,9 @@
       '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
       '<button id="hub-nav" class="grow" type="button" data-a="hub">Trainer Hub</button>' +
       '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
+      (window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile))
+        ? '<div class="row" id="home-circuits" style="margin-bottom:8px"><button id="circuits-open" class="grow" type="button" data-a="circuits">Group Circuits</button></div>'
+        : '') +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     var statusLine = libraryStatusHtml();
     if (statusLine) h += statusLine;
@@ -4680,6 +4705,13 @@
       if (a === 'account') return openAccount();
       if (a === 'messages') return go('#/messages');
       if (a === 'hub') return go('#/hub');
+      if (a === 'circuits') {
+        if (!(window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile)))) {
+          levelNoteOn = true;
+          return renderList();
+        }
+        return go('#/circuits');
+      }
       if (a === 'send') {
         if (!levelCan(cachedProfile, 'send')) { levelNoteOn = true; return renderList(); }
         return go('#/send');

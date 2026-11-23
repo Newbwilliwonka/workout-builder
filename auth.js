@@ -1240,6 +1240,37 @@
     },
     resetCalendarFeed: function (zone) {
       return saveCalendarFeed(zone, true);
+    },
+    circuits: function () {
+      return db().then(function (c) {
+        return c.from('circuits').select('id,name,data,created_at,updated_at').order('updated_at', { ascending: false });
+      }).then(function (res) {
+        if (res.error) throw circuitError(res.error);
+        return Array.isArray(res.data) ? res.data : [];
+      });
+    },
+    saveCircuit: function (row) {
+      row = row || {};
+      var payload = { name: row.name, data: row.data };
+      return db().then(function (c) {
+        var query = isUuid(row.id)
+          ? c.from('circuits').update(payload).eq('id', row.id)
+          : c.from('circuits').insert(payload);
+        return query.select('id,name,data,created_at,updated_at').single();
+      }).then(function (res) {
+        if (res.error) throw circuitError(res.error);
+        return res.data;
+      });
+    },
+    deleteCircuit: function (id) {
+      if (!isUuid(id)) return Promise.reject(new Error('That circuit was not found.'));
+      return db().then(function (c) {
+        return c.from('circuits').delete().eq('id', id).select('id');
+      }).then(function (res) {
+        if (res.error) throw circuitError(res.error);
+        if (!res.data || !res.data.length) throw new Error('That circuit was not found.');
+        return true;
+      });
     }
   };
   function feedZone(zone) {
@@ -1286,6 +1317,44 @@
   function timeColumnMissing(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
     return /starts_at|ends_at/i.test(msg);
+  }
+  function circuitError(err) {
+    var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
+    if (/schema cache|could not find|PGRST205|PGRST202|42P01/i.test(msg)) {
+      return new Error('Group circuits are not available yet. Apply the circuits SQL in the Supabase SQL editor.');
+    }
+    var known = [
+      'Only a trainer can save a circuit.',
+      'You can only change your own circuit.',
+      'You can only delete your own circuit.',
+      'That circuit cannot be reassigned.',
+      'Your account is waiting for approval.',
+      'Name this circuit.',
+      'That name is too long.',
+      'Add a station.',
+      'The grid is full.',
+      'Choose an exercise for every station.',
+      'Tap every station to close the loop.',
+      'Two stations are on the same square.',
+      'Move that station onto the grid.',
+      'Name every client.',
+      'That client is already on this circuit.',
+      'Too many clients.',
+      'Enter the work time.',
+      'Enter the move time.',
+      'Enter the rounds.',
+      'This circuit is too large.',
+      'Take out reps and weight. Circuits track time only.',
+      'That circuit could not be saved.',
+      'That circuit was not found.'
+    ];
+    for (var i = 0; i < known.length; i++) {
+      if (msg.indexOf(known[i]) !== -1) return new Error(known[i]);
+    }
+    if (/row-level security|42501|permission denied/i.test(msg)) return new Error('You can only change your own circuit.');
+    var line = msg.split('\n')[0];
+    if (line && line.length < 180) return new Error(line);
+    return new Error('Could not use group circuits.');
   }
   function programError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
