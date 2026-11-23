@@ -202,51 +202,11 @@
     var msg = String(err && err.message || '').replace(/^\s+|\s+$/g, '');
     return msg === 'Your account is waiting for approval.';
   }
-  // Exact sentences the redeem function and the in-memory book raise.
-  // A hint from the database (invite_expired, and the rest) is the same list.
-  var INVITE_TERMINAL = {
-    'That invite could not be used.': 1,
-    'That invite code was not found.': 1,
-    'That invite has already been used.': 1,
-    'That invite was canceled.': 1,
-    'That invite has expired.': 1,
-    'That trainer has no open client spots.': 1,
-    'A Trainer or Master Trainer cannot join as a client.': 1,
-    'You are already connected to a trainer. End that connection before using a new invite.': 1
-  };
-  var INVITE_TERMINAL_CODE = {
-    invite_invalid: 1,
-    invite_expired: 1,
-    invite_canceled: 1,
-    invite_used: 1,
-    invite_full: 1,
-    invite_connected: 1,
-    invite_trainer: 1
-  };
   function inviteMessage(err) {
     return String(err && err.message || '').replace(/^\s+|\s+$/g, '');
   }
-  function inviteTransient(err) {
-    if (!err) return false;
-    if (err.offline === true) return true;
-    var status = err.status || err.statusCode;
-    if (typeof status === 'number' && status >= 500 && status < 600) return true;
-    var msg = inviteMessage(err).toLowerCase();
-    if (msg === 'failed to fetch' || msg === 'load failed' || msg === 'network error') return true;
-    if (msg === 'networkerror when attempting to fetch resource.') return true;
-    if (msg === 'typeerror: failed to fetch') return true;
-    if (msg === 'timeout' || msg === 'timed out') return true;
-    if (msg === 'request timeout' || msg === 'connection timeout' || msg === 'gateway timeout') return true;
-    return false;
-  }
-  // 'terminal' drops both copies. 'retry' tries again on the next signed-in page.
-  // 'once' keeps the code and does not try again until the page is loaded fresh.
   function inviteFailureKind(err) {
-    if (inviteWaiting(err) || inviteTransient(err)) return 'retry';
-    var code = err && (err.inviteOutcome || (typeof err.hint === 'string' && err.hint.indexOf('invite_') === 0 ? err.hint : ''));
-    if (code && INVITE_TERMINAL_CODE[code]) return 'terminal';
-    if (INVITE_TERMINAL[inviteMessage(err)]) return 'terminal';
-    return 'once';
+    return window.WBInvites.inviteFailureKind(err);
   }
   function noteRedeemedInvite(code, res) {
     releaseInvite(code);

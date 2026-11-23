@@ -1517,14 +1517,12 @@
     return new Error(msg || 'Could not update sharing.');
   }
   function inviteError(err) {
+    if (root.WBInvites && root.WBInvites.wrapInviteError) return root.WBInvites.wrapInviteError(err);
     var msg = (err && (err.message || err.details)) || '';
-    var friendly = msg;
-    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205/i.test(String(msg))) {
-      friendly = 'Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.';
-    }
-    var out = new Error(friendly || 'Could not use invites');
-    var hint = err && err.hint;
-    if (typeof hint === 'string' && hint.indexOf('invite_') === 0) out.inviteOutcome = hint;
+    var out = new Error(msg || 'Could not use invites');
+    try { out.cause = err; } catch (e) {}
+    if (err && typeof err.status === 'number') out.status = err.status;
+    if (err && err.offline === true) out.offline = true;
     return out;
   }
   root.WBAuth = api;

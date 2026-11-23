@@ -289,12 +289,111 @@
     };
   }
 
+  var TERMINAL_MESSAGE = {};
+  TERMINAL_MESSAGE[MSG.notFound] = 1;
+  TERMINAL_MESSAGE[MSG.used] = 1;
+  TERMINAL_MESSAGE[MSG.canceled] = 1;
+  TERMINAL_MESSAGE[MSG.expired] = 1;
+  TERMINAL_MESSAGE[MSG.cap] = 1;
+  TERMINAL_MESSAGE[MSG.trainerClient] = 1;
+  TERMINAL_MESSAGE[MSG.already] = 1;
+  TERMINAL_MESSAGE['That invite could not be used.'] = 1;
+  var TERMINAL_CODE = {
+    invite_invalid: 1,
+    invite_expired: 1,
+    invite_canceled: 1,
+    invite_used: 1,
+    invite_full: 1,
+    invite_connected: 1,
+    invite_trainer: 1
+  };
+  function trimMessage(err) {
+    return String(err && err.message || '').replace(/^\s+|\s+$/g, '');
+  }
+  function walkErrors(err, fn) {
+    var seen = 0;
+    var cur = err;
+    while (cur && seen < 4) {
+      if (fn(cur)) return true;
+      if (!cur.cause || cur.cause === cur) break;
+      cur = cur.cause;
+      seen++;
+    }
+    return false;
+  }
+  function isTransient(err) {
+    if (!err) return false;
+    return walkErrors(err, function (item) {
+      if (item.offline === true) return true;
+      var status = item.status || item.statusCode;
+      if (typeof status === 'number' && status >= 500 && status < 600) return true;
+      var msg = trimMessage(item).toLowerCase();
+      if (msg === 'failed to fetch' || msg === 'load failed' || msg === 'network error') return true;
+      if (msg === 'networkerror when attempting to fetch resource.') return true;
+      if (msg === 'typeerror: failed to fetch') return true;
+      if (item.name === 'TypeError' && (msg === 'failed to fetch' || msg === 'load failed' || msg === 'networkerror')) return true;
+      if (msg === 'timeout' || msg === 'timed out') return true;
+      if (msg === 'request timeout' || msg === 'connection timeout' || msg === 'gateway timeout') return true;
+      return false;
+    });
+  }
+  function isWaiting(err) {
+    return walkErrors(err, function (item) {
+      return trimMessage(item) === 'Your account is waiting for approval.';
+    });
+  }
+  function outcomeOf(err) {
+    var found = '';
+    walkErrors(err, function (item) {
+      if (found) return true;
+      if (typeof item.inviteOutcome === 'string' && TERMINAL_CODE[item.inviteOutcome]) found = item.inviteOutcome;
+      else if (typeof item.hint === 'string' && item.hint.indexOf('invite_') === 0 && TERMINAL_CODE[item.hint]) found = item.hint;
+      return !!found;
+    });
+    return found;
+  }
+  // 'terminal' drops both copies. 'retry' tries again on the next signed-in page.
+  // 'once' keeps the code and does not try again until the page is loaded fresh.
+  function inviteFailureKind(err) {
+    if (isWaiting(err) || isTransient(err)) return 'retry';
+    if (outcomeOf(err)) return 'terminal';
+    var terminal = false;
+    walkErrors(err, function (item) {
+      if (TERMINAL_MESSAGE[trimMessage(item)]) terminal = true;
+      return terminal;
+    });
+    if (terminal) return 'terminal';
+    return 'once';
+  }
+  function wrapInviteError(err) {
+    var msg = (err && (err.message || err.details)) || '';
+    var friendly = String(msg);
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205/i.test(friendly)) {
+      friendly = 'Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.';
+    }
+    var out = new Error(friendly || 'Could not use invites');
+    if (!err) return out;
+    if (err.name && err.name !== 'Error') {
+      try { out.name = err.name; } catch (e) {}
+    }
+    if (typeof err.status === 'number') out.status = err.status;
+    if (typeof err.statusCode === 'number') out.statusCode = err.statusCode;
+    if (err.offline === true) out.offline = true;
+    if (typeof err.code === 'string') out.code = err.code;
+    if (typeof err.hint === 'string') out.hint = err.hint;
+    if (typeof err.hint === 'string' && err.hint.indexOf('invite_') === 0) out.inviteOutcome = err.hint;
+    else if (typeof err.inviteOutcome === 'string') out.inviteOutcome = err.inviteOutcome;
+    try { out.cause = err; } catch (e2) {}
+    return out;
+  }
+
   var api = {
     ALPHABET: ALPHABET, CODE_LEN: CODE_LEN, TTL_MS: TTL_MS, SITE: SITE, MSG: MSG,
     normalizeCode: normalizeCode, codeIsWellFormed: codeIsWellFormed, formatCode: formatCode, inviteLink: inviteLink,
     generateCode: generateCode, trainerRole: trainerRole, capFor: capFor, inviteState: inviteState, slotsUsed: slotsUsed,
     canCreate: canCreate, isEnthusiast: isEnthusiast, clientLabel: clientLabel, timeLeft: timeLeft,
-    redeemDecision: redeemDecision, withoutTrainerWorkouts: withoutTrainerWorkouts, createBook: createBook
+    redeemDecision: redeemDecision, withoutTrainerWorkouts: withoutTrainerWorkouts, createBook: createBook,
+    inviteFailureKind: inviteFailureKind, wrapInviteError: wrapInviteError
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBInvites = api;
