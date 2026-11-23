@@ -202,6 +202,10 @@ begin
   select pg_get_functiondef('public.invite_redeem(text, boolean)'::regprocedure) into def;
   if def like '%private.is_approved%' then raise exception 'redeem still waits for approval'; end if;
   if def not like '%invite_attach%' then raise exception 'redeem does not attach'; end if;
+  select pg_get_functiondef('public.invite_attach(uuid, text, boolean)'::regprocedure) into def;
+  if def not like '%invite_expired%' or def not like '%invite_connected%' or def not like '%invite_trainer%' or def not like '%invite_used%' then
+    raise exception 'redeem outcomes are not marked';
+  end if;
 end $$;
 `);
 

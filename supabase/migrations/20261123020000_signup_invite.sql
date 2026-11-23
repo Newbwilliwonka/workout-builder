@@ -33,12 +33,12 @@ declare
   invite_found boolean := false;
   generic text := 'That invite could not be used.';
 begin
-  if p_user is null then raise exception 'Sign in first.'; end if;
+  if p_user is null then raise exception 'Sign in first.' using hint = 'invite_sign_in'; end if;
   select * into me from public.profiles where id = p_user;
-  if not found then raise exception 'Sign in first.'; end if;
+  if not found then raise exception 'Sign in first.' using hint = 'invite_sign_in'; end if;
   norm := public.invite_norm(p_code);
   if norm !~ '^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$' then
-    raise exception '%', generic;
+    raise exception '%', generic using hint = 'invite_invalid';
   end if;
   select * into inv from public.invites where code = norm for update;
   invite_found := found;
@@ -64,20 +64,24 @@ begin
     );
   end if;
   if public.invite_role(me) is not null then
-    raise exception 'A Trainer or Master Trainer cannot join as a client.';
+    raise exception 'A Trainer or Master Trainer cannot join as a client.' using hint = 'invite_trainer';
   end if;
   select id into existing from public.trainer_clients
     where client_id = p_user and ended_at is null limit 1;
   if existing is not null then
-    raise exception 'You are already connected to a trainer. End that connection before using a new invite.';
+    raise exception 'You are already connected to a trainer. End that connection before using a new invite.' using hint = 'invite_connected';
   end if;
   if not invite_found then
-    raise exception '%', generic;
+    raise exception '%', generic using hint = 'invite_invalid';
   end if;
-  if inv.used_at is not null
-     or inv.canceled_at is not null
-     or inv.expires_at <= now() then
-    raise exception '%', generic;
+  if inv.canceled_at is not null then
+    raise exception '%', generic using hint = 'invite_canceled';
+  end if;
+  if inv.used_at is not null then
+    raise exception '%', generic using hint = 'invite_used';
+  end if;
+  if inv.expires_at <= now() then
+    raise exception '%', generic using hint = 'invite_expired';
   end if;
   perform pg_advisory_xact_lock(hashtext(inv.trainer_id::text));
   select * into trainer from public.profiles where id = inv.trainer_id;
@@ -85,7 +89,7 @@ begin
   select count(*) into active_clients from public.trainer_clients
     where trainer_id = inv.trainer_id and ended_at is null;
   if active_clients >= cap then
-    raise exception '%', generic;
+    raise exception '%', generic using hint = 'invite_full';
   end if;
   enthusiast := coalesce(me.membership, '') = 'enthusiast'
     or coalesce(me.intended_plan, '') = 'enthusiast';
@@ -142,7 +146,7 @@ as $fn$
 declare
   uid uuid := auth.uid();
 begin
-  if uid is null then raise exception 'Sign in first.'; end if;
+  if uid is null then raise exception 'Sign in first.' using hint = 'invite_sign_in'; end if;
   return public.invite_attach(uid, p_code, p_share);
 end;
 $fn$;

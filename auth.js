@@ -1517,11 +1517,15 @@
     return new Error(msg || 'Could not update sharing.');
   }
   function inviteError(err) {
-    var msg = (err && (err.message || err.details || err.hint)) || '';
-    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205/i.test(msg)) {
-      return new Error('Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.');
+    var msg = (err && (err.message || err.details)) || '';
+    var friendly = msg;
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205/i.test(String(msg))) {
+      friendly = 'Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.';
     }
-    return new Error(msg || 'Could not use invites');
+    var out = new Error(friendly || 'Could not use invites');
+    var hint = err && err.hint;
+    if (typeof hint === 'string' && hint.indexOf('invite_') === 0) out.inviteOutcome = hint;
+    return out;
   }
   root.WBAuth = api;
 })(window);
