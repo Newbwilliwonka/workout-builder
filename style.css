@@ -1,4 +1,5 @@
-:root{--bg:#f3f4f6;--card:#fff;--ink:#111827;--mute:#6b7280;--line:#e5e7eb;--pri:#2563eb;--danger:#dc2626;--ss:#7c3aed;--r:14px}
+:root{--bg:#f3f4f6;--card:#fff;--ink:#111827;--mute:#6b7280;--line:#e5e7eb;--pri:#2563eb;--danger:#dc2626;--ss:#7c3aed;--r:14px;--wb-digit-font:ui-monospace,SFMono-Regular,Menlo,monospace}
+.wb-digits{font-family:var(--wb-digit-font)}
 *{box-sizing:border-box}
 html{background:#c5d4e6}
 body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:transparent;color:var(--ink);padding-bottom:env(safe-area-inset-bottom)}
@@ -130,7 +131,7 @@ body.playing .bar{display:none}
 .pl-chip{background:#1e293b;backdrop-filter:none;color:#fff;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
 .pl-chip.ss{background:rgba(124,58,237,.35);backdrop-filter:blur(6px);color:#e2e8f0;margin-bottom:0} /* builder .ss margin was stretching the status chip */
 .is-rest .pl-chip:not(.ss){color:#6ee7b7}
-.pl-ro{position:absolute;left:0;right:0;top:52%;transform:translateY(-50%);text-align:center;font:700 clamp(36px,11vw,56px)/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#2563eb;font-variant-numeric:tabular-nums;letter-spacing:-.02em} /* one vertical spot for every media-window clock */
+.pl-ro{position:absolute;left:0;right:0;top:52%;transform:translateY(-50%);text-align:center;font-weight:700;font-size:clamp(36px,11vw,56px);line-height:1;font-family:var(--wb-digit-font);color:#2563eb;font-variant-numeric:tabular-nums;letter-spacing:-.02em} /* one vertical spot for every media-window clock */
 .pl-name{font-size:18px;font-weight:700;color:#fff;line-height:1.15;word-break:break-word}
 .pl-next{font-size:13px;color:#6ee7b7;margin-bottom:4px;font-weight:600}
 .pl-meta{display:flex;flex-direction:column;gap:2px;margin-top:6px;font-size:13px;color:#cbd5e1}
@@ -662,8 +663,8 @@ body.circuit-on .circuit-phase{flex:1;min-width:0;text-align:center;padding:2px 
 body.circuit-on .circuit-phase+.circuit-phase{border-left:1px solid var(--line)}
 body.circuit-on .circuit-phase .kicker{margin:0 0 2px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 body.circuit-on .circuit-phase .time{justify-content:center;gap:0}
-body.circuit-on .circuit-phase .time span{font:700 20px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace}
-body.circuit-on .circuit-phase .time input,body.circuit-on .circuit-phase.rounds input{width:2.2ch;min-height:0;height:28px;padding:0;border:0;background:transparent;font:700 22px/1 ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums;box-shadow:none}
+body.circuit-on .circuit-phase .time span{font-weight:700;font-size:20px;line-height:1.1}
+body.circuit-on .circuit-phase .time input,body.circuit-on .circuit-phase.rounds input{width:2.2ch;min-height:0;height:28px;padding:0;border:0;background:transparent;font-weight:700;font-size:22px;line-height:1;font-variant-numeric:tabular-nums;box-shadow:none}
 body.circuit-on .circuit-phase .time input:first-child{text-align:right}
 body.circuit-on .circuit-phase .time input:last-child{text-align:left}
 body.circuit-on .circuit-phase.rounds input{width:3ch;color:var(--ink);text-align:center}
@@ -680,7 +681,7 @@ body.circuit-on .circuit-seg button{min-height:36px;height:36px;min-width:64px;p
 body.circuit-on .circuit-seg button.on{background:var(--pri);color:#fff}
 body.circuit-on .circuit-clock-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.06);padding:10px 12px 12px}
 body.circuit-on .circuit-clock-top{display:flex;align-items:center;gap:10px}
-body.circuit-on .circuit-time{flex:1;font:700 52px/1 ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums;letter-spacing:-.03em;color:var(--pri)}
+body.circuit-on .circuit-time{flex:1;font-weight:700;font-size:52px;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.03em;color:var(--pri)}
 body.circuit-on .circuit-time.is-move{color:#047857}
 body.circuit-on .circuit-clock-btns{display:flex;gap:8px}
 body.circuit-on button.circuit-icon{width:48px;height:48px;min-width:48px;min-height:48px;padding:0;border-radius:12px;background:var(--line);color:var(--ink);display:flex;align-items:center;justify-content:center}

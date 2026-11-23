@@ -198,7 +198,7 @@
     var exercise = station.exercise;
     var name = exercise && exercise.name ? exercise.name : 'Choose exercise';
     var manual = exercise && exercise.source === 'manual' ? '<span class="circuit-tag">manual</span>' : '';
-    return '<span class="' + (n ? 'circuit-num' : 'circuit-num is-open') + '">' + (n ? String(n) : '·') + '</span>' +
+    return '<span class="wb-digits ' + (n ? 'circuit-num' : 'circuit-num is-open') + '">' + (n ? String(n) : '·') + '</span>' +
       '<button type="button" class="circuit-x" data-act="remove" data-id="' + esc(station.id) + '" aria-label="Remove station"' + off() + '>×</button>' +
       '<div class="circuit-ex"><span class="circuit-name">' + esc(name) + '</span>' + manual + '</div>' +
       '<button type="button" class="circuit-change" data-act="change" data-id="' + esc(station.id) + '" aria-label="Change exercise"' + off() + '>' +
@@ -248,7 +248,7 @@
     return h;
   }
   function phaseHtml(kind, label, minId, secId, minVal, secVal) {
-    return '<div class="circuit-phase ' + kind + '"><div class="kicker">' + label + '</div><div class="time">' +
+    return '<div class="circuit-phase ' + kind + '"><div class="kicker">' + label + '</div><div class="time wb-digits">' +
       '<input id="' + minId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' minutes" value="' + esc(minVal) + '" autocomplete="off"' + off() + '>' +
       '<span>:</span>' +
       '<input id="' + secId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' seconds" value="' + esc(secVal) + '" autocomplete="off"' + off() + '>' +
@@ -390,7 +390,7 @@
       phaseHtml('work', 'Work', 'circuit-work-m', 'circuit-work-s', clockText.wm, clockText.ws) +
       phaseHtml('move', 'Move', 'circuit-move-m', 'circuit-move-s', clockText.mm, clockText.ms) +
       '<div class="circuit-phase rounds"><label class="kicker" for="circuit-rounds">Rounds</label>' +
-      '<input id="circuit-rounds" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
+      '<input id="circuit-rounds" class="wb-digits" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
       '<p class="circuit-track" id="circuit-track">Tracking: time per station (automatic)</p>';
     if (draft.id) h += '<button type="button" class="pri circuit-start" data-act="run"' + (busy ? ' disabled' : '') + '>Start session</button>';
     h += '<div class="circuit-actions">' +
