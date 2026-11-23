@@ -46,6 +46,19 @@ assert.strictEqual(C.initial(''), 'C');
 const six = build(6, 'Saturday class');
 assert.strictEqual(six.stations.length, 6);
 assert.deepStrictEqual(six.stations.map(function (s) { return s.col + ',' + s.row; }), ['0,0', '1,0', '2,0', '3,0', '0,1', '1,1']);
+assert.strictEqual(C.visibleRows([]), 2);
+assert.strictEqual(C.visibleRows(six.stations), 3);
+assert.strictEqual(C.visibleRows([{ row: 5 }]), 6);
+(function () {
+  var narrow = C.blank();
+  for (var i = 0; i < 4; i++) {
+    var added = C.addStation(narrow, 3);
+    assert.strictEqual(added.ok, true);
+    narrow = added.circuit;
+  }
+  assert.deepStrictEqual(narrow.stations.map(function (s) { return s.col + ',' + s.row; }), ['0,0', '1,0', '2,0', '0,1']);
+  assert.strictEqual(C.visibleRows(narrow.stations), 3);
+})();
 assert.strictEqual(C.loopComplete(six.stations, six.order), true);
 assert.deepStrictEqual(six.order.map(function (id) { return C.stationNumber(six.order, id); }), [1, 2, 3, 4, 5, 6]);
 const edges = C.loopEdges(six.order);

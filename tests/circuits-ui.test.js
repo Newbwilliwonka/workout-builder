@@ -53,19 +53,31 @@ async function stub(page, membership) {
         };
         api.circuits = function () { return Promise.resolve(circuits.map(function (row) { return JSON.parse(JSON.stringify(row)); })); };
         api.saveCircuit = function (row) {
-          var saved = {
-            id: row.id || '11111111-1111-4111-8111-111111111111',
-            name: row.name,
-            data: row.data,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          var at = -1;
-          circuits.forEach(function (item, i) { if (item.id === saved.id) at = i; });
-          if (at >= 0) circuits[at] = saved;
-          else circuits.unshift(saved);
-          window.__circuits = circuits;
-          return Promise.resolve(saved);
+          function store() {
+            var saved = {
+              id: row.id || '11111111-1111-4111-8111-111111111111',
+              name: row.name,
+              data: JSON.parse(JSON.stringify(row.data)),
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            };
+            var at = -1;
+            circuits.forEach(function (item, i) { if (item.id === saved.id) at = i; });
+            if (at >= 0) circuits[at] = saved;
+            else circuits.unshift(saved);
+            window.__circuits = circuits;
+            return saved;
+          }
+          if (window.__blockSave) {
+            return new Promise(function (resolve, reject) {
+              window.__releaseSave = function (fail) {
+                window.__blockSave = false;
+                if (fail) reject(new Error('Could not save that circuit.'));
+                else resolve(store());
+              };
+            });
+          }
+          return Promise.resolve(store());
         };
         api.deleteCircuit = function (id) {
           circuits = circuits.filter(function (item) { return item.id !== id; });
@@ -156,6 +168,10 @@ async function shot(page, name) {
     }, {}, manuals[i]);
   }
   assert.strictEqual(await page.$$eval('.wb-tile', function (nodes) { return nodes.length; }), 6);
+  assert.strictEqual(await page.$eval('.wb-grid', function (el) {
+    return getComputedStyle(el).gridTemplateColumns.split(' ').filter(Boolean).length;
+  }), 3);
+  assert.strictEqual(await page.$$eval('.wb-cell', function (nodes) { return nodes.length; }), 9);
   assert.strictEqual(await page.$eval('#circuit-rounds', function (el) { return el.value; }), '6');
   assert.strictEqual(await page.$eval('#circuit-work-s', function (el) { return el.value; }), '45');
   assert.strictEqual(await page.$eval('#circuit-move-s', function (el) { return el.value; }), '15');
@@ -181,7 +197,7 @@ async function shot(page, name) {
     }, {}, i + 1);
   }
   await page.waitForFunction(function () {
-    return document.querySelectorAll('.circuit-arrows line').length === 6;
+    return document.querySelectorAll('.circuit-arrows polyline').length === 6;
   });
 
   const from = await page.evaluate(function () {
@@ -209,7 +225,7 @@ async function shot(page, name) {
     return cell && cell.getAttribute('data-col') === col && cell.getAttribute('data-row') === row;
   }, {}, from.id, target.col, target.row);
   await page.waitForFunction(function () {
-    return document.querySelectorAll('.circuit-arrows line').length === 6;
+    return document.querySelectorAll('.circuit-arrows polyline').length === 6;
   });
 
   await page.click('[data-act=client][data-id="' + ADA + '"]');
@@ -234,8 +250,52 @@ async function shot(page, name) {
     return nodes.map(function (el) { return { text: el.textContent, cut: el.scrollWidth > el.clientWidth + 1 }; });
   });
   clipped.forEach(function (item) { assert.strictEqual(item.cut, false, item.text); });
+  const covered = await page.evaluate(function () {
+    function inside(x, y, rect) {
+      return x > rect.left + 1 && x < rect.right - 1 && y > rect.top + 1 && y < rect.bottom - 1;
+    }
+    var tiles = Array.prototype.map.call(document.querySelectorAll('.wb-tile, .circuit-change, .circuit-name, .circuit-x'), function (el) {
+      return el.getBoundingClientRect();
+    });
+    var bad = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('.circuit-arrows polyline'), function (line) {
+      var svg = line.ownerSVGElement.getBoundingClientRect();
+      var pts = line.getAttribute('points').trim().split(/\s+/).map(function (pair) {
+        var xy = pair.split(',');
+        return { x: svg.left + Number(xy[0]), y: svg.top + Number(xy[1]) };
+      });
+      for (var i = 1; i < pts.length; i++) {
+        for (var step = 1; step <= 4; step++) {
+          var t = step / 4;
+          var sx = pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t;
+          var sy = pts[i - 1].y + (pts[i].y - pts[i - 1].y) * t;
+          tiles.forEach(function (rect) { if (inside(sx, sy, rect)) bad++; });
+        }
+      }
+    });
+    return bad;
+  });
+  assert.strictEqual(covered, 0);
   await page.addStyleTag({ content: '.bar{position:static !important}' });
   await shot(page, 'circuits-setup.png');
+
+  await page.evaluate(function () { window.__blockSave = true; });
+  await page.click('[data-act=save]');
+  await page.waitForFunction(function () { return document.getElementById('circuit-name').disabled === true; });
+  const lockedTiles = await page.$$eval('.wb-tile', function (nodes) { return nodes.length; });
+  assert.strictEqual(await page.$eval('[data-act=add]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await page.$eval('.circuit-board', function (el) { return el.classList.contains('is-busy'); }), true);
+  await page.evaluate(function () {
+    var button = document.querySelector('[data-act=add]');
+    button.disabled = false;
+    button.click();
+  });
+  assert.strictEqual(await page.$$eval('.wb-tile', function (nodes) { return nodes.length; }), lockedTiles);
+  await page.evaluate(function () { window.__releaseSave(true); });
+  await page.waitForFunction(function () {
+    return document.getElementById('circuit-name') && document.getElementById('circuit-name').disabled === false && document.getElementById('circuit-err');
+  });
+  assert.strictEqual(await page.$$eval('.wb-tile', function (nodes) { return nodes.length; }), lockedTiles);
 
   await page.click('[data-act=save]');
   await page.waitForSelector('#circuit-new');

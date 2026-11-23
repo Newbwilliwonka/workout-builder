@@ -96,6 +96,22 @@
   function countLabel(n, word) {
     return n + ' ' + word + (n === 1 ? '' : 's');
   }
+  function off() { return busy ? ' disabled' : ''; }
+  function editorCols(stations) {
+    var C = model();
+    var width = 480;
+    try {
+      if (ctx && ctx.app && ctx.app.clientWidth) width = ctx.app.clientWidth;
+      else if (root.innerWidth) width = root.innerWidth;
+    } catch (e) {}
+    var fit = width < 520 ? 3 : C.COLS;
+    var used = 0;
+    (stations || []).forEach(function (s) {
+      if (s && typeof s.col === 'number' && s.col + 1 > used) used = s.col + 1;
+    });
+    var cols = Math.max(fit, used);
+    return cols > C.COLS ? C.COLS : cols;
+  }
   function stillUrl(id) {
     var base = root.WBAuth && root.WBAuth.gifBase;
     if (root.WB && root.WB.exerciseStillUrl) return root.WB.exerciseStillUrl(id, base || '');
@@ -183,9 +199,9 @@
     var name = exercise && exercise.name ? exercise.name : 'Choose exercise';
     var manual = exercise && exercise.source === 'manual' ? '<span class="circuit-tag">manual</span>' : '';
     return '<span class="' + (n ? 'circuit-num' : 'circuit-num is-open') + '">' + (n ? String(n) : '·') + '</span>' +
-      '<button type="button" class="circuit-x" data-act="remove" data-id="' + esc(station.id) + '" aria-label="Remove station">×</button>' +
+      '<button type="button" class="circuit-x" data-act="remove" data-id="' + esc(station.id) + '" aria-label="Remove station"' + off() + '>×</button>' +
       '<div class="circuit-ex"><span class="circuit-name">' + esc(name) + '</span>' + manual + '</div>' +
-      '<button type="button" class="circuit-change" data-act="change" data-id="' + esc(station.id) + '">Change</button>';
+      '<button type="button" class="circuit-change" data-act="change" data-id="' + esc(station.id) + '"' + off() + '>Change</button>';
   }
   function pickerHtml() {
     if (!picking || !draft) return '';
@@ -194,24 +210,24 @@
     var n = model().stationNumber(draft.order, station.id);
     return '<div class="card" id="circuit-picker"><div class="name">' + (n ? 'Station ' + n : 'Choose an exercise') + '</div>' +
       '<label for="circuit-lib-q">Exercise library</label>' +
-      '<input id="circuit-lib-q" value="' + esc(libQuery) + '" placeholder="Search exercises" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' +
+      '<input id="circuit-lib-q" value="' + esc(libQuery) + '" placeholder="Search exercises" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"' + off() + '>' +
       '<div id="circuit-lib-results">' + libResultsHtml() + '</div>' +
       '<label for="circuit-ex-name">Or type a name</label>' +
-      '<input id="circuit-ex-name" value="' + esc(manualExercise) + '" placeholder="Exercise name" maxlength="80" autocomplete="off">' +
-      '<button type="button" class="pri" data-act="manual-exercise" style="width:100%;margin-top:8px">Use this name</button></div>';
+      '<input id="circuit-ex-name" value="' + esc(manualExercise) + '" placeholder="Exercise name" maxlength="80" autocomplete="off"' + off() + '>' +
+      '<button type="button" class="pri" data-act="manual-exercise" style="width:100%;margin-top:8px"' + off() + '>Use this name</button></div>';
   }
   function clientsHtml() {
     var C = model();
     var h = '<div class="circuit-people" id="circuit-people">';
     rosterRows().forEach(function (person) {
       var on = (draft.clients || []).some(function (c) { return c && c.source === 'linked' && c.id === person.id; });
-      h += '<button type="button" class="circuit-person' + (on ? ' on' : '') + '" data-act="client" data-id="' + esc(person.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+      h += '<button type="button" class="circuit-person' + (on ? ' on' : '') + '" data-act="client" data-id="' + esc(person.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' + off() + '>' +
         '<span class="ava" aria-hidden="true">' + esc(C.initial(person.name)) + '</span>' +
         '<span class="circuit-person-name">' + esc(person.name) + '</span></button>';
     });
     (draft.clients || []).forEach(function (client) {
       if (!client || client.source !== 'manual') return;
-      h += '<button type="button" class="circuit-person on" data-act="manual-chip" data-name="' + esc(client.name) + '" aria-label="Remove ' + esc(client.name) + '">' +
+      h += '<button type="button" class="circuit-person on" data-act="manual-chip" data-name="' + esc(client.name) + '" aria-label="Remove ' + esc(client.name) + '"' + off() + '>' +
         '<span class="ava" aria-hidden="true">' + esc(C.initial(client.name)) + '</span>' +
         '<span class="circuit-person-name">' + esc(client.name) + '</span>' +
         '<span class="circuit-tag">manual</span></button>';
@@ -219,19 +235,19 @@
     h += '</div>';
     if (!rosterRows().length && !rosterError) h += '<p class="mute">No linked clients yet.</p>';
     if (rosterError) h += '<p class="mute">' + esc(rosterError) + '</p>';
-    h += '<button type="button" data-act="manual-open">+ Manual client</button>';
+    h += '<button type="button" data-act="manual-open"' + off() + '>+ Manual client</button>';
     if (manualOpen) {
       h += '<label for="circuit-client-name">Client name</label>' +
-        '<input id="circuit-client-name" value="' + esc(manualName) + '" placeholder="Name" maxlength="80" autocomplete="name">' +
-        '<button type="button" class="pri" data-act="manual-add" style="width:100%;margin-top:8px">Add client</button>';
+        '<input id="circuit-client-name" value="' + esc(manualName) + '" placeholder="Name" maxlength="80" autocomplete="name"' + off() + '>' +
+        '<button type="button" class="pri" data-act="manual-add" style="width:100%;margin-top:8px"' + off() + '>Add client</button>';
     }
     return h;
   }
   function phaseHtml(kind, label, minId, secId, minVal, secVal) {
     return '<div class="circuit-phase ' + kind + '"><div class="kicker">' + label + '</div><div class="time">' +
-      '<input id="' + minId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' minutes" value="' + esc(minVal) + '" autocomplete="off">' +
+      '<input id="' + minId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' minutes" value="' + esc(minVal) + '" autocomplete="off"' + off() + '>' +
       '<span>:</span>' +
-      '<input id="' + secId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' seconds" value="' + esc(secVal) + '" autocomplete="off">' +
+      '<input id="' + secId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' seconds" value="' + esc(secVal) + '" autocomplete="off"' + off() + '>' +
       '</div></div>';
   }
   function errorsHtml() {
@@ -242,6 +258,109 @@
     if (arrowObserver) { arrowObserver.disconnect(); arrowObserver = null; }
     if (arrowFrame) { cancelAnimationFrame(arrowFrame); arrowFrame = 0; }
   }
+  function boardPoint(el, board) {
+    var rect = el.getBoundingClientRect();
+    var box = board.getBoundingClientRect();
+    return {
+      left: rect.left - box.left,
+      top: rect.top - box.top,
+      right: rect.right - box.left,
+      bottom: rect.bottom - box.top,
+      cx: rect.left - box.left + rect.width / 2,
+      cy: rect.top - box.top + rect.height / 2,
+      col: Number(el.getAttribute('data-col')),
+      row: Number(el.getAttribute('data-row'))
+    };
+  }
+  function clamp(n, lo, hi) {
+    if (hi < lo) return (lo + hi) / 2;
+    return Math.max(lo, Math.min(hi, n));
+  }
+  function rowGapY(cells, row) {
+    var upper = null;
+    var lower = null;
+    Object.keys(cells).forEach(function (key) {
+      var cell = cells[key];
+      if (cell.row === row) upper = cell;
+      if (cell.row === row + 1) lower = cell;
+    });
+    if (upper && lower) return (upper.bottom + lower.top) / 2;
+    if (upper) return upper.bottom + 8;
+    if (lower) return lower.top - 8;
+    return 0;
+  }
+  function colGapX(cells, col) {
+    var left = null;
+    var right = null;
+    Object.keys(cells).forEach(function (key) {
+      var cell = cells[key];
+      if (cell.col === col) left = cell;
+      if (cell.col === col + 1) right = cell;
+    });
+    if (left && right) return (left.right + right.left) / 2;
+    if (left) return left.right + 8;
+    if (right) return right.left - 8;
+    return 0;
+  }
+  function pullTip(points) {
+    var last = points.length - 1;
+    var prev = points[last - 1];
+    var tip = points[last];
+    var dx = tip[0] - prev[0];
+    var dy = tip[1] - prev[1];
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var back = Math.min(8, len * 0.45);
+    points[last] = [tip[0] - dx / len * back, tip[1] - dy / len * back];
+    return points;
+  }
+  // Arrows travel in the gaps, from the edge of one tile to the edge of the next.
+  function arrowPoints(a, b, cells, close) {
+    var shift = close ? 7 : -7;
+    if (a.row === b.row && Math.abs(a.col - b.col) === 1) {
+      var yMin = Math.max(a.top, b.top) + 16;
+      var yMax = Math.min(a.bottom, b.bottom) - 16;
+      var y = clamp((a.cy + b.cy) / 2 + shift, yMin, yMax);
+      var forward = a.col < b.col;
+      return pullTip([
+        [forward ? a.right + 2 : a.left - 2, y],
+        [forward ? b.left - 2 : b.right + 2, y]
+      ]);
+    }
+    if (a.col === b.col && Math.abs(a.row - b.row) === 1) {
+      var xMin = Math.max(a.left, b.left) + 16;
+      var xMax = Math.min(a.right, b.right) - 16;
+      var x = clamp((a.cx + b.cx) / 2 + shift, xMin, xMax);
+      var down = a.row < b.row;
+      return pullTip([
+        [x, down ? a.bottom + 2 : a.top - 2],
+        [x, down ? b.top - 2 : b.bottom + 2]
+      ]);
+    }
+    var yLeave = b.row >= a.row ? a.bottom + 2 : a.top - 2;
+    var yEnter = b.row >= a.row ? b.top - 2 : b.bottom + 2;
+    if (a.row === b.row) {
+      yLeave = a.bottom + 2;
+      yEnter = b.bottom + 2;
+    }
+    var xLeave = clamp(a.cx + shift, a.left + 16, a.right - 16);
+    var xEnter = clamp(b.cx - shift, b.left + 16, b.right - 16);
+    // A straight run down a column would cross the stations in between.
+    // Step out into the column gap, travel there, then come back to the tile edge.
+    if (a.col === b.col && Math.abs(a.row - b.row) > 1) {
+      var side = colGapX(cells, a.col) || (a.right + 8);
+      var edgeY = b.row > a.row ? b.top : b.bottom;
+      var outerY = b.row > a.row ? b.top - 14 : b.bottom + 14;
+      return pullTip([
+        [xLeave, yLeave],
+        [side, yLeave],
+        [side, outerY],
+        [xEnter, outerY],
+        [xEnter, edgeY]
+      ]);
+    }
+    var channel = rowGapY(cells, a.row === b.row ? a.row : Math.min(a.row, b.row)) || ((a.cy + b.cy) / 2);
+    return pullTip([[xLeave, yLeave], [xLeave, channel], [xEnter, channel], [xEnter, yEnter]]);
+  }
   function paintArrows() {
     var board = document.getElementById('circuit-board');
     var C = model();
@@ -251,36 +370,28 @@
     var box = board.getBoundingClientRect();
     if (!box.width || !box.height) return;
     svg.setAttribute('viewBox', '0 0 ' + box.width + ' ' + box.height);
-    var centers = {};
-    var pad = 24;
+    var cells = {};
+    var tiles = {};
     Array.prototype.forEach.call(board.querySelectorAll('.wb-cell'), function (cell) {
+      var spot = boardPoint(cell, board);
+      cells[spot.col + ',' + spot.row] = spot;
       var tile = cell.querySelector('.wb-tile');
       if (!tile) return;
-      var rect = cell.getBoundingClientRect();
-      centers[tile.getAttribute('data-grid-id')] = {
-        x: rect.left - box.left + rect.width / 2,
-        y: rect.top - box.top + rect.height / 2
-      };
-      pad = Math.min(rect.width, rect.height) / 2 - 16;
+      var body = boardPoint(tile, board);
+      body.col = spot.col;
+      body.row = spot.row;
+      tiles[tile.getAttribute('data-grid-id')] = body;
     });
-    var html = '<defs><marker id="circuit-arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#2563eb"></path></marker></defs>';
+    var html = '<defs><marker id="circuit-arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#2563eb"></path></marker></defs>';
     C.loopEdges(draft.order).forEach(function (edge) {
-      var a = centers[edge.from];
-      var b = centers[edge.to];
+      var a = tiles[edge.from];
+      var b = tiles[edge.to];
       if (!a || !b) return;
-      var dx = b.x - a.x;
-      var dy = b.y - a.y;
-      var len = Math.sqrt(dx * dx + dy * dy) || 1;
-      var ux = dx / len;
-      var uy = dy / len;
-      var ox = edge.close ? -uy * 8 : 0;
-      var oy = edge.close ? ux * 8 : 0;
-      var x1 = a.x + ux * pad + ox;
-      var y1 = a.y + uy * pad + oy;
-      var x2 = b.x - ux * (pad + 4) + ox;
-      var y2 = b.y - uy * (pad + 4) + oy;
-      if (Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)) < 4) return;
-      html += '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" marker-end="url(#circuit-arrowhead)"></line>';
+      var points = arrowPoints(a, b, cells, edge.close);
+      if (!points || points.length < 2) return;
+      html += '<polyline points="' + points.map(function (p) {
+        return p[0].toFixed(1) + ',' + p[1].toFixed(1);
+      }).join(' ') + '" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#circuit-arrowhead)"></polyline>';
     });
     svg.innerHTML = html;
   }
@@ -335,19 +446,19 @@
     if (!clockText) clockText = clockTextFrom(draft.clock);
     var h = errorsHtml();
     h += '<div class="card"><label for="circuit-name">Circuit name</label>' +
-      '<input id="circuit-name" value="' + esc(draft.name) + '" maxlength="80" autocomplete="off" placeholder="Morning circuit"></div>';
+      '<input id="circuit-name" value="' + esc(draft.name) + '" maxlength="80" autocomplete="off" placeholder="Morning circuit"' + off() + '></div>';
     h += '<div class="card"><div class="row">' +
-      '<button type="button" class="pri grow" data-act="add">+ Add station</button>' +
-      '<button type="button" id="circuit-clear" data-act="clear"' + (draft.order.length ? '' : ' disabled') + '>Clear order</button></div>' +
+      '<button type="button" class="pri grow" data-act="add"' + off() + '>+ Add station</button>' +
+      '<button type="button" id="circuit-clear" data-act="clear"' + (busy || !draft.order.length ? ' disabled' : '') + '>Clear order</button></div>' +
       '<p class="mute" id="circuit-hint">Tap stations in order to draw the loop.</p>' +
-      '<div class="circuit-board" id="circuit-board"><svg class="circuit-arrows" aria-hidden="true"></svg><div id="circuit-grid"></div></div></div>';
+      '<div class="circuit-board' + (busy ? ' is-busy' : '') + '" id="circuit-board"><svg class="circuit-arrows" aria-hidden="true"></svg><div id="circuit-grid"></div></div></div>';
     h += pickerHtml();
     h += '<div class="card"><div class="name">Clients</div>' + clientsHtml() + '</div>';
     h += '<div class="card"><div class="name">Clock</div><div class="circuit-clock">' +
       phaseHtml('work', 'Work', 'circuit-work-m', 'circuit-work-s', clockText.wm, clockText.ws) +
       phaseHtml('move', 'Move', 'circuit-move-m', 'circuit-move-s', clockText.mm, clockText.ms) +
       '<div class="circuit-phase rounds"><label for="circuit-rounds">Rounds</label>' +
-      '<input id="circuit-rounds" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"></div></div>' +
+      '<input id="circuit-rounds" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
       '<p class="mute" id="circuit-track">Tracking: time per station (automatic)</p></div>';
     h += '<div class="row"><button type="button" class="pri grow" data-act="save"' + (busy ? ' disabled' : '') + '>Save</button>' +
       '<button type="button" class="grow" data-act="cancel"' + (busy ? ' disabled' : '') + '>Cancel</button></div>';
@@ -358,8 +469,8 @@
     var grid = document.getElementById('circuit-grid');
     if (grid && root.WBGrid) {
       root.WBGrid.mount(grid, {
-        cols: C.COLS,
-        rows: C.ROWS,
+        cols: editorCols(draft.stations),
+        rows: C.visibleRows(draft.stations),
         label: 'Circuit stations',
         items: (draft.stations || []).map(function (station) {
           var exercise = station.exercise;
@@ -393,7 +504,8 @@
     paint();
   }
   function onAdd() {
-    var added = model().addStation(draft);
+    if (busy || !draft) return;
+    var added = model().addStation(draft, editorCols(draft.stations));
     if (!added.ok) { if (ctx) ctx.toast(added.error); return; }
     draft = added.circuit;
     followRounds();
@@ -409,6 +521,7 @@
     if (box) box.focus();
   }
   function onRemove(id) {
+    if (busy || !draft) return;
     draft = model().removeStation(draft, id);
     if (picking === id) picking = '';
     followRounds();
@@ -416,6 +529,7 @@
     paint();
   }
   function onChangeExercise(id) {
+    if (busy || !draft) return;
     picking = picking === id ? '' : id;
     libQuery = '';
     libRows = [];
@@ -429,6 +543,7 @@
     }
   }
   function onPick(id, name) {
+    if (busy || !draft) return;
     var set = model().setExercise(draft, picking, { source: 'library', libraryId: id, name: name });
     if (!set.ok) { formError = [set.error]; paint(); return; }
     draft = set.circuit;
@@ -437,6 +552,7 @@
     paint();
   }
   function onManualExercise() {
+    if (busy || !draft) return;
     var field = document.getElementById('circuit-ex-name');
     if (field) manualExercise = field.value;
     var set = model().setExercise(draft, picking, { source: 'manual', name: manualExercise });
@@ -448,6 +564,7 @@
     paint();
   }
   function onClient(id) {
+    if (busy || !draft) return;
     var person = (roster || []).filter(function (item) { return item && String(item.id) === String(id); })[0];
     if (!person) return;
     draft.clients = model().toggleLinked(draft.clients, person);
@@ -455,6 +572,7 @@
     paint();
   }
   function onManualAdd() {
+    if (busy || !draft) return;
     var field = document.getElementById('circuit-client-name');
     if (field) manualName = field.value;
     var added = model().addManualClient(draft.clients, manualName);
@@ -466,6 +584,7 @@
     paint();
   }
   function onManualChip(name) {
+    if (busy || !draft) return;
     draft.clients = model().removeManualClient(draft.clients, name);
     paint();
   }
@@ -488,7 +607,13 @@
     if (payload.id) row.id = payload.id;
     root.WBAuth.saveCircuit(row).then(function () {
       busy = false;
-      if (draft) savedJson = JSON.stringify(snapshot(draft));
+      savedJson = JSON.stringify({
+        name: payload.name,
+        stations: payload.data.stations,
+        order: payload.data.order,
+        clients: payload.data.clients,
+        clock: payload.data.clock
+      });
       if (ctx) ctx.toast('Saved');
       if (ctx) ctx.go('#/circuits');
     }, function (err) {
@@ -517,13 +642,14 @@
   }
   function onClick(e) {
     var button = e.target.closest ? e.target.closest('[data-act]') : null;
-    if (!button || button.disabled) return;
+    if (!button || button.disabled || busy) return;
     var act = button.getAttribute('data-act');
     if (act === 'new') return ctx.go('#/circuits/new');
     if (act === 'open') return ctx.go('#/circuits/' + button.getAttribute('data-id'));
     if (act === 'del') return onDelete(button.getAttribute('data-id'));
     if (act === 'add') return onAdd();
     if (act === 'clear') {
+      if (!draft) return;
       draft.order = model().clearOrder();
       formError = [];
       paint();
@@ -542,7 +668,7 @@
   }
   function onInput(e) {
     var field = e.target;
-    if (!field || !draft) return;
+    if (busy || !field || !draft) return;
     if (field.id === 'circuit-name') { draft.name = field.value; return; }
     if (!clockText) clockText = clockTextFrom(draft.clock);
     if (field.id === 'circuit-work-m' || field.id === 'circuit-work-s' || field.id === 'circuit-move-m' || field.id === 'circuit-move-s') {
@@ -568,7 +694,7 @@
     if (field.id === 'circuit-client-name') { manualName = field.value; return; }
   }
   function onKey(e) {
-    if (e.key !== 'Enter') return;
+    if (busy || e.key !== 'Enter') return;
     if (e.target && e.target.id === 'circuit-ex-name') { e.preventDefault(); onManualExercise(); }
     if (e.target && e.target.id === 'circuit-client-name') { e.preventDefault(); onManualAdd(); }
   }

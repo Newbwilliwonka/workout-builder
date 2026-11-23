@@ -621,16 +621,17 @@ html.wb-app body:has(#landing) > #app{display:block !important}
 .landing-end{text-align:center;margin:18px 0 0}
 .landing-end a{color:var(--pri);font-weight:600;font-size:16px;text-decoration:underline;text-underline-offset:3px;display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:8px 12px}
 .circuit-board{position:relative;margin-top:10px}
-.circuit-arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:visible}
-.wb-grid{position:relative;z-index:2;display:grid;gap:6px}
-.wb-cell{position:relative;min-height:112px;border:1px solid rgba(17,24,39,.12);border-radius:12px;background:rgba(255,255,255,.72)}
+.circuit-board.is-busy{pointer-events:none}
+.circuit-arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
+.wb-grid{position:relative;z-index:2;display:grid;gap:16px}
+.wb-cell{position:relative;min-height:132px;border:1px solid rgba(17,24,39,.12);border-radius:12px;background:rgba(255,255,255,.72)}
 .wb-cell.wb-over{box-shadow:0 0 0 2px var(--pri);background:#eff6ff}
 .wb-tile{touch-action:none;position:absolute;inset:5px;border-radius:10px;background:#fff;border:1px solid #d1d5db;box-shadow:0 1px 2px rgba(0,0,0,.06);padding:4px;cursor:grab;user-select:none;-webkit-user-select:none}
 .wb-tile.wb-dragging{opacity:.45}
 .circuit-num{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:999px;background:var(--pri);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .circuit-num.is-open{background:#e5e7eb;color:var(--mute)}
 .circuit-ex{position:absolute;left:6px;right:6px;top:30px;bottom:26px;margin:0;overflow:hidden}
-.circuit-name{display:block;font-size:12px;font-weight:700;line-height:1.15;word-break:break-word}
+.circuit-name{display:block;font-size:15px;font-weight:700;line-height:1.2;word-break:break-word}
 .circuit-tag{display:block;width:max-content;max-width:100%;margin-top:3px;background:#f3f4f6;color:var(--mute);border-radius:999px;padding:0 6px;font-size:10px;font-weight:700;letter-spacing:.03em}
 button.circuit-x{position:absolute;top:0;right:0;width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border-radius:8px;background:transparent;color:var(--mute);font-size:20px;line-height:1}
 button.circuit-change{position:absolute;left:2px;bottom:0;width:auto;min-width:0;min-height:28px;height:28px;padding:0 4px;background:transparent;color:var(--pri);font-size:12px;font-weight:700}

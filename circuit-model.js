@@ -130,20 +130,34 @@
     if (follows) next.rounds = count > 0 ? count : 0;
     return next;
   }
-  function nextCell(stations) {
+  function columnCount(cols) {
+    var width = integer(cols, 1, COLS);
+    return width == null ? COLS : width;
+  }
+  // Rows on screen: every row that has a station, plus one empty row, and never fewer than 2.
+  function visibleRows(stations) {
+    var used = 0;
+    (stations || []).forEach(function (s) {
+      if (s && typeof s.row === 'number' && s.row + 1 > used) used = s.row + 1;
+    });
+    var shown = Math.max(2, used + 1);
+    return shown > ROWS ? ROWS : shown;
+  }
+  function nextCell(stations, cols) {
+    var width = columnCount(cols);
     var used = {};
     (stations || []).forEach(function (s) {
       if (s && typeof s.col === 'number' && typeof s.row === 'number') used[s.col + ',' + s.row] = 1;
     });
     for (var r = 0; r < ROWS; r++) {
-      for (var c = 0; c < COLS; c++) {
+      for (var c = 0; c < width; c++) {
         if (!used[c + ',' + r]) return { col: c, row: r };
       }
     }
     return null;
   }
-  function addStation(doc) {
-    var cell = nextCell(doc && doc.stations);
+  function addStation(doc, cols) {
+    var cell = nextCell(doc && doc.stations, cols);
     if (!cell) return { ok: false, error: 'The grid is full.' };
     var next = clone(doc || blank());
     var station = { id: newId(), col: cell.col, row: cell.row, exercise: null };
@@ -420,6 +434,7 @@
     splitClock: splitClock,
     joinClock: joinClock,
     syncRounds: syncRounds,
+    visibleRows: visibleRows,
     nextCell: nextCell,
     addStation: addStation,
     normalizeExercise: normalizeExercise,
