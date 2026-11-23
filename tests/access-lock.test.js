@@ -119,25 +119,24 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await denied(signedOut, '#/received', '#/subscriptions');
   await denied(signedOut, '#/preview', '#/subscriptions');
   await signedOut.click('#header-signin');
-  await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden && document.getElementById('acct-email') && document.getElementById('invite-code') && document.querySelector('[data-auth=forgot]') && document.querySelector('[data-auth=switch]'));
-  async function inviteOpensSignIn(url) {
+  await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden && document.getElementById('acct-email') && !document.getElementById('invite-code') && document.querySelector('[data-auth=forgot]') && document.querySelector('[data-auth=switch]'));
+  async function inviteOpensJoin(url) {
     await signedOut.goto(url);
-    await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden);
+    await signedOut.waitForFunction(() => location.hash === '#/join' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Create your account' && document.getElementById('header-signin').hidden);
     assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
     assert.strictEqual(await signedOut.evaluate(() => sessionStorage.getItem('wb.invite')), 'ABCD2345');
     assert.strictEqual(await signedOut.evaluate(() => new URLSearchParams(location.search).get('invite')), null);
     assert.strictEqual(await signedOut.evaluate(() => new URLSearchParams((location.hash.split('?')[1] || '')).get('invite')), null);
     assert.strictEqual(await signedOut.$('#messages-nav, #workouts-nav, #redeem, [data-plan]'), null);
   }
-  await inviteOpensSignIn(URL + '?invite=ABCD2345');
-  await inviteOpensSignIn(URL + '?invite=ABCD2345#/');
-  await inviteOpensSignIn(URL + '?invite=ABCD2345#/subscriptions');
-  await inviteOpensSignIn(URL + '#/messages?invite=ABCD2345');
+  await inviteOpensJoin(URL + '?invite=ABCD2345');
+  await inviteOpensJoin(URL + '?invite=ABCD2345#/');
+  await inviteOpensJoin(URL + '?invite=ABCD2345#/subscriptions');
+  await inviteOpensJoin(URL + '#/messages?invite=ABCD2345');
   await signedOut.goto(URL + '?invite=ABCD2345#/signin');
-  await signedOut.waitForSelector('#invite-code');
-  assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
-  await signedOut.click('[data-auth=switch]');
   await signedOut.waitForFunction(() => location.hash === '#/join' && document.querySelector('#invite-code') && document.querySelector('#invite-code').value === 'ABCD-2345');
+  await signedOut.click('[data-auth=switch]');
+  await signedOut.waitForFunction(() => location.hash === '#/signin' && !document.getElementById('invite-code') && sessionStorage.getItem('wb.invite') === 'ABCD2345');
   await signedOut.goto(URL + '?code=reset-code');
   await signedOut.waitForFunction(function () {
     var h = document.querySelector('h2');
@@ -272,7 +271,10 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await invited.waitForSelector('#invite-code');
   await invited.evaluate(() => {
     window.__redeemed = 0;
-    window.WBAuth.signUp = function () { return Promise.resolve({ session: { user: { id: 'new2', email: 'invited@example.com' } }, needsConfirmation: false }); };
+    window.WBAuth.signUp = function (email, password, captcha, code) {
+      window.__signupCode = code;
+      return Promise.resolve({ session: { user: { id: 'new2', email: 'invited@example.com' } }, needsConfirmation: false });
+    };
     window.WBAuth.redeemInvite = function () {
       window.__redeemed++;
       window.WBAuth.profile = function () { return Promise.resolve({ id: 'new2', email: 'invited@example.com', membership: 'free_client', intended_plan: null }); };
@@ -286,6 +288,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await invited.click('[data-auth=up]');
   await invited.waitForSelector('[data-a=new]');
   assert.strictEqual(await invited.evaluate(() => window.__redeemed), 1);
+  assert.strictEqual(await invited.evaluate(() => window.__signupCode), 'ABCD2345');
   assert.strictEqual(await invited.evaluate(() => location.hash), '#/');
   assert.strictEqual(await invited.$('#level-lock'), null);
 
@@ -372,9 +375,9 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await invitedOffline.type('#confirm-pass', 'secret1234');
   await invitedOffline.type('#invite-code', 'ABCD2345');
   await invitedOffline.click('[data-auth=up]');
-  await invitedOffline.waitForSelector('[data-a=new]');
+  await invitedOffline.waitForSelector('#access-wait');
   assert.strictEqual(await invitedOffline.evaluate(() => location.hash), '#/');
-  assert.strictEqual(await invitedOffline.$('#level-lock'), null);
+  assert.strictEqual(await invitedOffline.$('#level-lock, [data-a=new]'), null);
 
   const saveFail = await open({ user: { id: 'save', email: 'save@example.com' } }, { id: 'save', email: 'save@example.com', membership: 'none', intended_plan: null });
   await saveFail.goto(URL + '#/subscriptions');
@@ -398,8 +401,9 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
 
   const consumed = await open(null);
   await consumed.goto(URL + '?invite=ABCD2345#/signin');
-  await consumed.waitForSelector('#invite-code');
-  assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  await consumed.waitForFunction(() => location.hash === '#/join' && document.getElementById('invite-code') && document.getElementById('invite-code').value === 'ABCD-2345');
+  await consumed.click('[data-auth=switch]');
+  await consumed.waitForFunction(() => location.hash === '#/signin' && !document.getElementById('invite-code') && sessionStorage.getItem('wb.invite') === 'ABCD2345');
   await consumed.evaluate(() => {
     window.__redeemed = 0;
     var session = { user: { id: 'used', email: 'used@example.com' } };
@@ -434,7 +438,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
     };
     location.hash = '#/signin';
   });
-  await consumed.waitForFunction(() => location.hash === '#/signin' && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
+  await consumed.waitForFunction(() => location.hash === '#/signin' && !document.getElementById('invite-code') && sessionStorage.getItem('wb.invite') == null);
   await consumed.type('#acct-email', 'used@example.com');
   await consumed.type('#acct-pass', 'secret1234');
   await consumed.click('[data-auth=in]');

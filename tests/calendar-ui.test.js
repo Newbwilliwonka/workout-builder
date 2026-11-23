@@ -730,11 +730,13 @@ async function toastText(page) {
   assert.strictEqual(await signedOut.$('#pv-gcal, .pv-week, .pv-month'), null);
   if (shots) await signedOut.screenshot({ path: path.join(shots, 'signed_out_programs.png') });
   await signedOut.goto(URL + '?invite=ABCD2345#/signin');
-  await signedOut.waitForSelector('#invite-code');
-  assert.strictEqual(await signedOut.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  await signedOut.waitForFunction(function () {
+    return location.hash === '#/join' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Create your account' && document.querySelector('#invite-code') && document.querySelector('#invite-code').value === 'ABCD-2345';
+  });
+  assert.strictEqual(await signedOut.$('#pv-gcal, .pv-week, .pv-month'), null);
   await signedOut.click('[data-auth=switch]');
   await signedOut.waitForFunction(function () {
-    return location.hash === '#/join' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Create your account';
+    return location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && !document.getElementById('invite-code');
   });
   await signedOut.goto(URL + '#/subscriptions');
   await signedOut.waitForFunction(function () {

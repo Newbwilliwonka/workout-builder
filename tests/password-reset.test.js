@@ -89,11 +89,12 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   await forgot.goto(URL + '#/signin');
   await forgot.waitForSelector('[data-auth=forgot]');
   assert.strictEqual(await forgot.$eval('h2', e => e.textContent), 'Sign in');
-  assert.ok(await forgot.$('#invite-code'), 'invite code entry stays on sign in');
+  assert.strictEqual(await forgot.$('#invite-code'), null, 'sign in has no invite code');
   assert.ok(await forgot.$('[data-auth=switch]'), 'create account stays on sign in');
   assert.strictEqual(await forgot.$eval('#back', e => e.hidden), true);
   await forgot.click('[data-auth=switch]');
   await forgot.waitForFunction(() => location.hash === '#/join' && document.querySelector('h2').textContent === 'Create your account');
+  assert.ok(await forgot.$('#invite-code'), 'create account keeps the invite code');
   assert.ok(!(await forgot.$('[data-auth=forgot]')), 'create account does not gain forgot password');
   await forgot.click('[data-auth=switch]');
   await forgot.waitForSelector('[data-auth=forgot]');

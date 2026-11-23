@@ -283,8 +283,12 @@ const ART = '/opt/cursor/artifacts';
   assert.strictEqual(await p.evaluate(function () { return sessionStorage.getItem('wb.invite'); }), 'ABCD2345');
   await p.evaluate(function () {
     window.__mode = 'held-ok';
-    location.hash = '#/';
+    location.hash = '#/subscriptions';
   });
+  await p.waitForFunction(function () {
+    return location.hash === '#/subscriptions' && !document.getElementById('access-wait') && sessionStorage.getItem('wb.invite') === 'ABCD2345';
+  });
+  await p.evaluate(function () { location.hash = '#/'; });
   await p.waitForFunction(function () {
     return window.__redeemed === 2 && location.hash === '#/' && !document.getElementById('access-wait') && sessionStorage.getItem('wb.invite') == null;
   });

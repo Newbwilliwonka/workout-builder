@@ -148,7 +148,7 @@ const FAKE = [
   await p.waitForFunction(function () {
     return location.hash === '#/signin' && document.body.innerText.indexOf('Check your email to confirm the account, then sign in.') !== -1;
   });
-  assert.deepStrictEqual(await p.evaluate(function () { return window.__signUp; }), ['ada@example.com', 'secret1234']);
+  assert.deepStrictEqual(await p.evaluate(function () { return window.__signUp; }), ['ada@example.com', 'secret1234', '', '']);
 
   await p.evaluate(function () {
     window.__signIn = null;
@@ -281,7 +281,7 @@ const FAKE = [
     var box = document.querySelector('.errs');
     return box && box.textContent === 'The check did not go through. Please try again.' && document.querySelector('#turnstile-box[data-widget]');
   });
-  assert.deepStrictEqual(await p.evaluate(function () { return window.__signUp; }), ['ada@example.com', 'secret1234', 'tok-signup']);
+  assert.deepStrictEqual(await p.evaluate(function () { return window.__signUp; }), ['ada@example.com', 'secret1234', 'tok-signup', '']);
   const afterFail = await p.evaluate(function () {
     return {
       resets: window.__resets.slice(),
@@ -306,7 +306,7 @@ const FAKE = [
   await p.type('#confirm-pass', 'secret1234');
   await p.click('[data-auth=up]');
   await p.waitForFunction(function () { return location.hash === '#/signin' && document.body.innerText.indexOf('Check your email to confirm the account, then sign in.') !== -1; });
-  assert.deepStrictEqual(await p.evaluate(function () { return window.__signUp; }), ['ada@example.com', 'secret1234', 'tok-signup-2']);
+  assert.deepStrictEqual(await p.evaluate(function () { return window.__signUp; }), ['ada@example.com', 'secret1234', 'tok-signup-2', '']);
 
   await p.waitForSelector('#turnstile-box[data-widget]');
   assert.strictEqual(await p.$eval('[data-auth=in]', function (el) { return el.disabled; }), true, 'sign-in also waits for a token');

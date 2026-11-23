@@ -381,14 +381,34 @@
     onAuth: function (fn) {
       if (typeof fn === 'function') authWatchers.push(fn);
     },
-    signUp: function (email, password, captchaToken) {
+    signUp: function (email, password, captchaToken, inviteCode) {
       return db().then(function (c) {
         var options = { emailRedirectTo: REDIRECT };
         if (captchaToken) options.captchaToken = captchaToken;
+        // The code is stored on the new auth user so a database trigger can
+        // link the trainer before email confirmation or admin approval.
+        var code = root.WBInvites ? root.WBInvites.normalizeCode(inviteCode) : '';
+        if (root.WBInvites && root.WBInvites.codeIsWellFormed(code)) options.data = { invite_code: code };
         return c.auth.signUp({ email: email, password: password, options: options });
       }).then(function (res) {
         if (res.error) throw res.error;
         return { session: res.data.session || null, needsConfirmation: !res.data.session };
+      });
+    },
+    // Drop a code saved at sign-up once it has been applied or rejected.
+    // No metadata means there is nothing to clear, so tests never touch the network.
+    forgetInviteCode: function () {
+      return api.session().then(function (session) {
+        var user = session && session.user;
+        var meta = user && (user.user_metadata || user.raw_user_meta_data);
+        if (!meta || !meta.invite_code) return false;
+        return db().then(function (c) {
+          return c.auth.updateUser({ data: { invite_code: '' } });
+        }).then(function (res) {
+          if (res.error) throw res.error;
+          try { if (user.user_metadata) user.user_metadata.invite_code = ''; } catch (e) {}
+          return true;
+        });
       });
     },
     signIn: function (email, password, captchaToken) {
@@ -755,12 +775,17 @@
           if (res.error && withShare && shareArgMissing(res.error)) {
             return c.rpc('invite_redeem', { p_code: code }).then(function (again) {
               return { res: again, stored: false };
+            }, function (err) {
+              throw inviteError(err, { status: 0, statusText: err && err.message });
             });
           }
           return { res: res, stored: withShare && !res.error };
+        }, function (err) {
+          throw inviteError(err, { status: 0, statusText: err && err.message });
         });
       }).then(function (out) {
-        if (out.res.error) throw inviteError(out.res.error);
+        var failed = inviteError(out.res && out.res.error, out.res);
+        if (failed) throw failed;
         var data = out.res.data;
         if (out.stored && data && typeof data === 'object') data = Object.assign({}, data, { shareStored: true });
         return data;
@@ -1273,8 +1298,11 @@
   }
   function rpc(name, args) {
     return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
-      if (res.error) throw inviteError(res.error);
+      var failed = inviteError(res && res.error, res);
+      if (failed) throw failed;
       return res.data;
+    }, function (err) {
+      throw inviteError(err, { status: 0, statusText: err && err.message });
     });
   }
   function messageRpc(name, args) {
@@ -1496,12 +1524,23 @@
     }
     return new Error(msg || 'Could not update sharing.');
   }
-  function inviteError(err) {
-    var msg = (err && (err.message || err.details || err.hint)) || '';
-    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205/i.test(msg)) {
-      return new Error('Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.');
-    }
-    return new Error(msg || 'Could not use invites');
+  function inviteError(err, res) {
+    res = res || {};
+    if (!err && res.error) err = res.error;
+    var status = typeof res.status === 'number' ? res.status : undefined;
+    if (!err && !(status === 0 || (typeof status === 'number' && status >= 400))) return null;
+    var payload = {
+      error: err || null,
+      status: status,
+      statusText: res.statusText || (err && err.message) || ''
+    };
+    if (root.WBInvites && root.WBInvites.redeemResponseError) return root.WBInvites.redeemResponseError(payload);
+    if (root.WBInvites && root.WBInvites.wrapInviteError) return root.WBInvites.wrapInviteError(payload.error, payload);
+    var out = new Error((err && err.message) || 'Could not use invites');
+    if (typeof status === 'number') out.status = status;
+    if (status === 0) out.offline = true;
+    try { out.cause = err; } catch (e) {}
+    return out;
   }
   root.WBAuth = api;
 })(window);

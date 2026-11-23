@@ -275,9 +275,10 @@ Mem.TIERS.forEach(function (tier) {
     });
     await page.goto(URL + '?invite=ABCD2345', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(function () {
+      var h = document.querySelector('h2');
       var code = document.getElementById('invite-code');
       var landing = document.getElementById('landing');
-      return location.hash === '#/signin' && code && code.value === 'ABCD-2345' && landing && getComputedStyle(landing).display === 'none';
+      return location.hash === '#/join' && h && h.textContent === 'Create your account' && code && code.value === 'ABCD-2345' && landing && getComputedStyle(landing).display === 'none';
     });
 
     const signedIn = await browser.newPage();
@@ -324,7 +325,7 @@ Mem.TIERS.forEach(function (tier) {
     }, URL, function () { return !!document.querySelector('[data-a=new]'); });
     await neverShowsLanding(function (p) { return stubAuth(p, { session: null }); }, URL + '?invite=ABCD2345', function () {
       var h = document.querySelector('h2');
-      return location.hash === '#/signin' && h && h.textContent === 'Sign in';
+      return location.hash === '#/join' && h && h.textContent === 'Create your account';
     });
     await neverShowsLanding(function (p) { return stubAuth(p, { session: null }); }, URL + '?code=reset-code', function () {
       return location.hash === '#/reset' && document.body.innerText.indexOf('This reset link is invalid or has expired.') !== -1;

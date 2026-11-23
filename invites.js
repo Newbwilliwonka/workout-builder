@@ -36,7 +36,7 @@
     return n.slice(0, 4) + '-' + n.slice(4);
   }
   function inviteLink(code) {
-    return SITE + '?invite=' + normalizeCode(code) + '#/signin';
+    return SITE + '?invite=' + normalizeCode(code) + '#/join';
   }
   function generateCode(rng) {
     rng = rng || Math.random;
@@ -289,12 +289,117 @@
     };
   }
 
+  var TERMINAL_MESSAGE = {};
+  TERMINAL_MESSAGE[MSG.notFound] = 1;
+  TERMINAL_MESSAGE[MSG.used] = 1;
+  TERMINAL_MESSAGE[MSG.canceled] = 1;
+  TERMINAL_MESSAGE[MSG.expired] = 1;
+  TERMINAL_MESSAGE[MSG.cap] = 1;
+  TERMINAL_MESSAGE[MSG.trainerClient] = 1;
+  TERMINAL_MESSAGE[MSG.already] = 1;
+  TERMINAL_MESSAGE['That invite could not be used.'] = 1;
+  var TERMINAL_CODE = {
+    invite_invalid: 1,
+    invite_expired: 1,
+    invite_canceled: 1,
+    invite_used: 1,
+    invite_full: 1,
+    invite_connected: 1,
+    invite_trainer: 1
+  };
+  function trimMessage(err) {
+    return String(err && err.message || '').replace(/^\s+|\s+$/g, '');
+  }
+  function walkErrors(err, fn) {
+    var seen = 0;
+    var cur = err;
+    while (cur && seen < 4) {
+      if (fn(cur)) return true;
+      if (!cur.cause || cur.cause === cur) break;
+      cur = cur.cause;
+      seen++;
+    }
+    return false;
+  }
+  function isWaiting(err) {
+    return walkErrors(err, function (item) {
+      return trimMessage(item) === 'Your account is waiting for approval.';
+    });
+  }
+  function outcomeOf(err) {
+    var found = '';
+    walkErrors(err, function (item) {
+      if (found) return true;
+      if (typeof item.inviteOutcome === 'string' && TERMINAL_CODE[item.inviteOutcome]) found = item.inviteOutcome;
+      else if (typeof item.hint === 'string' && item.hint.indexOf('invite_') === 0 && TERMINAL_CODE[item.hint]) found = item.hint;
+      return !!found;
+    });
+    return found;
+  }
+  function isPermanent(err) {
+    if (isWaiting(err)) return false;
+    if (outcomeOf(err)) return true;
+    var terminal = false;
+    walkErrors(err, function (item) {
+      if (TERMINAL_MESSAGE[trimMessage(item)]) terminal = true;
+      return terminal;
+    });
+    return terminal;
+  }
+  // 'terminal' drops both copies. Anything else, including a 5xx, a dropped
+  // network, and an unknown message, is tried again on the next signed-in page.
+  // Waiting for approval keeps the code and is also tried again later.
+  function inviteFailureKind(err) {
+    if (isPermanent(err)) return 'terminal';
+    return 'retry';
+  }
+  function wrapInviteError(err, res) {
+    res = res || {};
+    var msg = (err && (err.message || err.details)) || '';
+    if (!msg && res.statusText) msg = res.statusText;
+    var friendly = String(msg || '');
+    if (/schema cache|could not find the function|does not exist|PGRST202|PGRST205/i.test(friendly)) {
+      friendly = 'Invite storage is not ready yet. Apply the invite SQL in the Supabase SQL editor.';
+    }
+    var out = new Error(friendly || 'Could not use invites');
+    if (err && err.name && err.name !== 'Error') {
+      try { out.name = err.name; } catch (e) {}
+    }
+    var status = typeof res.status === 'number' ? res.status : (err && typeof err.status === 'number' ? err.status : undefined);
+    if (typeof status !== 'number' && err && typeof err.statusCode === 'number') status = err.statusCode;
+    if (typeof status === 'number') out.status = status;
+    if (typeof res.statusText === 'string' && res.statusText) out.statusText = res.statusText;
+    var fetchError = err && err.name === 'TypeError' && /failed to fetch|load failed|networkerror/i.test(String(err.message || ''));
+    if ((err && err.offline === true) || status === 0 || fetchError) out.offline = true;
+    if (err && typeof err.code === 'string') out.code = err.code;
+    if (err && typeof err.hint === 'string') out.hint = err.hint;
+    if (err && typeof err.hint === 'string' && err.hint.indexOf('invite_') === 0) out.inviteOutcome = err.hint;
+    else if (err && typeof err.inviteOutcome === 'string') out.inviteOutcome = err.inviteOutcome;
+    try { out.cause = err || null; } catch (e2) {}
+    return out;
+  }
+  // supabase-js rpc resolves { data, error, status, statusText }. The HTTP
+  // status is on that object, not on error.
+  function redeemResponseError(res) {
+    res = res || {};
+    var err = res.error;
+    if (!err && (res.status === 0 || (typeof res.status === 'number' && res.status >= 400))) {
+      err = {
+        message: res.statusText || 'Could not use invites',
+        name: res.status === 0 ? 'TypeError' : 'Error'
+      };
+    }
+    if (!err) return null;
+    return wrapInviteError(err, res);
+  }
+
   var api = {
     ALPHABET: ALPHABET, CODE_LEN: CODE_LEN, TTL_MS: TTL_MS, SITE: SITE, MSG: MSG,
     normalizeCode: normalizeCode, codeIsWellFormed: codeIsWellFormed, formatCode: formatCode, inviteLink: inviteLink,
     generateCode: generateCode, trainerRole: trainerRole, capFor: capFor, inviteState: inviteState, slotsUsed: slotsUsed,
     canCreate: canCreate, isEnthusiast: isEnthusiast, clientLabel: clientLabel, timeLeft: timeLeft,
-    redeemDecision: redeemDecision, withoutTrainerWorkouts: withoutTrainerWorkouts, createBook: createBook
+    redeemDecision: redeemDecision, withoutTrainerWorkouts: withoutTrainerWorkouts, createBook: createBook,
+    inviteFailureKind: inviteFailureKind, wrapInviteError: wrapInviteError, redeemResponseError: redeemResponseError
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBInvites = api;
