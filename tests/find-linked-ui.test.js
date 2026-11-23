@@ -120,6 +120,7 @@ const ADA = '12121212-1212-4121-8121-121212121212';
       api.avatarUrl = function () { return Promise.resolve(''); };
       api.hubPosts = function () { return Promise.resolve([]); };
       api.trainerRequestCount = function () { return Promise.resolve(0); };
+      api.myClientLocation = function () { return Promise.resolve(null); };
       api.trainerSearch = function (mode, lat, lng) {
         window.__search = { mode: mode || 'online', lat: lat == null ? null : lat, lng: lng == null ? null : lng };
         if (mode === 'near') {

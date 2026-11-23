@@ -873,6 +873,18 @@
       });
     },
     removeServiceLocation: function () { return findRpc('remove_service_location'); },
+    myClientLocation: function () { return findRpc('my_client_location'); },
+    saveClientLocation: function (pin) {
+      pin = pin || {};
+      return findRpc('save_client_location', {
+        p_lat: pin.latitude,
+        p_lng: pin.longitude,
+        p_city: pin.city || '',
+        p_region: pin.region || pin.state || '',
+        p_country: pin.country || ''
+      });
+    },
+    removeClientLocation: function () { return findRpc('remove_client_location'); },
     trainerRequestSend: function (trainerId, note) { return findRpc('trainer_request_send', { p_trainer: trainerId, p_note: note || '' }); },
     trainerRequestDecide: function (id, approve) { return findRpc('trainer_request_decide', { p_id: id, p_approve: !!approve }); },
     trainerRequests: function () { return findRpc('trainer_request_inbox'); },
@@ -1353,9 +1365,16 @@
     }
     return new Error(msg || 'Could not send that workout.');
   }
-  function findError(err) {
+  function findError(err, name) {
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
     if (/schema cache|could not find|does not exist|PGRST202|PGRST205|42P01/i.test(msg)) {
+      var fn = String(name || '');
+      if (fn.indexOf('client_location') !== -1) {
+        return new Error('Location is not available yet. Apply the client pin SQL in the Supabase SQL editor.');
+      }
+      if (fn.indexOf('service_location') !== -1) {
+        return new Error('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');
+      }
       return new Error('Find a trainer is not available yet. Apply the trainer search SQL in the Supabase SQL editor.');
     }
     if (/for clients and enthusiasts/i.test(msg)) return new Error('Find a trainer is for clients and enthusiasts.');
@@ -1376,11 +1395,12 @@
     if (/only a trainer or master trainer can set a service location/i.test(msg)) return new Error('Only a Trainer or Master Trainer can set a service location.');
     if (/choose a place with a city and state/i.test(msg)) return new Error('Choose a place with a city and state.');
     if (/drop a pin/i.test(msg)) return new Error('Drop a pin on the map.');
+    if (/location pin is for clients and enthusiasts/i.test(msg)) return new Error('A location pin is for clients and enthusiasts.');
     return new Error((msg || 'Could not use trainer search.').split('\n')[0]);
   }
   function findRpc(name, args) {
     return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
-      if (res.error) throw findError(res.error);
+      if (res.error) throw findError(res.error, name);
       return res.data;
     });
   }

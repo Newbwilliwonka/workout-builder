@@ -333,6 +333,7 @@
     if (near) {
       h += '<form id="find-near-form" class="card find-near-box">';
       h += '<p class="mute" id="find-near-privacy">Your location is used only for this search and is not saved.</p>';
+      if (result.usingSavedPin) h += '<p class="mute" id="find-near-saved">Using your saved pin.</p>';
       h += '<button type="button" class="pri" id="find-locate">Use my location</button>';
       h += '<label for="find-city">Or a city</label>';
       h += '<div class="pin-search-row"><input id="find-city" maxlength="80" autocomplete="address-level2" placeholder="City" enterkeyhint="search">';
@@ -421,7 +422,7 @@
     }).join('');
   }
 
-  var ctx = null, gen = 0, editingReply = '', replyDrafts = {}, postAttempt = null, replyAttempt = null, openCache = null, findCache = null, findSeq = 0;
+  var ctx = null, gen = 0, editingReply = '', replyDrafts = {}, postAttempt = null, replyAttempt = null, openCache = null, findCache = null, findSeq = 0, pinSeq = 0;
 
   function ask(message) {
     if (root && typeof root.confirm === 'function') return root.confirm(message);
@@ -572,12 +573,30 @@
       showFailure(err);
     });
   }
+  function nearPoint(pin) {
+    if (!pin || typeof pin !== 'object' || Array.isArray(pin)) return null;
+    var lat = Number(pin.latitude);
+    var lng = Number(pin.longitude);
+    if (!isFinite(lat) || !isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { latitude: lat, longitude: lng };
+  }
   function showNearPrompt() {
-    ++findSeq;
+    var seq = ++findSeq;
+    var pins = ++pinSeq;
+    var myGen = gen;
     if (!ctx || !onFindList()) return;
     paintFind({ mode: 'near', trainers: [], searched: false });
+    var auth = root.WBAuth;
+    if (!auth || typeof auth.myClientLocation !== 'function') return;
+    Promise.resolve().then(function () { return auth.myClientLocation(); }).then(function (pin) {
+      if (!ctx || myGen !== gen || seq !== findSeq || pins !== pinSeq || !onFindList()) return;
+      var point = nearPoint(pin);
+      if (!point) return;
+      runNear(point.latitude, point.longitude, 'pin');
+    }, function () {});
   }
-  function runNear(lat, lng) {
+  function runNear(lat, lng, source) {
     var auth = root.WBAuth;
     var seq = ++findSeq;
     var myGen = gen;
@@ -589,6 +608,7 @@
       result = result || {};
       result.mode = 'near';
       result.searched = true;
+      result.usingSavedPin = source === 'pin';
       if (result.comingSoon) {
         paintFind({
           mode: 'near',
@@ -612,20 +632,22 @@
       showError('find-near-error', 'This browser has no location. Type a city instead.');
       return;
     }
+    // Drop a pin lookup that has not started a search. findSeq stays put, so a
+    // search that is already running remains until this one has coordinates.
+    pinSeq += 1;
     var button = document.getElementById('find-locate');
     if (button) button.disabled = true;
     geo.getCurrentPosition(function (pos) {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       var coords = pos && pos.coords;
-      var lat = coords && coords.latitude;
-      var lng = coords && coords.longitude;
-      if (!isFinite(lat) || !isFinite(lng)) {
+      var point = nearPoint({ latitude: coords && coords.latitude, longitude: coords && coords.longitude });
+      if (!point) {
         var again = document.getElementById('find-locate');
         if (again) again.disabled = false;
         showError('find-near-error', 'Location permission is off. Type a city instead.');
         return;
       }
-      runNear(lat, lng);
+      runNear(point.latitude, point.longitude);
     }, function () {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       var again = document.getElementById('find-locate');
@@ -646,9 +668,17 @@
     }
     if (button) button.disabled = true;
     var query = input.value;
+    if (String(query == null ? '' : query).replace(/^\s+|\s+$/g, '').length >= 2) pinSeq += 1;
     places.searchPlace(query).then(function (hit) {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
-      runNear(hit.latitude, hit.longitude);
+      var point = nearPoint({ latitude: hit && hit.latitude, longitude: hit && hit.longitude });
+      if (!point) {
+        var again = document.getElementById('find-city-go');
+        if (again) again.disabled = false;
+        showError('find-near-error', 'No place found. Try a city name.');
+        return;
+      }
+      runNear(point.latitude, point.longitude);
     }, function (err) {
       if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
       var again = document.getElementById('find-city-go');
@@ -960,6 +990,7 @@
     sortReplies: sortReplies,
     listHtml: listHtml,
     distanceLabel: distanceLabel,
+    nearPoint: nearPoint,
     placeLabel: placeLabel,
     findResultsHtml: findResultsHtml,
     requestFormHtml: requestFormHtml,

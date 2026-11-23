@@ -242,4 +242,84 @@ assertBefore(masterSheet, [
 assert.ok(masterSheet.indexOf('id="verify-loading"') > 0);
 assert.ok(masterSheet.indexOf('Get verified') === -1);
 
+assert.strictEqual(P.CLIENT_BIO, 'Tell people a little about yourself: your goals, what you enjoy, or what you\'re training for.');
+assert.strictEqual(P.CLIENT_PIN_NOTE, 'Your exact pin is private. It is only used to find trainers near you in the Trainer Hub search.');
+assert.strictEqual(P.TRAINER_BIO, 'Specialties, service areas, certifications');
+const clientBio = P.CLIENT_BIO.replace(/'/g, '&#39;');
+const clientSheet = P.sheetHtml({
+  membership: 'free_client',
+  display_name: 'Casey Nguyen',
+  bio: 'hi'
+});
+assert.ok(clientSheet.indexOf('placeholder="' + clientBio + '"') > 0);
+assert.ok(clientSheet.indexOf('Specialties, service areas, certifications') === -1);
+assert.ok(clientSheet.indexOf('maxlength="150"') > 0);
+assert.ok(clientSheet.indexOf('2/150') > 0);
+assert.ok(clientSheet.indexOf(P.CLIENT_PIN_NOTE) > 0);
+assert.ok(clientSheet.indexOf(P.PIN_NOTE) === -1);
+assert.ok(clientSheet.indexOf(P.PIN_HINT) === -1);
+assert.ok(clientSheet.indexOf('>Location</p>') > 0);
+assert.ok(clientSheet.indexOf('Service location') === -1);
+assert.ok(clientSheet.indexOf('Public location') === -1);
+assert.ok(clientSheet.indexOf('Show me in trainer search') === -1);
+assert.ok(clientSheet.indexOf('id="profile-service"') === -1);
+assert.ok(clientSheet.indexOf('id="profile-listing"') === -1);
+assert.ok(clientSheet.indexOf('data-pin-kind="client"') > 0);
+assert.ok(clientSheet.indexOf('aria-label="Location map"') > 0);
+assert.ok(clientSheet.indexOf('id="pin-query"') > 0);
+assert.ok(clientSheet.indexOf('id="pin-map"') > 0);
+assert.ok(clientSheet.indexOf('>Save pin<') > 0);
+assert.ok(clientSheet.indexOf('>Remove pin<') > 0);
+assert.ok(clientSheet.indexOf('id="pin-remove" hidden') > 0);
+assert.ok(clientSheet.indexOf('No pin yet. Search or tap the map.') > 0);
+assert.ok(clientSheet.indexOf('@') === -1);
+assertBefore(clientSheet, [
+  'id="profile-name"',
+  'id="profile-bio"',
+  'id="profile-count"',
+  'id="pin-title"',
+  'id="pin-privacy"',
+  'id="pin-query"',
+  'id="pin-go"',
+  'id="pin-map"',
+  'id="pin-public"',
+  'id="pin-save"',
+  'id="pin-remove"',
+  'id="profile-error"',
+  'id="profile-save"',
+  'id="profile-cancel"'
+]);
+const enthusiastSheet = P.sheetHtml({
+  membership: 'enthusiast',
+  display_name: 'Fan',
+  pin: { city: '<script>', region: 'Texas' }
+});
+assert.ok(enthusiastSheet.indexOf(clientBio) > 0);
+assert.ok(enthusiastSheet.indexOf('&lt;script&gt;, Texas') > 0);
+assert.ok(enthusiastSheet.indexOf('Public location') === -1);
+assert.ok(enthusiastSheet.indexOf('<script>') === -1);
+assert.ok(enthusiastSheet.indexOf('id="pin-remove" hidden') === -1);
+const intendedClient = P.sheetHtml({ membership: 'none', intended_plan: 'free_client', display_name: 'Pat' });
+assert.ok(intendedClient.indexOf(P.CLIENT_PIN_NOTE) > 0);
+assert.ok(intendedClient.indexOf(clientBio) > 0);
+const intendedFan = P.sheetHtml({ membership: 'none', intended_plan: 'enthusiast', display_name: 'Pat' });
+assert.ok(intendedFan.indexOf(P.CLIENT_PIN_NOTE) > 0);
+const trainerKept = P.sheetHtml({
+  membership: 'trainer',
+  canList: true,
+  listed: true,
+  service_type: 'in_person',
+  display_name: 'Coach Kim'
+});
+assert.ok(trainerKept.indexOf('placeholder="Specialties, service areas, certifications"') > 0);
+assert.ok(trainerKept.indexOf(clientBio) === -1);
+assert.ok(trainerKept.indexOf(P.PIN_NOTE) > 0);
+assert.ok(trainerKept.indexOf(P.CLIENT_PIN_NOTE) === -1);
+assert.ok(trainerKept.indexOf('data-pin-kind="service"') > 0);
+assert.ok(trainerKept.indexOf('>Service location</p>') > 0);
+assert.ok(trainerKept.indexOf('aria-label="Service location map"') > 0);
+const masterKept = P.sheetHtml({ membership: 'master_trainer', canList: true, display_name: 'Coach Kim' });
+assert.ok(masterKept.indexOf('placeholder="Specialties, service areas, certifications"') > 0);
+assert.ok(masterKept.indexOf(P.CLIENT_PIN_NOTE) === -1);
+
 console.log('profile rules ok');

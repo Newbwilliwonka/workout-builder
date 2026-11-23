@@ -134,6 +134,7 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
           })
         });
       };
+      api.myClientLocation = function () { return Promise.resolve(null); };
       api.myServiceLocations = function () {
         return Promise.resolve(window.__pin ? [window.__pin] : []);
       };

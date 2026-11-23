@@ -71,6 +71,15 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
         return Promise.resolve('allow-test/avatar.jpg');
       };
       api.avatarUrl = function (path) { return Promise.resolve(path ? 'https://example.test/avatar.jpg' : ''); };
+      api.myClientLocation = function () { return Promise.resolve(window.__clientPin || null); };
+      api.saveClientLocation = function (pin) {
+        window.__clientPin = Object.assign({ id: 'client-pin' }, pin);
+        return Promise.resolve(window.__clientPin);
+      };
+      api.removeClientLocation = function () {
+        window.__clientPin = null;
+        return Promise.resolve({ removed: true });
+      };
       return api;
     }
     Object.defineProperty(window, 'WBAuth', {
@@ -137,12 +146,51 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   await p.screenshot({ path: ART + '/account-unlinked-name.png' });
   await p.click('#profile-edit');
   await p.waitForSelector('#profile-sheet');
+  await p.waitForSelector('#pin-title');
+  const clientPlace = await p.evaluate(function () {
+    var bio = document.getElementById('profile-bio');
+    var pin = document.getElementById('profile-pin');
+    var sheet = document.getElementById('profile-sheet');
+    return {
+      placeholder: bio.placeholder,
+      max: bio.maxLength,
+      count: document.getElementById('profile-count').textContent,
+      title: document.getElementById('pin-title').textContent,
+      note: document.getElementById('pin-privacy').textContent,
+      kind: pin.getAttribute('data-pin-kind'),
+      hidden: pin.hidden,
+      service: !!document.getElementById('profile-service'),
+      listing: !!document.getElementById('profile-listing'),
+      hint: !!document.getElementById('pin-near-hint'),
+      save: document.getElementById('pin-save').textContent,
+      remove: document.getElementById('pin-remove').textContent,
+      html: sheet.innerHTML
+    };
+  });
+  assert.strictEqual(clientPlace.placeholder, 'Tell people a little about yourself: your goals, what you enjoy, or what you\'re training for.');
+  assert.strictEqual(clientPlace.max, 150);
+  assert.strictEqual(clientPlace.count, '0/150');
+  assert.strictEqual(clientPlace.title, 'Location');
+  assert.strictEqual(clientPlace.note, 'Your exact pin is private. It is only used to find trainers near you in the Trainer Hub search.');
+  assert.strictEqual(clientPlace.kind, 'client');
+  assert.strictEqual(clientPlace.hidden, false);
+  assert.strictEqual(clientPlace.service, false);
+  assert.strictEqual(clientPlace.listing, false);
+  assert.strictEqual(clientPlace.hint, false);
+  assert.strictEqual(clientPlace.save, 'Save pin');
+  assert.strictEqual(clientPlace.remove, 'Remove pin');
+  assert.ok(clientPlace.html.indexOf('Public location') === -1);
+  assert.ok(clientPlace.html.indexOf('Service location') === -1);
+  assert.ok(clientPlace.html.indexOf('Show me in trainer search') === -1);
+  assert.ok(clientPlace.html.indexOf('@') === -1);
   assert.notStrictEqual(await p.$eval('#profile-sheet', function (el) { return el.getAttribute('data-required'); }), '1');
   assert.ok(await p.$('#profile-cancel'));
   await p.click('#profile-save');
   await p.waitForSelector('#profile-error');
   const blocked = await p.evaluate(function () {
-    var err = document.getElementById('profile-error').getBoundingClientRect();
+    var errEl = document.getElementById('profile-error');
+    if (errEl && errEl.scrollIntoView) errEl.scrollIntoView({ block: 'nearest' });
+    var err = errEl.getBoundingClientRect();
     return {
       text: document.getElementById('profile-error').textContent,
       name: document.getElementById('profile-name').classList.contains('is-empty'),
@@ -282,10 +330,16 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
       state: !!document.getElementById('profile-state'),
       online: !!document.getElementById('profile-online'),
       serviceHidden: document.getElementById('profile-service-block').hidden,
-      placeHidden: document.getElementById('profile-pin').hidden
+      placeHidden: document.getElementById('profile-pin').hidden,
+      placeholder: document.getElementById('profile-bio').placeholder,
+      kind: document.getElementById('profile-pin').getAttribute('data-pin-kind'),
+      clientNote: document.getElementById('profile-sheet').innerHTML.indexOf('find trainers near you')
     };
   });
   assert.strictEqual(trainerBlock.text, 'Fill in the highlighted fields.');
+  assert.strictEqual(trainerBlock.placeholder, 'Specialties, service areas, certifications');
+  assert.strictEqual(trainerBlock.kind, 'service');
+  assert.strictEqual(trainerBlock.clientNote, -1);
   assert.strictEqual(trainerBlock.name, true);
   assert.strictEqual(trainerBlock.city, false);
   assert.strictEqual(trainerBlock.state, false);

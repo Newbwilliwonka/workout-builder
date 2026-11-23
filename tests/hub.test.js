@@ -297,6 +297,37 @@ const nearPrompt = H.findResultsHtml({
 assert.ok(nearPrompt.indexOf('Your trainer') === -1);
 assert.ok(nearPrompt.indexOf('id="find-list"') === -1);
 assert.ok(nearPrompt.indexOf('No other trainers are listed yet.') === -1);
+assert.ok(nearPrompt.indexOf('Using your saved pin.') === -1);
+const savedNear = H.findResultsHtml({
+  mode: 'near',
+  searched: true,
+  usingSavedPin: true,
+  trainers: [{
+    id: 't3',
+    name: 'Riley Coach',
+    role: 'Trainer',
+    serviceType: 'in_person',
+    city: 'Round Rock',
+    state: 'Texas',
+    distanceMiles: 12,
+    request: 'none',
+    email: 'riley@example.com',
+    latitude: 30.5083
+  }]
+});
+assert.ok(savedNear.indexOf('id="find-near-saved"') !== -1);
+assert.ok(savedNear.indexOf('Using your saved pin.') !== -1);
+assert.ok(savedNear.indexOf('Use my location') !== -1);
+assert.ok(savedNear.indexOf('id="find-city"') !== -1);
+assert.ok(savedNear.indexOf('30.5083') === -1);
+assert.ok(savedNear.indexOf('@') === -1);
+assert.deepStrictEqual(H.nearPoint({ latitude: 30.2672, longitude: -97.7431 }), { latitude: 30.2672, longitude: -97.7431 });
+assert.deepStrictEqual(H.nearPoint({ latitude: '30.5', longitude: '-97.5' }), { latitude: 30.5, longitude: -97.5 });
+assert.strictEqual(H.nearPoint(null), null);
+assert.strictEqual(H.nearPoint({ city: 'Austin' }), null);
+assert.strictEqual(H.nearPoint({ latitude: 91, longitude: 0 }), null);
+assert.strictEqual(H.nearPoint({ latitude: 0, longitude: 181 }), null);
+assert.strictEqual(H.nearPoint([]), null);
 
 const requestForm = H.requestFormHtml({
   id: 't1',

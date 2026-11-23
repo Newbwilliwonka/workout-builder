@@ -1,4 +1,4 @@
-/* Place search for the service pin and Near me. Leaflet + OpenStreetMap.
+/* Place search for profile pins and Near me. Leaflet + OpenStreetMap.
    Nominatim is queried on submit or after the pin stops moving, at most once
    a second. No key. Browser: window.WBPlaces. Node: require. */
 (function (root) {
@@ -145,6 +145,15 @@
     var editSeq = 0;
 
     function el(id) { return root.document.getElementById(id); }
+    function clientPin() {
+      var section = el('profile-pin');
+      return !!(section && section.getAttribute('data-pin-kind') === 'client');
+    }
+    function missingPinMessage() {
+      return clientPin()
+        ? 'Location is not available yet. Apply the client pin SQL in the Supabase SQL editor.'
+        : 'Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.';
+    }
     function setPublic(city, region, status) {
       var node = el('pin-public');
       if (!node) return;
@@ -153,7 +162,11 @@
         return;
       }
       var label = publicLabel(city, region);
-      node.textContent = label ? ('Public location: ' + label) : 'No pin yet. Search or tap the map.';
+      if (!label) {
+        node.textContent = 'No pin yet. Search or tap the map.';
+        return;
+      }
+      node.textContent = clientPin() ? label : ('Public location: ' + label);
     }
     function setError(msg) {
       var node = el('pin-error');
@@ -284,12 +297,13 @@
         region: draft.region,
         country: draft.country
       };
-      if (!auth || !auth.saveServiceLocation) {
-        setError('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');
+      var save = auth && (clientPin() ? auth.saveClientLocation : auth.saveServiceLocation);
+      if (!save) {
+        setError(missingPinMessage());
         return;
       }
       saveBtn.disabled = true;
-      auth.saveServiceLocation(saving).then(function (row) {
+      save(saving).then(function (row) {
         if (token !== pinToken || mine !== editSeq) return;
         if (row && row.city) {
           draft.city = row.city;
@@ -313,12 +327,13 @@
       var mine = ++editSeq;
       touched = true;
       cancelReverse();
-      if (!auth || !auth.removeServiceLocation) {
-        setError('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');
+      var remove = auth && (clientPin() ? auth.removeClientLocation : auth.removeServiceLocation);
+      if (!remove) {
+        setError(missingPinMessage());
         return;
       }
       removeBtn.disabled = true;
-      auth.removeServiceLocation().then(function () {
+      remove().then(function () {
         if (token !== pinToken || mine !== editSeq) return;
         draft = null;
         if (marker && profileMap) {
@@ -344,15 +359,22 @@
     }, 60);
 
     var auth = root.WBAuth;
-    if (!auth || !auth.myServiceLocations) return;
-    auth.myServiceLocations().then(function (rows) {
+    var load = auth && (clientPin() ? auth.myClientLocation : auth.myServiceLocations);
+    if (!load) {
+      setError(missingPinMessage());
+      return;
+    }
+    load().then(function (rows) {
       if (token !== pinToken || touched) return;
-      var list = Array.isArray(rows) ? rows : [];
       var pin = null;
-      list.forEach(function (row) {
-        if (!row) return;
-        if (!pin || Number(row.slot || 1) < Number(pin.slot || 1)) pin = row;
-      });
+      if (Array.isArray(rows)) {
+        rows.forEach(function (row) {
+          if (!row) return;
+          if (!pin || Number(row.slot || 1) < Number(pin.slot || 1)) pin = row;
+        });
+      } else if (rows && typeof rows === 'object') {
+        pin = rows;
+      }
       if (!pin) return;
       var lat = Number(pin.latitude);
       var lng = Number(pin.longitude);
@@ -374,9 +396,7 @@
     }, function (err) {
       if (token !== pinToken || touched) return;
       var msg = (err && err.message) || '';
-      if (/not available yet/i.test(msg)) {
-        setError('Service location is not available yet. Apply the near-me SQL in the Supabase SQL editor.');
-      }
+      if (/not available yet/i.test(msg)) setError(msg);
     });
   }
 
