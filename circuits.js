@@ -392,7 +392,7 @@
       '<div class="circuit-phase rounds"><label class="kicker" for="circuit-rounds">Rounds</label>' +
       '<input id="circuit-rounds" class="wb-digits" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
       '<p class="circuit-track" id="circuit-track">Tracking: time per station (automatic)</p>';
-    if (draft.id) h += '<button type="button" class="pri circuit-start" data-act="run"' + (busy ? ' disabled' : '') + '>Start session</button>';
+    if (draft.id) h += '<button type="button" id="circuit-start" class="pri circuit-start" data-act="run"' + (dirty() ? ' hidden' : '') + (busy ? ' disabled' : '') + '>Start session</button>';
     h += '<div class="circuit-actions">' +
       '<button type="button" class="' + (draft.id ? 'circuit-quiet' : 'pri circuit-start') + '" data-act="save"' + (busy ? ' disabled' : '') + '>Save</button>' +
       '<button type="button" class="circuit-quiet" data-act="cancel"' + (busy ? ' disabled' : '') + '>Cancel</button></div></div>';
@@ -608,10 +608,14 @@
     if (act === 'save') return onSave();
     if (act === 'cancel') return onCancel();
   }
+  function syncStart() {
+    var button = document.getElementById('circuit-start');
+    if (button) button.hidden = !(draft && draft.id && !dirty());
+  }
   function onInput(e) {
     var field = e.target;
     if (busy || !field || !draft) return;
-    if (field.id === 'circuit-name') { draft.name = field.value; return; }
+    if (field.id === 'circuit-name') { draft.name = field.value; syncStart(); return; }
     if (!clockText) clockText = clockTextFrom(draft.clock);
     if (field.id === 'circuit-work-m' || field.id === 'circuit-work-s' || field.id === 'circuit-move-m' || field.id === 'circuit-move-s') {
       if (field.id === 'circuit-work-m') clockText.wm = field.value;
@@ -622,6 +626,7 @@
       var move = model().joinClock(clockText.mm, clockText.ms);
       if (work != null) draft.clock.workSec = work;
       if (move != null) draft.clock.moveSec = move;
+      syncStart();
       return;
     }
     if (field.id === 'circuit-rounds') {
@@ -629,6 +634,7 @@
       roundsFollows = false;
       var roundsRaw = String(field.value || '').replace(/^\s+|\s+$/g, '');
       if (/^\d+$/.test(roundsRaw)) draft.clock.rounds = Number(roundsRaw);
+      syncStart();
       return;
     }
     if (field.id === 'circuit-lib-q') { libQuery = field.value; scheduleSearch(); return; }
