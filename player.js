@@ -625,7 +625,8 @@
     var chip = statusChip(ex);
     var showRO = S.phase === 'rest' || !(ex.mode === 'reps' && c.repsType !== 'static');
     var h = '<div class="pl">';
-    // stage: visual screen + side carousel. Stopwatch taps live on .pl-go, so its media stays display-only.
+    // stage: visual screen + side carousel. Stopwatch taps live on .pl-go.
+    // The stopwatch window is the clock only. Photos and demos stay on the carousel tile.
     var mems = roundMembers(i), sw = ex.mode === 'stopwatch', resting = S.phase === 'rest';
     var interval = ex.mode === 'intervals';
     var timedWork = S.phase === 'work' && (ex.mode === 'timer' || ex.mode === 'intervals'); // countdown only; stopwatch and holds still count up
@@ -633,7 +634,7 @@
     var infoEx = ex;
     if (resting && i + 1 < S.queue.length) infoEx = exOf(i + 1); // rest frame is the upcoming exercise, with no "Up next" label
     h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (resting ? 'is-rest' : '') + (timedWork ? ' is-work' : '') + (sw ? ' is-static' : '') + (choose ? ' is-choose' : '') + (interval ? ' is-interval' : '') + '"' + (sw || choose ? '' : ' data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '"') + '>' + (sw ? '' : '<div class="pl-hint">' + esc(hint(ex)) + '</div>') +
-      (resting ? '' : '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>') +
+      (resting || sw ? '' : '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>') +
       '<div class="pl-top"><span class="pl-chip">' + esc(chip) + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + (S.track === false ? '<span class="tag" id="pv-not-tracked">Preview - not tracked</span>' : '') + '</div>' +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '');
     if (!sw && pausedIntervalWork()) h += pausedWorkControls();
