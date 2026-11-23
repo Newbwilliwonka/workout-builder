@@ -403,7 +403,7 @@ function install(page, who) {
   await trainer.waitForSelector('#thread-list');
   assert.strictEqual(await trainer.$('[data-thread="' + E + '"]'), null);
   assert.ok(await trainer.$('[data-thread="' + C + '"]'));
-  await trainer.click('#back');
+  await trainer.click('#workouts-nav');
   await trainer.waitForSelector('[data-a=new]');
 
   const closed = await browser.newPage();

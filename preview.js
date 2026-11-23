@@ -954,8 +954,10 @@
     window.scrollTo(0, 0);
   }
   function applyChrome() {
-    if (titleEl) titleEl.textContent = 'Programs';
-    if (backBtn) backBtn.hidden = false;
+    if (titleEl && !(state && state.screen === 'player')) titleEl.textContent = 'Programs';
+    if (!backBtn) return;
+    var sub = !!(state && (state.sheet || state.screen === 'player' || state.playerLive));
+    backBtn.hidden = !sub;
   }
   function returnsToList(sheet) {
     if (!sheet || !sheet.date) return false;

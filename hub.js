@@ -450,7 +450,7 @@
   function showUnavailable(err) {
     if (!ctx) return;
     ctx.titleEl.textContent = 'Trainer Hub';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     var detail = failMessage(err, 'Trainer Hub is not available yet. Apply the hub SQL in the Supabase SQL editor.');
     ctx.app.innerHTML = '<div class="card" id="hub-wait"><div class="name">Not available yet</div><p class="mute">' + esc(detail) + '</p></div>';
     ctx.app.onclick = null;
@@ -460,7 +460,7 @@
     var msg = failMessage(err, 'Could not load Trainer Hub.');
     if (/not available yet/i.test(msg)) return showUnavailable(err);
     ctx.titleEl.textContent = 'Trainer Hub';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     ctx.app.innerHTML = '<div class="errs" id="hub-error">' + esc(msg) + '</div>';
     ctx.app.onclick = null;
   }
@@ -468,7 +468,7 @@
     if (!ctx) return;
     editingReply = '';
     ctx.titleEl.textContent = 'Trainer Hub';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     ctx.app.innerHTML = listHtml(rows || [], {
       finder: !!(viewer && viewer.finder),
       inbox: !!(viewer && viewer.inbox),

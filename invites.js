@@ -97,6 +97,10 @@
     var mins = Math.floor(ms / 60000);
     var h = Math.floor(mins / 60);
     var m = mins % 60;
+    if (h >= 24) {
+      var days = Math.max(1, Math.round(ms / 86400000));
+      return days === 1 ? '1 day left' : days + ' days left';
+    }
     if (h >= 1) return h + 'h ' + m + 'm left';
     if (m < 1) return 'Less than a minute left';
     return m + 'm left';

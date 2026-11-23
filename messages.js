@@ -279,7 +279,7 @@
     if (!ctx) return;
     openId = '';
     ctx.titleEl.textContent = 'Messages';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     var detail = (err && err.message) || 'Messages are not available yet. Apply the messages SQL in the Supabase SQL editor.';
     ctx.app.innerHTML = '<div class="card" id="messages-wait"><div class="name">Not available yet</div><p class="mute">' + esc(detail) + '</p></div>';
     ctx.app.onclick = null;
@@ -300,7 +300,7 @@
     if (!ctx) return;
     openId = '';
     ctx.titleEl.textContent = 'Messages';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     ctx.app.innerHTML = '<div class="errs" id="messages-error">' + esc((err && err.message) || 'Could not load messages') + '</div>';
     ctx.app.onclick = null;
   }
@@ -308,7 +308,7 @@
     if (!ctx) return;
     openId = '';
     ctx.titleEl.textContent = 'Messages';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     var threads = data.threads || [];
     var requests = data.requests || [];
     var h = '';

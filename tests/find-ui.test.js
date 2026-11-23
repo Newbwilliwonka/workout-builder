@@ -389,7 +389,7 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
       messages: messages ? messages.textContent : ''
     };
   });
-  assert.strictEqual(navBadge.hub, '1');
+  assert.strictEqual(navBadge.hub, '');
   assert.strictEqual(navBadge.messages, '1');
   await p.screenshot({ path: ART + '/trainer-request-badges.png' });
 

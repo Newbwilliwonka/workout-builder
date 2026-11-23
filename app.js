@@ -2040,6 +2040,12 @@
     });
     persistLocal();
   }
+  function initialsOf(name) {
+    var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  }
   function trainerSection(roster) {
     if (!roster) return '';
     if (roster.error) return '<div class="errs">' + esc(roster.error) + '</div>';
@@ -2050,17 +2056,20 @@
     if (!roster.invites.length) h += '<p class="mute">No open invites.</p>';
     roster.invites.forEach(function (inv) {
       var link = WBInvites.inviteLink(inv.code);
-      h += '<div class="card" data-open-invite="' + esc(inv.code) + '"><div class="invite-code">' + esc(WBInvites.formatCode(inv.code)) + '</div>';
+      h += '<div class="card flat" data-open-invite="' + esc(inv.code) + '"><div class="invite-code">' + esc(WBInvites.formatCode(inv.code)) + '</div>';
       h += '<p class="mute">' + esc(WBInvites.timeLeft(inv.expiresAt, Date.now())) + '</p>';
-      h += '<p class="mute invite-code">' + esc(link) + '</p><div class="actions">';
+      h += '<p class="mute invite-url">' + esc(link) + '</p><div class="actions">';
       h += '<button class="sm" data-invite="copy-code" data-code="' + esc(inv.code) + '">Copy code</button>';
       h += '<button class="sm" data-invite="copy-link" data-link="' + esc(link) + '">Copy link</button>';
       h += '<button class="sm danger" data-invite="cancel" data-code="' + esc(inv.code) + '">Cancel</button></div></div>';
     });
-    h += '<div class="name">Clients</div>';
+    h += '<div class="name" style="margin-top:12px">Clients</div>';
     if (!roster.clients.length) h += '<p class="mute">No clients yet.</p>';
-    roster.clients.forEach(function (c) {
-      h += '<div class="row"><div class="grow"><b>' + esc(personLabel(c) || 'Client') + '</b><div class="mute">' + esc(c.plan) + '</div></div>';
+    roster.clients.forEach(function (c, i) {
+      var label = personLabel(c) || 'Client';
+      var tone = 'c' + ((i % 7) + 1);
+      h += '<div class="client-row"><span class="av ' + tone + '">' + esc(initialsOf(label)) + '</span>';
+      h += '<div class="grow"><b>' + esc(label) + '</b><div class="mute">' + esc(c.plan) + '</div></div>';
       h += '<button class="sm" type="button" data-client-view="' + esc(c.id) + '">View</button>';
       h += '<button class="sm danger" data-invite="end" data-client="' + esc(c.id) + '">End connection</button></div>';
     });
@@ -2766,7 +2775,7 @@
     };
   }
   function renderSimpleAccount() {
-    titleEl.textContent = 'Account'; backBtn.hidden = false;
+    titleEl.textContent = 'Account'; backBtn.hidden = true;
     app.innerHTML = '<p class="mute">Loading account…</p>';
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'account') return;
@@ -2802,8 +2811,7 @@
     var verifiedName = window.WBProfile && WBProfile.isVerified(profile && profile.verified_until, WBProfile.todayISO());
     var whoHtml = window.WBProfile ? WBProfile.nameHtml(who, verifiedName) : esc(who);
     h += '<div class="card" id="account-card"><div class="account-id">' +
-      '<button type="button" class="avatar" id="profile-open" aria-label="Profile">' +
-      (window.WBProfile ? WBProfile.personIcon() : '') + '</button>' +
+      '<button type="button" class="avatar av-lg" id="profile-open" aria-label="Profile">' + esc(initialsOf(who)) + '</button>' +
       '<div class="grow"><div class="name" id="account-label">' + whoHtml + '</div>' +
       '<p class="mute">' + esc(plan ? plan.name : 'Membership') + ' · <button type="button" id="profile-edit">Edit profile</button></p></div></div></div>';
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) {
@@ -2840,7 +2848,7 @@
   }
   function paintRequestBadges(n) {
     var count = Math.max(0, Number(n) || 0);
-    ['messages-nav', 'hub-nav'].forEach(function (id) {
+    ['messages-nav'].forEach(function (id) {
       var btn = document.getElementById(id);
       if (!btn) return;
       var badge = btn.querySelector('.request-count');
@@ -4630,7 +4638,8 @@
     });
   }
   function renderDashboard(token) {
-    backBtn.hidden = false;
+    var dashTail = trackingTail();
+    backBtn.hidden = !(dashTail && dashTail.kind);
     app.oninput = null;
     app.onchange = null;
     var tail = trackingTail();
@@ -4700,7 +4709,6 @@
     app.oninput = null;
   }
   function renderHistory(token) {
-    backBtn.hidden = false;
     app.onclick = null;
     app.oninput = null;
     app.onchange = null;
@@ -4709,6 +4717,7 @@
     if (fromHash && !trainerAccount()) return go('#/tracking');
     if (fromHash && (!window.WBShares || !WBShares.isUuid(fromHash))) return go('#/tracking');
     var key = historyFocusKey();
+    backBtn.hidden = !key && !trackingClientFromHash();
     if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {
       if (!key) paintTracking('history', '<div class="empty">History is not available yet.</div>', true);
@@ -5593,27 +5602,40 @@
       (d.source === 'library' ? '' : ' role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="name-suggest"') + '>' +
       (d.source === 'library' ? '' : '<div id="name-suggest" class="name-suggest" role="listbox" aria-label="Saved exercise names" hidden></div>') +
       (d.source === 'library' && d.libraryId ? '<p class="mute">Library demo is attached.</p>' : '') +
-      '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode) +
-      (d.mode === 'stopwatch' ? '<label>Attempts</label>' + numIn('sets', d.sets, 'e.g. 3', null, true) : d.mode === 'intervals' ? '<label># of intervals</label>' + numIn('sets', d.sets, 'e.g. 8', null, true) : '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3', null, true)) +
-      '<label>Weight</label>' + seg('unit', [['lb', 'lb'], ['kg', 'kg'], ['bodyweight', 'Bodyweight']], d.unit) +
-      (d.unit !== 'bodyweight' ? '<div style="margin-top:8px">' + numIn('wval', d.wval, 'Weight in ' + d.unit + ' (optional)', 'any') + '</div>' : '') +
-      '';
-    function repsUI(allowStatic) {
+      '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode);
+    function weightFields() {
+      return '<label>Weight</label>' + seg('unit', [['lb', 'lb'], ['kg', 'kg'], ['bodyweight', 'Bodyweight']], d.unit) +
+        (d.unit !== 'bodyweight' ? '<div style="margin-top:8px">' + numIn('wval', d.wval, 'Weight in ' + d.unit + ' (optional)', 'any') + '</div>' : '');
+    }
+    function setsField(label, hint) {
+      return '<label>' + label + '</label>' + numIn('sets', d.sets, hint, null, true);
+    }
+    function repsFields(allowStatic) {
       var o = [['number', 'Number'], ['range', 'Range']]; if (allowStatic) o.push(['static', 'Static hold']);
-      var x = '<div class="reps-unit"><label>Reps type' + (allowStatic ? ' <span class="mute" style="font-weight:400">(optional — tap again to clear)</span>' : '') + '</label>' + seg('repsType', o, c.repsType);
+      var x = '<label>Reps type' + (allowStatic ? ' <span class="mute" style="font-weight:400">(optional — tap again to clear)</span>' : '') + '</label>' + seg('repsType', o, c.repsType);
       if (c.repsType === 'number') x += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10', null, true);
       if (c.repsType === 'range') x += '<label>Rep range (min – max)</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min', null, true) + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max', null, true) + '</div></div>';
       if (c.repsType === 'static') x += '<p class="mute">Static hold — time only, no rep count.</p>';
-      return x + '</div>';
+      return x;
+    }
+    function repsColumn() {
+      if (c.repsType === 'range') return '<label>Rep range</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min', null, true) + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max', null, true) + '</div></div>';
+      if (c.repsType === 'static') return '<label>Reps</label><p class="mute">Static hold — time only, no rep count.</p>';
+      return '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10', null, true);
     }
     if (d.mode === 'reps') {
-      h += repsUI(false);
-      h += '<label>Rest time between sets (optional)' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal);
+      h += '<label>Reps type</label>' + seg('repsType', [['number', 'Number'], ['range', 'Range']], c.repsType);
+      h += '<div class="field-row"><div>' + setsField('Sets', 'e.g. 3') + '</div><div>' + repsColumn() + '</div></div>';
+      h += weightFields();
+      h += '<label>Rest time between sets (optional)</label>' + (ssNonFinal ? '<p class="mute">Disabled — not final in a superset</p>' : '') + timeIn('cfg', c, 'rm', 'rs', ssNonFinal);
     } else if (d.mode === 'intervals') {
-      h += '<label>Interval time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + repsUI(true);
+      h += setsField('# of intervals', 'e.g. 8') + weightFields();
+      h += '<label>Interval time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + repsFields(true);
     } else if (d.mode === 'timer') {
-      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + '<label>Rest time' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal, true) + repsUI(true);
+      h += setsField('Sets', 'e.g. 3') + weightFields();
+      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + '<label>Rest time</label>' + (ssNonFinal ? '<p class="mute">Disabled — not final in a superset</p>' : '') + timeIn('cfg', c, 'rm', 'rs', ssNonFinal, true) + repsFields(true);
     } else {
+      h += setsField('Attempts', 'e.g. 3') + weightFields();
       h += '<p class="mute">Counts up from 0:00 during the workout. No settings needed.</p>' +
         '<label class="row" style="font-weight:400"><input type="checkbox" class="sel" data-b="cfg.lapsEnabled"' + (c.lapsEnabled ? ' checked' : '') + '> Record laps (agility / splits)</label>' +
         (c.lapsEnabled ? '<label>Lap quantity</label>' + numIn('cfg.lapCount', c.lapCount, 'e.g. 4', null, true) + '<div id="lap-events">' + lapEventsHtml(c) + '</div>' : '');

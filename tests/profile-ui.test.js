@@ -131,7 +131,7 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   assert.strictEqual(gate.signHidden, false);
   assert.strictEqual(gate.sameLine, true);
   assert.strictEqual(gate.signRight, true);
-  assert.strictEqual(gate.backHidden, false);
+  assert.strictEqual(gate.backHidden, true);
   const signHit = await p.evaluate(function () {
     var link = document.getElementById('account-signout');
     var box = link.getBoundingClientRect();

@@ -140,8 +140,8 @@ function today() {
   assert.strictEqual(await page.$('.pl-screen'), null);
 
   await openPrograms();
-  // The calendar's own back arrow still leaves for Workouts.
-  await page.click('#back');
+  // Top-level Programs has no back arrow. Workouts in the link row leaves the calendar.
+  await page.click('#workouts-nav');
   await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.querySelector('[data-a=new]'));
   assert.strictEqual(await page.$('#pv-root'), null);
 
