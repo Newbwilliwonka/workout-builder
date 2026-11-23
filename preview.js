@@ -252,6 +252,7 @@
   }
   var pullGen = 0;
   var sessionGen = 0;
+  var clientViewToken = 0;
   function applyEntryRows(rows, owners, token, gen) {
     if (!state || token !== loadToken || gen !== pullGen || !Array.isArray(rows) || !data()) return;
     var dropped = data().programDrops || {};
@@ -417,6 +418,47 @@
   function legendHtml() {
     return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span><span>' + check(true) + 'Not scheduled</span></div>';
   }
+  var MONTH_ICON_CAP = 6;
+  function presenceKind(row) {
+    return row && row.presence === 'trainer' ? 'trainer' : 'solo';
+  }
+  // All clients week labels. The trainer's own rows say Self. Another person's
+  // label is their display name, or their role when that name is an email.
+  function allClientsWho(row) {
+    var selfId = (state && state.userId) || 'self';
+    var owner = row && row.ownerId || '';
+    if (!owner || owner === selfId || owner === 'self') return 'Self';
+    var client = clientById(owner);
+    var named = window.WBProfile && WBProfile.label ? WBProfile.label(client || {}) : '';
+    if (named && named.indexOf('@') === -1) return named;
+    var visible = clientVisible(client);
+    if (visible && visible.indexOf('@') === -1) return visible;
+    return 'Client';
+  }
+  function allMonthMarks(items, extras) {
+    var kinds = [];
+    (items || []).forEach(function (row) { kinds.push(presenceKind(row)); });
+    (extras || []).forEach(function () { kinds.push('solo'); });
+    var shown = kinds.slice(0, MONTH_ICON_CAP);
+    var more = kinds.length - shown.length;
+    var html = '';
+    shown.forEach(function (kind) { html += ico(kind); });
+    if (more > 0) html += '<span class="pv-more">+' + more + '</span>';
+    return { html: html, count: kinds.length };
+  }
+  function allWeekCard(row, extra) {
+    var kind = extra ? 'solo' : presenceKind(row);
+    var who = allClientsWho(row);
+    var icon = (!extra && canEditRow(row)) ? ico(kind, { id: row.id }) : ico(kind);
+    var label = extra ? loggedName(row) : (row.workoutName || 'Workout');
+    var cls = 'card pv-session pv-all-chip' + (extra ? ' is-extra' : '');
+    var attrs = extra
+      ? ' data-logged="' + esc(row.id) + '"'
+      : ' data-open-session="' + esc(row.id) + '"' + dragAttrs('session', row.id, label, canEditRow(row));
+    var aria = who + ', ' + presenceLabel(kind) + (extra ? ', completed, not scheduled' : '');
+    return '<div class="' + cls + '"' + attrs + ' aria-label="' + esc(aria) + '"><div class="pv-chip-row">' +
+      icon + '<span class="pv-who" data-client-slot="1">' + esc(who) + '</span></div></div>';
+  }
   function weekHtml() {
     var start = P.weekStart(state.cursor);
     var end = new Date(start.getTime());
@@ -438,8 +480,13 @@
       var today = date === todayIso();
       h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '" data-day="' + date + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="pv-today-label mute"> Today</span>' : '') + '</div></div>' +
         (P.dayDone(items, tracked) ? check() : '') + '</div>';
-      items.forEach(function (row) { h += sessionCard(row); });
-      extras.forEach(function (row) { h += extraCard(row); });
+      if (viewingAll()) {
+        items.forEach(function (row) { h += allWeekCard(row, false); });
+        extras.forEach(function (row) { h += allWeekCard(row, true); });
+      } else {
+        items.forEach(function (row) { h += sessionCard(row); });
+        extras.forEach(function (row) { h += extraCard(row); });
+      }
       if (!items.length && !extras.length && canEditHere()) h += '<div class="mute pv-drop">Drop here</div>';
       h += '</div>';
     }
@@ -462,6 +509,16 @@
       var items = onDay(date);
       var extras = unscheduledFor(date);
       var outside = d.getMonth() !== month;
+      var today = date === todayIso();
+      if (viewingAll()) {
+        var marks = allMonthMarks(items, extras);
+        var ariaAll = DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate();
+        if (marks.count) ariaAll += ', ' + marks.count + (marks.count === 1 ? ' workout' : ' workouts');
+        if (extras.length) ariaAll += ', completed, not scheduled';
+        h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (today ? ' today' : '') + ((items.length || extras.length) ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(ariaAll) + '">' +
+          '<span class="pv-num">' + d.getDate() + '</span>' +
+          (marks.html ? '<span class="pv-icons">' + marks.html + '</span>' : '') + '</button>';
+      } else {
       var done = P.dayDone(items, tracked);
       var kinds = {};
       var names = [];
@@ -477,8 +534,9 @@
       if (kinds.solo) icons += ico('solo');
       var nameHtml = names.length ? '<span class="pv-names" data-client-slot="1" title="' + esc(names.join(', ')) + '">' + esc(names.join(' · ')) + '</span>' : '';
       var aria = DOWS[(d.getDay() + 6) % 7] + ' ' + d.getDate() + (names.length ? ', ' + names.join(', ') : '') + (extraNames.length ? ', ' + extraNames.join(', ') + ', completed, not scheduled' : '') + (done ? ', completed' : '');
-      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (date === todayIso() ? ' today' : '') + ((items.length || extras.length) ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(aria) + '">' +
+      h += '<button type="button" class="pv-cell' + (outside ? ' is-out' : '') + (today ? ' today' : '') + ((items.length || extras.length) ? ' has' : '') + '" data-month-day="' + date + '" data-date="' + date + '" aria-label="' + esc(aria) + '">' +
         '<span class="pv-num">' + d.getDate() + '</span><span class="pv-marks">' + icons + (done ? check() : '') + '</span>' + nameHtml + extraMonthHtml(extras) + '</button>';
+      }
     }
     return h + '</div>';
   }
@@ -689,7 +747,7 @@
       h += '<p class="mute">' + esc(prettyDate(row.date)) + ' · Completed, not scheduled</p>';
       if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '">Run</button>';
       if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '">View</button>';
-      h += '</div>';
+      h += openErrorHtml() + '</div>';
     }
     return h + '</div></div>';
   }
@@ -712,7 +770,7 @@
     if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">View</button>';
     if (editing) h += '<button type="button" data-sheet="times" data-entry="' + esc(row.id) + '">Save times</button>';
     if (actions.indexOf('remove') >= 0) h += '<button type="button" class="danger" data-sheet="remove" data-entry="' + esc(row.id) + '">Remove workout</button>';
-    return h + '</div>';
+    return h + openErrorHtml() + '</div>';
   }
   function ampmHtml(which, selected) {
     function btn(ap) {
@@ -782,6 +840,10 @@
     if (sheet.error) h += '<p class="errs" id="pv-sheet-error">' + esc(sheet.error) + '</p>';
     return h + '<button type="button" class="pri" data-sheet="save">Add to this day</button><button type="button" data-sheet="cancel">Cancel</button></div></div>';
   }
+  function openErrorHtml() {
+    if (!state.sheet || !state.sheet.openError) return '';
+    return '<p class="errs" id="pv-open-error">' + esc(state.sheet.openError) + '</p>';
+  }
   function playable(id) {
     var workout = workoutById(id);
     if (!workout) return null;
@@ -806,6 +868,7 @@
   function leavePlayer() {
     if (!state) return;
     if (options && options.onTracked) options.onTracked();
+    state.focusClientPlay = null;
     state.playerLive = false;
     state.screen = 'home';
     if (window.WBPlayer) WBPlayer.unmount();
@@ -851,13 +914,16 @@
   function openRealPlayer(track) {
     if (state.playerLive) return;
     if (track === false) {
-      if (!openView(app, workoutById(state.focusWorkout), leavePlayer)) {
+      var previewWorkout = state.focusClientPlay || workoutById(state.focusWorkout);
+      if (!openView(app, previewWorkout, leavePlayer)) {
+        state.focusClientPlay = null;
         state.screen = 'home';
         state.playerLive = false;
         state.hint = 'Add an exercise before running this workout.';
         render();
         return;
       }
+      state.focusClientPlay = null;
       state.playerLive = true;
       return;
     }
@@ -1342,6 +1408,7 @@
       return;
     }
     if (e.target.id !== 'pv-client') return;
+    clientViewToken++;
     state.clientId = e.target.value;
     state.clientShare = null;
     state.clientShareFresh = false;
@@ -1401,7 +1468,91 @@
       return false;
     });
   }
+  function cloneList(items) {
+    try { return JSON.parse(JSON.stringify(items)); } catch (e) { return items; }
+  }
+  function playableCopy(workout, fallbackId, fallbackName) {
+    if (!workout || !Array.isArray(workout.items) || !workout.items.length) return null;
+    return {
+      id: String(workout.id || fallbackId || ''),
+      name: workout.name || fallbackName || 'Workout',
+      items: cloneList(workout.items)
+    };
+  }
+  // The copy stored on that client's calendar entry. Never the trainer's library.
+  function clientEntrySnapshot(ownerId, workoutId) {
+    var found = null;
+    var rows = data() && data().programs;
+    (rows || []).forEach(function (row) {
+      if (!row || row.ownerId !== ownerId || String(row.workoutId || '') !== String(workoutId || '')) return;
+      var play = playableCopy({ id: row.workoutId, name: row.workoutName, items: row.items }, workoutId, row.workoutName);
+      if (play) found = play;
+    });
+    return found;
+  }
+  function completedClientRow(node) {
+    if (!viewingAll() || !state || !state.sheet || state.sheet.type !== 'day' || !node) return null;
+    var entryId = node.getAttribute('data-entry') || '';
+    var row = entryId ? entryById(entryId) : (state.sheet.loggedId ? loggedById(state.sheet.loggedId) : null);
+    if (!row || !row.ownerId) return null;
+    var selfId = state.userId || 'self';
+    if (row.ownerId === selfId || row.ownerId === 'self') return null;
+    if (!clientById(row.ownerId)) return null;
+    if (entryId && !P.entryDone(row, sessions())) return null;
+    return row;
+  }
+  function showClientPlayer(workout) {
+    state.focusClientPlay = workout;
+    state.focusWorkout = workout.id;
+    state.focusEntry = '';
+    state.playerMode = 'view';
+    state.screen = 'player';
+    state.sheet = null;
+    render();
+  }
+  function openClientCompleted(row) {
+    if (!row || !state || !state.sheet || state.sheet.type !== 'day') return;
+    var entryId = state.sheet.entryId || '';
+    if (entryId && canEditRow(row)) {
+      readSheetTimes();
+      var draft = state.sheet.drafts && state.sheet.drafts[entryId];
+      var edited = draft && ((draft.start || '') !== (row.start || '') || (draft.end || '') !== (row.end || ''));
+      if (edited && !saveEntryTimes(entryId)) return;
+      if (!state.sheet || state.sheet.type !== 'day') return;
+    }
+    var request = ++clientViewToken;
+    var generation = loadToken;
+    var loggedId = state.sheet.loggedId || '';
+    var date = state.sheet.date || '';
+    state.sheet.viewRequest = request;
+    state.sheet.openError = '';
+    var owner = row.ownerId;
+    var workoutId = String(row.workoutId || '');
+    var load = options && options.loadClientWorkout;
+    var pending = load
+      ? Promise.resolve().then(function () { return load(owner, workoutId); })
+      : Promise.resolve(null);
+    function finish(workout) {
+      if (!state || request !== clientViewToken || generation !== loadToken) return;
+      var sheet = state.sheet;
+      if (!viewingAll() || !sheet || sheet.type !== 'day' || sheet.viewRequest !== request) return;
+      if ((sheet.entryId || '') !== entryId || (sheet.loggedId || '') !== loggedId || (sheet.date || '') !== date) return;
+      var play = playableCopy(workout, workoutId, row.workoutName) || playableCopy({
+        id: row.workoutId,
+        name: row.workoutName,
+        items: row.items
+      }, workoutId, row.workoutName) || clientEntrySnapshot(owner, workoutId);
+      if (!play) {
+        sheet.openError = 'Could not open that workout.';
+        render();
+        return;
+      }
+      showClientPlayer(play);
+    }
+    pending.then(finish, function () { finish(null); });
+  }
   function playFrom(node, mode) {
+    state.focusClientPlay = null;
     var workoutId = node.getAttribute(mode === 'view' ? 'data-view-wo' : 'data-run');
     var entryId = node.getAttribute('data-entry') || '';
     if (state.sheet && state.sheet.type === 'day' && canEdit() && entryId) {
@@ -1814,7 +1965,12 @@
       return;
     }
     var view = e.target.closest('[data-view-wo]');
-    if (view) { playFrom(view, 'view'); return; }
+    if (view) {
+      var doneRow = completedClientRow(view);
+      if (doneRow) { openClientCompleted(doneRow); return; }
+      playFrom(view, 'view');
+      return;
+    }
     var run = e.target.closest('[data-run]');
     if (run) playFrom(run, 'run');
   }
@@ -1950,6 +2106,7 @@
     historyDepth = 0;
     ignorePop = 0;
     loadToken += 1;
+    clientViewToken += 1;
     clearDrag();
     if (state && state.playerLive && window.WBPlayer) WBPlayer.unmount();
     document.body.classList.remove('playing');

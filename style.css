@@ -368,6 +368,10 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-check{color:#059669;font-weight:800;font-size:16px;line-height:1}
 .pv-check.is-extra{color:var(--pri)}
 .pv-session.is-extra .name,.pv-day-row.is-extra .name,.pv-uname{color:var(--mute)}
+.pv-all-chip{padding:4px}
+.pv-chip-row{display:flex;align-items:flex-start;gap:4px;min-width:0}
+.pv-day .pv-all-chip .pv-who{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;min-width:0}
+.pv-all-chip.is-extra .pv-who{color:var(--mute)}
 .pv-session.is-extra .pv-session-top .name{flex:1;min-width:0}
 .pv-session.is-extra .pv-check{flex:none}
 .pv-extra{display:flex;align-items:center;gap:2px;max-width:100%;min-width:0}
@@ -441,6 +445,8 @@ button.pv-cell.has{background:#eff6ff}
 button.pv-cell.today{box-shadow:0 0 0 2px var(--pri)}
 button.pv-cell.is-out{opacity:.4}
 .pv-dots{display:flex;flex-wrap:wrap;gap:2px;align-items:center;min-height:16px}
+.pv-icons{display:flex;flex-wrap:wrap;align-items:center;align-content:flex-start;gap:1px 2px;width:100%;min-width:0}
+.pv-more{font-size:10px;font-weight:700;line-height:12px;color:var(--mute);flex:none}
 .pv-cell .pv-ico{width:12px;height:12px;min-width:12px;min-height:12px}
 .pv-cell .pv-ico svg{width:12px;height:12px}
 .pv-cell .pv-check{font-size:13px}

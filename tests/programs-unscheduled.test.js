@@ -188,8 +188,8 @@ function entry(id, ownerId, wo, start, end, presence, when) {
   await openPrograms(trainer);
   await trainer.waitForFunction(function () {
     var today = document.querySelector('.pv-day.today');
-    return today && today.textContent.indexOf('Evening extra') !== -1 && today.textContent.indexOf('Mia legs') !== -1 &&
-      today.textContent.indexOf('Owen secret') === -1 && today.querySelector('.pv-session.is-extra');
+    return today && today.textContent.indexOf('Self') !== -1 && today.textContent.indexOf('Mia Chen') !== -1 &&
+      today.textContent.indexOf('Owen') === -1 && today.textContent.indexOf('Evening extra') === -1 && today.querySelector('.pv-session.is-extra');
   });
 
   const calls = await trainer.evaluate(function () { return window.__wbSessionCalls; });
@@ -197,15 +197,15 @@ function entry(id, ownerId, wo, start, end, presence, when) {
     assert.ok(ids.indexOf(MIA) >= 0 && ids.indexOf(TRAINER) >= 0);
     assert.strictEqual(ids.indexOf(OWEN), -1);
   });
-  assert.strictEqual(await color(trainer, '.pv-day.today .pv-session.is-extra .name'), 'rgb(107, 114, 128)');
-  assert.strictEqual(await color(trainer, '.pv-day.today .pv-session.is-extra .pv-check'), 'rgb(37, 99, 235)');
-  assert.strictEqual(await color(trainer, '.pv-day.today .pv-session:not(.is-extra) .name'), 'rgb(17, 24, 39)');
+  assert.strictEqual(await color(trainer, '.pv-day.today .pv-session.is-extra .pv-who'), 'rgb(107, 114, 128)');
+  assert.strictEqual(await color(trainer, '.pv-day.today .pv-session:not(.is-extra) .pv-who'), 'rgb(17, 24, 39)');
   assert.strictEqual(await color(trainer, '.pv-day.today .pv-day-h .pv-check'), 'rgb(5, 150, 105)');
   const weekCards = await trainer.$$eval('.pv-day.today .pv-session', function (rows) {
     return rows.map(function (row) {
       var who = row.querySelector('.pv-who');
+      var name = row.querySelector('.name');
       return {
-        name: row.querySelector('.name').textContent,
+        name: name ? name.textContent : '',
         who: who ? who.textContent : '',
         extra: row.classList.contains('is-extra'),
         drag: row.hasAttribute('data-drag')
@@ -213,9 +213,9 @@ function entry(id, ownerId, wo, start, end, presence, when) {
     });
   });
   assert.deepStrictEqual(weekCards, [
-    { name: 'Morning lift', who: '', extra: false, drag: true },
-    { name: 'Evening extra', who: '', extra: true, drag: false },
-    { name: 'Mia legs', who: 'Mia', extra: true, drag: false }
+    { name: '', who: 'Self', extra: false, drag: true },
+    { name: '', who: 'Self', extra: true, drag: false },
+    { name: '', who: 'Mia Chen', extra: true, drag: false }
   ]);
   assert.ok((await trainer.$eval('.pv-legend', function (el) { return el.textContent; })).indexOf('Not scheduled') !== -1);
   await trainer.evaluate(function () {
@@ -225,11 +225,13 @@ function entry(id, ownerId, wo, start, end, presence, when) {
   await trainer.screenshot({ path: path.join(ART, 'unscheduled_week.png') });
 
   await trainer.click('[data-cal=month]');
-  await trainer.waitForSelector('.pv-cell.today .pv-extra');
-  assert.strictEqual(await color(trainer, '.pv-cell.today .pv-uname'), 'rgb(107, 114, 128)');
-  assert.strictEqual(await color(trainer, '.pv-cell.today .pv-extra .pv-check'), 'rgb(37, 99, 235)');
+  await trainer.waitForSelector('.pv-cell.today .pv-ico');
+  assert.strictEqual(await trainer.$$eval('.pv-cell.today .pv-ico', function (els) { return els.length; }), 3);
+  assert.strictEqual(await trainer.$('.pv-cell.today .pv-uname'), null);
+  assert.strictEqual(await trainer.$('.pv-cell.today .pv-names'), null);
   const monthText = await trainer.$eval('.pv-cell.today', function (el) { return el.textContent; });
-  assert.ok(monthText.indexOf('Evening extra') !== -1 && monthText.indexOf('Mia') !== -1);
+  assert.strictEqual(monthText.indexOf('Evening extra'), -1);
+  assert.strictEqual(monthText.indexOf('Mia'), -1);
   assert.ok((await trainer.$eval('.pv-cell.today', function (el) { return el.getAttribute('aria-label'); })).indexOf('not scheduled') !== -1);
   await trainer.evaluate(function () {
     var cell = document.querySelector('.pv-cell.today');
