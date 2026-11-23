@@ -263,7 +263,7 @@
     if (city && state) return city + ', ' + state;
     return city || state;
   }
-  function placeLine(row, withDistance) {
+  function placeText(row, withDistance) {
     var service = row && (row.serviceType || row.service_type);
     if (service === 'online') return '';
     var text = placeLabel(row);
@@ -271,8 +271,58 @@
       var dist = distanceLabel(row);
       if (dist) text = text ? (text + ' · ' + dist) : dist;
     }
+    return text;
+  }
+  function placeLine(row, withDistance) {
+    var text = placeText(row, withDistance);
     if (!text) return '';
     return '<p class="mute find-place">' + esc(text) + '</p>';
+  }
+  function isLinkedTrainer(row) {
+    return !!(row && (row.isLinked === true || row.is_linked === true));
+  }
+  function arrangeTrainers(rows) {
+    var linked = null;
+    (rows || []).forEach(function (row) {
+      if (!linked && isLinkedTrainer(row)) linked = row;
+    });
+    var others = [];
+    (rows || []).forEach(function (row) {
+      if (!row || isLinkedTrainer(row)) return;
+      if (linked && linked.id != null && String(row.id) === String(linked.id)) return;
+      others.push(row);
+    });
+    return { linked: linked, others: others };
+  }
+  function trainerCardHtml(row, near, linked) {
+    var person = personBits(row);
+    var service = serviceLabel(row.serviceType || row.service_type);
+    var h = '';
+    if (linked) {
+      h += '<button type="button" class="card find-person find-linked" data-message="' + esc(row.id) + '">';
+      h += '<span class="tag find-yours">Your trainer</span>';
+      h += bylineHtml(person);
+      if (service) h += '<span class="mute">' + esc(service) + '</span>';
+      var yours = placeText(row, near);
+      if (yours) h += '<span class="mute find-place">' + esc(yours) + '</span>';
+      h += '</button>';
+      return h;
+    }
+    var state = row.request || 'none';
+    h += '<article class="card find-person" data-trainer="' + esc(row.id) + '">';
+    h += bylineHtml(person);
+    if (service) h += '<p class="mute">' + esc(service) + '</p>';
+    h += placeLine(row, near);
+    if (state === 'open') {
+      h += '<button type="button" class="pri" disabled>Requested</button>';
+    } else if (state === 'cooldown') {
+      h += '<button type="button" class="pri" disabled>Unavailable</button>';
+      h += '<p class="mute">You can request this trainer again later.</p>';
+    } else {
+      h += '<button type="button" class="pri" data-request="' + esc(row.id) + '">Request to message</button>';
+    }
+    h += '</article>';
+    return h;
   }
   function findResultsHtml(result) {
     result = result || {};
@@ -293,32 +343,22 @@
     }
     var trainers = result.trainers || [];
     if (near && !result.searched) return h;
-    if (!trainers.length) {
+    var arranged = arrangeTrainers(trainers);
+    if (!arranged.linked && !arranged.others.length) {
       h += '<div class="empty" id="find-empty">' + (near
         ? 'No trainers are near that place right now.'
         : 'No trainers are available online right now.') + '</div>';
       return h;
     }
     h += '<div id="find-list">';
-    trainers.forEach(function (row) {
-      var person = personBits(row);
-      var service = serviceLabel(row.serviceType || row.service_type);
-      var state = row.request || 'none';
-      h += '<article class="card find-person" data-trainer="' + esc(row.id) + '">';
-      h += bylineHtml(person);
-      if (service) h += '<p class="mute">' + esc(service) + '</p>';
-      h += placeLine(row, near);
-      if (state === 'open') {
-        h += '<button type="button" class="pri" disabled>Requested</button>';
-      } else if (state === 'cooldown') {
-        h += '<button type="button" class="pri" disabled>Unavailable</button>';
-        h += '<p class="mute">You can request this trainer again later.</p>';
-      } else {
-        h += '<button type="button" class="pri" data-request="' + esc(row.id) + '">Request to message</button>';
-      }
-      h += '</article>';
+    if (arranged.linked) h += trainerCardHtml(arranged.linked, near, true);
+    arranged.others.forEach(function (row) {
+      h += trainerCardHtml(row, near, false);
     });
     h += '</div>';
+    if (arranged.linked && !arranged.others.length) {
+      h += '<p class="mute" id="find-none">No other trainers are listed yet.</p>';
+    }
     return h;
   }
   function requestFormHtml(trainer) {
@@ -844,7 +884,7 @@
   }
   function onClick(e) {
     if (!ctx || !e.target || !e.target.closest) return;
-    var t = e.target.closest('#hub-new, #hub-save, #hub-edit, #hub-delete, #hub-report, #hub-reply-send, #hub-find, #hub-requests, #find-send, #find-online, #find-near, #find-locate, [data-request], [data-request-approve], [data-request-decline], [data-post], [data-reply-edit], [data-reply-save], [data-reply-cancel], [data-reply-delete], [data-reply-report]');
+    var t = e.target.closest('#hub-new, #hub-save, #hub-edit, #hub-delete, #hub-report, #hub-reply-send, #hub-find, #hub-requests, #find-send, #find-online, #find-near, #find-locate, [data-message], [data-request], [data-request-approve], [data-request-decline], [data-post], [data-reply-edit], [data-reply-save], [data-reply-cancel], [data-reply-delete], [data-reply-report]');
     if (!t) return;
     if (t.id === 'hub-find') return ctx.go('#/hub/find');
     if (t.id === 'hub-requests') return ctx.go('#/hub/requests');
@@ -852,6 +892,8 @@
     if (t.id === 'find-near') return showNearPrompt();
     if (t.id === 'find-locate') return useMyLocation();
     if (t.id === 'find-send') return sendRequest(t.closest('form') && t.closest('form').getAttribute('data-trainer'));
+    var messageId = t.getAttribute('data-message');
+    if (messageId) return ctx.go('#/messages/' + encodeURIComponent(messageId));
     var askId = t.getAttribute('data-request');
     if (askId) return ctx.go('#/hub/find/' + encodeURIComponent(askId));
     var approveId = t.getAttribute('data-request-approve');

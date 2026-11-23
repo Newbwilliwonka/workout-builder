@@ -207,6 +207,97 @@ const onlineRequest = H.requestFormHtml({
 assert.ok(onlineRequest.indexOf('Dallas') === -1);
 assert.ok(onlineRequest.indexOf('>Online<') !== -1);
 
+const linkedOnly = H.findResultsHtml({
+  mode: 'online',
+  trainers: [{
+    id: 'zara',
+    name: 'Zara Coach',
+    role: 'Trainer',
+    verified: false,
+    serviceType: 'in_person',
+    city: 'Austin',
+    state: 'Texas',
+    isLinked: true,
+    email: 'zara@example.com',
+    request: 'none'
+  }]
+});
+assert.ok(linkedOnly.indexOf('>Your trainer<') !== -1);
+assert.ok(linkedOnly.indexOf('No other trainers are listed yet.') !== -1);
+assert.ok(linkedOnly.indexOf('id="find-none"') !== -1);
+assert.ok(linkedOnly.indexOf('data-message="zara"') !== -1);
+assert.ok(linkedOnly.indexOf('Request to message') === -1);
+assert.ok(linkedOnly.indexOf('No trainers are available online right now.') === -1);
+assert.ok(linkedOnly.indexOf('@') === -1);
+assert.ok(linkedOnly.indexOf('Zara Coach') !== -1);
+assert.ok(linkedOnly.indexOf('Austin, Texas') !== -1);
+assert.ok(linkedOnly.indexOf('data-trainer="zara"') === -1);
+
+const linkedFirst = H.findResultsHtml({
+  trainers: [
+    {
+      id: 'bea',
+      name: 'Bea',
+      role: 'Trainer',
+      serviceType: 'online',
+      request: 'none',
+      isLinked: false,
+      email: 'bea@example.com'
+    },
+    {
+      id: 'zara',
+      name: 'Zara Coach',
+      role: 'Trainer',
+      serviceType: 'online',
+      isLinked: true,
+      email: 'zara@example.com'
+    },
+    {
+      id: 'zara',
+      name: 'Zara Coach',
+      role: 'Trainer',
+      serviceType: 'online',
+      isLinked: false
+    }
+  ]
+});
+const zaraAt = linkedFirst.indexOf('data-message="zara"');
+const beaAt = linkedFirst.indexOf('data-trainer="bea"');
+assert.ok(zaraAt !== -1 && zaraAt < beaAt);
+assert.strictEqual(linkedFirst.split('data-message="zara"').length - 1, 1);
+assert.strictEqual(linkedFirst.split('Zara Coach').length - 1, 1);
+assert.ok(linkedFirst.indexOf('id="find-none"') === -1);
+assert.ok(linkedFirst.indexOf('data-request="bea"') !== -1);
+assert.ok(linkedFirst.indexOf('data-request="zara"') === -1);
+assert.ok(linkedFirst.indexOf('@') === -1);
+assert.ok(linkedFirst.indexOf('No other trainers are listed yet.') === -1);
+
+const snakeLinked = H.findResultsHtml({
+  trainers: [{ id: 'zed', name: 'Zed', role: 'Trainer', serviceType: 'online', is_linked: true }]
+});
+assert.ok(snakeLinked.indexOf('data-message="zed"') !== -1);
+assert.ok(snakeLinked.indexOf('>Your trainer<') !== -1);
+assert.ok(snakeLinked.indexOf('No other trainers are listed yet.') !== -1);
+
+const noneOnline = H.findResultsHtml({ trainers: [] });
+assert.ok(noneOnline.indexOf('No trainers are available online right now.') !== -1);
+assert.ok(noneOnline.indexOf('No other trainers are listed yet.') === -1);
+assert.ok(noneOnline.indexOf('id="find-empty"') !== -1);
+
+const noneNear = H.findResultsHtml({ mode: 'near', searched: true, trainers: [] });
+assert.ok(noneNear.indexOf('No trainers are near that place right now.') !== -1);
+assert.ok(noneNear.indexOf('No other trainers are listed yet.') === -1);
+assert.ok(noneNear.indexOf('Your trainer') === -1);
+
+const nearPrompt = H.findResultsHtml({
+  mode: 'near',
+  searched: false,
+  trainers: [{ id: 'zara', name: 'Zara Coach', role: 'Trainer', isLinked: true }]
+});
+assert.ok(nearPrompt.indexOf('Your trainer') === -1);
+assert.ok(nearPrompt.indexOf('id="find-list"') === -1);
+assert.ok(nearPrompt.indexOf('No other trainers are listed yet.') === -1);
+
 const requestForm = H.requestFormHtml({
   id: 't1',
   name: 'Amy <Coach>',
