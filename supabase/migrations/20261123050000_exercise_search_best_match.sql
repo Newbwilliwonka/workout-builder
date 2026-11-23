@@ -21,6 +21,8 @@
 --     equipment, target, description). Same body-part, equipment, and target
 --     filters. Same approval check. Same limit (1 to 30) and offset.
 --     A match ignores case, spaces, hyphens, and other punctuation.
+--     The two-character minimum applies to that compact key. "a!" and "!!!"
+--     are not searches. With a filter they behave like an empty query.
 --     "close grip press" finds "close-grip bench press" (each word, any order).
 --     A trailing plural s is ignored when the word is at least 4 letters and
 --     does not already end in ss ("push-ups" finds "push-up"; "press" stays
@@ -213,7 +215,7 @@ as $search$
       s.q_key,
       s.q_stem,
       (
-        s.q_key <> ''
+        length(s.q_key) >= 2
         and strpos(e.name_key, s.q_key) > 0
       ) as hit_key,
       (
@@ -221,7 +223,8 @@ as $search$
         and strpos(e.name_key, s.q_stem) > 0
       ) as hit_stem,
       (
-        exists (select 1 from words)
+        length(s.q_key) >= 2
+        and exists (select 1 from words)
         and not exists (
           select 1
           from words w
@@ -239,7 +242,7 @@ as $search$
       and (s.equipment = '' or e.equipment = s.equipment)
       and (s.target = '' or e.target = s.target)
       and (
-        length(s.q) >= 2
+        length(s.q_key) >= 2
         or s.body_part <> ''
         or s.equipment <> ''
         or s.target <> ''
@@ -299,7 +302,7 @@ as $search$
         else 2
       end as contain_rank,
       case
-        when length(m.q) = 0 then 0
+        when length(m.q) = 0 or length(m.q_key) < 2 then 0
         when m.q_key <> '' and m.name_key = m.q_key then 0
         when m.q_stem <> m.q_key and m.name_key = m.q_stem then 0
         when m.q_key <> '' and m.name_key like m.q_key || '%' then 1

@@ -362,6 +362,20 @@ begin
   if public._wb_test_search_ids('', '', '', '', 30, 0) <> '' then raise exception 'empty query returned rows'; end if;
   if public._wb_test_search_ids('a', '', '', '', 30, 0) <> '' then raise exception 'one letter returned rows'; end if;
   if public._wb_test_search_ids('!!!', '', '', '', 30, 0) <> '' then raise exception 'punctuation query returned rows'; end if;
+  if public._wb_test_search_ids('a!', '', '', '', 30, 0) <> ''
+     or public._wb_test_search_ids('a-', '', '', '', 30, 0) <> ''
+     or public._wb_test_search_ids('!!a', '', '', '', 30, 0) <> ''
+     or public._wb_test_search_ids('3', '', '', '', 30, 0) <> '' then
+    raise exception 'short compact key returned rows';
+  end if;
+  if public._wb_test_search_ids('a!', '', 'barbell', '', 30, 0)
+       is distinct from public._wb_test_search_ids('', '', 'barbell', '', 30, 0)
+     or public._wb_test_search_ids('!!!', '', 'barbell', '', 30, 0)
+       is distinct from public._wb_test_search_ids('', '', 'barbell', '', 30, 0)
+     or public._wb_test_search_ids('a', '', 'barbell', '', 30, 0)
+       is distinct from public._wb_test_search_ids('', '', 'barbell', '', 30, 0) then
+    raise exception 'short compact key with a filter did not match the empty query';
+  end if;
 
   got := public._wb_test_search_ids('zz', '', '', '', 100, 0);
   select count(*) into n from regexp_split_to_table(got, ',');
