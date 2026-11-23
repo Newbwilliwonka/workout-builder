@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/client/<id>  |  #/tracking/dashboard  |  #/tracking/dashboard/client/<id>  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/history/client/<id>/<key>  |  #/history/client/<id>/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>  |  #/circuits  |  #/circuits/new  |  #/circuits/<id>
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/client/<id>  |  #/tracking/dashboard  |  #/tracking/dashboard/client/<id>  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/history/client/<id>/<key>  |  #/history/client/<id>/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>  |  #/circuits  |  #/circuits/new  |  #/circuits/<id>  |  #/circuits/<id>/run
    A signed-out visit with no hash shows the public landing page. */
 (function () {
   'use strict';
@@ -117,6 +117,7 @@
       return go('#/');
     }
     if (page === 'circuits') {
+      if (window.WBCircuitSession && WBCircuitSession.back()) return;
       if (window.WBCircuits && WBCircuits.back()) return;
       return go('#/');
     }
@@ -3178,12 +3179,27 @@
       go('#/signin');
     });
   }
+  function circuitParts() {
+    var body = '';
+    try { body = String(location.hash || '').replace(/^#\/?/, '').split('?')[0]; } catch (e) { body = ''; }
+    return body.split('/');
+  }
   function openCircuits(token) {
     if (token !== routeToken) return;
     backBtn.hidden = false;
     app.onclick = null;
     app.oninput = null;
     app.onchange = null;
+    var parts = circuitParts();
+    if (parts[0] === 'circuits' && parts[2] === 'run' && parts[1] && parts[1] !== 'new') {
+      if (!window.WBCircuitSession) {
+        titleEl.textContent = 'Group Circuit Training';
+        app.innerHTML = '<div class="card" id="circuit-wait"><div class="name">Not available yet</div><p class="mute">Group circuits are not available yet.</p></div>';
+        return;
+      }
+      WBCircuitSession.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast });
+      return;
+    }
     if (!window.WBCircuits) {
       titleEl.textContent = 'Group Circuit Training';
       app.innerHTML = '<div class="card" id="circuit-wait"><div class="name">Not available yet</div><p class="mute">Group circuits are not available yet.</p></div>';
@@ -3471,6 +3487,7 @@
     window.WBMessages && WBMessages.stop();
     window.WBHub && WBHub.stop();
     window.WBSends && WBSends.stop();
+    window.WBCircuitSession && WBCircuitSession.stop();
     window.WBCircuits && WBCircuits.stop();
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');

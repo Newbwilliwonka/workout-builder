@@ -2,62 +2,21 @@
    Timing: elapsed = acc + (now - t0) from performance.now(), rendered with requestAnimationFrame (no drift). */
 (function () {
   'use strict';
-  var M = window.WB, S = null, audio = null, wake = null;
+  var M = window.WB, S = null;
+  var STANDOFF = window.WBClock ? WBClock.STANDOFF : 5;
   function now() { return performance.now() + (window.__wbClockOffset || 0); } // offset hook for tests only
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function exOf(i) { var st = S.queue[i]; return S.w.items.filter(function (x) { return x.id === st.exerciseId; })[0]; }
   function cfg(i) { return exOf(i).modeConfig || {}; }
   function elapsed() { return S.acc + (S.running ? now() - S.t0 : 0); }
 
-  // ---------- feedback ----------
-  function ensureAudio() { try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {} }
-  function beep() {
-    if (navigator.vibrate) try { navigator.vibrate([180, 90, 180]); } catch (e) {}
-    if (!audio) return;
-    [0, 0.22].forEach(function (d) {
-      var o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime + d;
-      o.frequency.value = 880; o.connect(g); g.connect(audio.destination);
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
-      o.start(t); o.stop(t + 0.18);
-    });
-    S && (S.beeps = (S.beeps || 0) + 1);
-  }
-  // ---------- interval tones: one schedule per run, played via audio.currentTime ----------
-  var STANDOFF = 5;
-  // Times in seconds from the moment Start is pressed. tick = single tone, go = double higher, done = completion.
-  function toneSchedule(workSec, n) {
-    var t = [], k, e, j;
-    for (k = 0; k < STANDOFF; k++) t.push({ t: k, kind: 'tick' });
-    t.push({ t: STANDOFF, kind: 'go' });
-    for (k = 1; k <= n; k++) {
-      e = STANDOFF + k * workSec;
-      for (j = 3; j >= 1; j--) if (j < workSec) t.push({ t: e - j, kind: 'tick' });
-      t.push({ t: e, kind: k < n ? 'go' : 'done' });
-    }
-    return t;
-  }
-  // Timer mode: one set per run. Rest only when the set actually rests; next set still waits for a tap.
+  // ---------- feedback (audio and wake lock live in clock.js) ----------
+  function ensureAudio() { WBClock.ensureAudio(); }
+  function beep() { WBClock.beep(S); }
+  function toneSchedule(workSec, n) { return WBClock.toneSchedule(workSec, n); }
   // Timer mode: back-to-back run of this exercise's consecutive sets (work -> rest -> work ...).
-  function timerSchedule(workSec, restSec, n, endsExercise) {
-    var t = toneSchedule(workSec, 1); t.length = STANDOFF + 1; // standoff ticks + go
-    var cur = STANDOFF, k, q, j, ph, e, last;
-    for (k = 1; k <= n; k++) {
-      ph = restSec > 0 ? [workSec, restSec] : [workSec];
-      for (q = 0; q < ph.length; q++) {
-        e = cur + ph[q]; last = k === n && q === ph.length - 1;
-        for (j = 3; j >= 1; j--) if (j < ph[q]) t.push({ t: e - j, kind: 'tick' });
-        if (!last) t.push({ t: e, kind: 'go' }); else if (endsExercise) t.push({ t: e, kind: 'done' });
-        cur = e;
-      }
-    }
-    return t;
-  }
-  function tone(at, f, dur) {
-    var o = audio.createOscillator(), g = audio.createGain();
-    o.frequency.value = f; o.connect(g); g.connect(audio.destination);
-    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(1, at + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    o.start(at); o.stop(at + dur + 0.02); S.nodes.push(o);
-  }
+  function timerSchedule(workSec, restSec, n, endsExercise) { return WBClock.timerSchedule(workSec, restSec, n, endsExercise); }
+  function tone(at, f, dur) { WBClock.tone(at, f, dur, S.nodes); }
   function runMs() { // ms since Start of the current interval run (pauses excluded)
     if (!S.run || S.phase === 'standoff') return elapsed();
     if (S.run.timer) return STANDOFF * 1000 + (S.queue[S.idx].set - S.run.firstSet) * (S.run.w + S.run.r) * 1000 + (S.phase === 'rest' ? S.run.w * 1000 : 0) + elapsed();
@@ -80,14 +39,8 @@
   // Tones share the display clock. A beep fires on the frame the visible second changes,
   // not from a pre-scheduled audio time that can drift away from the number on screen.
   function fireTone(kind) {
-    (S.toneLog = S.toneLog || []).push({ kind: kind, vis: visibleSecond(), phase: S.phase, at: Math.round(runMs()) });
-    if (!audio) return;
-    try {
-      var t = audio.currentTime;
-      if (kind === 'tick') tone(t, 660, 0.12);
-      else if (kind === 'go') { tone(t, 1320, 0.1); tone(t + 0.15, 1320, 0.1); }
-      else { tone(t, 880, 0.15); tone(t + 0.18, 1100, 0.15); tone(t + 0.36, 1320, 0.35); }
-    } catch (e) {}
+    if (!S.toneLog) S.toneLog = [];
+    WBClock.fireTone(kind, { phase: S.phase, nodes: S.nodes, toneLog: S.toneLog, vis: visibleSecond(), at: Math.round(runMs()) });
   }
   function playDueTones() {
     if (!S || !S.run || !S.run.sched) return;
@@ -106,7 +59,7 @@
   function armRun(run) {
     S.toneMark = -1; S.toneLog = []; S.run = run; scheduleTones();
   }
-  function lockScreen() { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (l) { wake = l; l.addEventListener('release', function () { wake = null; }); }).catch(function () {}); }
+  function lockScreen() { WBClock.lockScreen(); }
   function onVis() { if (S && document.visibilityState === 'visible') lockScreen(); }
 
   // ---------- results (one per queue step, prefilled from targets, editable) ----------
@@ -407,7 +360,7 @@
   function finish() {
     if (S.track === false) { // preview: leave without a session, a history row, or a share push
       S.running = false; cancelAnimationFrame(S.raf); stopTones();
-      if (wake) wake.release().catch(function () {});
+      WBClock.unlockScreen();
       S.saved = false; S.done = null;
       S.onExit();
       return;
@@ -421,7 +374,7 @@
     S.remoteSaved = null;
     if (M.SAVE_SESSIONS && logged.length) { S.data.sessions.push(sess); S.persist(); }
     S.saved = false;
-    S.done = sess; if (wake) wake.release().catch(function () {});
+    S.done = sess; WBClock.unlockScreen();
     renderSummary();
     if (logged.length) rememberRemote(sess);
   }
@@ -840,7 +793,7 @@
     toneSchedule: toneSchedule,
     step: function () { if (S) tick(true); },
     selectStep: function (i) { if (S && i >= 0 && i < S.queue.length) select(i); },
-    unmount: function () { if (!S) return; stopTones(); cancelAnimationFrame(S.raf); S.running = false; document.removeEventListener('visibilitychange', onVis); if (wake) wake.release().catch(function () {}); S = null; },
+    unmount: function () { if (!S) return; stopTones(); cancelAnimationFrame(S.raf); S.running = false; document.removeEventListener('visibilitychange', onVis); WBClock.unlockScreen(); S = null; },
     requestEnd: function () {
       if (!S) return; if (S.done) return S.onExit();
       if (S.track === false) {
