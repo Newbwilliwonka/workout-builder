@@ -168,7 +168,8 @@
     var left = Math.max(0, info.phaseEnd - state.elapsedMs);
     var workOn = info.name !== 'move';
     var moveOn = info.name === 'move';
-    var thenMove = doc.clock.moveSec > 0 && info.name !== 'move' && !(info.name === 'work' && info.round >= doc.clock.rounds);
+    var upcoming = info.name === 'standoff' ? 1 : info.round;
+    var thenMove = doc.clock.moveSec > 0 && info.name !== 'move' && upcoming < doc.clock.rounds;
     var thenWork = info.name === 'move';
     var pct = info.dur ? Math.max(0, Math.min(1, (state.elapsedMs - info.phaseStart) / info.dur)) : 0;
     return '<div class="circuit-clock-card" id="circuit-clock-card">' +
@@ -668,6 +669,7 @@
       return;
     }
     var personEl = e.target.closest ? e.target.closest('[data-person]') : null;
+    if (personEl && personEl.classList.contains('c-spot') && selected && personEl.getAttribute('data-person') !== selected) personEl = null;
     if (personEl) {
       var key = personEl.getAttribute('data-person');
       if (mode === 'live') {
