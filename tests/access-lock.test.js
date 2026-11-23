@@ -375,9 +375,9 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await invitedOffline.type('#confirm-pass', 'secret1234');
   await invitedOffline.type('#invite-code', 'ABCD2345');
   await invitedOffline.click('[data-auth=up]');
-  await invitedOffline.waitForSelector('[data-a=new]');
+  await invitedOffline.waitForSelector('#access-wait');
   assert.strictEqual(await invitedOffline.evaluate(() => location.hash), '#/');
-  assert.strictEqual(await invitedOffline.$('#level-lock'), null);
+  assert.strictEqual(await invitedOffline.$('#level-lock, [data-a=new]'), null);
 
   const saveFail = await open({ user: { id: 'save', email: 'save@example.com' } }, { id: 'save', email: 'save@example.com', membership: 'none', intended_plan: null });
   await saveFail.goto(URL + '#/subscriptions');

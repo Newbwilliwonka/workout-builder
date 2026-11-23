@@ -201,12 +201,24 @@
   function inviteWaiting(err) {
     return /waiting for approval/i.test(String(err && err.message || ''));
   }
+  // The server rejected this code. A network failure or a wait for approval does not.
+  function inviteCodeDead(err) {
+    var msg = String(err && err.message || '');
+    return /could not be used|not found|already been used|expired|canceled|cancelled/i.test(msg);
+  }
   function noteRedeemedInvite(code, res) {
     releaseInvite(code);
     pendingInviteNotice = { text: (res && res.message) || 'Invite applied.', isError: false };
-    if (res && res.membership && WBMembership.tier(res.membership)) {
-      cachedProfile = Object.assign({}, cachedProfile || {}, { membership: res.membership });
-    }
+    if (!(res && res.membership && window.WBMembership && WBMembership.tier(res.membership))) return;
+    var next = {};
+    var prior = cachedProfile;
+    if (prior) Object.keys(prior).forEach(function (key) { next[key] = prior[key]; });
+    next.membership = res.membership;
+    // A redeem result has no approval flag. Keep a flag already loaded.
+    // Never write undefined over it. With no loaded flag, the account is not approved.
+    if (prior && Object.prototype.hasOwnProperty.call(prior, 'access_approved')) next.access_approved = prior.access_approved;
+    else next.access_approved = false;
+    cachedProfile = next;
   }
   var inviteRedeemFlight = null, inviteSettled = '';
   function inviteCodeFromSession(session) {
@@ -237,6 +249,11 @@
       return forgetServerInvite();
     }, function (err) {
       if (inviteWaiting(err)) return;
+      // A blip keeps both copies so the next signed-in page can try again.
+      if (!inviteCodeDead(err)) {
+        pendingInviteNotice = { text: (err && err.message) || 'Could not use that invite.', isError: true };
+        return;
+      }
       inviteSettled = code;
       if (!stored || pendingCode() === code) releaseInvite(code);
       pendingInviteNotice = { text: (err && err.message) || 'Could not use that invite.', isError: true };
@@ -1529,8 +1546,15 @@
     var email = session && session.user && session.user.email;
     if (!email && profile) email = profile.email;
     if (window.WBProfile && WBProfile.isAdminEmail(email)) return true;
-    if (!profile || profile.access_approved == null) return true;
-    return profile.access_approved === true;
+    // No profile yet: the gate still sends them to Subscriptions.
+    if (!profile) return true;
+    if (profile.access_approved === false) return false;
+    if (profile.access_approved === true) return true;
+    // A redeem cache is only a plan. A missing flag there is not approval.
+    // A loaded profile with an explicit null still means the access column
+    // is not on this database, so people are not locked out before that SQL.
+    if (profile.access_approved == null && !profile.id && !profile.email && !Object.prototype.hasOwnProperty.call(profile, 'intended_plan')) return false;
+    return true;
   }
   function renderAccessWait() {
     accessWaitOn = true;

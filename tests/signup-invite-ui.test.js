@@ -217,6 +217,145 @@ const ART = '/opt/cursor/artifacts';
   await waiting.waitForFunction(function () { return location.hash === '#/account' && document.getElementById('invite-code'); });
   await waiting.close();
 
+  const flaky = await page();
+  await flaky.evaluateOnNewDocument(function () {
+    try { sessionStorage.setItem('wb.invite', 'ABCD2345'); } catch (e) {}
+    var session = { user: { id: 'flaky', email: 'flaky@example.com', user_metadata: { invite_code: 'ABCD2345' } } };
+    var profile = { id: 'flaky', email: 'flaky@example.com', membership: 'free_client', access_approved: true, profileReady: true, display_name: 'Ada' };
+    var current;
+    function patch(api) {
+      if (!api || api.__signupStub) return api;
+      api.__signupStub = true;
+      api.TURNSTILE_SITE_KEY = '';
+      api.session = function () { return Promise.resolve(session); };
+      api.profile = function () { return Promise.resolve(profile); };
+      api.myConnection = function () { return Promise.resolve(null); };
+      api.roster = function () { return Promise.resolve({ role: null, clients: [], invites: [] }); };
+      api.redeemInvite = function () {
+        window.__tries = (window.__tries || 0) + 1;
+        if (window.__tries === 1) return Promise.reject(new Error('Failed to fetch'));
+        return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.' });
+      };
+      api.forgetInviteCode = function () {
+        window.__forgot = (window.__forgot || 0) + 1;
+        session.user.user_metadata.invite_code = '';
+        return Promise.resolve(true);
+      };
+      return api;
+    }
+    Object.defineProperty(window, 'WBAuth', {
+      configurable: true, enumerable: true,
+      get: function () { return current; },
+      set: function (v) { current = patch(v); }
+    });
+  });
+  await flaky.goto(URL + '#/', { waitUntil: 'networkidle0' });
+  await flaky.waitForFunction(function () {
+    return window.__tries === 1 && window.__forgot == null && sessionStorage.getItem('wb.invite') === 'ABCD2345' && document.body.innerText.indexOf('Failed to fetch') !== -1;
+  });
+  await flaky.evaluate(function () { location.hash = '#/?retry=1'; });
+  await flaky.waitForFunction(function () {
+    return window.__tries === 2 && window.__forgot === 1 && sessionStorage.getItem('wb.invite') == null && document.body.innerText.indexOf('You are connected as a Free Client') !== -1;
+  });
+  await flaky.close();
+
+  const dead = await page();
+  await dead.evaluateOnNewDocument(function () {
+    try { sessionStorage.setItem('wb.invite', 'ZZZZZZZZ'); } catch (e) {}
+    var session = { user: { id: 'dead', email: 'dead@example.com', user_metadata: { invite_code: 'ZZZZZZZZ' } } };
+    var profile = { id: 'dead', email: 'dead@example.com', membership: 'free_client', access_approved: true, profileReady: true, display_name: 'Ada' };
+    var current;
+    function patch(api) {
+      if (!api || api.__signupStub) return api;
+      api.__signupStub = true;
+      api.TURNSTILE_SITE_KEY = '';
+      api.session = function () { return Promise.resolve(session); };
+      api.profile = function () { return Promise.resolve(profile); };
+      api.myConnection = function () { return Promise.resolve(null); };
+      api.roster = function () { return Promise.resolve({ role: null, clients: [], invites: [] }); };
+      api.redeemInvite = function () {
+        window.__tries = (window.__tries || 0) + 1;
+        return Promise.reject(new Error('That invite could not be used.'));
+      };
+      api.forgetInviteCode = function () {
+        window.__forgot = (window.__forgot || 0) + 1;
+        session.user.user_metadata.invite_code = '';
+        return Promise.resolve(true);
+      };
+      return api;
+    }
+    Object.defineProperty(window, 'WBAuth', {
+      configurable: true, enumerable: true,
+      get: function () { return current; },
+      set: function (v) { current = patch(v); }
+    });
+  });
+  await dead.goto(URL + '#/', { waitUntil: 'networkidle0' });
+  await dead.waitForFunction(function () {
+    return window.__tries === 1 && window.__forgot === 1 && sessionStorage.getItem('wb.invite') == null && document.body.innerText.indexOf('That invite could not be used.') !== -1;
+  });
+  await dead.evaluate(function () { location.hash = '#/?again=1'; });
+  await dead.waitForFunction(function () { return location.hash === '#/?again=1' && window.__tries === 1; });
+  await dead.close();
+
+  const kept = await page();
+  await kept.evaluateOnNewDocument(function () {
+    window.__profile = { id: 'kept', email: 'kept@example.com', membership: 'none', access_approved: false, profileReady: true, display_name: 'Ada' };
+    var session = { user: { id: 'kept', email: 'kept@example.com' } };
+    var current;
+    function patch(api) {
+      if (!api || api.__signupStub) return api;
+      api.__signupStub = true;
+      api.TURNSTILE_SITE_KEY = '';
+      api.session = function () { return Promise.resolve(session); };
+      api.profile = function () {
+        if (window.__failProfile) return Promise.reject(new Error('offline'));
+        return Promise.resolve(window.__profile);
+      };
+      api.myConnection = function () { return Promise.resolve(null); };
+      api.roster = function () { return Promise.resolve({ role: null, clients: [], invites: [] }); };
+      api.redeemInvite = function () {
+        window.__redeemed = (window.__redeemed || 0) + 1;
+        return Promise.resolve({ membership: 'free_client', message: 'You are connected as a Free Client.' });
+      };
+      api.forgetInviteCode = function () { return Promise.resolve(false); };
+      return api;
+    }
+    Object.defineProperty(window, 'WBAuth', {
+      configurable: true, enumerable: true,
+      get: function () { return current; },
+      set: function (v) { current = patch(v); }
+    });
+  });
+  await kept.goto(URL + '#/', { waitUntil: 'networkidle0' });
+  await kept.waitForSelector('#access-wait');
+  await kept.evaluate(function () {
+    window.__failProfile = true;
+    sessionStorage.setItem('wb.invite', 'ABCD2345');
+    location.hash = '#/?keep-flag=1';
+  });
+  await kept.waitForFunction(function () {
+    return window.__redeemed === 1 && document.getElementById('access-wait') && !document.querySelector('[data-a=new]');
+  });
+  await kept.evaluate(function () {
+    window.__failProfile = false;
+    window.__profile.access_approved = true;
+    window.__profile.membership = 'free_client';
+    sessionStorage.removeItem('wb.invite');
+    location.hash = '#/?approved-flag=1';
+  });
+  await kept.waitForSelector('[data-a=new]');
+  await kept.evaluate(function () {
+    window.__failProfile = true;
+    window.__redeemed = 0;
+    sessionStorage.setItem('wb.invite', 'EFGH6789');
+    location.hash = '#/?keep-true=1';
+  });
+  await kept.waitForFunction(function () {
+    return window.__redeemed === 1 && document.querySelector('[data-a=new]') && !document.getElementById('access-wait');
+  });
+  await kept.close();
+
   assert.deepStrictEqual(errs, []);
   await b.close();
   console.log('signup invite ui ok');
