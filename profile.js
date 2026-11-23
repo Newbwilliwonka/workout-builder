@@ -287,7 +287,10 @@
     h += '</div>';
     return h;
   }
+  var TRAINER_BIO = 'Specialties, service areas, certifications';
+  var CLIENT_BIO = 'Tell people a little about yourself: your goals, what you enjoy, or what you\'re training for.';
   var PIN_NOTE = 'Your exact pin is private. It is only used so clients can find you in the Trainer Hub search. Only your city and state are shown publicly.';
+  var CLIENT_PIN_NOTE = 'Your exact pin is private. It is only used to find trainers near you in the Trainer Hub search.';
   var PIN_HINT = 'Add a pin to appear in Near me. You can still save your profile without one.';
   function placeText(city, region) {
     var c = clean(city);
@@ -295,22 +298,24 @@
     if (c && r) return c + ', ' + r;
     return c || r;
   }
-  // One pin for now. The public city and state are text, not fields the trainer types.
+  // One pin for now. Trainers show a public city and state. Clients keep the
+  // same search, map, and save controls, and the place is only for them.
   function pinHtml(pin, opts) {
     pin = pin || {};
     opts = opts || {};
+    var client = !!opts.client;
     var place = placeText(pin.city, pin.region || pin.state);
-    var h = '<section id="profile-pin" class="pin-block"' + (opts.hidden ? ' hidden' : '') + '>';
-    h += '<p class="pin-title" id="pin-title">Service location</p>';
-    h += '<p class="pin-note" id="pin-privacy">' + esc(PIN_NOTE) + '</p>';
-    h += '<p class="mute" id="pin-near-hint">' + esc(PIN_HINT) + '</p>';
+    var h = '<section id="profile-pin" class="pin-block"' + (opts.hidden ? ' hidden' : '') + ' data-pin-kind="' + (client ? 'client' : 'service') + '">';
+    h += '<p class="pin-title" id="pin-title">' + (client ? 'Location' : 'Service location') + '</p>';
+    h += '<p class="pin-note" id="pin-privacy">' + esc(client ? CLIENT_PIN_NOTE : PIN_NOTE) + '</p>';
+    if (!client) h += '<p class="mute" id="pin-near-hint">' + esc(PIN_HINT) + '</p>';
     h += '<form id="pin-search" autocomplete="off">';
     h += '<label for="pin-query">Address or city</label>';
     h += '<div class="pin-search-row"><input id="pin-query" maxlength="120" autocomplete="off" placeholder="Address or city" enterkeyhint="search">';
     h += '<button type="submit" id="pin-go">Search</button></div></form>';
-    h += '<div id="pin-map" class="pin-map" role="application" aria-label="Service location map"></div>';
+    h += '<div id="pin-map" class="pin-map" role="application" aria-label="' + (client ? 'Location map' : 'Service location map') + '"></div>';
     h += '<p class="mute pin-attr">Maps and place names © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</p>';
-    h += '<p class="pin-public" id="pin-public">' + (place ? ('Public location: ' + esc(place)) : 'No pin yet. Search or tap the map.') + '</p>';
+    h += '<p class="pin-public" id="pin-public">' + (place ? ((client ? '' : 'Public location: ') + esc(place)) : 'No pin yet. Search or tap the map.') + '</p>';
     h += '<p class="errs" id="pin-error" hidden></p>';
     h += '<div class="actions">';
     h += '<button type="button" class="pri" id="pin-save" disabled>Save pin</button>';
@@ -345,9 +350,10 @@
       }
       h += '</div>';
     }
-    h += '<label for="profile-bio">Bio</label><textarea id="profile-bio" maxlength="' + BIO_MAX + '" rows="3" placeholder="Specialties, service areas, certifications">' + esc(bio) + '</textarea>';
+    var clientPlace = canFindTrainers(opts);
+    h += '<label for="profile-bio">Bio</label><textarea id="profile-bio" maxlength="' + BIO_MAX + '" rows="3" placeholder="' + esc(clientPlace ? CLIENT_BIO : TRAINER_BIO) + '">' + esc(bio) + '</textarea>';
     h += '<p class="mute bio-count" id="profile-count">' + bio.length + '/' + BIO_MAX + '</p>';
-    if (opts.canList) {
+    if (opts.canList && !clientPlace) {
       var listedOn = !!opts.listed;
       var selected = chosenService(opts);
       var showService = listedOn;
@@ -364,6 +370,8 @@
       h += '<option value="both"' + (selected === 'both' ? ' selected' : '') + '>In Person and Online</option>';
       h += '</select></div>';
       h += pinHtml(opts.pin, { hidden: !showPlace });
+    } else if (clientPlace) {
+      h += pinHtml(opts.pin, { client: true });
     }
     h += '<p class="errs" id="profile-error" hidden>Fill in the highlighted fields.</p>';
     h += '<button type="button" class="pri" id="profile-save"' + (opts.unavailable ? ' disabled' : '') + '>Save</button>';
@@ -440,6 +448,9 @@
     EMPTY: EMPTY,
     SERVICE_CHOICE: SERVICE_CHOICE,
     PIN_HINT: PIN_HINT,
+    TRAINER_BIO: TRAINER_BIO,
+    CLIENT_BIO: CLIENT_BIO,
+    CLIENT_PIN_NOTE: CLIENT_PIN_NOTE,
     needsName: needsName,
     canListInSearch: canListInSearch,
     canFindTrainers: canFindTrainers,

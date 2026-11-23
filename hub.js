@@ -333,6 +333,7 @@
     if (near) {
       h += '<form id="find-near-form" class="card find-near-box">';
       h += '<p class="mute" id="find-near-privacy">Your location is used only for this search and is not saved.</p>';
+      if (result.usingSavedPin) h += '<p class="mute" id="find-near-saved">Using your saved pin.</p>';
       h += '<button type="button" class="pri" id="find-locate">Use my location</button>';
       h += '<label for="find-city">Or a city</label>';
       h += '<div class="pin-search-row"><input id="find-city" maxlength="80" autocomplete="address-level2" placeholder="City" enterkeyhint="search">';
@@ -572,12 +573,29 @@
       showFailure(err);
     });
   }
+  function nearPoint(pin) {
+    if (!pin || typeof pin !== 'object' || Array.isArray(pin)) return null;
+    var lat = Number(pin.latitude);
+    var lng = Number(pin.longitude);
+    if (!isFinite(lat) || !isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { latitude: lat, longitude: lng };
+  }
   function showNearPrompt() {
-    ++findSeq;
+    var seq = ++findSeq;
+    var myGen = gen;
     if (!ctx || !onFindList()) return;
     paintFind({ mode: 'near', trainers: [], searched: false });
+    var auth = root.WBAuth;
+    if (!auth || typeof auth.myClientLocation !== 'function') return;
+    Promise.resolve().then(function () { return auth.myClientLocation(); }).then(function (pin) {
+      if (!ctx || myGen !== gen || seq !== findSeq || !onFindList()) return;
+      var point = nearPoint(pin);
+      if (!point) return;
+      runNear(point.latitude, point.longitude, 'pin');
+    }, function () {});
   }
-  function runNear(lat, lng) {
+  function runNear(lat, lng, source) {
     var auth = root.WBAuth;
     var seq = ++findSeq;
     var myGen = gen;
@@ -589,6 +607,7 @@
       result = result || {};
       result.mode = 'near';
       result.searched = true;
+      result.usingSavedPin = source === 'pin';
       if (result.comingSoon) {
         paintFind({
           mode: 'near',
@@ -606,7 +625,7 @@
   }
   function useMyLocation() {
     var geo = root.navigator && root.navigator.geolocation;
-    var seq = findSeq;
+    var seq = ++findSeq;
     var myGen = gen;
     if (!geo || !geo.getCurrentPosition) {
       showError('find-near-error', 'This browser has no location. Type a city instead.');
@@ -636,7 +655,7 @@
   function searchNearCity() {
     var input = document.getElementById('find-city');
     var button = document.getElementById('find-city-go');
-    var seq = findSeq;
+    var seq = ++findSeq;
     var myGen = gen;
     if (!input || !ctx || !onFindList()) return;
     var places = root.WBPlaces;
@@ -960,6 +979,7 @@
     sortReplies: sortReplies,
     listHtml: listHtml,
     distanceLabel: distanceLabel,
+    nearPoint: nearPoint,
     placeLabel: placeLabel,
     findResultsHtml: findResultsHtml,
     requestFormHtml: requestFormHtml,

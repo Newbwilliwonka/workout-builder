@@ -32,6 +32,11 @@ assert.ok(src.indexOf("addEventListener('input'") === -1);
 assert.ok(src.indexOf('oninput') === -1);
 assert.ok(src.indexOf('scheduleReverse') !== -1);
 assert.ok(src.indexOf('OpenStreetMap') !== -1);
+assert.ok(src.indexOf('saveClientLocation') !== -1);
+assert.ok(src.indexOf('myClientLocation') !== -1);
+assert.ok(src.indexOf('removeClientLocation') !== -1);
+assert.ok(src.indexOf("getAttribute('data-pin-kind')") !== -1);
+assert.ok(src.indexOf('saveServiceLocation') !== -1);
 
 const profile = fs.readFileSync(path.join(__dirname, '..', 'profile.js'), 'utf8');
 assert.ok(profile.indexOf('id="pin-city"') === -1);

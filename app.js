@@ -2169,6 +2169,8 @@
       verified: nameVerified,
       verified_until: profile.verified_until || '',
       display_name: profile.display_name || '',
+      membership: profile.membership || '',
+      intended_plan: profile.intended_plan || profile.intendedPlan || '',
       online_only: !!profile.online_only,
       bio: profile.bio || '',
       photoUrl: profile.avatarUrl || '',
@@ -2226,6 +2228,10 @@
       var service = serviceEl ? serviceEl.value : '';
       if (serviceBlock) serviceBlock.hidden = !listed;
       if (!pin) return;
+      if (pin.getAttribute('data-pin-kind') === 'client') {
+        pin.hidden = false;
+        return;
+      }
       var showPlace = listed && service !== 'online';
       var wasHidden = !!pin.hidden;
       pin.hidden = !showPlace;
