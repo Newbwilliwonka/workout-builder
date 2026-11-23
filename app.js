@@ -1,4 +1,4 @@
-/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/client/<id>  |  #/tracking/dashboard  |  #/tracking/dashboard/client/<id>  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>
+/* Workout Builder UI (Stage 2). Hash routes: #/  |  #/w/<id>  |  #/w/<id>/ex/<exId or new>  |  #/view/<id>  |  #/tracking  |  #/tracking/client/<id>  |  #/tracking/dashboard  |  #/tracking/dashboard/client/<id>  |  #/history  |  #/history/<key>  |  #/history/session/<id>  |  #/history/client/<id>/<key>  |  #/history/client/<id>/session/<id>  |  #/hub  |  #/hub/new  |  #/hub/<id>
    A signed-out visit with no hash shows the public landing page. */
 (function () {
   'use strict';
@@ -97,6 +97,9 @@
     if (page === 'tracking') {
       var backTail = hashBody().split('/');
       if (backTail[1] === 'dashboard' && backTail[2]) return go('#/tracking/dashboard');
+      // A client's History peels back to the trainer's own History, the same
+      // place the browser returns after the menu pick.
+      if (backTail[1] === 'client' && backTail[2]) return go('#/tracking');
       return go('#/');
     }
     if (page === 'history') {
@@ -3533,17 +3536,30 @@
   var historyListView = 'workout';
   var historySets = [];
   var historyUnavailable = false;
+  function historyParts() {
+    return hashBody().split('/');
+  }
+  // #/history/client/<id>/... keeps the picked person in the address so a
+  // reload still reads that client. Own details stay #/history/session/<id>.
+  function historyClientOffset() {
+    var parts = historyParts();
+    return hashPage() === 'history' && parts[1] === 'client' ? 2 : 0;
+  }
   function historySessionId() {
     if (hashPage() !== 'history') return '';
-    var parts = hashBody().split('/');
-    if (parts[1] !== 'session' || !parts[2]) return '';
-    var raw = parts.slice(2).join('/');
+    var parts = historyParts();
+    var at = historyClientOffset() + 1;
+    if (parts[at] !== 'session' || !parts[at + 1]) return '';
+    var raw = parts.slice(at + 1).join('/');
     try { return decodeURIComponent(raw); } catch (e) { return raw; }
   }
   function historyRouteKey() {
     if (hashPage() !== 'history') return '';
     if (historySessionId()) return '';
-    return hashBody().split('/')[1] || '';
+    var parts = historyParts();
+    var at = historyClientOffset();
+    if (at) return parts[at + 1] ? decodeHashPart(parts[at + 1]) : '';
+    return parts[1] || '';
   }
   function historyFocusKey() {
     var sessionId = historySessionId();
@@ -3652,12 +3668,12 @@
       }
       var sessionBtn = e.target.closest('[data-session]');
       if (sessionBtn) {
-        go('#/history/session/' + encodeURIComponent(sessionBtn.getAttribute('data-session') || ''));
+        go(historyDetailHash('session', sessionBtn.getAttribute('data-session') || ''));
         return;
       }
       var button = e.target.closest('[data-history]');
       if (!button) return;
-      go('#/history/' + button.getAttribute('data-history'));
+      go(historyDetailHash('exercise', button.getAttribute('data-history')));
     };
     bindPicker();
   }
@@ -3786,10 +3802,14 @@
   function decodeHashPart(value) {
     try { return decodeURIComponent(value || ''); } catch (e) { return value || ''; }
   }
-  // Null means this hash does not name the person (a history detail).
-  // An empty string is the trainer's own tracking.
+  // Null means this hash does not name a person. An empty string is the
+  // trainer's own tracking. A client detail keeps the id in the address.
   function trackingClientFromHash() {
     var parts = hashBody().split('/');
+    if (hashPage() === 'history') {
+      if (parts[1] === 'client') return decodeHashPart(parts[2] || '');
+      return null;
+    }
     if (hashPage() !== 'tracking') return null;
     if (parts[1] === 'dashboard') {
       if (parts[2] === 'client') return decodeHashPart(parts[3] || '');
@@ -3814,8 +3834,18 @@
     }
     return id ? '#/tracking/client/' + encodeURIComponent(id) : '#/tracking';
   }
+  function historyDetailHash(kind, value) {
+    var piece = kind === 'session'
+      ? 'session/' + encodeURIComponent(value || '')
+      : encodeURIComponent(value || '');
+    var clientId = trainerAccount() ? activeTrackingClient() : '';
+    if (clientId && window.WBShares && WBShares.isUuid(clientId)) {
+      return '#/history/client/' + encodeURIComponent(clientId) + '/' + piece;
+    }
+    return '#/history/' + piece;
+  }
   function historyListHash() {
-    var id = trainerAccount() ? (trackingClient || '') : '';
+    var id = trainerAccount() ? (activeTrackingClient() || '') : '';
     return trackingHash('history', id);
   }
   function pickerHtml(selected) {

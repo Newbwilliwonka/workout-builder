@@ -227,7 +227,23 @@ async function shot(page, name) {
   assert.deepStrictEqual(miaCalls.schedule, []);
   await shot(trainer, 'history-client-workouts.png');
 
+  await trainer.click('#back');
+  await trainer.waitForFunction(function () {
+    var pick = document.getElementById('client-pick');
+    return location.hash === '#/tracking' && pick && pick.value === '' &&
+      document.body.innerText.indexOf('Coach day') >= 0 &&
+      document.body.innerText.indexOf('Conditioning') < 0 &&
+      !document.getElementById('tracking-open');
+  });
+
+  await trainer.select('#client-pick', MIA);
+  await trainer.waitForFunction(function (id) {
+    return location.hash === '#/tracking/client/' + id && document.querySelector('.hx-row');
+  }, {}, MIA);
   await trainer.click('[data-session="sq-1112"]');
+  await trainer.waitForFunction(function (id) {
+    return location.hash === '#/history/client/' + id + '/session/sq-1112';
+  }, {}, MIA);
   await trainer.waitForSelector('.hx-set');
   const detail = await trainer.evaluate(function () {
     return {
@@ -243,16 +259,36 @@ async function shot(page, name) {
   assert.ok(detail.text.indexOf('Coach press') < 0);
   assert.strictEqual(detail.fields, 0);
   assert.strictEqual(detail.tabs, false);
+  await trainer.reload({ waitUntil: 'domcontentloaded' });
+  await trainer.waitForFunction(function (id) {
+    var title = document.getElementById('title');
+    return location.hash === '#/history/client/' + id + '/session/sq-1112' &&
+      title && title.textContent === 'Lower strength' &&
+      document.body.innerText.indexOf('Barbell squat') >= 0 &&
+      document.body.innerText.indexOf('Coach press') < 0 &&
+      window.__trackCalls.history === 0 &&
+      window.__trackCalls.tracking.indexOf(id) >= 0;
+  }, {}, MIA);
   await trainer.click('#back');
   await trainer.waitForFunction(function (id) {
     return location.hash === '#/tracking/client/' + id && document.getElementById('history-by-workout');
   }, {}, MIA);
   await trainer.click('#history-by-exercise');
   await trainer.waitForSelector('[data-history="lib-0101"]');
-  assert.ok((await trainer.$$eval('.hx-row .name', function (els) {
-    return els.map(function (el) { return el.textContent; });
-  })).indexOf('Barbell squat') >= 0);
-  await trainer.click('#history-by-workout');
+  await trainer.click('[data-history="lib-0101"]');
+  await trainer.waitForFunction(function (id) {
+    return location.hash === '#/history/client/' + id + '/lib-0101' &&
+      document.getElementById('title').textContent === 'Barbell squat';
+  }, {}, MIA);
+  await trainer.reload({ waitUntil: 'domcontentloaded' });
+  await trainer.waitForFunction(function (id) {
+    return location.hash === '#/history/client/' + id + '/lib-0101' &&
+      document.getElementById('title').textContent === 'Barbell squat' &&
+      document.body.innerText.indexOf('Coach press') < 0 &&
+      window.__trackCalls.history === 0 &&
+      window.__trackCalls.tracking.indexOf(id) >= 0;
+  }, {}, MIA);
+  await trainer.click('#back');
   await trainer.waitForSelector('#history-by-workout.on');
 
   await trainer.click('#tracking-tab-dashboard');
@@ -325,6 +361,27 @@ async function shot(page, name) {
   assert.deepStrictEqual(hidden.calls.workouts, []);
   assert.strictEqual(hidden.calls.history, 0);
   await shot(trainer, 'history-not-shared.png');
+  await trainer.goto(URL + '#/history/client/' + OWEN + '/session/owen-1', { waitUntil: 'domcontentloaded' });
+  await trainer.waitForSelector('#tracking-private');
+  const reloadedPrivate = await trainer.evaluate(function () {
+    return {
+      hash: location.hash,
+      text: document.getElementById('app').innerText,
+      calls: window.__trackCalls
+    };
+  });
+  assert.strictEqual(reloadedPrivate.hash, '#/history/client/' + OWEN + '/session/owen-1');
+  assert.ok(reloadedPrivate.text.indexOf('Not shared') >= 0);
+  assert.ok(reloadedPrivate.text.indexOf('Owen secret') < 0);
+  assert.ok(reloadedPrivate.text.indexOf('Coach day') < 0);
+  assert.deepStrictEqual(reloadedPrivate.calls.tracking, []);
+  assert.strictEqual(reloadedPrivate.calls.history, 0);
+  await trainer.click('#back');
+  await trainer.waitForFunction(function (id) {
+    return location.hash === '#/tracking/client/' + id &&
+      document.getElementById('tracking-tab-dashboard') &&
+      document.getElementById('tracking-private');
+  }, {}, OWEN);
 
   await trainer.click('#tracking-tab-dashboard');
   await trainer.waitForFunction(function (id) {
@@ -339,7 +396,8 @@ async function shot(page, name) {
   assert.deepStrictEqual(hiddenDash.workouts, []);
   assert.strictEqual(await trainer.$eval('#client-pick', function (el) { return el.value; }), OWEN);
 
-  await trainer.click('#tracking-tab-history');
+  await trainer.$eval('#tracking-tab-history', function (el) { el.click(); });
+  await trainer.waitForSelector('#tracking-tab-history.on');
   await trainer.waitForSelector('#tracking-private');
   assert.strictEqual(await trainer.evaluate(function (id) {
     return location.hash === '#/tracking/client/' + id && document.getElementById('client-pick').value === id;
