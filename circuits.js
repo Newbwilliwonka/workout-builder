@@ -392,8 +392,9 @@
       '<div class="circuit-phase rounds"><label class="kicker" for="circuit-rounds">Rounds</label>' +
       '<input id="circuit-rounds" class="wb-digits" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
       '<p class="circuit-track" id="circuit-track">Tracking: time per station (automatic)</p>';
-    if (draft.id) h += '<button type="button" id="circuit-start" class="pri circuit-start" data-act="run"' + (dirty() ? ' hidden' : '') + (busy ? ' disabled' : '') + '>Start session</button>';
-    h += '<div class="circuit-actions">' +
+    var showStart = !!(draft.id && !dirty());
+    if (draft.id) h += '<button type="button" id="circuit-start" class="pri circuit-start" data-act="run"' + (showStart ? '' : ' hidden') + (busy ? ' disabled' : '') + '>Start session</button>';
+    h += '<div class="circuit-actions' + (showStart ? ' is-after-start' : '') + '">' +
       '<button type="button" class="' + (draft.id ? 'circuit-quiet' : 'pri circuit-start') + '" data-act="save"' + (busy ? ' disabled' : '') + '>Save</button>' +
       '<button type="button" class="circuit-quiet" data-act="cancel"' + (busy ? ' disabled' : '') + '>Cancel</button></div></div>';
     ctx.app.innerHTML = h;
@@ -609,8 +610,11 @@
     if (act === 'cancel') return onCancel();
   }
   function syncStart() {
+    var show = !!(draft && draft.id && !dirty());
     var button = document.getElementById('circuit-start');
-    if (button) button.hidden = !(draft && draft.id && !dirty());
+    if (button) button.hidden = !show;
+    var actions = document.querySelector('.circuit-actions');
+    if (actions) actions.classList.toggle('is-after-start', show);
   }
   function onInput(e) {
     var field = e.target;
