@@ -1,5 +1,5 @@
 :root{--bg:#f3f4f6;--card:#fff;--ink:#111827;--mute:#6b7280;--line:#e5e7eb;--pri:#2563eb;--danger:#dc2626;--ss:#7c3aed;--r:14px;--wb-digit-font:ui-monospace,SFMono-Regular,Menlo,monospace}
-.wb-digits{font-family:var(--wb-digit-font)}
+.wb-digits{font-family:var(--wb-digit-font);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 *{box-sizing:border-box}
 html{background:#c5d4e6}
 body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:transparent;color:var(--ink);padding-bottom:env(safe-area-inset-bottom)}
@@ -640,7 +640,8 @@ body.circuit-on button.circuit-sm.ghost{margin-left:auto;background:#eff6ff;colo
 body.circuit-on .circuit-board{position:relative;background-color:#fff;background-image:linear-gradient(to right,rgba(229,231,235,.9) 1px,transparent 1px),linear-gradient(to bottom,rgba(229,231,235,.9) 1px,transparent 1px);background-size:24px 24px;background-position:-1px -1px;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.06);padding:12px 10px 10px}
 body.circuit-on .circuit-board.is-busy{pointer-events:none}
 body.circuit-on .circuit-arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
-body.circuit-on .wb-grid{gap:28px 18px}
+body.circuit-on .circuit-setup .wb-grid{column-gap:26px;row-gap:36px}
+body.circuit-on .circuit-live .wb-grid{column-gap:30px;row-gap:48px}
 body.circuit-on .wb-cell{min-height:14px;border:0;border-radius:0;background:transparent;box-shadow:none}
 body.circuit-on .wb-cell.wb-over{background:rgba(37,99,235,.08);border-radius:12px;box-shadow:none}
 body.circuit-on .wb-tile{position:relative;inset:auto;z-index:3;display:flex;flex-direction:column;align-items:center;min-height:0;height:auto;padding:8px 6px 8px;border:1px solid #d1d5db;border-radius:12px;background:#fff;box-shadow:0 1px 3px rgba(17,24,39,.08);text-align:center}
@@ -681,7 +682,7 @@ body.circuit-on .circuit-seg button{min-height:36px;height:36px;min-width:64px;p
 body.circuit-on .circuit-seg button.on{background:var(--pri);color:#fff}
 body.circuit-on .circuit-clock-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.06);padding:10px 12px 12px}
 body.circuit-on .circuit-clock-top{display:flex;align-items:center;gap:10px}
-body.circuit-on .circuit-time{flex:1;font-weight:700;font-size:52px;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.03em;color:var(--pri)}
+body.circuit-on .circuit-time{flex:1;font-weight:700;font-size:52px;line-height:1;letter-spacing:-.02em;color:var(--pri)}
 body.circuit-on .circuit-time.is-move{color:#047857}
 body.circuit-on .circuit-clock-btns{display:flex;gap:8px}
 body.circuit-on button.circuit-icon{width:48px;height:48px;min-width:48px;min-height:48px;padding:0;border-radius:12px;background:var(--line);color:var(--ink);display:flex;align-items:center;justify-content:center}

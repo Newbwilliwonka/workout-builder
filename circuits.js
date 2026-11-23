@@ -198,7 +198,7 @@
     var exercise = station.exercise;
     var name = exercise && exercise.name ? exercise.name : 'Choose exercise';
     var manual = exercise && exercise.source === 'manual' ? '<span class="circuit-tag">manual</span>' : '';
-    return '<span class="wb-digits ' + (n ? 'circuit-num' : 'circuit-num is-open') + '">' + (n ? String(n) : '·') + '</span>' +
+    return '<span class="' + (n ? 'circuit-num' : 'circuit-num is-open') + '">' + (n ? String(n) : '·') + '</span>' +
       '<button type="button" class="circuit-x" data-act="remove" data-id="' + esc(station.id) + '" aria-label="Remove station"' + off() + '>×</button>' +
       '<div class="circuit-ex"><span class="circuit-name">' + esc(name) + '</span>' + manual + '</div>' +
       '<button type="button" class="circuit-change" data-act="change" data-id="' + esc(station.id) + '" aria-label="Change exercise"' + off() + '>' +

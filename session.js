@@ -182,7 +182,7 @@
       (thenMove ? '<span class="circuit-then">then</span><span class="circuit-pill move">Move</span>' : '') +
       (moveOn ? '<span class="circuit-pill move">Move</span>' : '') +
       (thenWork ? '<span class="circuit-then">then</span><span class="circuit-pill work is-next">Work</span>' : '') +
-      '<span class="circuit-round wb-digits" id="c-round">Round ' + info.round + ' of ' + doc.clock.rounds + '</span></div>' +
+      '<span class="circuit-round" id="c-round">Round ' + info.round + ' of ' + doc.clock.rounds + '</span></div>' +
       '<div class="circuit-bar' + (moveOn ? ' is-move' : '') + '"><i id="c-bar" style="width:' + (pct * 100).toFixed(1) + '%"></i></div></div>';
   }
   function stationName(station) {
@@ -202,7 +202,7 @@
         if (station) {
           var n = model().stationNumber(doc.order, station.id);
           h += '<div class="wb-tile" data-station="' + esc(station.id) + '">' +
-            '<span class="circuit-num wb-digits">' + (n || '·') + '</span>' +
+            '<span class="circuit-num">' + (n || '·') + '</span>' +
             '<div class="circuit-ex"><span class="circuit-name">' + esc(stationName(station)) + '</span></div>' +
             facesAt(station.id) + '</div>';
         }
@@ -218,7 +218,7 @@
       if (!station) return;
       var n = model().stationNumber(doc.order, station.id);
       h += '<div class="circuit-loop-row" data-station="' + esc(station.id) + '">' +
-        '<span class="circuit-num wb-digits">' + n + '</span>' +
+        '<span class="circuit-num">' + n + '</span>' +
         '<div class="circuit-loop-main"><div class="circuit-name">' + esc(stationName(station)) + '</div>' +
         facesAt(station.id) + '</div></div>';
     });
@@ -252,9 +252,9 @@
         (person.source === 'manual' ? '' : ' style="background:' + model().avatarColor(person.name) + '"') + '>' +
         esc(model().initials(person.name)) + '</span><span>' + esc(person.name) + '</span></div>';
       (person.stations || []).forEach(function (row) {
-        h += '<div class="circuit-sum-row"><span>' + esc(row.name) + '</span><b class="wb-digits">' + fmtSec(row.seconds) + '</b></div>';
+        h += '<div class="circuit-sum-row"><span>' + esc(row.name) + '</span><b>' + fmtSec(row.seconds) + '</b></div>';
       });
-      h += '<div class="circuit-sum-row is-total"><span>Total</span><b class="wb-digits">' + fmtSec(person.total) + '</b></div></div>';
+      h += '<div class="circuit-sum-row is-total"><span>Total</span><b>' + fmtSec(person.total) + '</b></div></div>';
     });
     h += '<button type="button" class="pri circuit-start" data-act="done">Done</button></div>';
     return h;
