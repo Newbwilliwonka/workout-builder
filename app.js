@@ -88,6 +88,7 @@
   function hashPage() { return hashBody().split('/')[0]; }
   backBtn.onclick = function () {
     var page = hashPage();
+    if (backBtn.hidden) return;
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') return;
     if (page === 'subscriptions' && backBtn.hidden) return;
     if (page === 'programs' || page === 'preview') {
@@ -122,7 +123,7 @@
       return go('#/');
     }
     if (page === 'send') return go('#/');
-    if (page === 'received') return go(hashBody().split('/')[1] ? '#/received' : '#/account');
+    if (page === 'received') return go(hashBody().split('/')[1] ? '#/received' : '#/');
     if (page === 'client') return go('#/account');
     if (page === 'admin') return go('#/account');
     if (page === 'w') {
@@ -201,7 +202,17 @@
       history.replaceState(null, '', path + (search ? '?' + search : '') + (u.hash || ''));
     } catch (e) {}
   }
-  function signedOutHome() { return (linkInviteCode() || inviteArrival) ? '#/join' : '#/subscriptions'; }
+  function signedOutHome() { return (linkInviteCode() || inviteArrival) ? '#/join' : ''; }
+  // Signed-out visitors, including right after sign-out, land on the marketing page.
+  function goSignedOutHome() {
+    if (linkInviteCode() || inviteArrival) return go('#/join');
+    if (location.hash === '' || location.hash === '#') {
+      showLanding();
+      syncChrome();
+      return;
+    }
+    location.hash = '';
+  }
   function takeInviteNotice() { var n = pendingInviteNotice; pendingInviteNotice = null; return n; }
   function inviteWaiting(err) {
     var msg = String(err && err.message || '').replace(/^\s+|\s+$/g, '');
@@ -432,6 +443,60 @@
     persistLocal();
     applyingCopies = false;
     scheduleCopySave();
+    paintReceivedDot();
+  }
+  var RECEIVED_SEEN = 'wb.receivedSeen';
+  function receivedSeenKey() {
+    var id = cachedProfile && cachedProfile.id;
+    return RECEIVED_SEEN + '.' + (id || 'local');
+  }
+  function readReceivedSeen() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(receivedSeenKey()) || '{}');
+      return raw && typeof raw === 'object' ? raw : {};
+    } catch (e) { return {}; }
+  }
+  function markReceivedSeen(ids) {
+    var seen = readReceivedSeen();
+    var changed = false;
+    (ids || []).forEach(function (id) {
+      if (id == null) return;
+      var key = String(id);
+      if (seen[key]) return;
+      seen[key] = 1;
+      changed = true;
+    });
+    if (changed) {
+      try { localStorage.setItem(receivedSeenKey(), JSON.stringify(seen)); } catch (e2) {}
+    }
+    paintReceivedDot();
+  }
+  function unseenReceivedCount() {
+    if (window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile))) return 0;
+    var seen = readReceivedSeen();
+    var n = 0;
+    (data.workouts || []).forEach(function (w) {
+      if (w && w.sourceTrainerId && !seen[String(w.id)]) n += 1;
+    });
+    return n;
+  }
+  function paintReceivedDot() {
+    var link = document.getElementById('workouts-nav');
+    if (!link) return;
+    var n = unseenReceivedCount();
+    var badge = link.querySelector('.request-count');
+    if (!n) {
+      if (badge) badge.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'request-count';
+      link.appendChild(badge);
+    }
+    badge.hidden = false;
+    badge.textContent = String(n);
+    badge.setAttribute('aria-label', n === 1 ? '1 new workout' : (n + ' new workouts'));
   }
   function pullCopies() {
     if (!WBAuth.workoutCopies || !window.WBSends) return;
@@ -1074,7 +1139,7 @@
     var from = hashPage();
     WBAuth.session().then(function (session) {
       if (hashPage() !== from) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== from) return;
         go(WBMembership.hasDesignated(profile) ? '#/account' : '#/subscriptions');
@@ -1090,7 +1155,7 @@
     // Redeeming happens once inside the signed-in route, including before approval.
     pending.then(function (session) {
       if (!onAuthPage()) return;
-      if (!session) return go('#/subscriptions');
+      if (!session) return goSignedOutHome();
       go('#/');
     }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
   }
@@ -1575,7 +1640,7 @@
     backBtn.hidden = true;
     showHeaderSignIn(false);
     app.innerHTML = '<div class="gate" id="access-wait"><h2>Waiting for access</h2><p class="lede">Your account is waiting for approval.</p><button type="button" class="pri" id="access-signout" style="width:100%">Sign out</button></div>';
-    syncHeaderSignOut();
+    syncChrome();
     app.onclick = function (e) {
       if (e.target && e.target.closest && e.target.closest('#access-signout')) signOutFromAccount();
     };
@@ -2077,13 +2142,62 @@
   function syncHeaderSignOut() {
     var link = document.getElementById('account-signout');
     if (!link) return;
-    link.hidden = !(hashPage() === 'account' || profileGateOn || accessWaitOn);
+    var bare = document.documentElement.classList.contains('wb-bare');
+    link.hidden = bare || !(hashPage() === 'account' || profileGateOn);
   }
-  // Plain header link, same treatment as Sign out. Only the signed-out Subscriptions page shows it.
-  function showHeaderSignIn(show) {
+  // Signed-out pages have no header Sign in. The landing page carries that link.
+  function showHeaderSignIn() {
     var link = document.getElementById('header-signin');
     if (!link) return;
-    link.hidden = !(show && hashPage() === 'subscriptions');
+    link.hidden = true;
+  }
+  function paintAccountMe(profile) {
+    var el = document.getElementById('account-me');
+    if (!el || el.hidden) return;
+    var name = personLabel({ display_name: profile && profile.display_name });
+    var initials = '';
+    if (name) {
+      var parts = name.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) initials = parts[0].slice(0, 2).toUpperCase();
+      else initials = (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+    }
+    if (initials) el.textContent = initials;
+    else el.innerHTML = window.WBProfile ? WBProfile.personIcon() : '';
+  }
+  function syncChrome() {
+    var page = hashPage();
+    var landingOn = document.documentElement.classList.contains('wb-landing');
+    var bare = landingOn || accessWaitOn || page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset';
+    document.documentElement.classList.toggle('wb-bare', bare);
+    var parts = hashBody().split('/');
+    var live = page === 'circuits' && parts[2] === 'run';
+    var player = page === 'play' || page === 'view' || document.body.classList.contains('playing');
+    var gate = page === 'subscriptions' && !!document.getElementById('level-lock');
+    var links = document.getElementById('nav-links');
+    var me = document.getElementById('account-me');
+    var showMe = !bare && !player && !live && !gate && !profileGateOn && !!signedInNow;
+    var showLinks = showMe;
+    if (links) {
+      links.hidden = !showLinks;
+      Array.prototype.forEach.call(links.querySelectorAll('a'), function (a) {
+        var on = false;
+        if (showLinks) {
+          if (a.id === 'programs-open') on = page === 'programs' || page === 'preview';
+          else if (a.id === 'tracking-open') on = page === 'tracking' || page === 'history';
+          else if (a.id === 'messages-nav') on = page === 'messages';
+          else if (a.id === 'hub-nav') on = page === 'hub';
+          else if (a.id === 'workouts-nav') on = page === '' || page === 'w' || page === 'send' || page === 'received' || page === 'circuits';
+        }
+        a.classList.toggle('on', !!on);
+      });
+    }
+    if (me) {
+      me.hidden = !showMe;
+      me.classList.toggle('on', page === 'account');
+      paintAccountMe(cachedProfile);
+    }
+    syncHeaderSignOut();
+    paintReceivedDot();
   }
   function signOutFromAccount() {
     var from = hashPage();
@@ -2102,7 +2216,7 @@
       syncHeaderSignOut();
       signedInNow = false;
       if (hashPage() !== from) return;
-      go('#/signin');
+      goSignedOutHome();
     }).catch(function (err) {
       if (hashPage() !== from) return;
       app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
@@ -2113,6 +2227,8 @@
     e.preventDefault();
     signOutFromAccount();
   };
+  var accountMe = document.getElementById('account-me');
+  if (accountMe) accountMe.onclick = function () { openAccount(); };
   function paintAccountAvatar(profile) {
     var el = document.getElementById('profile-open');
     if (!el) return;
@@ -2141,6 +2257,7 @@
     el.remove();
     profileSheetRequired = false;
     profilePhotoBlob = null;
+    syncChrome();
     if (profileObjectUrl) {
       try { URL.revokeObjectURL(profileObjectUrl); } catch (err) {}
       profileObjectUrl = '';
@@ -2150,7 +2267,7 @@
     profileGateOn = true;
     titleEl.textContent = 'Account';
     backBtn.hidden = true;
-    syncHeaderSignOut();
+    syncChrome();
     var open = document.getElementById('profile-sheet');
     if (open && open.getAttribute('data-required') === '1') return;
     openProfileSheet(profile, { required: true });
@@ -2299,7 +2416,7 @@
         return;
       }
       if (e.target && e.target.id === 'profile-sheet' && !profileSheetRequired) closeProfileSheet(true);
-      if (e.target && e.target.closest && e.target.closest('#profile-cancel')) closeProfileSheet(true);
+      if (e.target && e.target.closest && (e.target.closest('#profile-cancel') || e.target.closest('#profile-cancel-top'))) closeProfileSheet(true);
       if (e.target && e.target.closest && e.target.closest('#profile-save')) saveProfileFromSheet(profile, readFields, mark, showErr);
       if (e.target && e.target.closest && e.target.closest('#verify-open')) openVerifyForm();
       if (e.target && e.target.closest && e.target.closest('#verify-submit')) submitVerification(profile);
@@ -2525,6 +2642,7 @@
   function hideLanding() {
     document.documentElement.classList.add('wb-app');
     document.documentElement.classList.remove('wb-landing');
+    syncChrome();
   }
   function showLanding() {
     if (!landingEl) return;
@@ -2532,6 +2650,8 @@
     document.documentElement.classList.add('wb-landing');
     fillLandingPlans();
     bindLandingShots();
+    backBtn.hidden = true;
+    syncChrome();
   }
   function renderSubscriptions(message, isError) {
     titleEl.textContent = 'Subscriptions';
@@ -2540,11 +2660,7 @@
     app.innerHTML = '<p class="mute">Loading…</p>';
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'subscriptions') return;
-          if (!session) {
-            if (linkInviteCode() || inviteArrival) return go('#/join');
-        backBtn.hidden = true;
-        return drawSubscriptions(null, null, message, isError, null, false);
-      }
+          if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
         if (profile) cachedProfile = profile;
@@ -2582,13 +2698,6 @@
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     if (locked) h += '<p class="mute" id="level-lock">Choose a level to continue.</p>';
-    if (session && !locked) {
-      h += '<button id="messages-nav" type="button" data-go="messages" style="width:100%;margin-bottom:12px">Messages</button>';
-      h += '<button id="hub-nav" type="button" data-go="hub" style="width:100%;margin-bottom:12px">Trainer Hub</button>';
-      if (!(window.WBInvites && profile && WBInvites.trainerRole(profile))) {
-        h += '<button id="workouts-nav" type="button" data-go="received" style="width:100%;margin-bottom:12px">Workouts</button>';
-      }
-    }
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="note">Beta pricing for the first 100 members.</p>';
@@ -2625,14 +2734,15 @@
     app.innerHTML = h;
     refreshRequestBadges();
     if (!session) backBtn.hidden = true;
-    showHeaderSignIn(!session);
+    showHeaderSignIn(false);
+    syncChrome();
     app.onchange = function (e) {
       if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
     };
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        return WBAuth.signOut().then(function () { cachedProfile = null; signedInNow = false; resetLibraryMemory(); go('#/signin'); });
+        return WBAuth.signOut().then(function () { cachedProfile = null; signedInNow = false; resetLibraryMemory(); goSignedOutHome(); });
       }
       if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
@@ -2660,7 +2770,7 @@
     app.innerHTML = '<p class="mute">Loading account…</p>';
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'account') return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'account') return;
         if (!WBMembership.hasDesignated(profile)) return go('#/subscriptions');
@@ -2696,17 +2806,9 @@
       (window.WBProfile ? WBProfile.personIcon() : '') + '</button>' +
       '<div class="grow"><div class="name" id="account-label">' + whoHtml + '</div>' +
       '<p class="mute">' + esc(plan ? plan.name : 'Membership') + ' · <button type="button" id="profile-edit">Edit profile</button></p></div></div></div>';
-    var trainerNav = window.WBInvites && WBInvites.trainerRole(profile);
-    h += '<div class="row" id="account-nav" style="margin-bottom:12px">' +
-      '<button id="messages-nav" class="grow" type="button" data-go="messages">Messages</button>' +
-      '<button id="hub-nav" class="grow" type="button" data-go="hub">Trainer Hub</button>' +
-      (trainerNav
-        ? '<button id="send-nav" class="grow" type="button" data-go="send">Send workout</button>'
-        : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>');
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) {
-      h += '<button id="admin-open" class="grow" type="button" data-go="admin">Admin<span class="admin-count" id="admin-count" hidden></span></button>';
+      h += '<button type="button" class="link-row" id="admin-open" data-go="admin"><span class="grow"><span class="name">Admin</span><div class="mute">Access, verifications, Hub reports</div></span><span class="admin-count" id="admin-count" hidden></span><span class="chev" aria-hidden="true">›</span></button>';
     }
-    h += '</div>';
     if (window.WBProfile && WBProfile.needsName(profile)) {
       h += '<p class="lede" id="account-name-note">' + esc(WBProfile.PROMPT) + '</p>';
     }
@@ -2719,7 +2821,7 @@
     app.innerHTML = h;
     paintAccountAvatar(profile);
     refreshRequestBadges();
-    syncHeaderSignOut();
+    syncChrome();
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) loadPendingCount();
     if (shareHere) loadShare();
     app.onclick = function (e) {
@@ -2818,7 +2920,7 @@
     var requested = location.hash;
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'admin' || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       var email = session.user && session.user.email;
       if (!window.WBProfile || !WBProfile.isAdminEmail(email)) {
         app.innerHTML = '<div class="card" id="verify-admin-denied"><div class="name">Only the admin can open this page</div></div>';
@@ -3121,7 +3223,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       var profileP = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
       profileP.then(function (profile) { return profile; }, function () { return null; }).then(function (profile) {
         if (token !== routeToken || location.hash !== requested) return;
@@ -3131,7 +3233,8 @@
           app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast,
           profile: function () { return cachedProfile; },
           workouts: function () { return data.workouts; },
-          applyCopies: function (list) { applyCopies(list || []); }
+          applyCopies: function (list) { applyCopies(list || []); },
+          markSeen: function (ids) { markReceivedSeen(ids); }
         });
       });
     }).catch(function () {
@@ -3149,7 +3252,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       if (!window.WBMessages) return;
       WBMessages.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast });
     }).catch(function () {
@@ -3167,7 +3270,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       if (!window.WBHub) {
         titleEl.textContent = 'Trainer Hub';
         app.innerHTML = '<div class="card" id="hub-wait"><div class="name">Not available yet</div><p class="mute">Trainer Hub is not available yet. Apply the hub SQL in the Supabase SQL editor.</p></div>';
@@ -3342,7 +3445,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       if (!id || !WBAuth.clientStatus || !window.WBSharing) return showWait();
       return WBAuth.clientStatus(id).then(function (row) {
         if (token !== routeToken || location.hash !== requested) return;
@@ -3512,11 +3615,11 @@
     }
     if (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(token);
     if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
-    // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
+    // Sign-in, create-account, and forgot/reset password stay reachable with no session.
     // A signed-out visit that carries an invite code opens create-account with the code filled in.
     // Sign-in has no code box. A stored code is still redeemed after sign-in.
     // A bare visit with no invite keeps the public landing.
-    // Any other signed-out visit opens Subscriptions.
+    // Any other signed-out visit, including #/subscriptions, opens the landing page.
     // Recovery links are claimed above. A failed session check still opens sign-in.
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') {
       profileGateOn = false;
@@ -3536,7 +3639,6 @@
       recoverySettled = true;
       return renderReset();
     }
-    if (page === 'subscriptions') return renderSubscriptions();
     var requested = location.hash;
     app.innerHTML = '';
     app.onclick = null; app.oninput = null; app.onchange = null;
@@ -3549,14 +3651,16 @@
         signedInNow = false;
         if (publicRoot && !recoveryNow && (location.hash === '' || location.hash === '#')) return showLanding();
         hideLanding();
-        return go(signedOutHome());
+        return goSignedOutHome();
       }
       signedInNow = true;
       hideLanding();
+      if (page === 'subscriptions') return renderSubscriptions();
       openSignedIn(token, requested, page);
-    }).catch(function () {
+    }).catch(function (err) {
       if (token !== routeToken || location.hash !== requested) return;
       hideLanding();
+      if (page === 'subscriptions') return showSignInNotice((err && err.message) || 'Could not reach sign-in', true);
       go('#/signin');
     });
   }
@@ -4664,19 +4768,14 @@
   function renderList() {
     titleEl.textContent = 'Workouts'; backBtn.hidden = true;
     var note = takeInviteNotice();
+    var trainerHome = !!(window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile)));
+    var tileIco = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M12 8v5l3 2"/></svg>';
+    var sendIco = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 11.5 21 3l-7.2 18-2.3-7.2z"/></svg>';
     var h = (levelNoteOn ? levelNoteHtml(cachedProfile) : '') +
       (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
-      '<div class="row" id="home-nav" style="margin-bottom:8px">' +
-      '<button class="grow" type="button" data-a="account">Account</button>' +
-      '<button id="programs-open" class="grow" type="button" data-a="programs">Programs</button>' +
-      '<button id="tracking-open" class="grow" type="button" data-a="tracking">Tracking</button></div>' +
-      '<div class="row" id="home-tools" style="margin-bottom:8px">' +
-      '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
-      '<button id="hub-nav" class="grow" type="button" data-a="hub">Trainer Hub</button>' +
-      '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
-      (window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile))
-        ? '<div class="row" id="home-circuits" style="margin-bottom:8px"><button id="circuits-open" class="grow" type="button" data-a="circuits">Group Circuits</button></div>'
-        : '') +
+      (trainerHome
+        ? '<div class="home-tiles" id="home-tiles"><button type="button" class="home-tile" id="circuits-open" data-a="circuits">' + tileIco + '<span class="home-tile-label">Group Circuits</span></button><button type="button" class="home-tile" id="send-nav" data-a="send">' + sendIco + '<span class="home-tile-label">Send workout</span></button></div>'
+        : '<button type="button" class="link-row" id="received-open" data-a="received"><span class="grow"><span class="name">Workouts from your trainer</span></span><span class="chev" aria-hidden="true">›</span></button>') +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     var statusLine = libraryStatusHtml();
     if (statusLine) h += statusLine;
@@ -4690,13 +4789,14 @@
       h += '<div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
         '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') +
         (w.sourceTrainerId ? (locked ? ' · You can run it' : ' · You can edit it') : '') + '</div><div class="actions">';
+      var canEditCard = !locked && (!!(w && w.sourceTrainerId) || levelCan(cachedProfile, 'open'));
       if (!locked) {
         h += '<button class="sm" data-a="wup" data-id="' + w.id + '" aria-label="Move up"' + (wi === 0 ? ' disabled' : '') + '>▲</button>' +
           '<button class="sm" data-a="wdown" data-id="' + w.id + '" aria-label="Move down"' + (wi === nW - 1 ? ' disabled' : '') + '>▼</button>';
       }
-      h += '<button class="pri sm" data-a="open" data-id="' + w.id + '">Open</button>' +
-        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>' +
-        '<button class="sm" data-a="view" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>View</button>';
+      if (canEditCard) h += '<button class="pri sm" data-a="open" data-id="' + w.id + '">Edit</button>';
+      h += '<button class="sm" data-a="view" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>View</button>' +
+        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>';
       if (!locked) {
         h += '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button>';
       }
@@ -4704,6 +4804,7 @@
     });
     app.innerHTML = h;
     refreshRequestBadges();
+    syncChrome();
     if (data.workouts.some(function (w) { return w && w.sourceTrainerId; }) && !cachedProfile) {
       var paint = routeToken;
       ensureProfile().then(function () {
@@ -4733,6 +4834,7 @@
         if (!levelCan(cachedProfile, 'send')) { levelNoteOn = true; return renderList(); }
         return go('#/send');
       }
+      if (a === 'received') return go('#/received');
       if (a === 'new') {
         if (!levelCan(cachedProfile, 'open') || atWorkoutCap(cachedProfile)) { levelNoteOn = true; return renderList(); }
         var name = prompt('Workout name', 'New workout'); if (name === null) return;
@@ -4792,7 +4894,6 @@
       '<button class="sm" data-a="up" data-id="' + it.id + '" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
       '<button class="sm" data-a="down" data-id="' + it.id + '" aria-label="Move down"' + (i === n - 1 ? ' disabled' : '') + '>▼</button>' +
       '<button class="sm" data-a="edit" data-id="' + it.id + '">Edit</button>' +
-      (inGroup ? '<button class="sm" data-a="unlink1" data-id="' + it.id + '">Unlink</button>' : '') +
       '<button class="sm danger" data-a="delex" data-id="' + it.id + '">Delete</button></div></div>';
   }
   function canRenameWorkout(w) {
@@ -5499,11 +5600,11 @@
       '';
     function repsUI(allowStatic) {
       var o = [['number', 'Number'], ['range', 'Range']]; if (allowStatic) o.push(['static', 'Static hold']);
-      var x = '<label>Reps type' + (allowStatic ? ' <span class="mute" style="font-weight:400">(optional — tap again to clear)</span>' : '') + '</label>' + seg('repsType', o, c.repsType);
+      var x = '<div class="reps-unit"><label>Reps type' + (allowStatic ? ' <span class="mute" style="font-weight:400">(optional — tap again to clear)</span>' : '') + '</label>' + seg('repsType', o, c.repsType);
       if (c.repsType === 'number') x += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10', null, true);
       if (c.repsType === 'range') x += '<label>Rep range (min – max)</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min', null, true) + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max', null, true) + '</div></div>';
       if (c.repsType === 'static') x += '<p class="mute">Static hold — time only, no rep count.</p>';
-      return x;
+      return x + '</div>';
     }
     if (d.mode === 'reps') {
       h += repsUI(false);

@@ -586,7 +586,21 @@
     var choose = !sw && pausedIntervalWork(); // Skip and Resume are the controls; the window is not a second Resume button
     var infoEx = ex;
     if (resting && i + 1 < S.queue.length) infoEx = exOf(i + 1); // rest frame is the upcoming exercise, with no "Up next" label
-    h += '<div class="pl-stage"><div class="pl-main"><div class="pl-screen ' + (resting ? 'is-rest' : '') + (timedWork ? ' is-work' : '') + (sw ? ' is-static' : '') + (choose ? ' is-choose' : '') + (interval ? ' is-interval' : '') + '"' + (sw || choose ? '' : ' data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '"') + '>' + (sw ? '' : '<div class="pl-hint">' + esc(hint(ex)) + '</div>') +
+    var mixedSw = S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) && S.w.items.some(function (it) { return it.mode !== 'stopwatch'; });
+    var carHead = mixedSw ? 'Steps' : (S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) ? 'Attempts' : 'Sets');
+    var carHtml = '<div class="pl-car" aria-label="All ' + carHead.toLowerCase() + '">';
+    for (var j = 0; j < S.queue.length; j++) {
+      var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
+      var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
+      if (linked) carHtml += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
+      var sub = e2.mode === 'stopwatch' ? 'Attempt ' + q.set + '/' + q.of : (e2.mode === 'intervals' ? 'Interval ' + q.set + '/' + q.of : 'Set ' + q.set + '/' + q.of);
+      var up = j === i + 1 && carouselUpNext(i);
+      carHtml += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '" aria-label="' + esc(e2.name) + '"' + (j === i ? ' aria-current="true"' : '') + '>' +
+        (lg ? '<i class="pl-ck">✓</i>' : '') + '<span>' + esc(sub) + '</span><div class="pl-frame">' + carouselMedia(e2) + '</div>' +
+        (up ? '<div class="pl-upnext">Up next</div>' : '') + '</button>';
+    }
+    carHtml += '</div>';
+    h += '<div class="pl-stage">' + carHtml + '<div class="pl-main"><div class="pl-screen ' + (resting ? 'is-rest' : '') + (timedWork ? ' is-work' : '') + (sw ? ' is-static' : '') + (choose ? ' is-choose' : '') + (interval ? ' is-interval' : '') + '"' + (sw || choose ? '' : ' data-p="primary" role="button" aria-label="' + esc(primaryLabel(ex)) + '"') + '>' + (sw ? '' : '<div class="pl-hint">' + esc(hint(ex)) + '</div>') +
       (resting || sw ? '' : '<div class="pl-media" aria-hidden="true">' + playerMedia(ex) + '</div>') +
       '<div class="pl-top"><span class="pl-chip">' + esc(chip) + '</span>' + (st.groupId ? '<span class="pl-chip ss">Superset</span>' : '') + (S.track === false ? '<span class="tag" id="pv-not-tracked">Preview - not tracked</span>' : '') + '</div>' +
       (showRO ? '<div class="pl-ro" id="ro">' + readout() + '</div>' : '');
@@ -596,21 +610,7 @@
       h += '<div class="pl-info"><div class="pl-name">' + esc(infoEx.name) + '</div><div class="pl-meta">' + infoLines(infoEx).filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') + '</div>' +
         (resting ? '<div class="pl-rest-veil" id="rest-veil" aria-hidden="true"></div>' : '') + '</div>';
     }
-    h += '</div>'; // end pl-main (media column)
-    var mixedSw = S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) && S.w.items.some(function (it) { return it.mode !== 'stopwatch'; });
-    var carHead = mixedSw ? 'Steps' : (S.w.items.some(function (it) { return it.mode === 'stopwatch'; }) ? 'Attempts' : 'Sets');
-    h += '<div class="pl-car" aria-label="All ' + carHead.toLowerCase() + '">';
-    for (var j = 0; j < S.queue.length; j++) {
-      var q = S.queue[j], e2 = exOf(j), lg = S.results[j] && S.results[j].logged;
-      var linked = j > 0 && q.groupId && S.queue[j - 1].groupId === q.groupId && S.queue[j - 1].set === q.set;
-      if (linked) h += '<div class="pl-chain" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 7h-4v2h4a3 3 0 010 6h-4v2h4a5 5 0 000-10zm-6 8H7a3 3 0 010-6h4V7H7a5 5 0 000 10h4v-2zm-3-4h8v2H8v-2z"/></svg></div>';
-      var sub = e2.mode === 'stopwatch' ? 'Attempt ' + q.set + '/' + q.of : (e2.mode === 'intervals' ? 'Interval ' + q.set + '/' + q.of : 'Set ' + q.set + '/' + q.of);
-      var up = j === i + 1 && carouselUpNext(i);
-      h += '<button class="pl-ci' + (j === i ? ' cur' : '') + (lg ? ' done' : '') + '" data-sel="' + j + '" aria-label="' + esc(e2.name) + '"' + (j === i ? ' aria-current="true"' : '') + '>' +
-        (lg ? '<i class="pl-ck">✓</i>' : '') + '<span>' + esc(sub) + '</span><div class="pl-frame">' + carouselMedia(e2) + '</div>' +
-        (up ? '<div class="pl-upnext">Up next</div>' : '') + '</button>';
-    }
-    h += '</div></div>'; // end car + stage
+    h += '</div></div>'; // end pl-main + stage
     if (sw) h += '<button class="pl-go" data-p="primary">' + esc(primaryLabel(ex)) + '</button>';
     // tracking bar — during a shared superset rest, stack every round member's fields
     function trackBlock(mi) {
@@ -646,7 +646,7 @@
     if (window.WBMedia) WBMedia.bind(S.root);
     bindStillErrors(S.root);
     var car = S.root.querySelector('.pl-car'), cu = car.querySelector('.cur');
-    if (cu) car.scrollTop += cu.getBoundingClientRect().top - car.getBoundingClientRect().top - 24; // keep current in view
+    if (cu) car.scrollLeft += cu.getBoundingClientRect().left - car.getBoundingClientRect().left - 12; // keep current in view
     tick(true);
   }
   function eventSummaryHtml(r) {

@@ -154,17 +154,16 @@ data.workouts.push(w);
     const cb = car.getBoundingClientRect();
     const ub = cu.getBoundingClientRect();
     return {
-      top: +(ub.top - cb.top).toFixed(1),
-      bottomGap: +(cb.bottom - ub.bottom).toFixed(1),
-      scroll: car.scrollTop,
-      carH: +cb.height.toFixed(1),
-      stageH: +stage.getBoundingClientRect().height.toFixed(1),
-      mainH: +main.getBoundingClientRect().height.toFixed(1)
+      left: +(ub.left - cb.left).toFixed(1),
+      rightGap: +(cb.right - ub.right).toFixed(1),
+      scroll: car.scrollLeft,
+      carTop: +cb.top.toFixed(1),
+      mainTop: +main.getBoundingClientRect().top.toFixed(1)
     };
   });
   assert.ok(scrolled.scroll > 0, JSON.stringify(scrolled)); // last tile is brought back into the scrolling strip
-  assert.ok(scrolled.top >= -1 && scrolled.bottomGap >= -1, JSON.stringify(scrolled));
-  assert.ok(Math.abs(scrolled.carH - scrolled.mainH) < 2, JSON.stringify(scrolled));
+  assert.ok(scrolled.left >= -1 && scrolled.rightGap >= -1, JSON.stringify(scrolled));
+  assert.ok(scrolled.carTop < scrolled.mainTop, JSON.stringify(scrolled));
   assert.deepStrictEqual(errs, []);
   console.log('CAROUSEL OK');
   await b.close();

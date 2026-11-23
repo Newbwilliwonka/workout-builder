@@ -217,7 +217,7 @@ function entry(id, ownerId, wo, start, end, presence, when) {
     { name: '', who: 'Self', extra: true, drag: false },
     { name: '', who: 'Mia Chen', extra: true, drag: false }
   ]);
-  assert.ok((await trainer.$eval('.pv-legend', function (el) { return el.textContent; })).indexOf('Not scheduled') !== -1);
+  assert.ok((await trainer.$eval('.pv-legend', function (el) { return el.textContent; })).indexOf('Unscheduled') !== -1);
   await trainer.evaluate(function () {
     var day = document.querySelector('.pv-day.today');
     if (day) day.scrollIntoView({ inline: 'center', block: 'center' });
@@ -271,7 +271,7 @@ function entry(id, ownerId, wo, start, end, presence, when) {
     };
   });
   assert.ok(detail.text.indexOf('Evening extra') !== -1 && detail.text.indexOf('Completed, not scheduled') !== -1);
-  assert.deepStrictEqual(detail.buttons, ['Run', 'View']);
+  assert.deepStrictEqual(detail.buttons, ['View', 'Run']);
   await trainer.click('#back');
   await trainer.waitForSelector('#pv-day-sheet .pv-day-row.is-extra');
   await trainer.click('#back');
@@ -329,7 +329,7 @@ function entry(id, ownerId, wo, start, end, presence, when) {
   await free.waitForSelector('[data-view-wo]');
   assert.deepStrictEqual(await free.$$eval('#pv-day-sheet button', function (nodes) {
     return nodes.map(function (node) { return node.textContent; });
-  }), ['Run', 'View']);
+  }), ['View', 'Run']);
 
   const joyData = M.emptyData();
   joyData.workouts.push(open);

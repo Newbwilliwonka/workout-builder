@@ -47,78 +47,57 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
 
   const signedOut = await open(null);
   await seed(signedOut);
-  await denied(signedOut, '#/', '#/subscriptions');
-  await signedOut.waitForFunction(() => document.body.innerText.includes('Choose how you want to train') && document.getElementById('header-signin') && !document.getElementById('header-signin').hidden);
-  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Choose how you want to train');
-  assert.strictEqual(await signedOut.$eval('.sales', el => el.firstElementChild && el.firstElementChild.tagName), 'H2');
-  assert.strictEqual(await signedOut.$('#messages-nav, #workouts-nav, #redeem, #invite-code'), null);
-  assert.ok(await signedOut.$('[data-plan=enthusiast]'));
+  await denied(signedOut, '#/', '');
+  await signedOut.waitForFunction(() => document.body.innerText.includes('Choose how you want to train') && document.getElementById('header-signin').hidden && document.querySelector('#landing a[href="#/signin"]'));
+  assert.strictEqual(await signedOut.$eval('#landing h2', e => e.textContent), 'Create team Drills with cones and events.');
+  assert.ok((await signedOut.$eval('#landing', el => el.innerText)).includes('Choose how you want to train'));
+  assert.strictEqual(await signedOut.$('#redeem, #invite-code, [data-plan]'), null);
+  assert.strictEqual(await signedOut.$eval('#nav-links', el => el.hidden), true);
   assert.deepStrictEqual(await signedOut.$eval('#back', e => ({ hidden: e.hidden, display: getComputedStyle(e).display })), { hidden: true, display: 'none' });
-  const headerSign = await signedOut.evaluate(() => {
-    var link = document.getElementById('header-signin');
-    var out = document.getElementById('account-signout');
-    var style = getComputedStyle(link);
-    var title = document.getElementById('title').getBoundingClientRect();
-    var box = link.getBoundingClientRect();
-    var bar = document.querySelector('.bar').getBoundingClientRect();
-    var hit = document.elementFromPoint(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2));
+  const landingSign = await signedOut.evaluate(() => {
+    var link = document.querySelector('#landing .landing-bar a');
+    var bar = document.querySelector('#landing .landing-bar');
+    var brand = document.querySelector('#landing .landing-brand');
+    var style = getComputedStyle(bar);
     return {
       text: link.textContent,
-      tag: link.tagName,
       href: link.getAttribute('href'),
-      hidden: link.hidden,
-      outHidden: out.hidden,
-      bg: style.backgroundColor,
-      radius: style.borderRadius,
-      decoration: style.textDecorationLine,
-      weight: style.fontWeight,
-      size: style.fontSize,
-      color: style.color,
-      sameLine: Math.abs((title.top + title.height / 2) - (box.top + box.height / 2)) < 14,
-      signRight: box.right > title.right,
-      inBar: box.top >= bar.top - 1 && box.bottom <= bar.bottom + 1,
-      hit: hit && hit.id,
-      plans: document.body.innerText
+      brand: brand.textContent,
+      barDisplay: style.display,
+      plans: document.getElementById('landing').innerText,
+      headerHidden: document.getElementById('header-signin').hidden,
+      appBarHidden: getComputedStyle(document.querySelector('body > header.bar')).display
     };
   });
-  assert.strictEqual(headerSign.text, 'Sign in');
-  assert.strictEqual(headerSign.tag, 'A');
-  assert.strictEqual(headerSign.href, '#/signin');
-  assert.strictEqual(headerSign.hidden, false);
-  assert.strictEqual(headerSign.outHidden, true);
-  assert.ok(headerSign.bg === 'rgba(0, 0, 0, 0)' || headerSign.bg === 'transparent');
-  assert.strictEqual(headerSign.radius, '0px');
-  assert.strictEqual(headerSign.decoration, 'none');
-  assert.ok(headerSign.weight === '400' || headerSign.weight === 'normal');
-  assert.strictEqual(headerSign.size, '16px');
-  assert.strictEqual(headerSign.color, 'rgb(255, 255, 255)');
-  assert.strictEqual(headerSign.sameLine, true);
-  assert.strictEqual(headerSign.signRight, true);
-  assert.strictEqual(headerSign.inBar, true);
-  assert.strictEqual(headerSign.hit, 'header-signin');
-  assert.ok(headerSign.plans.includes('$9.99') && headerSign.plans.includes('$19.99') && headerSign.plans.includes('$29.99') && headerSign.plans.includes('Free'));
-  await signedOut.screenshot({ path: '/tmp/signed-out-subscriptions-412.png' });
+  assert.strictEqual(landingSign.text, 'Sign up / Sign in');
+  assert.strictEqual(landingSign.href, '#/signin');
+  assert.strictEqual(landingSign.brand, 'Coach Trainer App');
+  assert.notStrictEqual(landingSign.barDisplay, 'none');
+  assert.strictEqual(landingSign.headerHidden, true);
+  assert.strictEqual(landingSign.appBarHidden, 'none');
+  assert.ok(landingSign.plans.includes('$9.99') && landingSign.plans.includes('$19.99') && landingSign.plans.includes('$29.99') && landingSign.plans.includes('Free'));
+  await signedOut.screenshot({ path: '/tmp/signed-out-landing-412.png' });
   await signedOut.evaluate(() => { window.__left = 0; window.addEventListener('hashchange', function () { window.__left++; }); document.getElementById('back').click(); });
   await new Promise(r => setTimeout(r, 250));
-  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/subscriptions');
-  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left subscriptions');
-  assert.strictEqual(await signedOut.$eval('h2', e => e.textContent), 'Choose how you want to train');
+  assert.strictEqual(await signedOut.evaluate(() => location.hash), '');
+  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left the landing');
   assert.strictEqual(await signedOut.evaluate(() => window.__leak), false, 'back button opened the builder');
-  await denied(signedOut, '#/w/' + w.id, '#/subscriptions');
-  await denied(signedOut, '#/w/' + w.id + '/ex/new', '#/subscriptions');
-  await denied(signedOut, '#/play/' + w.id, '#/subscriptions');
+  await denied(signedOut, '#/w/' + w.id, '');
+  await denied(signedOut, '#/w/' + w.id + '/ex/new', '');
+  await denied(signedOut, '#/play/' + w.id, '');
   await signedOut.evaluate(() => { window.__left = 0; document.getElementById('back').click(); });
   await new Promise(r => setTimeout(r, 250));
-  assert.strictEqual(await signedOut.evaluate(() => location.hash), '#/subscriptions');
-  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left subscriptions after a player link');
-  await denied(signedOut, '#/programs', '#/subscriptions');
-  await denied(signedOut, '#/account', '#/subscriptions');
-  await denied(signedOut, '#/messages', '#/subscriptions');
-  await denied(signedOut, '#/client/abc', '#/subscriptions');
-  await denied(signedOut, '#/send', '#/subscriptions');
-  await denied(signedOut, '#/received', '#/subscriptions');
-  await denied(signedOut, '#/preview', '#/subscriptions');
-  await signedOut.click('#header-signin');
+  assert.strictEqual(await signedOut.evaluate(() => location.hash), '');
+  assert.strictEqual(await signedOut.evaluate(() => window.__left), 0, 'header back left the landing after a player link');
+  await denied(signedOut, '#/programs', '');
+  await denied(signedOut, '#/account', '');
+  await denied(signedOut, '#/messages', '');
+  await denied(signedOut, '#/client/abc', '');
+  await denied(signedOut, '#/send', '');
+  await denied(signedOut, '#/received', '');
+  await denied(signedOut, '#/preview', '');
+  await denied(signedOut, '#/subscriptions', '');
+  await signedOut.click('#landing .landing-bar a');
   await signedOut.waitForFunction(() => location.hash === '#/signin' && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in' && document.getElementById('header-signin').hidden && document.getElementById('acct-email') && !document.getElementById('invite-code') && document.querySelector('[data-auth=forgot]') && document.querySelector('[data-auth=switch]'));
   async function inviteOpensJoin(url) {
     await signedOut.goto(url);
@@ -127,7 +106,8 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
     assert.strictEqual(await signedOut.evaluate(() => sessionStorage.getItem('wb.invite')), 'ABCD2345');
     assert.strictEqual(await signedOut.evaluate(() => new URLSearchParams(location.search).get('invite')), null);
     assert.strictEqual(await signedOut.evaluate(() => new URLSearchParams((location.hash.split('?')[1] || '')).get('invite')), null);
-    assert.strictEqual(await signedOut.$('#messages-nav, #workouts-nav, #redeem, [data-plan]'), null);
+    assert.strictEqual(await signedOut.$('#redeem, [data-plan]'), null);
+    assert.strictEqual(await signedOut.$eval('#nav-links', function (el) { return el.hidden; }), true);
   }
   await inviteOpensJoin(URL + '?invite=ABCD2345');
   await inviteOpensJoin(URL + '?invite=ABCD2345#/');
@@ -147,7 +127,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   assert.strictEqual(await signedOut.evaluate(() => window.__leak), false, 'reset code showed the builder');
   await signedOut.goto(URL + '#/subscriptions');
   await signedOut.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
+    return (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
   });
   await signedOut.goto(URL + '#/signin');
   await signedOut.waitForSelector('[data-auth=switch]');
@@ -169,7 +149,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   assert.strictEqual(await stranger.$eval('#header-signin', el => el.hidden), true);
   assert.ok(await stranger.$('#redeem'));
   assert.ok(await stranger.$('#level-lock'));
-  assert.strictEqual(await stranger.$('#messages-nav'), null);
+  assert.strictEqual(await stranger.$eval('#nav-links', function (el) { return el.hidden; }), true);
   await denied(stranger, '#/w/' + w.id, '#/subscriptions');
   await denied(stranger, '#/play/' + w.id, '#/subscriptions');
   assert.strictEqual(await stranger.$eval('#back', function (el) { return el.hidden; }), true);
@@ -193,24 +173,19 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await allowed.waitForSelector('[data-a=run]');
   assert.strictEqual(await allowed.$eval('.name', e => e.textContent), 'Hidden workout');
   assert.deepStrictEqual(await allowed.$eval('#programs-open', function (el) {
-    var row = el.parentElement;
-    var account = row.firstElementChild;
     return {
-      className: el.className,
-      type: el.type,
-      action: el.getAttribute('data-a'),
-      rowClass: row.className,
-      rowStyle: row.getAttribute('style'),
-      account: account.textContent + ' ' + account.className + ' ' + account.type + ' ' + account.getAttribute('data-a')
+      text: el.textContent,
+      href: el.getAttribute('href'),
+      row: el.parentElement && el.parentElement.id
     };
   }), {
-    className: 'grow',
-    type: 'button',
-    action: 'programs',
-    rowClass: 'row',
-    rowStyle: 'margin-bottom:8px',
-    account: 'Account grow button account'
+    text: 'Programs',
+    href: '#/programs',
+    row: 'nav-links'
   });
+  assert.ok(await allowed.$('#circuits-open'));
+  assert.ok(await allowed.$('#send-nav'));
+  assert.ok(await allowed.$('#account-me'));
   await allowed.screenshot({ path: '/tmp/allowlisted-workouts-412.png' });
   await allowed.click('[data-a=run]');
   await allowed.waitForSelector('.pl-screen');
@@ -331,7 +306,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await cold.type('#acct-pass', 'secret1234');
   await cold.type('#confirm-pass', 'secret1234');
   await cold.click('[data-auth=up]');
-  await cold.waitForFunction(() => location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('level-signout') && document.getElementById('back').hidden && !document.getElementById('messages-nav') && !document.querySelector('[data-a=new]'));
+  await cold.waitForFunction(() => location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('level-signout') && document.getElementById('back').hidden && document.getElementById('nav-links').hidden && !document.querySelector('[data-a=new]'));
 
   const retry = await open({ user: { id: 'retry', email: 'retry@example.com' } }, none);
   await retry.goto(URL + '#/signin');
@@ -393,8 +368,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
       && document.getElementById('level-lock')
       && document.getElementById('level-signout')
       && document.getElementById('back').hidden
-      && !document.getElementById('messages-nav')
-      && !document.getElementById('workouts-nav')
+      && document.getElementById('nav-links').hidden
       && document.body.innerText.indexOf('Could not save that plan. Please try again.') !== -1
       && plan && !plan.disabled;
   });

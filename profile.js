@@ -329,6 +329,7 @@
     if (bio.length > BIO_MAX) bio = bio.slice(0, BIO_MAX);
     var h = '<div class="pv-sheet" id="profile-sheet" data-required="' + (opts.required ? '1' : '0') + '">';
     h += '<div class="pv-sheet-card" role="dialog" aria-modal="true" aria-labelledby="profile-title">';
+    if (!opts.required) h += '<div class="profile-top"><button type="button" id="profile-cancel-top">Cancel</button></div>';
     if (opts.required) h += '<p class="profile-note" id="profile-prompt">' + esc(PROMPT) + '</p>';
     h += '<div class="profile-scroll">';
     if (opts.verified && clean(opts.display_name)) h += '<h3 class="name" id="profile-title">' + nameHtml(opts.display_name, true) + '</h3>';

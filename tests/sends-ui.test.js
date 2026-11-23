@@ -298,6 +298,7 @@ function armSlow() {
   await trainer.waitForFunction(function () { return document.getElementById('send-go').disabled; });
   await trainer.goto(URL + '#/');
   await trainer.waitForSelector('[data-a=new]');
+  assert.strictEqual(await trainer.$('#received-open'), null);
   releaseNav();
   await new Promise(function (r) { setTimeout(r, 500); });
   await trainer.goto(URL + '#/send');
@@ -329,6 +330,14 @@ function armSlow() {
   const copyId = box.copies.filter(function (c) { return c.ownerId === E; })[0].id;
   assert.strictEqual(await enthusiast.$('[data-a=rename]'), null);
   assert.ok(await enthusiast.$('[data-a=del][data-id="' + copyId + '"]'));
+  assert.ok(await enthusiast.$('#received-open'));
+  assert.strictEqual(await enthusiast.$eval('#workouts-nav .request-count', function (el) { return el.textContent; }), '1');
+  await enthusiast.click('#received-open');
+  await enthusiast.waitForSelector('#received-lead');
+  await enthusiast.click('#back');
+  await enthusiast.waitForFunction(function () {
+    return (location.hash === '#/' || location.hash === '#') && document.getElementById('received-open') && !document.querySelector('#workouts-nav .request-count');
+  });
   await enthusiast.screenshot({ path: ART + '/enthusiast-received-list.png', fullPage: true });
   await enthusiast.click('[data-a=open][data-id="' + copyId + '"]');
   await enthusiast.waitForSelector('#copy-note');
@@ -402,7 +411,7 @@ function armSlow() {
   await seed(unknown, localCopy(LOCAL, 'Local edit'));
   await unknown.goto(URL + '#/');
   await unknown.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('back').hidden && !document.getElementById('messages-nav');
+    return location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('back').hidden && document.getElementById('nav-links').hidden;
   });
   assert.ok((await unknown.evaluate(function () { return localStorage.getItem('wb.data.v1'); })).indexOf('Local edit') !== -1);
   box.profileDown = false;

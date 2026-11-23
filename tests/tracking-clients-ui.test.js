@@ -233,7 +233,7 @@ async function shot(page, name) {
     return location.hash === '#/tracking' && pick && pick.value === '' &&
       document.body.innerText.indexOf('Coach day') >= 0 &&
       document.body.innerText.indexOf('Conditioning') < 0 &&
-      !document.getElementById('tracking-open');
+      document.getElementById('tracking-open').classList.contains('on');
   });
 
   await trainer.select('#client-pick', MIA);

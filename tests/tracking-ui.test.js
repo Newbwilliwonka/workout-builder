@@ -100,7 +100,7 @@ async function openPage(browser, membership, payload) {
   await page.setViewport({ width: 320, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const narrow = await page.$eval('#tracking-open', function (el) {
     var rect = el.getBoundingClientRect();
-    var row = document.getElementById('home-nav').getBoundingClientRect();
+    var row = document.getElementById('nav-links').getBoundingClientRect();
     return {
       inside: rect.left >= 0 && rect.right <= window.innerWidth + 0.5,
       textFits: el.scrollWidth <= el.clientWidth + 1,

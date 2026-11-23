@@ -394,7 +394,7 @@
     var profile = profileNow();
     ctx.titleEl.textContent = 'Workouts';
     ctx.backBtn.hidden = false;
-    var h = '<p class="mute" id="received-lead">Workouts from your trainer land here as your own copy.</p>';
+    var h = '<p class="mute" id="received-lead">Workouts from your trainer land here. View plays your workout without tracking. Run tracks your actual workout and saves it in History.</p>';
     if (!copies.length) h += '<div class="empty" id="received-empty">No workouts from your trainer yet.</div>';
     copies.forEach(function (w) {
       var edit = canEditCopy(profile, w);
@@ -403,14 +403,17 @@
         '<span class="tag">From ' + trainerTag(w) + '</span></div>';
       h += '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + ' · ' + (edit ? 'You can edit it' : 'You can run it') + '</div>';
       h += '<div class="actions"><button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Open</button>';
+      if (n) h += '<button type="button" class="sm" data-view-copy="' + esc(w.id) + '">View</button>';
       if (n) h += '<button type="button" class="sm" data-run-copy="' + esc(w.id) + '">Run</button>';
       h += '</div></div>';
     });
     ctx.app.innerHTML = h;
+    if (ctx.markSeen) ctx.markSeen(copies.map(function (w) { return w.id; }));
     ctx.app.onclick = function (e) {
-      var t = e.target && e.target.closest ? e.target.closest('[data-open-copy], [data-run-copy]') : null;
+      var t = e.target && e.target.closest ? e.target.closest('[data-open-copy], [data-run-copy], [data-view-copy]') : null;
       if (!t || !ctx) return;
       try { sessionStorage.setItem('wb.copyReturn', '#/received'); } catch (err) {}
+      if (t.dataset.viewCopy) return ctx.go('#/view/' + t.dataset.viewCopy);
       if (t.dataset.runCopy) return ctx.go('#/play/' + t.dataset.runCopy);
       var w = null;
       copies.forEach(function (item) { if (String(item.id) === t.dataset.openCopy) w = item; });

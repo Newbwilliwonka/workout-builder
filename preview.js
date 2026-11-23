@@ -416,7 +416,7 @@
       opt('solo', 'Solo') + opt('trainer', 'Trainer present') + '</div>';
   }
   function legendHtml() {
-    return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span><span>' + check(true) + 'Not scheduled</span></div>';
+    return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span><span>' + check(true) + 'Unscheduled</span></div>';
   }
   var MONTH_ICON_CAP = 6;
   function presenceKind(row) {
@@ -745,8 +745,8 @@
       var actions = P.entryMenu(contextForOwner(row.ownerId)).filter(function (action) { return action === 'run' || action === 'view'; });
       h += '<div class="pv-slot"><h3 class="name pv-slot-title">' + check(true) + '<span>' + esc(name) + '</span></h3>';
       h += '<p class="mute">' + esc(prettyDate(row.date)) + ' · Completed, not scheduled</p>';
-      if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '">Run</button>';
       if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '">View</button>';
+      if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '">Run</button>';
       h += openErrorHtml() + '</div>';
     }
     return h + '</div></div>';
@@ -766,8 +766,8 @@
         '<label for="pv-end-' + esc(row.id) + '">End</label><input id="pv-end-' + esc(row.id) + '" data-time="end" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.end || '') + '">';
     } else if (when) h += '<p class="pv-when">' + esc(when) + '</p>';
     if (draft.error) h += '<p class="errs" id="pv-sheet-error">' + esc(draft.error) + '</p>';
-    if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">Run</button>';
     if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">View</button>';
+    if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">Run</button>';
     if (editing) h += '<button type="button" data-sheet="times" data-entry="' + esc(row.id) + '">Save times</button>';
     if (actions.indexOf('remove') >= 0) h += '<button type="button" class="danger" data-sheet="remove" data-entry="' + esc(row.id) + '">Remove workout</button>';
     return h + openErrorHtml() + '</div>';

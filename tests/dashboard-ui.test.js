@@ -237,7 +237,7 @@ async function openPage(browser, membership, payload) {
   assert.ok(filled.ringLabel.indexOf('65 percent') >= 0);
   assert.ok(filled.ringLabel.indexOf('Keep trying') >= 0);
   assert.strictEqual(filled.chartRows, 8);
-  assert.ok(filled.sheetBg.indexOf('rgba(255, 255, 255') === 0, filled.sheetBg);
+  assert.strictEqual(filled.sheetBg, 'rgba(0, 0, 0, 0)');
   assert.strictEqual(filled.sheetPos, 'relative');
   assert.strictEqual(filled.sheetZ, '1');
   assert.strictEqual(filled.sheetBlur, 'none');
@@ -455,8 +455,9 @@ async function openPage(browser, membership, payload) {
   const sheetCss = await phone.evaluate(function () {
     return fetch('style.css').then(function (res) { return res.text(); });
   });
-  assert.ok(/\.db-sheet\{[^}]*rgba\(255,255,255,\.9\)/.test(sheetCss), 'sheet fill is 90% opaque');
-  assert.strictEqual(shown.sheetBg, 'rgba(255, 255, 255, 0.9)');
+  assert.ok(/\.db-sheet\{[^}]*transparent/.test(sheetCss), 'the dashboard sheet is clear');
+  assert.ok(/\.db-sec\{[^}]*background:#fff/.test(sheetCss), 'each dashboard card is white');
+  assert.strictEqual(shown.sheetBg, 'rgba(0, 0, 0, 0)');
   assert.strictEqual(shown.share, false);
   assert.strictEqual(shown.add, false);
   assert.deepStrictEqual(shown.bars.map(function (row) { return row.name + ' ' + row.rating; }), [

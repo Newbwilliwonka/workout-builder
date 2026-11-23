@@ -725,7 +725,7 @@ async function toastText(page) {
   await require('./allow.js').stubAuth(signedOut, { session: null, profile: null });
   await signedOut.goto(URL + '#/programs');
   await signedOut.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
+    return (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
   });
   assert.strictEqual(await signedOut.$('#pv-gcal, .pv-week, .pv-month'), null);
   if (shots) await signedOut.screenshot({ path: path.join(shots, 'signed_out_programs.png') });
@@ -740,7 +740,7 @@ async function toastText(page) {
   });
   await signedOut.goto(URL + '#/subscriptions');
   await signedOut.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1;
+    return (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Choose how you want to train') !== -1;
   });
   assert.strictEqual(await signedOut.$('[data-a=new], #pv-gcal'), null);
 

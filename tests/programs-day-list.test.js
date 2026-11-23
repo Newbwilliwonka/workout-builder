@@ -155,7 +155,7 @@ async function stub(page, extra) {
     };
   });
   assert.strictEqual(one.title, 'Midday core');
-  assert.deepStrictEqual(one.buttons, ['Run', 'View', 'Save times', 'Remove workout']);
+  assert.deepStrictEqual(one.buttons, ['View', 'Run', 'Save times', 'Remove workout']);
   assert.strictEqual(one.start, '11:30');
   assert.strictEqual(one.end, '12:00');
   assert.strictEqual(one.solo, true);
@@ -254,7 +254,7 @@ async function stub(page, extra) {
       when: document.querySelector('#pv-day-sheet .pv-when').textContent
     };
   });
-  assert.deepStrictEqual(clientOne.buttons, ['Run', 'View']);
+  assert.deepStrictEqual(clientOne.buttons, ['View', 'Run']);
   assert.strictEqual(clientOne.presence, false);
   assert.strictEqual(clientOne.times, 0);
   assert.strictEqual(clientOne.add, false);

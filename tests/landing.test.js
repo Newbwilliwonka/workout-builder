@@ -271,7 +271,7 @@ Mem.TIERS.forEach(function (tier) {
     await page.goto(URL + '#/', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(function () {
       var landing = document.getElementById('landing');
-      return location.hash === '#/subscriptions' && landing && getComputedStyle(landing).display === 'none' && document.body.innerText.indexOf('Choose how you want to train') !== -1;
+      return (location.hash === '' || location.hash === '#') && landing && getComputedStyle(landing).display !== 'none' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
     });
     await page.goto(URL + '?invite=ABCD2345', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(function () {
