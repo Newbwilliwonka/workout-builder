@@ -36,7 +36,7 @@
     return n.slice(0, 4) + '-' + n.slice(4);
   }
   function inviteLink(code) {
-    return SITE + '?invite=' + normalizeCode(code) + '#/signin';
+    return SITE + '?invite=' + normalizeCode(code) + '#/join';
   }
   function generateCode(rng) {
     rng = rng || Math.random;

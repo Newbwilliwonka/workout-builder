@@ -191,10 +191,12 @@
       }
       if (!changed) return;
       var search = u.searchParams.toString();
-      history.replaceState(null, '', u.pathname + (search ? '?' + search : '') + (u.hash || ''));
+      var path = u.pathname || '/';
+      if (path === '//' || path === '') path = '/';
+      history.replaceState(null, '', path + (search ? '?' + search : '') + (u.hash || ''));
     } catch (e) {}
   }
-  function signedOutHome() { return (linkInviteCode() || inviteArrival) ? '#/signin' : '#/subscriptions'; }
+  function signedOutHome() { return (linkInviteCode() || inviteArrival) ? '#/join' : '#/subscriptions'; }
   function takeInviteNotice() { var n = pendingInviteNotice; pendingInviteNotice = null; return n; }
   function inviteWaiting(err) {
     return /waiting for approval/i.test(String(err && err.message || ''));
@@ -206,20 +208,39 @@
       cachedProfile = Object.assign({}, cachedProfile || {}, { membership: res.membership });
     }
   }
-  var inviteRedeemFlight = null;
-  function redeemStoredInvite() {
-    var code = pendingCode();
+  var inviteRedeemFlight = null, inviteSettled = '';
+  function inviteCodeFromSession(session) {
+    var user = session && session.user;
+    var meta = user && (user.user_metadata || user.raw_user_meta_data);
+    if (!meta || !window.WBInvites) return '';
+    var code = WBInvites.normalizeCode(meta.invite_code || '');
+    return WBInvites.codeIsWellFormed(code) ? code : '';
+  }
+  function forgetServerInvite() {
+    if (!WBAuth.forgetInviteCode) return Promise.resolve();
+    return Promise.resolve().then(function () { return WBAuth.forgetInviteCode(); }).then(function () {}, function () {});
+  }
+  // One auto-redeem path. The code may be in this tab or in the auth user
+  // from sign-up. A waiting-for-approval error keeps it for the next sign-in.
+  function redeemStoredInvite(session) {
+    var stored = pendingCode();
+    var code = stored || inviteCodeFromSession(session);
     if (!code || !WBAuth.redeemInvite) return Promise.resolve();
+    if (!stored && inviteSettled === code) return forgetServerInvite();
     if (inviteRedeemFlight) return inviteRedeemFlight;
     var flight;
     flight = Promise.resolve().then(function () {
       return WBAuth.redeemInvite(code);
     }).then(function (res) {
-      if (pendingCode() === code) noteRedeemedInvite(code, res);
+      inviteSettled = code;
+      if (!stored || pendingCode() === code) noteRedeemedInvite(code, res);
+      return forgetServerInvite();
     }, function (err) {
       if (inviteWaiting(err)) return;
-      if (pendingCode() === code) releaseInvite(code);
+      inviteSettled = code;
+      if (!stored || pendingCode() === code) releaseInvite(code);
       pendingInviteNotice = { text: (err && err.message) || 'Could not use that invite.', isError: true };
+      return forgetServerInvite();
     }).then(function () {
       if (inviteRedeemFlight === flight) inviteRedeemFlight = null;
     });
@@ -1036,34 +1057,11 @@
     var pending;
     try { pending = WBAuth.session(); } catch (e) { return go('#/subscriptions'); }
     if (!pending || !pending.then) return go('#/subscriptions');
+    // Redeeming happens once inside the signed-in route, including before approval.
     pending.then(function (session) {
       if (!onAuthPage()) return;
-      var code = pendingCode();
-      function land(gate) {
-        if (!onAuthPage()) return;
-        var profile = gate && gate.profile;
-        if (gate && gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
-        go('#/');
-      }
-      if (!code || !WBAuth.redeemInvite) {
-        return loadGateProfile().then(land, function () { if (onAuthPage()) go('#/subscriptions'); });
-      }
-      WBAuth.redeemInvite(code).then(function (res) {
-        if (!onAuthPage()) return;
-        noteRedeemedInvite(code, res);
-        if (res && res.membership && WBMembership.tier(res.membership)) return go('#/');
-        loadGateProfile().then(land, function () { if (onAuthPage()) go('#/subscriptions'); });
-      }).catch(function (err) {
-        if (!onAuthPage()) return;
-        // A new account cannot redeem until it is approved. Keep the code
-        // and try again once the admin lets them in.
-        if (inviteWaiting(err)) {
-          return loadGateProfile().then(land, function () { if (onAuthPage()) go('#/subscriptions'); });
-        }
-        releaseInvite(code);
-        pendingInviteNotice = { text: (err && err.message) || 'Could not use that invite.', isError: true };
-        loadGateProfile().then(land, function () { if (onAuthPage()) go('#/subscriptions'); });
-      });
+      if (!session) return go('#/subscriptions');
+      go('#/');
     }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
   }
   function showSignInNotice(text, isError) {
@@ -1279,7 +1277,7 @@
     h += '<label for="acct-email">Email</label><input id="acct-email" type="email" autocomplete="username">';
     h += '<label for="acct-pass">Password</label><input id="acct-pass" type="password" autocomplete="' + (create ? 'new-password' : 'current-password') + '">';
     if (create) h += '<label for="confirm-pass">Confirm password</label><input id="confirm-pass" type="password" autocomplete="new-password">';
-    h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
+    if (create) h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
     h += captchaHtml();
     h += '<div class="actions"><button class="pri" data-auth="' + (create ? 'up' : 'in') + '" style="width:100%"' + (authBusy || captchaBlocksSubmit() ? ' disabled' : '') + '>' + (create ? 'Create account' : 'Sign in') + '</button></div>';
     if (!create) h += '<button class="linkish" data-auth="forgot">Forgot password?</button>';
@@ -1299,7 +1297,12 @@
       if (authBusy) return;
       var emailEl = document.getElementById('acct-email'), passEl = document.getElementById('acct-pass'), codeEl = document.getElementById('invite-code');
       var email = emailEl ? emailEl.value.trim() : '', password = passEl ? passEl.value : '';
-      rememberCode(WBInvites.normalizeCode(codeEl ? codeEl.value : ''));
+      var enteredCode = '';
+      // Sign-in has no code box. Leave a captured code in place for the fallback redeem.
+      if (create && codeEl) {
+        enteredCode = WBInvites.normalizeCode(codeEl.value);
+        rememberCode(enteredCode);
+      }
       // New passwords must be at least 10 characters. Signing in still allows
       // a shorter password that was already saved, so those accounts are not locked out.
       if (!email || password.length < (create ? 10 : 6)) {
@@ -1326,7 +1329,7 @@
       authBusy = true; b.disabled = true;
       var startedOn = hashPage();
       var op = b.dataset.auth === 'up'
-        ? (captchaOn() ? WBAuth.signUp(email, password, captchaToken) : WBAuth.signUp(email, password))
+        ? WBAuth.signUp(email, password, captchaOn() ? captchaToken : '', enteredCode)
         : (captchaOn() ? WBAuth.signIn(email, password, captchaToken) : WBAuth.signIn(email, password));
       op.then(function (result) {
         if (!finishAuthAttempt(startedOn)) return;
@@ -1542,44 +1545,58 @@
     app.oninput = null;
     app.onchange = null;
   }
+  function clientNeedsName(profile) {
+    if (!window.WBProfile || !WBProfile.needsName(profile)) return false;
+    if (!WBMembership.hasDesignated(profile)) return false;
+    if (window.WBInvites && WBInvites.trainerRole(profile)) return false;
+    return true;
+  }
   function openSignedIn(token, requested, page) {
-    loadGateProfile().then(function (gate) {
-      var sessionP = WBAuth.session ? WBAuth.session() : Promise.resolve(null);
-      return Promise.resolve(sessionP).then(function (session) {
-      if (token !== routeToken || location.hash !== requested) return;
-      if (!accessApproved(gate.profile, session)) return renderAccessWait();
-      accessWaitOn = false;
-      return redeemStoredInvite().then(function () {
-      if (token !== routeToken || location.hash !== requested) return;
-      var profile = cachedProfile || gate.profile;
-      if (page === 'admin') return renderAdmin();
-      if (gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
-      if (window.WBProfile && WBProfile.needsName(profile)) return showProfileGate(profile);
-      profileGateOn = false;
-      closeProfileSheet(true);
-      syncHeaderSignOut();
-      levelNoteOn = false;
-      if (programsRequested()) return openPrograms();
-      if (page === 'tracking') return renderTracking(token);
-      if (page === 'history') return renderHistory(token);
-      if (page === 'account') return renderSimpleAccount();
-      if (page === 'messages') return openMessages(token);
-      if (page === 'hub') return openHub(token);
-      if (page === 'client') {
-        if (!window.WBPrograms || !WBPrograms.isTrainer(WBPrograms.roleOf(profile))) return renderLevelNote(profile);
-        return openClient(token);
-      }
-      if (page === 'send') {
-        if (!levelCan(profile, 'send')) return renderLevelNote(profile);
-        return openSends(token);
-      }
-      if (page === 'received') return openSends(token);
-      if (page === 'w' && !levelCan(profile, 'open')) {
-        var opened = getW(hashBody().split('/')[1]);
-        if (!(opened && opened.sourceTrainerId)) return renderLevelNote(profile);
-      }
-      showBuilder();
-      });
+    var sessionP = WBAuth.session ? WBAuth.session() : Promise.resolve(null);
+    Promise.resolve().then(function () { return sessionP; }).then(function (session) {
+      return redeemStoredInvite(session).then(function () { return session; });
+    }, function () {
+      return redeemStoredInvite(null).then(function () { return null; });
+    }).then(function (session) {
+      return loadGateProfile().then(function (gate) {
+        if (token !== routeToken || location.hash !== requested) return;
+        // Approval still blocks the app. Linking already ran above.
+        if (!accessApproved(gate.profile, session)) return renderAccessWait();
+        accessWaitOn = false;
+        var profile = cachedProfile || gate.profile;
+        if (page === 'admin') return renderAdmin();
+        if (gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
+        if (clientNeedsName(profile)) {
+          profileGateOn = false;
+          closeProfileSheet(true);
+          if (page !== 'account') return go('#/account');
+          return renderSimpleAccount();
+        }
+        if (window.WBProfile && WBProfile.needsName(profile)) return showProfileGate(profile);
+        profileGateOn = false;
+        closeProfileSheet(true);
+        syncHeaderSignOut();
+        levelNoteOn = false;
+        if (programsRequested()) return openPrograms();
+        if (page === 'tracking') return renderTracking(token);
+        if (page === 'history') return renderHistory(token);
+        if (page === 'account') return renderSimpleAccount();
+        if (page === 'messages') return openMessages(token);
+        if (page === 'hub') return openHub(token);
+        if (page === 'client') {
+          if (!window.WBPrograms || !WBPrograms.isTrainer(WBPrograms.roleOf(profile))) return renderLevelNote(profile);
+          return openClient(token);
+        }
+        if (page === 'send') {
+          if (!levelCan(profile, 'send')) return renderLevelNote(profile);
+          return openSends(token);
+        }
+        if (page === 'received') return openSends(token);
+        if (page === 'w' && !levelCan(profile, 'open')) {
+          var opened = getW(hashBody().split('/')[1]);
+          if (!(opened && opened.sourceTrainerId)) return renderLevelNote(profile);
+        }
+        showBuilder();
       });
     });
   }
@@ -2477,7 +2494,7 @@
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'subscriptions') return;
           if (!session) {
-            if (linkInviteCode() || inviteArrival) return go('#/signin');
+            if (linkInviteCode() || inviteArrival) return go('#/join');
         backBtn.hidden = true;
         return drawSubscriptions(null, null, message, isError, null, false);
       }
@@ -2486,6 +2503,7 @@
         if (profile) cachedProfile = profile;
         if (!accessApproved(profile, session)) return renderAccessWait();
         var shown = profile || cachedProfile;
+        if (clientNeedsName(shown)) return go('#/account');
         if (window.WBProfile && WBMembership.hasDesignated(shown) && WBProfile.needsName(shown)) {
           showProfileGate(shown);
           return;
@@ -2642,7 +2660,11 @@
       h += '<button id="admin-open" class="grow" type="button" data-go="admin">Admin<span class="admin-count" id="admin-count" hidden></span></button>';
     }
     h += '</div>';
-    if (conn && conn.trainerId) h += redeemCard(conn, profile);
+    if (window.WBProfile && WBProfile.needsName(profile)) {
+      h += '<p class="lede" id="account-name-note">' + esc(WBProfile.PROMPT) + '</p>';
+    }
+    var trainerAccount = window.WBInvites && WBInvites.trainerRole(profile);
+    if (!trainerAccount || (conn && conn.trainerId)) h += redeemCard(conn, profile);
     var shareHere = !!(window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile) && conn && conn.trainerId);
     if (shareHere) h += '<div id="share-slot"></div>';
     h += trainerSection(roster);
@@ -3414,8 +3436,9 @@
     if (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(token);
     if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
     // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
-    // A signed-out visit that carries an invite code opens sign-in, so the code can be redeemed
-    // after sign-in or create-account. A bare visit with no invite keeps the public landing.
+    // A signed-out visit that carries an invite code opens create-account with the code filled in.
+    // Sign-in has no code box. A stored code is still redeemed after sign-in.
+    // A bare visit with no invite keeps the public landing.
     // Any other signed-out visit opens Subscriptions.
     // Recovery links are claimed above. A failed session check still opens sign-in.
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') {
@@ -3424,8 +3447,9 @@
     } else closeProfileSheet(false);
     syncHeaderSignOut();
     showHeaderSignIn(false);
-    // The arrival flag only forces the first landing onto sign-in. Once that page
-    // is open, a later hash without ?invite= can show Subscriptions.
+    // The arrival flag only forces the first landing onto create-account. Once that
+    // page is open, a later hash without ?invite= can show Subscriptions.
+    if (page === 'signin' && inviteArrival) return go('#/join');
     if (page === 'signin' || page === 'join') inviteArrival = '';
     if (page === 'signin') return renderSign('in');
     if (page === 'join') return renderSign('up');

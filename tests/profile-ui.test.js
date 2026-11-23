@@ -91,62 +91,63 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
     };
   });
   assert.strictEqual(signIn.title, 'Sign in');
-  assert.strictEqual(signIn.code, true);
+  assert.strictEqual(signIn.code, false);
   assert.strictEqual(signIn.prompt, false);
   assert.strictEqual(signIn.name, false);
 
   await p.evaluate(function () { location.hash = '#/'; });
-  await p.waitForSelector('#profile-prompt');
-  const gate = await p.evaluate(function (prompt) {
-    var note = document.getElementById('profile-prompt');
+  await p.waitForFunction(function () {
+    return location.hash === '#/account' && document.getElementById('account-name-note') && document.getElementById('invite-code') && !document.getElementById('profile-sheet');
+  });
+  const gate = await p.evaluate(function () {
+    var note = document.getElementById('account-name-note');
     var link = document.getElementById('account-signout');
     var title = document.getElementById('title').getBoundingClientRect();
     var sign = link.getBoundingClientRect();
     return {
       text: note.textContent,
-      first: note.compareDocumentPosition(document.getElementById('profile-title')) & Node.DOCUMENT_POSITION_FOLLOWING,
-      cancel: !!document.getElementById('profile-cancel'),
+      code: document.getElementById('invite-code').value,
+      title: document.getElementById('title').textContent,
       signText: link.textContent,
       signHidden: link.hidden,
       sameLine: Math.abs((title.top + title.height / 2) - (sign.top + sign.height / 2)) < 14,
       signRight: sign.left > title.left,
       backHidden: document.getElementById('back').hidden
     };
-  }, PROMPT);
+  });
   assert.strictEqual(gate.text, PROMPT);
-  assert.ok(gate.first);
-  assert.strictEqual(gate.cancel, false);
+  assert.strictEqual(gate.code, '');
+  assert.strictEqual(gate.title, 'Account');
   assert.strictEqual(gate.signText, 'Sign out');
   assert.strictEqual(gate.signHidden, false);
   assert.strictEqual(gate.sameLine, true);
   assert.strictEqual(gate.signRight, true);
-  assert.strictEqual(gate.backHidden, true);
+  assert.strictEqual(gate.backHidden, false);
   const signHit = await p.evaluate(function () {
     var link = document.getElementById('account-signout');
     var box = link.getBoundingClientRect();
     var x = Math.round(box.left + box.width / 2);
     var y = Math.round(box.top + box.height / 2);
     var el = document.elementFromPoint(x, y);
-    var note = document.getElementById('profile-prompt').getBoundingClientRect();
+    var note = document.getElementById('account-name-note').getBoundingClientRect();
     return { id: el && el.id, noteTop: note.top, barBottom: document.querySelector('.bar').getBoundingClientRect().bottom };
   });
   assert.strictEqual(signHit.id, 'account-signout');
   assert.ok(signHit.noteTop >= signHit.barBottom - 1, 'name note sits under the header');
-  await p.click('#profile-sheet');
-  assert.ok(await p.$('#profile-prompt'));
+  await p.screenshot({ path: ART + '/account-unlinked-name.png' });
+  await p.click('#profile-edit');
+  await p.waitForSelector('#profile-sheet');
+  assert.notStrictEqual(await p.$eval('#profile-sheet', function (el) { return el.getAttribute('data-required'); }), '1');
+  assert.ok(await p.$('#profile-cancel'));
   await p.click('#profile-save');
   await p.waitForSelector('#profile-error');
   const blocked = await p.evaluate(function () {
-    var note = document.getElementById('profile-prompt').getBoundingClientRect();
     var err = document.getElementById('profile-error').getBoundingClientRect();
     return {
       text: document.getElementById('profile-error').textContent,
       name: document.getElementById('profile-name').classList.contains('is-empty'),
       city: !!document.getElementById('profile-city'),
       shown: !document.getElementById('profile-error').hidden,
-      promptTop: note.top,
-      promptBottom: note.bottom,
-      promptH: note.height,
       errorTop: err.top,
       viewH: window.innerHeight
     };
@@ -155,14 +156,14 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   assert.strictEqual(blocked.name, true);
   assert.strictEqual(blocked.city, false);
   assert.strictEqual(blocked.shown, true);
-  assert.ok(blocked.promptH > 20, 'prompt has no height');
-  assert.ok(blocked.promptTop >= 0 && blocked.promptBottom <= blocked.viewH, 'prompt is off screen');
   assert.ok(blocked.errorTop < blocked.viewH, 'validation note is off screen');
   await p.screenshot({ path: ART + '/profile-required.png' });
 
   await p.type('#profile-name', 'J');
   await p.click('#profile-save');
-  await p.waitForFunction(function () { return !document.getElementById('profile-sheet') && document.getElementById('title').textContent === 'Workouts'; });
+  await p.waitForFunction(function () { return !document.getElementById('profile-sheet') && document.getElementById('title').textContent === 'Account' && document.getElementById('account-label').textContent === 'J'; });
+  await p.evaluate(function () { location.hash = '#/?named=1'; });
+  await p.waitForFunction(function () { return document.getElementById('title').textContent === 'Workouts' && !document.getElementById('profile-sheet'); });
   const savedNick = await p.evaluate(function () { return window.__saved.display_name; });
   assert.strictEqual(savedNick, 'J');
 
@@ -344,6 +345,18 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   const photo = await p.evaluate(function () { return window.__photo; });
   assert.strictEqual(photo.type, 'image/jpeg');
   assert.ok(photo.size < 200000);
+
+  await p.evaluate(function () {
+    window.__profile.membership = 'trainer';
+    window.__profile.intended_plan = 'trainer';
+    window.__profile.display_name = '';
+    window.__profile.profileReady = true;
+    location.hash = '#/?trainer-name';
+  });
+  await p.waitForSelector('#profile-sheet[data-required="1"] #profile-prompt');
+  assert.strictEqual(await p.$eval('#profile-prompt', function (el) { return el.textContent; }), PROMPT);
+  await p.click('#profile-sheet');
+  assert.ok(await p.$('#profile-prompt'));
 
   await p.click('#account-signout');
   await p.waitForFunction(function () { return window.__signedOut && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in'; });

@@ -381,14 +381,34 @@
     onAuth: function (fn) {
       if (typeof fn === 'function') authWatchers.push(fn);
     },
-    signUp: function (email, password, captchaToken) {
+    signUp: function (email, password, captchaToken, inviteCode) {
       return db().then(function (c) {
         var options = { emailRedirectTo: REDIRECT };
         if (captchaToken) options.captchaToken = captchaToken;
+        // The code is stored on the new auth user so a database trigger can
+        // link the trainer before email confirmation or admin approval.
+        var code = root.WBInvites ? root.WBInvites.normalizeCode(inviteCode) : '';
+        if (root.WBInvites && root.WBInvites.codeIsWellFormed(code)) options.data = { invite_code: code };
         return c.auth.signUp({ email: email, password: password, options: options });
       }).then(function (res) {
         if (res.error) throw res.error;
         return { session: res.data.session || null, needsConfirmation: !res.data.session };
+      });
+    },
+    // Drop a code saved at sign-up once it has been applied or rejected.
+    // No metadata means there is nothing to clear, so tests never touch the network.
+    forgetInviteCode: function () {
+      return api.session().then(function (session) {
+        var user = session && session.user;
+        var meta = user && (user.user_metadata || user.raw_user_meta_data);
+        if (!meta || !meta.invite_code) return false;
+        return db().then(function (c) {
+          return c.auth.updateUser({ data: { invite_code: '' } });
+        }).then(function (res) {
+          if (res.error) throw res.error;
+          try { if (user.user_metadata) user.user_metadata.invite_code = ''; } catch (e) {}
+          return true;
+        });
       });
     },
     signIn: function (email, password, captchaToken) {
