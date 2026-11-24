@@ -289,6 +289,27 @@ begin
   if (select count(*) from public.circuit_guest_placements('${C}')) <> 1 then
     raise exception 'owning trainer did not see their invited placement';
   end if;
+  perform public.circuit_placement_invites_save('pg-invite', array['${C}']::uuid[]);
+  if (select count(*) from public.circuit_placement_invites where placement_id = 'pg-invite' and client_id = '${C}') <> 1 then
+    raise exception 'atomic save dropped the linked invite';
+  end if;
+  begin
+    perform public.circuit_placement_invites_save('pg-invite', array['${E}']::uuid[]);
+    raise exception 'unlinked invite saved';
+  exception when others then
+    if SQLERRM like '%unlinked invite saved%' then raise; end if;
+    if SQLERRM not like '%Invite only linked clients%' then raise; end if;
+  end;
+  if (select count(*) from public.circuit_placement_invites where placement_id = 'pg-invite' and client_id = '${C}') <> 1 then
+    raise exception 'failed save removed the existing invite';
+  end if;
+  begin
+    insert into public.circuit_placement_invites (trainer_id, placement_id, client_id)
+    values ('${T}', 'pg-invite', '${E}');
+    raise exception 'unlinked row inserted';
+  exception when others then
+    if SQLERRM like '%unlinked row inserted%' then raise; end if;
+  end;
 end $$;
 
 reset role;

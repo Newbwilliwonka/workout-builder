@@ -11,6 +11,7 @@ const ADA = '22222222-2222-4222-8222-222222222222';
 const BEN = '33333333-3333-4333-8333-333333333333';
 const BLANK = '44444444-4444-4444-8444-444444444444';
 const MAIL = '55555555-5555-4555-8555-555555555555';
+const JO = '66666666-6666-4666-8666-666666666666';
 const OUT = process.env.CIRCUIT_SHOTS || '/tmp/circuit-shots';
 
 function profile(membership) {
@@ -48,7 +49,8 @@ async function stub(page, membership) {
               { id: ids.ada, name: 'Ada Client' },
               { id: ids.ben, name: 'Ben Ortiz' },
               { id: ids.blank, name: '' },
-              { id: ids.mail, name: 'hidden@example.com' }
+              { id: ids.mail, name: 'hidden@example.com' },
+              { id: ids.jo, name: 'Jo Park', membership: 'enthusiast' }
             ]
           });
         };
@@ -117,7 +119,7 @@ async function stub(page, membership) {
         };
       }
     });
-  }, { ada: ADA, ben: BEN, blank: BLANK, mail: MAIL });
+  }, { ada: ADA, ben: BEN, blank: BLANK, mail: MAIL, jo: JO });
 }
 
 async function shot(page, name) {
@@ -401,6 +403,13 @@ async function shot(page, name) {
     }
   });
   await page.waitForSelector('.pv-pick.on');
+  await page.waitForFunction(function () {
+    var box = document.getElementById('pv-invites');
+    if (!box || box.innerText.indexOf('Jo Park') === -1) return false;
+    if (box.innerText.indexOf('@') !== -1) return false;
+    var labels = Array.prototype.map.call(box.querySelectorAll('[data-invite]'), function (el) { return el.textContent; });
+    return labels.indexOf('Client') !== -1 && labels.indexOf('Ada Client') !== -1;
+  });
   await page.click('[data-invite="' + ADA + '"]');
   await page.click('[data-invite="' + BEN + '"]');
   await page.click('#pv-sheet .pv-presence input[value="solo"]');
@@ -440,6 +449,7 @@ async function shot(page, name) {
   await page.click('[data-view-wo]');
   await page.waitForFunction(function () { return /#\/circuits\/[^/?]+\/view(?:\?|$)/.test(location.hash); });
   await page.waitForSelector('#circuit-live[data-track="0"] .wb-tile');
+  assert.strictEqual(await page.$eval('[data-act=start]', function (el) { return el.disabled; }), true);
   assert.ok((await page.evaluate(function () { return localStorage.getItem('wb.circuit.live') || ''; })).indexOf('Live class') !== -1);
   await page.click('#back');
   await page.waitForSelector('#pv-client');
@@ -571,6 +581,21 @@ async function shot(page, name) {
     var tile = document.querySelector('#circuit-board [data-person="' + key + '"]');
     return !!tile;
   }, {}, dragged.key);
+  await page.evaluate(function () {
+    window.__setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'wb.circuit.class') throw new Error('full');
+      return window.__setItem.call(this, key, value);
+    };
+  });
+  await page.click('[data-act=start-class]');
+  await page.waitForFunction(function (key) {
+    var err = document.getElementById('circuit-err');
+    return location.hash.indexOf('/prepare') !== -1
+      && err && err.textContent.indexOf('Could not start the class. Your placements are still here.') !== -1
+      && document.querySelector('#circuit-board [data-person="' + key + '"]');
+  }, {}, dragged.key);
+  await page.evaluate(function () { Storage.prototype.setItem = window.__setItem; });
   await page.click('[data-act=start-class]');
   await page.waitForFunction(function () { return /#\/circuits\/[^/?]+\/run(?:\?|$)/.test(location.hash); });
   await page.waitForSelector('#circuit-live:not([data-track])');

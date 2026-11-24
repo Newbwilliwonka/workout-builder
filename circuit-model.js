@@ -158,8 +158,40 @@
     }
     return null;
   }
+  // Keep a desktop circuit inside the 3-column loop. A column past the width
+  // moves to the next free snake cell, so two stations never share a square.
+  function fitLayout(stations, cols) {
+    var width = columnCount(cols == null ? 3 : cols);
+    var used = {};
+    var placed = [];
+    function free() {
+      var r, i, c;
+      for (r = 0; r < ROWS; r++) {
+        for (i = 0; i < width; i++) {
+          c = (r % 2 === 1) ? (width - 1 - i) : i;
+          if (!used[c + ',' + r]) return { col: c, row: r };
+        }
+      }
+      return null;
+    }
+    (stations || []).forEach(function (station) {
+      if (!station) return;
+      var copy = clone(station);
+      var col = integer(station.col, 0, COLS - 1);
+      var row = integer(station.row, 0, ROWS - 1);
+      var cell = null;
+      if (col != null && row != null && col < width && !used[col + ',' + row]) cell = { col: col, row: row };
+      if (!cell) cell = free();
+      if (!cell) return;
+      used[cell.col + ',' + cell.row] = 1;
+      copy.col = cell.col;
+      copy.row = cell.row;
+      placed.push(copy);
+    });
+    return placed;
+  }
   function addStation(doc, cols) {
-    var cell = nextCell(doc && doc.stations, cols);
+    var cell = nextCell(doc && doc.stations, cols == null ? 3 : cols);
     if (!cell) return { ok: false, error: 'The grid is full.' };
     var next = clone(doc || blank());
     var station = { id: newId(), col: cell.col, row: cell.row, exercise: null };
@@ -336,8 +368,11 @@
     if (Array.isArray(doc.stations) && doc.stations.length < 1) errors.push('Add a station.');
     if (Array.isArray(doc.stations) && doc.stations.length > STATION_MAX) errors.push('The grid is full.');
     var order = [];
+    var unnamed = errors.indexOf('Name every station before saving.') >= 0;
     var orderStations = stations.length === (Array.isArray(doc.stations) ? doc.stations.length : -1) ? stations : (doc.stations || []);
-    if (!Array.isArray(doc.order) || !loopComplete(orderStations, doc.order)) {
+    if (unnamed) {
+      (Array.isArray(doc.order) ? doc.order : []).forEach(function (id) { order.push(String(id)); });
+    } else if (!Array.isArray(doc.order) || !loopComplete(orderStations, doc.order)) {
       errors.push('Tap every station to close the loop.');
     } else {
       doc.order.forEach(function (id) { order.push(String(id)); });
@@ -436,11 +471,15 @@
     // not hidden behind the stations sitting between the last square and the first.
     if (close && a.col === b.col) {
       var onLeft = !cellAt(cells, a.col - 1, a.row);
-      var laneX = onLeft ? a.left - Math.max(6, (a.right - a.left) * 0.08) : (colGapX(cells, a.col) || a.right + 8);
+      // The return trip on the first column stays in the gutter beside the
+      // stations, inside the board, so the arrow is not clipped off the edge.
+      var laneX = onLeft
+        ? (colGapX(cells, a.col) || a.right + Math.max(8, (a.right - a.left) * 0.16))
+        : (colGapX(cells, a.col) || a.right + 8);
       var yA = clampNum(a.cy + shift, a.top + 8, a.bottom - 8);
       var yB = clampNum(b.cy - shift, b.top + 8, b.bottom - 8);
-      var edgeA = onLeft ? a.left : a.right;
-      var edgeB = onLeft ? b.left : b.right;
+      var edgeA = a.right;
+      var edgeB = b.right;
       return pullTip(dedupePoints([
         [edgeA, yA],
         [laneX, yA],
@@ -809,6 +848,7 @@
     syncRounds: syncRounds,
     visibleRows: visibleRows,
     nextCell: nextCell,
+    fitLayout: fitLayout,
     addStation: addStation,
     normalizeExercise: normalizeExercise,
     setExercise: setExercise,

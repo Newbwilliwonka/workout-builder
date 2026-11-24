@@ -324,13 +324,17 @@
   function syncInvites(row) {
     if (!row || !options || !options.saveInvites || !markerCircuitId(row.items)) return;
     var copy = Object.assign({}, row, { invites: Array.isArray(row.invites) ? row.invites : [] });
-    Promise.resolve().then(function () { return options.saveInvites(copy); }).then(function () {}, function () {});
+    Promise.resolve().then(function () { return options.saveInvites(copy); }).then(function () {}, function (err) {
+      if (!state) return;
+      state.remote = (err && err.message) || 'Could not save who is invited.';
+      render();
+    });
   }
   function dropRemote(row) {
     if (!row || !options.deleteEntry || !P.isUuid(row.ownerId)) return;
-    if (markerCircuitId(row.items)) syncInvites(Object.assign({}, row, { invites: [] }));
     Promise.resolve().then(function () { return options.deleteEntry(row); }).then(function () {
       if (state) state.remote = '';
+      if (markerCircuitId(row.items)) syncInvites(Object.assign({}, row, { invites: [] }));
     }, function (err) {
       if (!state) return;
       state.remote = remoteNote(err);
@@ -900,6 +904,11 @@
     });
     return list;
   }
+  function inviteName(client) {
+    var raw = String((client && (client.display_name || client.name)) || '').replace(/^\s+|\s+$/g, '');
+    if (!raw || raw.indexOf('@') !== -1) return 'Client';
+    return raw.length > 80 ? raw.slice(0, 80) : raw;
+  }
   function inviteHtml(sheet, target) {
     var workout = workoutById(sheet.workoutId);
     if (!workout || !workout.circuit || !ownerIsSelf(target)) return '';
@@ -908,9 +917,8 @@
     var h = '<div class="pv-invites" id="pv-invites" role="group" aria-label="Invite clients">';
     var any = false;
     (state.clients || []).forEach(function (client) {
-      if (!clientShown(client)) return;
-      var name = clientVisible(client);
-      if (!name || name.indexOf('@') !== -1) name = 'Client';
+      if (!client || !client.id) return;
+      var name = inviteName(client);
       var on = !!picked[client.id];
       any = true;
       h += '<button type="button" class="pv-invite' + (on ? ' on' : '') + '" data-invite="' + esc(client.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + esc(name) + '</button>';

@@ -57,20 +57,8 @@
     var s = sec % 60;
     return m + ':' + (s < 10 ? '0' : '') + s;
   }
-  function editorCols(stations) {
-    var C = model();
-    var width = 480;
-    try {
-      if (ctx && ctx.app && ctx.app.clientWidth) width = ctx.app.clientWidth;
-      else if (root.innerWidth) width = root.innerWidth;
-    } catch (e) {}
-    var fit = width < 520 ? 3 : C.COLS;
-    var used = 0;
-    (stations || []).forEach(function (s) {
-      if (s && typeof s.col === 'number' && s.col + 1 > used) used = s.col + 1;
-    });
-    var cols = Math.max(fit, used);
-    return cols > C.COLS ? C.COLS : cols;
+  function editorCols() {
+    return 3;
   }
   function usedRows(stations) {
     var rows = 1;
@@ -191,10 +179,11 @@
     return station.exercise && station.exercise.name ? station.exercise.name : 'Station';
   }
   function gridHtml() {
-    var cols = editorCols(doc.stations);
-    var rows = usedRows(doc.stations);
+    var shown = model().fitLayout ? model().fitLayout(doc.stations, 3) : (doc.stations || []);
+    var cols = editorCols();
+    var rows = usedRows(shown);
     var byPos = {};
-    (doc.stations || []).forEach(function (s) { if (s) byPos[s.col + ',' + s.row] = s; });
+    shown.forEach(function (s) { if (s) byPos[s.col + ',' + s.row] = s; });
     var h = '<div class="circuit-board" id="circuit-board"><svg class="circuit-arrows" aria-hidden="true"></svg>' +
       '<div class="wb-grid" role="grid" aria-label="Circuit stations" style="grid-template-columns:repeat(' + cols + ',minmax(0,1fr))">';
     for (var r = 0; r < rows; r++) {
@@ -264,9 +253,7 @@
     return h;
   }
   function ready() {
-    if (!doc) return false;
-    if (!doc.clients || !doc.clients.length) return true;
-    return model().assignmentReady(doc.clients, assigned);
+    return !!(doc && model().assignmentReady(doc.clients, assigned));
   }
   function paintClock() {
     if (!state || !doc) return;
@@ -298,7 +285,7 @@
     h += unplacedHtml();
     h += benchHtml();
     if (mode === 'place') {
-      h += '<button type="button" class="pri circuit-start" data-act="start"' + (ready() ? '' : ' disabled') + '>Start</button>';
+      h += '<button type="button" class="pri circuit-start" data-act="start"' + ((tracking && ready()) ? '' : ' disabled') + '>Start</button>';
     } else {
       h += '<div class="circuit-end-slot"><button type="button" class="circuit-end" data-act="end">End session</button></div>';
     }
@@ -672,7 +659,13 @@
     if (button && !button.disabled) {
       var act = button.getAttribute('data-act');
       if (act === 'view') { view = button.getAttribute('data-view') === 'list' ? 'list' : 'grid'; persist(); paint(); return; }
-      if (act === 'start') return onStart();
+      if (act === 'start') {
+        if (!tracking && doc && doc.id && ctx) {
+          ctx.go('#/circuits/' + encodeURIComponent(doc.id) + '/prepare' + (fromCalendar() ? '?from=calendar' : ''));
+          return;
+        }
+        return onStart();
+      }
       if (act === 'pause') return onPause();
       if (act === 'skip') return onSkip();
       if (act === 'end') return;

@@ -1123,30 +1123,21 @@
       });
     },
     saveCircuitInvites: function (entry) {
-      if (!entry || !isUuid(entry.ownerId) || !entry.id) return Promise.resolve(false);
+      if (!entry || !isUuid(entry.ownerId) || !entry.id) return Promise.reject(new Error('That placement was not found.'));
       var ids = [];
       (Array.isArray(entry.invites) ? entry.invites : []).forEach(function (id) {
         if (isUuid(id) && ids.indexOf(id) < 0) ids.push(id);
       });
       return db().then(function (c) {
-        return c.from('circuit_placement_invites').delete().eq('trainer_id', entry.ownerId).eq('placement_id', entry.id).then(function (cleared) {
-          var msg = cleared && cleared.error && (cleared.error.message || cleared.error.code || '');
-          if (cleared && cleared.error && /schema cache|could not find|does not exist|PGRST|42P01/i.test(String(msg))) return false;
-          if (cleared && cleared.error) throw cleared.error;
-          if (!ids.length) return true;
-          return c.from('circuit_placement_invites').insert(ids.map(function (id) {
-            return { trainer_id: entry.ownerId, placement_id: entry.id, client_id: id };
-          }));
-        });
+        return c.rpc('circuit_placement_invites_save', { p_placement: entry.id, p_clients: ids });
       }).then(function (res) {
-        if (res === false) return false;
-        if (res && res.error) {
-          var msg = res.error.message || res.error.code || '';
-          if (/schema cache|could not find|does not exist|PGRST|42P01/i.test(String(msg))) return false;
-          throw res.error;
+        var msg = res && res.error && (res.error.message || res.error.details || res.error.code || '');
+        if (res && res.error && /schema cache|could not find|does not exist|PGRST|42P01/i.test(String(msg))) {
+          throw new Error('Invites stay on this device until the circuit invite SQL is applied.');
         }
+        if (res && res.error) throw new Error(res.error.message || 'Could not save who is invited.');
         return true;
-      }, function () { return false; });
+      });
     },
     circuitGuestPlacements: function (clientId) {
       if (!isUuid(clientId)) return Promise.resolve([]);

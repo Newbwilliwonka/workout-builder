@@ -8,8 +8,6 @@
   var savedJson = '';
   var roundsFollows = true;
   var rows = [];
-  var roster = [];
-  var rosterError = '';
   var loadError = '';
   var formError = [];
   var picking = '';
@@ -19,8 +17,6 @@
   var libError = false;
   var libToken = 0;
   var libTimer = null;
-  var manualOpen = false;
-  var manualName = '';
   var manualExercise = '';
   var prepare = false;
   var classClients = [];
@@ -104,20 +100,12 @@
     return n + ' ' + word + (n === 1 ? '' : 's');
   }
   function off() { return busy ? ' disabled' : ''; }
-  function editorCols(stations) {
-    var C = model();
-    var width = 480;
-    try {
-      if (ctx && ctx.app && ctx.app.clientWidth) width = ctx.app.clientWidth;
-      else if (root.innerWidth) width = root.innerWidth;
-    } catch (e) {}
-    var fit = width < 520 ? 3 : C.COLS;
-    var used = 0;
-    (stations || []).forEach(function (s) {
-      if (s && typeof s.col === 'number' && s.col + 1 > used) used = s.col + 1;
-    });
-    var cols = Math.max(fit, used);
-    return cols > C.COLS ? C.COLS : cols;
+  function editorCols() {
+    return 3;
+  }
+  function clampStations() {
+    if (!draft || !model().fitLayout) return;
+    draft.stations = model().fitLayout(draft.stations, 3);
   }
   function stillUrl(id) {
     var base = root.WBAuth && root.WBAuth.gifBase;
@@ -190,15 +178,6 @@
       paintLib();
     });
   }
-  function rosterRows() {
-    var C = model();
-    var out = [];
-    (roster || []).forEach(function (person) {
-      var row = C.linkedClient(person);
-      if (row) out.push(row);
-    });
-    return out;
-  }
   function tileHtml(station) {
     var C = model();
     var n = C.stationNumber(draft.order, station.id);
@@ -223,36 +202,6 @@
       '<label for="circuit-ex-name">Or type a name</label>' +
       '<input id="circuit-ex-name" value="' + esc(manualExercise) + '" placeholder="Exercise name" maxlength="80" autocomplete="off"' + off() + '>' +
       '<button type="button" class="pri" data-act="manual-exercise" style="width:100%;margin-top:8px"' + off() + '>Use this name</button></div>';
-  }
-  function faceHtml(name, manual) {
-    var C = model();
-    var shown = C.publicName(name);
-    var color = manual ? '' : C.avatarColor(shown);
-    return '<span class="c-ava' + (manual ? ' is-manual' : '') + '"' + (color ? ' style="background:' + color + '"' : '') + ' aria-hidden="true">' + esc(C.initials(shown)) + '</span>' +
-      '<span class="circuit-person-name">' + esc(C.firstName(shown)) + '</span>' +
-      (manual ? '<span class="circuit-tag">manual</span>' : '');
-  }
-  function clientsHtml() {
-    var h = '<div class="circuit-people" id="circuit-people">';
-    rosterRows().forEach(function (person) {
-      var on = (draft.clients || []).some(function (c) { return c && c.source === 'linked' && c.id === person.id; });
-      h += '<button type="button" class="circuit-person' + (on ? ' on' : '') + '" data-act="client" data-id="' + esc(person.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(person.name) + '"' + off() + '>' +
-        faceHtml(person.name, false) + '</button>';
-    });
-    (draft.clients || []).forEach(function (client) {
-      if (!client || client.source !== 'manual') return;
-      h += '<button type="button" class="circuit-person on is-manual" data-act="manual-chip" data-name="' + esc(client.name) + '" aria-label="Remove ' + esc(client.name) + '"' + off() + '>' +
-        faceHtml(client.name, true) + '</button>';
-    });
-    h += '</div>';
-    if (!rosterRows().length && !(draft.clients || []).length && !rosterError) h += '<p class="mute" id="circuit-no-linked">No linked clients yet.</p>';
-    if (rosterError) h += '<p class="mute">' + esc(rosterError) + '</p>';
-    if (manualOpen) {
-      h += '<label for="circuit-client-name">Client name</label>' +
-        '<input id="circuit-client-name" value="' + esc(manualName) + '" placeholder="Name" maxlength="80" autocomplete="name"' + off() + '>' +
-        '<button type="button" class="pri" data-act="manual-add" style="width:100%;margin-top:8px"' + off() + '>Add client</button>';
-    }
-    return h;
   }
   function phaseHtml(kind, label, minId, secId, minVal, secVal) {
     return '<div class="circuit-phase ' + kind + '"><div class="kicker">' + label + '</div><div class="time wb-digits">' +
@@ -379,6 +328,7 @@
   }
   function paint() {
     if (!ctx || !draft) return paintMissing();
+    clampStations();
     var C = model();
     ctx.titleEl.textContent = 'Set up circuit';
     ctx.backBtn.hidden = false;
@@ -503,31 +453,6 @@
     formError = [];
     paint();
   }
-  function onClient(id) {
-    if (busy || !draft) return;
-    var person = (roster || []).filter(function (item) { return item && String(item.id) === String(id); })[0];
-    if (!person) return;
-    draft.clients = model().toggleLinked(draft.clients, person);
-    formError = [];
-    paint();
-  }
-  function onManualAdd() {
-    if (busy || !draft) return;
-    var field = document.getElementById('circuit-client-name');
-    if (field) manualName = field.value;
-    var added = model().addManualClient(draft.clients, manualName);
-    if (!added.ok) { formError = [added.error]; paint(); return; }
-    draft.clients = added.clients;
-    manualName = '';
-    manualOpen = false;
-    formError = [];
-    paint();
-  }
-  function onManualChip(name) {
-    if (busy || !draft) return;
-    draft.clients = model().removeManualClient(draft.clients, name);
-    paint();
-  }
   function onSave() {
     if (!draft || busy || !ctx) return;
     var name = document.getElementById('circuit-name');
@@ -607,10 +532,6 @@
     if (act === 'manual-exercise') return onManualExercise();
     if (act === 'manual-open' && prepare) return onPrepareManual();
     if (act === 'start-class') return onStartClass();
-    if (act === 'client') return onClient(button.getAttribute('data-id'));
-    if (act === 'manual-open') { manualOpen = !manualOpen; paint(); return; }
-    if (act === 'manual-add') return onManualAdd();
-    if (act === 'manual-chip') return onManualChip(button.getAttribute('data-name'));
     if (act === 'save') return onSave();
     if (act === 'cancel') return onCancel();
   }
@@ -639,12 +560,10 @@
     }
     if (field.id === 'circuit-lib-q') { libQuery = field.value; scheduleSearch(); return; }
     if (field.id === 'circuit-ex-name') { manualExercise = field.value; return; }
-    if (field.id === 'circuit-client-name') { manualName = field.value; return; }
   }
   function onKey(e) {
     if (busy || e.key !== 'Enter') return;
     if (e.target && e.target.id === 'circuit-ex-name') { e.preventDefault(); onManualExercise(); }
-    if (e.target && e.target.id === 'circuit-client-name') { e.preventDefault(); onManualAdd(); }
   }
   function unavailable(err) {
     return (err && err.message) || 'Group circuits are not available yet. Apply the circuits SQL in the Supabase SQL editor.';
@@ -682,8 +601,6 @@
     libQuery = '';
     libRows = [];
     libStatus = '';
-    manualOpen = false;
-    manualName = '';
     manualExercise = '';
     busy = false;
     paint();
@@ -696,23 +613,12 @@
     ctx.app.innerHTML = '<p class="mute">Loading…</p>';
     ctx.app.onclick = null;
     var circuitP;
-    var rosterP;
     try {
       circuitP = id ? (root.WBAuth && root.WBAuth.circuits ? root.WBAuth.circuits() : Promise.reject(new Error(unavailable()))) : Promise.resolve([]);
     } catch (e) { circuitP = Promise.reject(e); }
-    try {
-      rosterP = root.WBAuth && root.WBAuth.roster ? root.WBAuth.roster() : Promise.resolve({ clients: [] });
-    } catch (e2) { rosterP = Promise.reject(e2); }
-    var rosterSafe = Promise.resolve(rosterP).then(function (res) {
-      return { ok: true, body: res };
-    }, function () {
-      return { ok: false, body: { clients: [] } };
-    });
-    Promise.all([circuitP, rosterSafe]).then(function (pair) {
+    Promise.resolve(circuitP).then(function (list) {
       if (token !== loadToken || !ctx) return;
-      var list = Array.isArray(pair[0]) ? pair[0] : [];
-      roster = (pair[1].body && pair[1].body.clients) || [];
-      rosterError = pair[1].ok ? '' : 'Linked clients could not be loaded.';
+      list = Array.isArray(list) ? list : [];
       if (!id) return beginDraft(model().blank(), true);
       var row = list.filter(function (item) { return item && String(item.id) === String(id); })[0];
       if (!row) {
@@ -766,7 +672,8 @@
   }
   function prepareGrid() {
     var C = model();
-    var cols = editorCols(draft.stations);
+    clampStations();
+    var cols = editorCols();
     var rows = C.visibleRows(draft.stations);
     var byPos = {};
     (draft.stations || []).forEach(function (s) { if (s) byPos[s.col + ',' + s.row] = s; });
@@ -829,6 +736,11 @@
     var startY = e.clientY;
     var moved = false;
     var ghost = null;
+    try { chip.setPointerCapture(pointerId); } catch (err) {}
+    if (e.cancelable) e.preventDefault();
+    function release() {
+      try { if (chip.hasPointerCapture && chip.hasPointerCapture(pointerId)) chip.releasePointerCapture(pointerId); } catch (err2) {}
+    }
     function move(ev) {
       if (ev.pointerId !== pointerId) return;
       if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 8) return;
@@ -839,7 +751,7 @@
         ghost.textContent = chip.getAttribute('data-label') || '';
         document.body.appendChild(ghost);
       }
-      ev.preventDefault();
+      if (ev.cancelable) ev.preventDefault();
       ghost.style.left = (ev.clientX + 10) + 'px';
       ghost.style.top = (ev.clientY + 12) + 'px';
     }
@@ -847,10 +759,11 @@
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', up);
       document.removeEventListener('pointercancel', up);
+      release();
+      if (ghost) ghost.style.display = 'none';
+      var under = moved ? document.elementFromPoint(ev.clientX, ev.clientY) : null;
       if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
-      if (!moved) return;
-      var under = document.elementFromPoint(ev.clientX, ev.clientY);
-      if (!under || !under.closest) return;
+      if (!moved || !under || !under.closest) return;
       if (under.closest('[data-bench]')) return benchClass(key);
       var station = under.closest('[data-station]');
       if (station) placeClass(key, station.getAttribute('data-station'));
@@ -885,7 +798,11 @@
         clients: classClients,
         assigned: assigned
       }));
-    } catch (e) {}
+    } catch (e) {
+      formError = ['Could not start the class. Your placements are still here.'];
+      paintPrepare();
+      return;
+    }
     ctx.go('#/circuits/' + draft.id + '/run' + (fromCalendar() ? '?from=calendar' : ''));
   }
   function loadPrepare(id) {

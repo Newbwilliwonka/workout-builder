@@ -38,26 +38,156 @@ alter table public.circuit_placement_invites enable row level security;
 revoke all on public.circuit_placement_invites from public, anon, authenticated;
 grant select, insert, update, delete on public.circuit_placement_invites to authenticated;
 
-drop policy if exists circuit_invites_trainer on public.circuit_placement_invites;
-create policy circuit_invites_trainer
-  on public.circuit_placement_invites
-  for all
-  to authenticated
-  using (
-    trainer_id = (select auth.uid())
-    and (select public.program_is_trainer((select auth.uid())))
-  )
-  with check (
-    trainer_id = (select auth.uid())
-    and (select public.program_is_trainer((select auth.uid())))
-  );
+do $placement_fk$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'circuit_placement_invites_placement_fk'
+      and conrelid = 'public.circuit_placement_invites'::regclass
+  ) then
+    alter table public.circuit_placement_invites
+      add constraint circuit_placement_invites_placement_fk
+      foreign key (trainer_id, placement_id)
+      references public.program_entries (owner_id, local_id)
+      on delete cascade;
+  end if;
+end
+$placement_fk$;
 
+drop policy if exists circuit_invites_trainer on public.circuit_placement_invites;
 drop policy if exists circuit_invites_invitee_read on public.circuit_placement_invites;
-create policy circuit_invites_invitee_read
+drop policy if exists circuit_invites_select on public.circuit_placement_invites;
+drop policy if exists circuit_invites_insert on public.circuit_placement_invites;
+drop policy if exists circuit_invites_update on public.circuit_placement_invites;
+drop policy if exists circuit_invites_delete on public.circuit_placement_invites;
+
+create policy circuit_invites_select
   on public.circuit_placement_invites
   for select
   to authenticated
-  using (client_id = (select auth.uid()));
+  using (
+    trainer_id = (select auth.uid())
+    or client_id = (select auth.uid())
+  );
+
+create policy circuit_invites_insert
+  on public.circuit_placement_invites
+  for insert
+  to authenticated
+  with check (
+    trainer_id = (select auth.uid())
+    and exists (
+      select 1
+      from public.program_entries placed
+      where placed.owner_id = (select auth.uid())
+        and placed.local_id = placement_id
+    )
+    and exists (
+      select 1
+      from public.trainer_clients link
+      where link.trainer_id = (select auth.uid())
+        and link.client_id = client_id
+        and link.ended_at is null
+    )
+  );
+
+create policy circuit_invites_update
+  on public.circuit_placement_invites
+  for update
+  to authenticated
+  using (trainer_id = (select auth.uid()))
+  with check (
+    trainer_id = (select auth.uid())
+    and exists (
+      select 1
+      from public.program_entries placed
+      where placed.owner_id = (select auth.uid())
+        and placed.local_id = placement_id
+    )
+    and exists (
+      select 1
+      from public.trainer_clients link
+      where link.trainer_id = (select auth.uid())
+        and link.client_id = client_id
+        and link.ended_at is null
+    )
+  );
+
+create policy circuit_invites_delete
+  on public.circuit_placement_invites
+  for delete
+  to authenticated
+  using (trainer_id = (select auth.uid()));
+
+-- One transaction replaces the invite list for a placement the caller owns.
+drop function if exists public.circuit_placement_invites_save(text, uuid[]);
+
+create or replace function public.circuit_placement_invites_save(p_placement text, p_clients uuid[])
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  wanted uuid[];
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in to save invites.';
+  end if;
+  if not public.program_is_trainer(auth.uid()) then
+    raise exception 'Only a trainer can invite clients.';
+  end if;
+  if p_placement is null or char_length(btrim(p_placement)) < 1 or char_length(p_placement) > 80 then
+    raise exception 'That placement was not found.';
+  end if;
+  if not exists (
+    select 1
+    from public.program_entries placed
+    where placed.owner_id = auth.uid()
+      and placed.local_id = p_placement
+  ) then
+    raise exception 'That placement was not found.';
+  end if;
+
+  select coalesce(array_agg(distinct cid), '{}'::uuid[])
+    into wanted
+  from unnest(coalesce(p_clients, '{}'::uuid[])) as cid
+  where cid is not null;
+
+  if exists (
+    select 1
+    from unnest(wanted) as cid
+    where not exists (
+      select 1
+      from public.trainer_clients link
+      where link.trainer_id = auth.uid()
+        and link.client_id = cid
+        and link.ended_at is null
+    )
+  ) then
+    raise exception 'Invite only linked clients.';
+  end if;
+
+  delete from public.circuit_placement_invites
+  where trainer_id = auth.uid()
+    and placement_id = p_placement
+    and not (client_id = any (wanted));
+
+  insert into public.circuit_placement_invites (trainer_id, placement_id, client_id)
+  select auth.uid(), p_placement, cid
+  from unnest(wanted) as cid
+  where not exists (
+    select 1
+    from public.circuit_placement_invites inv
+    where inv.trainer_id = auth.uid()
+      and inv.placement_id = p_placement
+      and inv.client_id = cid
+  );
+end;
+$$;
+
+revoke all on function public.circuit_placement_invites_save(text, uuid[]) from public, anon;
+grant execute on function public.circuit_placement_invites_save(text, uuid[]) to authenticated;
 
 drop function if exists public.circuit_guest_placements(uuid);
 

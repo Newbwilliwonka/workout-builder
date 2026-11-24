@@ -11,6 +11,34 @@
 alter table public.circuits drop column if exists clients;
 drop table if exists public.circuit_clients;
 
+-- Strip saved rosters before the stricter guard exists, and without firing
+-- the old guard. Existing rows, including unnamed stations, stay in place.
+do $pause_guard$
+begin
+  if exists (
+    select 1 from pg_trigger
+    where tgname = 'circuits_guard' and tgrelid = 'public.circuits'::regclass
+  ) then
+    alter table public.circuits disable trigger circuits_guard;
+  end if;
+end
+$pause_guard$;
+
+update public.circuits
+set data = data - 'clients'
+where data ? 'clients';
+
+do $resume_guard$
+begin
+  if exists (
+    select 1 from pg_trigger
+    where tgname = 'circuits_guard' and tgrelid = 'public.circuits'::regclass
+  ) then
+    alter table public.circuits enable trigger circuits_guard;
+  end if;
+end
+$resume_guard$;
+
 create or replace function public.circuits_guard()
 returns trigger
 language plpgsql
@@ -213,7 +241,3 @@ drop trigger if exists circuits_guard on public.circuits;
 create trigger circuits_guard
   before insert or update or delete on public.circuits
   for each row execute function public.circuits_guard();
-
-update public.circuits
-set data = data - 'clients'
-where data ? 'clients';

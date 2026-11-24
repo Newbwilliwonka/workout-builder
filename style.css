@@ -812,6 +812,7 @@ body.circuit-on .circuit-prepare-bench{border:2px dashed #cbd5e1;border-radius:1
 body.circuit-on .circuit-prepare-bench .circuit-bench-label{display:block;width:auto;margin:0 0 6px}
 body.circuit-on .circuit-prepare-bench p{margin:0 0 8px;font-size:13px;line-height:1.35;color:var(--ink)}
 body.circuit-on .circuit-prepare .c-faces{display:flex;flex-wrap:wrap;gap:8px}
+body.circuit-on .c-person,body.circuit-on [data-person]{touch-action:none}
 body.circuit-on .circuit-live .wb-grid{column-gap:18px;row-gap:28px}
 body.circuit-on .wb-cell{min-height:14px;border:0;border-radius:0;background:transparent;box-shadow:none}
 body.circuit-on .wb-cell.wb-over{background:rgba(37,99,235,.08);border-radius:12px;box-shadow:none}
