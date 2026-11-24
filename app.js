@@ -2593,16 +2593,12 @@
       showErr((err && err.message) || 'Could not save your profile.');
     });
   }
-  // One path per feature photo. Drop a file at the path and the frame fills in.
-  // A missing file keeps the neutral 16:9 frame.
+  // One path per feature photo, in page order. The later features are text-only
+  // cards. A missing file keeps the neutral 16:9 frame.
   var LANDING_SHOTS = [
     'assets/landing/team-drills.jpg',
     'assets/landing/team-gym.jpg',
-    'assets/landing/feature-3.jpg',
-    'assets/landing/feature-4.jpg',
-    'assets/landing/feature-5.jpg',
-    'assets/landing/feature-6.jpg',
-    'assets/landing/feature-7.jpg'
+    'assets/landing/feature-3.jpg'
   ];
   var landingEl = document.getElementById('landing');
   function landingPlansHtml() {
