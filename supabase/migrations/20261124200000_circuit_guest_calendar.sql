@@ -18,6 +18,7 @@
 
 create or replace function public.circuit_guest_placements(p_client uuid)
 returns table (
+  placement_id text,
   day date,
   starts_at text,
   ends_at text,
@@ -49,6 +50,7 @@ begin
 
   return query
   select
+    e.local_id,
     e.day,
     to_char(e.starts_at, 'HH24:MI'),
     to_char(e.ends_at, 'HH24:MI'),

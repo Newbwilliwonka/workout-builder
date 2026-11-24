@@ -7,6 +7,8 @@ const path = require('path');
 const sql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261124200000_circuit_guest_calendar.sql'), 'utf8');
 assert.ok(sql.includes('circuit_guest_placements(p_client uuid)'));
 assert.ok(/security definer/i.test(sql));
+assert.ok(sql.includes('placement_id text'));
+assert.ok(sql.includes('e.local_id'));
 assert.ok(sql.includes('day date'));
 assert.ok(sql.includes('starts_at text'));
 assert.ok(sql.includes('ends_at text'));

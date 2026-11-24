@@ -61,6 +61,7 @@ async function stub(page, membership) {
           var rows = window.__guestPlacements || [];
           return Promise.resolve(rows.filter(function (row) { return !row.clientId || row.clientId === clientId; }).map(function (row) {
             return {
+              placement_id: row.placement_id,
               day: row.day,
               starts_at: row.starts_at,
               ends_at: row.ends_at,
@@ -488,10 +489,18 @@ async function shot(page, name) {
     var now = new Date();
     var day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
     window.__guestPlacements = [{
+      placement_id: 'pg-sat',
       day: day,
       starts_at: '09:00',
       ends_at: '10:00',
       circuit_name: 'Saturday class',
+      trainer_name: 'Coach Lee'
+    }, {
+      placement_id: 'pg-eve',
+      day: day,
+      starts_at: '18:00',
+      ends_at: '19:00',
+      circuit_name: 'Evening class',
       trainer_name: 'Coach Lee'
     }];
     location.hash = '#/';
@@ -503,27 +512,113 @@ async function shot(page, name) {
     return root && root.getAttribute('data-role-now') === 'enthusiast' && !document.getElementById('pv-loading');
   });
   await enthusiast.waitForFunction(function () {
+    var text = document.getElementById('app').innerText;
+    if (text.indexOf('Saturday class') === -1 || text.indexOf('Evening class') === -1) return false;
+    if (text.indexOf('@') !== -1) return false;
+    var found = { sat: false, eve: false };
     var cards = document.querySelectorAll('.pv-session');
     for (var i = 0; i < cards.length; i++) {
       var card = cards[i];
-      if (card.innerText.indexOf('Saturday class') === -1) continue;
-      if (card.innerText.indexOf('@') !== -1) continue;
-      if (card.hasAttribute('data-drag')) continue;
-      if (!card.querySelector('.pv-ico.trainer')) continue;
-      return true;
+      if (card.hasAttribute('data-drag') || !card.querySelector('.pv-ico.trainer')) continue;
+      if (card.innerText.indexOf('Saturday class') !== -1) found.sat = true;
+      if (card.innerText.indexOf('Evening class') !== -1) found.eve = true;
     }
-    return false;
+    return found.sat && found.eve;
   });
   await enthusiast.evaluate(function () {
     document.querySelector('.pv-day.today .pv-day-h').click();
   });
-  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
-  await enthusiast.evaluate(function () { document.querySelector('#pv-day-sheet .pv-day-row').click(); });
   await enthusiast.waitForFunction(function () {
     var sheet = document.getElementById('pv-day-sheet');
-    return sheet && sheet.innerText.indexOf('Saturday class') !== -1 && sheet.innerText.indexOf('9:00') !== -1
+    var text = sheet ? sheet.innerText : '';
+    return text.indexOf('Saturday class') !== -1 && text.indexOf('Evening class') !== -1;
+  });
+  await enthusiast.evaluate(function () {
+    var rows = document.querySelectorAll('#pv-day-sheet .pv-day-row');
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].innerText.indexOf('Evening class') !== -1) { rows[i].click(); return; }
+    }
+  });
+  await enthusiast.waitForFunction(function () {
+    var sheet = document.getElementById('pv-day-sheet');
+    var text = sheet ? sheet.innerText : '';
+    return text.indexOf('Evening class') !== -1 && text.indexOf('Saturday class') === -1 && text.indexOf('6:00') !== -1
       && !sheet.querySelector('[data-run], [data-view-wo], [data-sheet=remove], [data-time]');
   });
+  await enthusiast.evaluateOnNewDocument(function () {
+    var now = new Date();
+    var day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    window.__guestPlacements = [{
+      placement_id: 'pg-sat',
+      day: day,
+      starts_at: '09:00',
+      ends_at: '10:00',
+      circuit_name: 'Saturday class',
+      trainer_name: 'Coach Lee'
+    }, {
+      placement_id: 'pg-eve',
+      day: day,
+      starts_at: '18:00',
+      ends_at: '19:00',
+      circuit_name: 'Evening class',
+      trainer_name: 'Coach Lee'
+    }];
+  });
+  await enthusiast.evaluate(function (key) {
+    var now = new Date();
+    var day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    var data = JSON.parse(localStorage.getItem(key));
+    data.programs = [{
+      id: 'pg-done',
+      ownerId: 'allow-test',
+      workoutId: 'w-done',
+      workoutName: 'Morning lift',
+      items: [],
+      date: day,
+      presence: 'solo',
+      start: '07:00',
+      end: '08:00',
+      updatedAt: 1,
+      dateSetAt: 1
+    }];
+    data.sessions = [{
+      id: 'ses-done',
+      workoutId: 'w-done',
+      programId: 'pg-done',
+      workoutName: 'Morning lift',
+      startedAt: 2,
+      endedAt: 3,
+      localDate: day,
+      results: [{ logged: true, name: 'Press' }]
+    }];
+    localStorage.setItem(key, JSON.stringify(data));
+  }, M.STORAGE_KEY);
+  await enthusiast.reload({ waitUntil: 'domcontentloaded' });
+  await enthusiast.waitForFunction(function () {
+    var today = document.querySelector('.pv-day.today');
+    var text = document.getElementById('app').innerText;
+    return today && today.querySelector('.pv-check') && text.indexOf('Morning lift') !== -1
+      && text.indexOf('Saturday class') !== -1 && text.indexOf('Evening class') !== -1;
+  });
+  await enthusiast.evaluate(function (key) {
+    var now = new Date();
+    var day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    var data = JSON.parse(localStorage.getItem(key));
+    data.programs = [{
+      id: 'pg-circuit',
+      ownerId: 'allow-test',
+      workoutId: '11111111-1111-4111-8111-111111111111',
+      workoutName: 'Saturday class',
+      items: [{ source: 'circuit', circuitId: '11111111-1111-4111-8111-111111111111' }],
+      date: day,
+      presence: 'solo',
+      start: '09:00',
+      end: '10:00',
+      updatedAt: Date.now()
+    }];
+    data.sessions = [];
+    localStorage.setItem(key, JSON.stringify(data));
+  }, M.STORAGE_KEY);
   await enthusiast.evaluate(function () { location.hash = '#/programs'; });
   await enthusiast.reload({ waitUntil: 'domcontentloaded' });
   await enthusiast.waitForSelector('.pv-day.today');
@@ -531,7 +626,12 @@ async function shot(page, name) {
     document.querySelector('.pv-day.today .pv-day-h').click();
   });
   await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
-  await enthusiast.evaluate(function () { document.querySelector('#pv-day-sheet .pv-day-row').click(); });
+  await enthusiast.evaluate(function () {
+    var rows = document.querySelectorAll('#pv-day-sheet .pv-day-row');
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].querySelector('.pv-ico.solo')) { rows[i].click(); return; }
+    }
+  });
   await enthusiast.waitForSelector('[data-view-wo]');
   await enthusiast.evaluate(function () { document.querySelector('[data-view-wo]').click(); });
   await enthusiast.waitForSelector('#pv-open-error');

@@ -237,7 +237,11 @@
     }
     return mine.concat(guestEntries());
   }
+  function schedulable(items) {
+    return (items || []).filter(function (row) { return row && !row.guestCircuit; });
+  }
   function workoutById(id) {
+    if (!id) return null;
     var found = null;
     workouts().forEach(function (row) { if (row && row.id === id) found = row; });
     if (found) return found;
@@ -559,7 +563,7 @@
       var extras = unscheduledFor(date);
       var today = date === todayIso();
       h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '" data-day="' + date + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="pv-today-label mute"> Today</span>' : '') + '</div></div>' +
-        (P.dayDone(items, tracked) ? check() : '') + '</div>';
+        (P.dayDone(schedulable(items), tracked) ? check() : '') + '</div>';
       if (viewingAll()) {
         items.forEach(function (row) { h += allWeekCard(row, false); });
         extras.forEach(function (row) { h += allWeekCard(row, true); });
@@ -599,7 +603,7 @@
           '<span class="pv-num">' + d.getDate() + '</span>' +
           (marks.html ? '<span class="pv-icons">' + marks.html + '</span>' : '') + '</button>';
       } else {
-      var done = P.dayDone(items, tracked);
+      var done = P.dayDone(schedulable(items), tracked);
       var kinds = {};
       var names = [];
       var seenName = {};
@@ -2111,10 +2115,14 @@
     if (!name || name.indexOf('@') !== -1) name = 'Circuit';
     var start = guestClock(row.starts_at || row.start || '');
     var end = guestClock(row.ends_at || row.end || '');
+    var placement = String(row.placement_id || row.placementId || '').replace(/^\s+|\s+$/g, '');
+    var workoutId = placement
+      ? 'guest:' + placement + ':' + clientId
+      : 'guest:' + day + ':' + start + ':' + name;
     return {
-      id: 'guest-' + clientId + '-' + day + '-' + start + '-' + name,
+      id: workoutId,
       ownerId: clientId,
-      workoutId: '',
+      workoutId: workoutId,
       workoutName: name,
       items: [{ source: 'circuit', guest: true }],
       date: day,
