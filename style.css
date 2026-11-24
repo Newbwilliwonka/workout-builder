@@ -10,7 +10,7 @@ body::before{content:"";position:fixed;z-index:-1;inset:0;pointer-events:none;ba
   body::before{background:#c5d4e6 url("assets/bg/app-bg-wide.jpg") center/cover no-repeat;background-image:image-set(url("assets/bg/app-bg-wide.webp") type("image/webp"),url("assets/bg/app-bg-wide.jpg") type("image/jpeg"))}
 }
 .bar{position:sticky;top:0;z-index:5;display:flex;flex-direction:column;background:#111827;color:#fff;padding:0}
-.nav-top{display:flex;align-items:center;gap:4px;min-height:52px;padding:0 12px 0 4px}
+.nav-top{display:flex;align-items:center;flex-wrap:nowrap;gap:4px;min-height:52px;padding:0 12px 0 4px}
 .nav-top:has(#back[hidden]){padding-left:12px}
 .bar h1{font-size:18px;font-weight:700;margin:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .nav-links{display:flex;gap:0;padding:0 8px;height:44px;justify-content:space-between;align-items:stretch;border-top:1px solid #1f2937;overflow:hidden}
@@ -19,6 +19,12 @@ body::before{content:"";position:fixed;z-index:-1;inset:0;pointer-events:none;ba
 .nav-links a.on{color:#fff}
 .nav-links a.on:after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:3px;border-radius:3px 3px 0 0;background:#3b82f6}
 #nav-links .request-count{position:absolute;top:8px;right:2px;min-width:8px;width:8px;height:8px;padding:0;border-radius:4px;background:#3b82f6;color:transparent;font-size:0;line-height:0;overflow:hidden}
+#fullscreen-btn{width:32px;height:32px;min-width:32px;min-height:32px;margin:0 2px 0 0;padding:0;border:0;border-radius:8px;background:transparent;color:#d1d5db;display:inline-flex;align-items:center;justify-content:center;flex:none}
+#fullscreen-btn[hidden]{display:none !important}
+#fullscreen-btn svg{width:20px;height:20px;display:block}
+#fullscreen-btn .fs-exit{display:none}
+#fullscreen-btn.is-on .fs-enter{display:none}
+#fullscreen-btn.is-on .fs-exit{display:block}
 #account-me{width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border-radius:50%;background:#374151;color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;border:2px solid transparent}
 #account-me[hidden]{display:none !important}
 #account-me.on{border-color:#60a5fa;background:#2563eb}

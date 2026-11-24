@@ -25,6 +25,7 @@
 })();
 </script>
 <meta name="theme-color" content="#111827">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Coach Trainer App | Build, Run, and Track Client Training</title>
 <meta name="description" content="Coach Trainer App helps trainers create team drills, run gym circuits, build personal training sessions, schedule programs, and track client progress live.">
 <meta property="og:title" content="Coach Trainer App | Build, Run, and Track Client Training">
@@ -34,7 +35,7 @@
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 </head>
 <body>
-<header class="bar" id="app-bar"><div class="nav-top"><button id="back" class="icon" aria-label="Back" hidden>‹</button><h1 id="title">Workouts</h1><a id="account-signout" href="#/signin" hidden>Sign out</a><a id="header-signin" href="#/signin" hidden>Sign in</a><button type="button" id="account-me" class="me" data-a="account" hidden aria-label="Account"></button></div><nav class="nav-links" id="nav-links" hidden><a href="#/" id="workouts-nav">Workouts</a><a href="#/tracking" id="tracking-open">Tracking</a><a href="#/messages" id="messages-nav">Messages</a><a href="#/hub" id="hub-nav">Hub</a></nav></header>
+<header class="bar" id="app-bar"><div class="nav-top"><button id="back" class="icon" aria-label="Back" hidden>‹</button><h1 id="title">Workouts</h1><a id="account-signout" href="#/signin" hidden>Sign out</a><a id="header-signin" href="#/signin" hidden>Sign in</a><button type="button" id="fullscreen-btn" hidden aria-label="Full screen"><svg class="fs-enter" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="square" d="M3.5 7.5V3.5H7.5M12.5 3.5h4v4M16.5 12.5v4h-4M7.5 16.5h-4v-4"/></svg><svg class="fs-exit" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="square" d="M7.5 3.5v4h-4M12.5 3.5v4h4M16.5 12.5h-4v4M3.5 12.5h4v4"/></svg></button><button type="button" id="account-me" class="me" data-a="account" hidden aria-label="Account"></button></div><nav class="nav-links" id="nav-links" hidden><a href="#/" id="workouts-nav">Workouts</a><a href="#/tracking" id="tracking-open">Tracking</a><a href="#/messages" id="messages-nav">Messages</a><a href="#/hub" id="hub-nav">Hub</a></nav></header>
 <main id="app"></main>
 <div id="landing">
 <header class="landing-bar"><div class="landing-shell"><div class="landing-brand">Coach Trainer <b>App</b></div><a href="#/signin">Sign up / Sign in</a></div></header>
