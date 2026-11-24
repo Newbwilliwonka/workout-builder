@@ -1122,6 +1122,15 @@
         return res.data || [];
       });
     },
+    circuitGuestPlacements: function (clientId) {
+      if (!isUuid(clientId)) return Promise.resolve([]);
+      return db().then(function (c) {
+        return c.rpc('circuit_guest_placements', { p_client: clientId });
+      }).then(function (res) {
+        if (!res || res.error) return [];
+        return Array.isArray(res.data) ? res.data : [];
+      }, function () { return []; });
+    },
     programEntries: function (ownerId) {
       var base = 'local_id,owner_id,workout_local_id,workout_name,items,day,presence,updated_at';
       function query(cols) {

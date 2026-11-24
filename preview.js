@@ -41,6 +41,7 @@
       remote: '',
       playerLive: false,
       circuits: [],
+      circuitGuests: [],
       sheet: null
     };
   }
@@ -117,7 +118,7 @@
     return canEdit();
   }
   function canEditRow(row) {
-    if (!row) return false;
+    if (!row || row.guestCircuit) return false;
     return canEditOwner(row.ownerId || ownerId());
   }
   function peopleShown() {
@@ -188,8 +189,9 @@
     return list;
   }
   function railChoices() {
-    if (!state || viewingAll()) return workouts();
-    return choicesFor(ownerId());
+    if (!state) return workouts();
+    if (viewingAll() || ownerIsSelf(ownerId())) return workouts().concat(circuitChoices());
+    return workouts();
   }
   function choiceMeta(w) {
     if (w && w.circuit) {
@@ -212,13 +214,28 @@
     if (!remote.length) return local;
     return local.concat(remote);
   }
+  function guestEntries() {
+    var rows = state && state.circuitGuests || [];
+    var self = selfId();
+    if (viewingAll()) {
+      var allow = {};
+      peopleShown().forEach(function (id) { if (id && id !== self) allow[id] = 1; });
+      return rows.filter(function (row) { return row && row.guestCircuit && allow[row.ownerId]; });
+    }
+    var owner = ownerId();
+    return rows.filter(function (row) { return row && row.guestCircuit && row.ownerId === owner; });
+  }
   function entries() {
     var rows = data() && data().programs;
-    if (!Array.isArray(rows)) return [];
-    if (!viewingAll()) return P.forOwner(rows, ownerId());
-    var allow = {};
-    peopleShown().forEach(function (id) { allow[id] = 1; });
-    return rows.filter(function (row) { return row && allow[row.ownerId]; });
+    if (!Array.isArray(rows)) rows = [];
+    var mine;
+    if (!viewingAll()) mine = P.forOwner(rows, ownerId());
+    else {
+      var allow = {};
+      peopleShown().forEach(function (id) { allow[id] = 1; });
+      mine = rows.filter(function (row) { return row && allow[row.ownerId]; });
+    }
+    return mine.concat(guestEntries());
   }
   function workoutById(id) {
     var found = null;
@@ -797,7 +814,7 @@
   function daySheetHtml() {
     if (state.sheet.loggedId) return loggedSheetHtml();
     var row = entryById(state.sheet.entryId);
-    var actions = row ? P.entryMenu(contextForOwner(row.ownerId)) : [];
+    var actions = row && row.guestCircuit ? [] : (row ? P.entryMenu(contextForOwner(row.ownerId)) : []);
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">' +
       '<div class="pv-grab" data-sheet-grab="1" role="button" aria-label="Close"></div>';
     if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
@@ -2083,12 +2100,67 @@
     var run = e.target.closest('[data-run]');
     if (run) playFrom(run, 'run');
   }
+  function guestClock(value) {
+    var match = /^(\d{2}):(\d{2})/.exec(String(value || ''));
+    return match ? match[1] + ':' + match[2] : '';
+  }
+  function shapeGuest(row, clientId) {
+    var day = String(row && (row.day || row.date) || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !clientId) return null;
+    var name = String(row.circuit_name || row.circuitName || '').replace(/^\s+|\s+$/g, '');
+    if (!name || name.indexOf('@') !== -1) name = 'Circuit';
+    var start = guestClock(row.starts_at || row.start || '');
+    var end = guestClock(row.ends_at || row.end || '');
+    return {
+      id: 'guest-' + clientId + '-' + day + '-' + start + '-' + name,
+      ownerId: clientId,
+      workoutId: '',
+      workoutName: name,
+      items: [{ source: 'circuit', guest: true }],
+      date: day,
+      start: start,
+      end: end,
+      presence: 'trainer',
+      guestCircuit: true
+    };
+  }
+  function pullGuestCircuits() {
+    if (!options || !options.loadGuestCircuits || !state) return;
+    var ids = [];
+    if (viewingAll()) {
+      var self = selfId();
+      peopleShown().forEach(function (id) {
+        if (id && id !== self) ids.push(id);
+      });
+    } else if (ownerId()) ids.push(ownerId());
+    var token = loadToken;
+    Promise.all(ids.map(function (id) {
+      return Promise.resolve().then(function () { return options.loadGuestCircuits(id); }).then(function (rows) {
+        var out = [];
+        (Array.isArray(rows) ? rows : []).forEach(function (row) {
+          var shaped = shapeGuest(row, id);
+          if (shaped) out.push(shaped);
+        });
+        return out;
+      }, function () { return []; });
+    })).then(function (groups) {
+      if (!state || token !== loadToken) return;
+      var flat = [];
+      groups.forEach(function (rows) { flat = flat.concat(rows); });
+      state.circuitGuests = flat;
+      if (state.ready && state.screen === 'home' && !state.playerLive) render();
+    }, function () {
+      if (!state || token !== loadToken) return;
+      state.circuitGuests = [];
+    });
+  }
   function showCalendar() {
     if (!state) return;
     state.ready = true;
     render();
     pullRemote();
     pullSessions();
+    pullGuestCircuits();
   }
   function enthusiastClients() {
     return (state.clients || []).filter(isEnthusiastClient);
@@ -2130,14 +2202,14 @@
       rememberClientShare(status || { shared: false, enthusiast: false, linked: true });
       state.ready = true;
       render();
-      if (canSee()) { pullRemote(); pullSessions(); }
+      if (canSee()) { pullRemote(); pullSessions(); pullGuestCircuits(); }
     }, function () {
       if (!state || token !== loadToken || state.clientId !== requested) return;
       // Unknown share stays hidden. Do not read that person's sessions.
       rememberClientShare(null);
       state.ready = true;
       render();
-      if (canSee()) { pullRemote(); pullSessions(); }
+      if (canSee()) { pullRemote(); pullSessions(); pullGuestCircuits(); }
     });
   }
   function pullCircuits(token) {
