@@ -405,6 +405,45 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   await p.evaluate(function () { location.hash = '#/'; });
   await p.waitForSelector('#messages-nav');
 
+  await p.evaluate(function () {
+    window.__countGate = null;
+    window.__origCount = window.WBAuth.trainerRequestCount;
+    window.__origSession = window.WBAuth.session;
+    window.__origSignOut = window.WBAuth.signOut;
+    window.WBAuth.trainerRequestCount = function () {
+      return new Promise(function (resolve) { window.__countGate = resolve; });
+    };
+    location.hash = '#/account';
+  });
+  await p.waitForFunction(function () { return typeof window.__countGate === 'function'; });
+  await p.waitForSelector('#account-signout');
+  await p.evaluate(function () {
+    window.WBAuth.session = function () { return Promise.resolve(null); };
+    window.WBAuth.signOut = function () { return Promise.resolve(); };
+  });
+  await p.click('#account-signout');
+  await p.waitForFunction(function () {
+    return (location.hash === '' || location.hash === '#') && !document.querySelector('#messages-nav .request-count');
+  });
+  await p.evaluate(function () {
+    window.__mode = 'trainer';
+    window.WBAuth.session = window.__origSession;
+    window.WBAuth.signOut = window.__origSignOut;
+    window.WBAuth.trainerRequestCount = function () { return Promise.resolve(2); };
+    location.hash = '#/';
+  });
+  await p.waitForFunction(function () {
+    var badge = document.querySelector('#messages-nav .request-count');
+    return (location.hash === '#/' || location.hash === '#') && badge && badge.textContent === '2';
+  });
+  await p.evaluate(function () { window.__countGate(9); });
+  await new Promise(function (r) { setTimeout(r, 80); });
+  assert.strictEqual(await p.evaluate(function () {
+    var badge = document.querySelector('#messages-nav .request-count');
+    return badge ? badge.textContent : '';
+  }), '2');
+  await p.evaluate(function () { window.WBAuth.trainerRequestCount = window.__origCount; });
+
   await p.goto(URL + '#/messages/' + ADA, { waitUntil: 'domcontentloaded' });
   await p.waitForSelector('#days-left');
   await p.waitForSelector('#msg-text');

@@ -1592,7 +1592,10 @@
     recoveryPhase = 'checking';
     recoverySettled = false;
     renderReset();
-    Promise.resolve().then(function () { return WBAuth.signOut(); }).then(goSign, function () {
+    Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
+      forgetRequestBadges();
+      goSign();
+    }, function () {
       holdRecovery('Could not sign out. Stay here until the new password is set.');
     });
   }
@@ -2214,6 +2217,7 @@
   function signOutFromAccount() {
     var from = hashPage();
     WBAuth.signOut().then(function () {
+      forgetRequestBadges();
       cachedProfile = null;
       copyStamp = {};
       removedCopies = [];
@@ -2774,7 +2778,13 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        return WBAuth.signOut().then(function () { cachedProfile = null; signedInNow = false; resetLibraryMemory(); goSignedOutHome(); });
+        return WBAuth.signOut().then(function () {
+          forgetRequestBadges();
+          cachedProfile = null;
+          signedInNow = false;
+          resetLibraryMemory();
+          goSignedOutHome();
+        });
       }
       if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
@@ -2890,10 +2900,14 @@
     });
   }
   var badgeGen = 0;
+  function forgetRequestBadges() {
+    badgeGen++;
+    paintRequestBadges(0);
+  }
   function refreshRequestBadges() {
+    var gen = ++badgeGen;
     if (!window.WBProfile || !WBProfile.canListInSearch || !WBProfile.canListInSearch(cachedProfile)) return;
     if (!window.WBAuth || !WBAuth.trainerRequestCount) return;
-    var gen = ++badgeGen;
     Promise.resolve().then(function () { return WBAuth.trainerRequestCount(); }).then(function (n) {
       if (gen !== badgeGen) return;
       paintRequestBadges(n);
