@@ -114,11 +114,10 @@
       includes: 'Everything in the Trainer subscription, plus:',
       available: [
         'Invite up to 30 clients and enthusiasts',
-        'Show a verified certification on your profile'
+        'Show a verified certification on your profile',
+        'Group circuit training with tracking'
       ],
-      comingSoon: [
-        'Team Training and Team Drills with tracking'
-      ],
+      comingSoon: [],
       highlight: 'Get found in the Trainer Hub by clients who have trained with a coach',
       cta: 'Choose Master Trainer'
     }

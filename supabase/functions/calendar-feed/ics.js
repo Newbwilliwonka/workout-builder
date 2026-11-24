@@ -135,7 +135,7 @@ export function buildIcs(feed, now) {
     'VERSION:2.0',
     'PRODID:-//Coach Trainer//Program Calendar//EN',
     'CALSCALE:GREGORIAN',
-    'X-WR-CALNAME:Programs'
+    'X-WR-CALNAME:Calendar'
   ];
   if (zone) lines.push('X-WR-TIMEZONE:' + zone);
   lines.push('REFRESH-INTERVAL;VALUE=DURATION:PT4H');

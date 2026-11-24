@@ -1,6 +1,7 @@
 // Group circuits: trainer home button, list, and the set-up grid.
 // node tests/circuits-ui.test.js [url]
 const assert = require('assert');
+const M = require('../model.js');
 const pp = require('puppeteer-core');
 const URL = process.argv[2] || 'http://127.0.0.1:8787/';
 const path = require('path');
@@ -109,7 +110,7 @@ async function shot(page, name) {
   await enthusiast.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await stub(enthusiast, 'enthusiast');
   await enthusiast.goto(URL + '#/');
-  await enthusiast.waitForSelector('#programs-open');
+  await enthusiast.waitForSelector('#calendar-open');
   assert.strictEqual(await enthusiast.$('#circuits-open'), null);
   await shot(enthusiast, 'home-before.png');
 
@@ -123,12 +124,21 @@ async function shot(page, name) {
   });
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await stub(page, 'trainer');
+  const seeded = M.emptyData();
+  const lift = M.newWorkout('Morning lift');
+  lift.items = [M.normalizeExercise(M.newExercise({
+    name: 'Press', sets: 1, weight: { unit: 'lb', value: 20 },
+    mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 }
+  }))];
+  seeded.workouts.push(lift);
+  await page.evaluateOnNewDocument(function (key, raw) { localStorage.setItem(key, raw); }, M.STORAGE_KEY, JSON.stringify(seeded));
   await page.goto(URL + '#/');
   await page.waitForSelector('#circuits-open');
   const home = await page.$eval('#circuits-open', function (el) {
     return { text: el.textContent, action: el.getAttribute('data-a'), type: el.type };
   });
   assert.deepStrictEqual(home, { text: 'Group Circuits', action: 'circuits', type: 'button' });
+  assert.deepStrictEqual(await page.$$eval('#home-tiles button', function (nodes) { return nodes.map(function (el) { return el.id; }); }), ['circuits-open', 'calendar-open', 'send-nav']);
   const tileTouch = await page.evaluate(function () { return getComputedStyle(document.body).touchAction; });
   assert.notStrictEqual(tileTouch, 'none');
   await shot(page, 'home-after.png');
@@ -317,6 +327,117 @@ async function shot(page, name) {
   assert.ok(!('reps' in saved.data) && !('weight' in saved.data));
   await shot(page, 'circuits-list-after.png');
 
+  await page.evaluate(function () { location.hash = '#/'; });
+  await page.waitForSelector('#calendar-open');
+  await page.click('#calendar-open');
+  await page.waitForSelector('#pv-client');
+  await page.select('#pv-client', '');
+  await page.waitForFunction(function () {
+    var title = document.getElementById('title');
+    var heading = document.querySelector('#pv-cal h2');
+    var rail = document.getElementById('pv-rail');
+    return title && title.textContent === 'Calendar' && heading && heading.textContent === 'Calendar' && rail && rail.innerText.indexOf('Saturday class') !== -1 && rail.innerText.indexOf('Morning lift') !== -1;
+  });
+  await page.click('.pv-day.today .pv-day-h');
+  await page.waitForSelector('[data-sheet=add-day]');
+  await page.click('[data-sheet=add-day]');
+  await page.waitForFunction(function () {
+    var names = Array.prototype.map.call(document.querySelectorAll('.pv-pick .name'), function (el) { return el.textContent; });
+    var box = document.querySelector('.pv-picks');
+    return names.indexOf('Morning lift') !== -1 && names.indexOf('Saturday class') !== -1 && box && box.innerText.indexOf('Circuits') === -1;
+  });
+  await page.evaluate(function () {
+    var picks = document.querySelectorAll('.pv-pick');
+    for (var i = 0; i < picks.length; i++) {
+      if (picks[i].textContent.indexOf('Saturday class') !== -1) { picks[i].click(); return; }
+    }
+  });
+  await page.waitForSelector('.pv-pick.on');
+  await page.click('#pv-sheet .pv-presence input[value="solo"]');
+  await page.evaluate(function () {
+    document.getElementById('pv-start-h').value = '09';
+    document.getElementById('pv-start-m').value = '00';
+    document.getElementById('pv-end-h').value = '10';
+    document.getElementById('pv-end-m').value = '00';
+  });
+  await page.click('[data-sheet=save]');
+  await page.waitForFunction(function () {
+    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
+    return rows.some(function (row) {
+      return row.workoutName === 'Saturday class' && row.items && row.items[0] && row.items[0].source === 'circuit';
+    });
+  });
+  await page.evaluate(function () {
+    document.querySelector('[data-open-session]').closest('[data-day]').querySelector('.pv-day-h').click();
+  });
+  await page.waitForSelector('#pv-day-sheet .pv-day-row');
+  await page.click('#pv-day-sheet .pv-day-row');
+  await page.waitForSelector('[data-view-wo]');
+  assert.ok(await page.$('#pv-day-sheet .pv-ico.solo'));
+  await page.evaluate(function () {
+    localStorage.setItem('wb.circuit.live', JSON.stringify({
+      circuitId: '11111111-1111-4111-8111-111111111111',
+      doc: { id: '11111111-1111-4111-8111-111111111111', name: 'Live class', stations: [], order: [], clients: [], clock: { workSec: 45, moveSec: 15, rounds: 1 } },
+      mode: 'place',
+      view: 'grid',
+      assigned: {},
+      running: false
+    }));
+    document.querySelector('#pv-day-sheet input[data-time="end"]').value = '11:15';
+  });
+  await page.click('[data-view-wo]');
+  await page.waitForFunction(function () { return /#\/circuits\/[^/?]+\/view(?:\?|$)/.test(location.hash); });
+  await page.waitForSelector('#circuit-live[data-track="0"] .wb-tile');
+  assert.ok((await page.evaluate(function () { return localStorage.getItem('wb.circuit.live') || ''; })).indexOf('Live class') !== -1);
+  await page.click('#back');
+  await page.waitForSelector('#pv-client');
+  assert.strictEqual(await page.evaluate(function () { return location.hash; }), '#/programs');
+  assert.strictEqual((await page.evaluate(function () {
+    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
+    var row = rows.filter(function (item) { return item.workoutName === 'Saturday class'; })[0];
+    return row ? row.end : '';
+  })), '11:15');
+  assert.ok((await page.evaluate(function () { return localStorage.getItem('wb.circuit.live') || ''; })).indexOf('Live class') !== -1);
+  await page.evaluate(function () { localStorage.removeItem('wb.circuit.live'); });
+  await page.select('#pv-client', 'all');
+  await page.waitForFunction(function () {
+    var rail = document.getElementById('pv-rail');
+    return rail && rail.innerText.indexOf('Morning lift') !== -1 && rail.innerText.indexOf('Saturday class') === -1;
+  });
+  await page.evaluate(function () {
+    document.querySelector('.pv-day.today .pv-day-h').click();
+  });
+  await page.waitForSelector('[data-sheet=add-day]');
+  await page.click('[data-sheet=add-day]');
+  await page.waitForFunction(function () {
+    var names = Array.prototype.map.call(document.querySelectorAll('.pv-pick .name'), function (el) { return el.textContent; });
+    return names.indexOf('Saturday class') !== -1 && names.indexOf('Morning lift') !== -1;
+  });
+  await page.select('#pv-add-who', ADA);
+  await page.waitForFunction(function () {
+    var names = Array.prototype.map.call(document.querySelectorAll('.pv-pick .name'), function (el) { return el.textContent; });
+    return names.indexOf('Morning lift') !== -1 && names.indexOf('Saturday class') === -1;
+  });
+  await page.click('[data-sheet=cancel]');
+  await page.waitForSelector('#pv-day-sheet');
+  await page.evaluate(function () { document.getElementById('pv-sheet').click(); });
+  await page.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
+  await page.select('#pv-client', '');
+  await page.waitForSelector('[data-open-session]');
+  await page.evaluate(function () {
+    document.querySelector('[data-open-session]').closest('[data-day]').querySelector('.pv-day-h').click();
+  });
+  await page.waitForSelector('#pv-day-sheet .pv-day-row');
+  await page.click('#pv-day-sheet .pv-day-row');
+  await page.waitForSelector('[data-run]');
+  await page.click('[data-run]');
+  await page.waitForFunction(function () { return /#\/circuits\/[^/?]+\/run(?:\?|$)/.test(location.hash); });
+  await page.waitForSelector('#circuit-live:not([data-track])');
+  await page.click('#back');
+  await page.waitForFunction(function () { return location.hash === '#/programs'; });
+  await page.evaluate(function () { location.hash = '#/circuits'; });
+  await page.waitForSelector('#circuit-new');
+
   await page.click('[data-act=open]');
   await page.waitForSelector('#circuit-name');
   assert.strictEqual(await page.$eval('#circuit-name', function (el) { return el.value; }), 'Saturday class');
@@ -328,6 +449,38 @@ async function shot(page, name) {
   await page.waitForFunction(function () { return !!document.getElementById('circuit-empty'); });
   assert.ok(dialogs.some(function (msg) { return msg.indexOf('Delete') === 0; }));
 
+  await enthusiast.evaluate(function (key) {
+    var raw = localStorage.getItem(key);
+    var data = raw ? JSON.parse(raw) : { version: 4, workouts: [], programs: [], sessions: [] };
+    var now = new Date();
+    var day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    data.programs = [{
+      id: 'pg-circuit',
+      ownerId: 'allow-test',
+      workoutId: '11111111-1111-4111-8111-111111111111',
+      workoutName: 'Saturday class',
+      items: [{ source: 'circuit', circuitId: '11111111-1111-4111-8111-111111111111' }],
+      date: day,
+      presence: 'solo',
+      start: '09:00',
+      end: '10:00',
+      updatedAt: Date.now()
+    }];
+    localStorage.setItem(key, JSON.stringify(data));
+  }, M.STORAGE_KEY);
+  await enthusiast.evaluate(function () { location.hash = '#/programs'; });
+  await enthusiast.reload({ waitUntil: 'domcontentloaded' });
+  await enthusiast.waitForSelector('.pv-day.today');
+  await enthusiast.evaluate(function () {
+    document.querySelector('.pv-day.today .pv-day-h').click();
+  });
+  await enthusiast.waitForSelector('#pv-day-sheet .pv-day-row');
+  await enthusiast.evaluate(function () { document.querySelector('#pv-day-sheet .pv-day-row').click(); });
+  await enthusiast.waitForSelector('[data-view-wo]');
+  await enthusiast.evaluate(function () { document.querySelector('[data-view-wo]').click(); });
+  await enthusiast.waitForSelector('#pv-open-error');
+  assert.strictEqual(await enthusiast.evaluate(function () { return location.hash; }), '#/programs');
+  assert.strictEqual(await enthusiast.$('#level-note'), null);
   await enthusiast.goto(URL + '#/circuits');
   await enthusiast.waitForSelector('#level-note');
   assert.strictEqual(await enthusiast.$('#circuit-new'), null);

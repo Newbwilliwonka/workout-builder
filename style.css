@@ -13,9 +13,9 @@ body::before{content:"";position:fixed;z-index:-1;inset:0;pointer-events:none;ba
 .nav-top{display:flex;align-items:center;gap:4px;min-height:52px;padding:0 12px 0 4px}
 .nav-top:has(#back[hidden]){padding-left:12px}
 .bar h1{font-size:18px;font-weight:700;margin:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.nav-links{display:flex;gap:0;padding:0 6px;height:42px;justify-content:space-between;align-items:stretch;border-top:1px solid #1f2937}
+.nav-links{display:flex;gap:0;padding:0 8px;height:44px;justify-content:space-between;align-items:stretch;border-top:1px solid #1f2937;overflow:hidden}
 .nav-links[hidden]{display:none !important}
-.nav-links a{flex:none;padding:0 8px;display:flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:600;color:#9ca3af;text-decoration:none;position:relative;white-space:nowrap}
+.nav-links a{flex:none;padding:0 10px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600;color:#9ca3af;text-decoration:none;position:relative;white-space:nowrap}
 .nav-links a.on{color:#fff}
 .nav-links a.on:after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:3px;border-radius:3px 3px 0 0;background:#3b82f6}
 #nav-links .request-count{position:absolute;top:8px;right:2px;min-width:8px;width:8px;height:8px;padding:0;border-radius:4px;background:#3b82f6;color:transparent;font-size:0;line-height:0;overflow:hidden}
@@ -29,8 +29,9 @@ html.wb-app{background:#f3f4f6}
 html.wb-app body::before{background:#f3f4f6;background-image:none}
 html.wb-app body.playing::before{background:#0b0f17;background-image:none}
 @media (max-width:360px){
-  .nav-links a{padding:0 4px;font-size:12px}
-  .nav-links a.on:after{left:4px;right:4px}
+  .nav-links{padding:0 4px}
+  .nav-links a{padding:0 6px;font-size:15px}
+  .nav-links a.on:after{left:6px;right:6px}
 }
 .bar h1:has(.bar-name),.bar h1:has(.bar-name-input),.bar h1:has(.person-name){display:flex;align-items:center}
 .bar-name{flex:1;min-width:0;min-height:40px;margin:0;padding:4px 8px;background:transparent;color:#fff;font:inherit;font-size:19px;font-weight:700;text-align:left;border-radius:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

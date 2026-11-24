@@ -77,25 +77,25 @@ async function stub(page, extra) {
     localStorage.setItem(key, JSON.stringify(data));
   }, M.STORAGE_KEY, JSON.stringify(base));
   await enthusiast.reload();
-  await enthusiast.waitForSelector('#programs-open');
-  assert.deepStrictEqual(await enthusiast.$eval('#programs-open', function (el) {
-    var row = el.parentElement;
+  await enthusiast.waitForSelector('#calendar-open');
+  assert.strictEqual(await enthusiast.$('#programs-open'), null);
+  assert.ok((await enthusiast.$eval('#nav-links', function (el) { return el.innerText; })).indexOf('Programs') === -1);
+  assert.deepStrictEqual(await enthusiast.$eval('#calendar-open', function (el) {
+    var label = el.querySelector('.home-tile-label');
     return {
-      text: el.textContent,
-      href: el.getAttribute('href'),
-      row: row && row.id,
-      on: el.classList.contains('on')
+      text: label ? label.textContent : '',
+      action: el.getAttribute('data-a'),
+      row: el.parentElement && el.parentElement.id
     };
   }), {
-    text: 'Programs',
-    href: '#/programs',
-    row: 'nav-links',
-    on: false
+    text: 'Calendar',
+    action: 'programs',
+    row: 'home-tiles'
   });
   assert.strictEqual(await enthusiast.$('#send-nav'), null);
   assert.ok((await enthusiast.$eval('#app', function (el) { return el.innerText; })).indexOf('(preview)') === -1);
   const before = await enthusiast.evaluate(function (key) { return localStorage.getItem(key); }, M.STORAGE_KEY);
-  await enthusiast.click('#programs-open');
+  await enthusiast.click('#calendar-open');
   await enthusiast.waitForFunction(function () {
     const root = document.getElementById('pv-root');
     return root && root.getAttribute('data-role-now') === 'enthusiast' && document.querySelector('.pv-check');
@@ -536,7 +536,7 @@ async function stub(page, extra) {
   await client.goto(URL);
   await client.evaluate(function (key, value) { localStorage.setItem(key, value); }, M.STORAGE_KEY, before);
   await client.reload();
-  await client.click('#programs-open');
+  await client.click('#calendar-open');
   await client.waitForFunction(function () {
     const note = document.getElementById('pv-role-note');
     return note && note.innerText.indexOf('Your trainer schedules your program') !== -1;
@@ -692,7 +692,7 @@ async function stub(page, extra) {
   await trainer.goto(URL);
   await trainer.evaluate(function (key, value) { localStorage.setItem(key, value); }, M.STORAGE_KEY, JSON.stringify(base));
   await trainer.reload();
-  await trainer.click('#programs-open');
+  await trainer.click('#calendar-open');
   await trainer.waitForSelector('#pv-client');
   await trainer.waitForSelector('#pv-workouts [data-drag]');
   assert.strictEqual(await trainer.$('.pv-handle'), null);
@@ -771,7 +771,7 @@ async function stub(page, extra) {
   await lone.goto(URL);
   await lone.evaluate(function (key, value) { localStorage.setItem(key, value); }, M.STORAGE_KEY, JSON.stringify(base));
   await lone.reload();
-  await lone.click('#programs-open');
+  await lone.click('#calendar-open');
   await lone.waitForSelector('#pv-cal');
   await lone.waitForSelector('#pv-schedule-hint');
   assert.strictEqual(await lone.$('#pv-client'), null);
