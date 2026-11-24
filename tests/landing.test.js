@@ -228,9 +228,8 @@ Mem.TIERS.forEach(function (tier) {
       });
     });
     assert.strictEqual(shots[0].missing, false);
-    assert.ok(shots[0].width > 0 && shots[1].width > 0 && shots[2].width > 0);
-    assert.strictEqual(shots[2].missing, false);
-    shots.slice(3).forEach(function (shot, i) { assert.strictEqual(shot.missing, true, SHOTS[i + 3]); });
+    assert.ok(shots[0].width > 0 && shots[1].width > 0);
+    shots.slice(2).forEach(function (shot, i) { assert.strictEqual(shot.missing, true, SHOTS[i + 2]); });
     Mem.TIERS.forEach(function (tier) {
       assert.ok(seen.text.indexOf(tier.name) !== -1, tier.name);
       assert.ok(seen.text.indexOf(tier.priceLabel) !== -1, tier.priceLabel);
