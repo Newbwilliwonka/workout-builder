@@ -112,6 +112,7 @@
       dateSetAt: stamp(entry.dateSetAt) || stamp(entry.updatedAt) || Date.now(),
       pending: true
     };
+    if (Array.isArray(entry.invites)) row.invites = entry.invites.slice();
     list.push(row);
     return { programs: list, created: row, duplicate: false, error: '' };
   }
@@ -498,6 +499,7 @@
         return;
       }
       applyDateStamp(incoming, row);
+      if (Array.isArray(row.invites)) incoming.invites = row.invites.slice();
       var timesMissing = (!!row.start && !incoming.start) || (!!row.end && !incoming.end);
       if (keepTimes || timesMissing) {
         if (row.start) incoming.start = row.start;

@@ -22,6 +22,9 @@
   var manualOpen = false;
   var manualName = '';
   var manualExercise = '';
+  var prepare = false;
+  var classClients = [];
+  var classSpot = {};
   var clockText = null;
   var busy = false;
   var loadToken = 0;
@@ -46,9 +49,13 @@
       name: doc.name,
       stations: doc.stations,
       order: doc.order,
-      clients: doc.clients,
       clock: doc.clock
     };
+  }
+  function fromCalendar() {
+    var q = '';
+    try { q = String(location.hash || '').split('?')[1] || ''; } catch (e) {}
+    return /(^|&)from=calendar(&|$)/.test(q);
   }
   function dirty() {
     if (!draft) return false;
@@ -309,7 +316,7 @@
       var box = boardPoint(tile, board);
       box.col = spot.col;
       box.row = spot.row;
-      tiles[tile.getAttribute('data-grid-id')] = box;
+      tiles[tile.getAttribute('data-grid-id') || tile.getAttribute('data-station')] = box;
     });
     var html = '<defs><marker id="circuit-arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#1e293b"></path></marker></defs>';
     C.loopEdges(draft.order).forEach(function (edge) {
@@ -320,7 +327,7 @@
       if (!points || points.length < 2) return;
       html += '<polyline points="' + points.map(function (p) {
         return p[0].toFixed(1) + ',' + p[1].toFixed(1);
-      }).join(' ') + '" fill="none" stroke="#1e293b" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#circuit-arrowhead)"></polyline>';
+      }).join(' ') + '" fill="none" stroke="#1e293b" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#circuit-arrowhead)"></polyline>';
     });
     svg.innerHTML = html;
   }
@@ -347,9 +354,9 @@
     rows.forEach(function (row) {
       if (!row) return;
       var data = row.data || {};
-      var info = C.summary({ name: row.name, stations: data.stations, clients: data.clients });
+      var info = C.summary({ name: row.name, stations: data.stations });
       h += '<div class="card" data-circuit="' + esc(row.id) + '"><div class="name">' + esc(row.name || 'Circuit') + '</div>' +
-        '<div class="mute">' + esc(countLabel(info.stations, 'station')) + ' · ' + esc(countLabel(info.clients, 'client')) + '</div>' +
+        '<div class="mute">' + esc(countLabel(info.stations, 'station')) + '</div>' +
         '<div class="actions"><button type="button" class="pri sm" data-act="run" data-id="' + esc(row.id) + '">Run</button>' +
         '<button type="button" class="sm" data-act="open" data-id="' + esc(row.id) + '">Open</button>' +
         '<button type="button" class="sm danger" data-act="del" data-id="' + esc(row.id) + '">Delete</button></div></div>';
@@ -357,6 +364,7 @@
     ctx.app.innerHTML = h;
     ctx.app.oninput = null;
     ctx.app.onkeydown = null;
+    ctx.app.onpointerdown = null;
     ctx.app.onclick = onClick;
   }
   function paintMissing() {
@@ -366,6 +374,7 @@
     ctx.app.innerHTML = errorsHtml() + '<button type="button" data-act="cancel">Back</button>';
     ctx.app.oninput = null;
     ctx.app.onkeydown = null;
+    ctx.app.onpointerdown = null;
     ctx.app.onclick = onClick;
   }
   function paint() {
@@ -377,28 +386,24 @@
     var h = '<div class="circuit-setup">' + errorsHtml();
     h += '<label class="circuit-name-label" for="circuit-name">Circuit name</label>' +
       '<input id="circuit-name" class="circuit-name-input" value="' + esc(draft.name) + '" maxlength="80" autocomplete="off" placeholder="Morning circuit"' + off() + '>';
-    h += '<div class="circuit-hint" id="circuit-hint">Tap stations in order to draw the loop.</div>';
     h += '<div class="circuit-section"><h2>Stations</h2>' +
       '<button type="button" class="circuit-sm ghost" data-act="add"' + off() + '>+ Add station</button>' +
       '<button type="button" class="circuit-sm" id="circuit-clear" data-act="clear"' + (busy || !draft.order.length ? ' disabled' : '') + '>Clear order</button></div>';
+    h += '<div class="circuit-hint" id="circuit-hint">Create and name your stations, then tap each station to set up the order of flow.</div>';
     h += '<div class="circuit-board' + (busy ? ' is-busy' : '') + '" id="circuit-board"><svg class="circuit-arrows" aria-hidden="true"></svg><div id="circuit-grid"></div></div>';
     h += pickerHtml();
-    h += '<div class="circuit-clients"><div class="circuit-section"><h2>Clients</h2>' +
-      '<button type="button" class="circuit-sm ghost" data-act="manual-open"' + off() + '>+ Manual client</button></div>' +
-      clientsHtml() + '</div>';
     h += '<div class="circuit-clock">' +
       phaseHtml('work', 'Work', 'circuit-work-m', 'circuit-work-s', clockText.wm, clockText.ws) +
       phaseHtml('move', 'Move', 'circuit-move-m', 'circuit-move-s', clockText.mm, clockText.ms) +
       '<div class="circuit-phase rounds"><label class="kicker" for="circuit-rounds">Rounds</label>' +
       '<input id="circuit-rounds" class="wb-digits" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
-      '<p class="circuit-track" id="circuit-track">Tracking: time per station (automatic)</p>';
-    var showStart = !!(draft.id && !dirty());
-    if (draft.id) h += '<button type="button" id="circuit-start" class="pri circuit-start" data-act="run"' + (showStart ? '' : ' hidden') + (busy ? ' disabled' : '') + '>Start session</button>';
-    h += '<div class="circuit-actions' + (showStart ? ' is-after-start' : '') + '">' +
-      '<button type="button" class="' + (draft.id ? 'circuit-quiet' : 'pri circuit-start') + '" data-act="save"' + (busy ? ' disabled' : '') + '>Save</button>' +
+      '<p class="circuit-track" id="circuit-track">Tracking: time per station (editable)</p>';
+    h += '<div class="circuit-actions">' +
+      '<button type="button" class="pri circuit-start" data-act="save"' + (busy ? ' disabled' : '') + '>Save</button>' +
       '<button type="button" class="circuit-quiet" data-act="cancel"' + (busy ? ' disabled' : '') + '>Cancel</button></div></div>';
     ctx.app.innerHTML = h;
     ctx.app.onclick = onClick;
+    ctx.app.onpointerdown = null;
     ctx.app.oninput = onInput;
     ctx.app.onkeydown = onKey;
     var grid = document.getElementById('circuit-grid');
@@ -546,7 +551,6 @@
         name: payload.name,
         stations: payload.data.stations,
         order: payload.data.order,
-        clients: payload.data.clients,
         clock: payload.data.clock
       });
       if (ctx) ctx.toast('Saved');
@@ -577,10 +581,9 @@
   }
   function onRun(id) {
     if (!ctx) return;
-    if (id) return ctx.go('#/circuits/' + id + '/run');
-    if (!draft || !draft.id) return;
-    if (dirty()) { ctx.toast('Save this circuit before starting.'); return; }
-    ctx.go('#/circuits/' + draft.id + '/run');
+    var target = id || (draft && draft.id);
+    if (!target) return;
+    ctx.go('#/circuits/' + target + '/prepare' + (fromCalendar() ? '?from=calendar' : ''));
   }
   function onClick(e) {
     var button = e.target.closest ? e.target.closest('[data-act]') : null;
@@ -602,6 +605,8 @@
     if (act === 'change') return onChangeExercise(button.getAttribute('data-id'));
     if (act === 'pick') return onPick(button.getAttribute('data-id'), button.getAttribute('data-name'));
     if (act === 'manual-exercise') return onManualExercise();
+    if (act === 'manual-open' && prepare) return onPrepareManual();
+    if (act === 'start-class') return onStartClass();
     if (act === 'client') return onClient(button.getAttribute('data-id'));
     if (act === 'manual-open') { manualOpen = !manualOpen; paint(); return; }
     if (act === 'manual-add') return onManualAdd();
@@ -609,17 +614,10 @@
     if (act === 'save') return onSave();
     if (act === 'cancel') return onCancel();
   }
-  function syncStart() {
-    var show = !!(draft && draft.id && !dirty());
-    var button = document.getElementById('circuit-start');
-    if (button) button.hidden = !show;
-    var actions = document.querySelector('.circuit-actions');
-    if (actions) actions.classList.toggle('is-after-start', show);
-  }
   function onInput(e) {
     var field = e.target;
     if (busy || !field || !draft) return;
-    if (field.id === 'circuit-name') { draft.name = field.value; syncStart(); return; }
+    if (field.id === 'circuit-name') { draft.name = field.value; return; }
     if (!clockText) clockText = clockTextFrom(draft.clock);
     if (field.id === 'circuit-work-m' || field.id === 'circuit-work-s' || field.id === 'circuit-move-m' || field.id === 'circuit-move-s') {
       if (field.id === 'circuit-work-m') clockText.wm = field.value;
@@ -630,7 +628,6 @@
       var move = model().joinClock(clockText.mm, clockText.ms);
       if (work != null) draft.clock.workSec = work;
       if (move != null) draft.clock.moveSec = move;
-      syncStart();
       return;
     }
     if (field.id === 'circuit-rounds') {
@@ -638,7 +635,6 @@
       roundsFollows = false;
       var roundsRaw = String(field.value || '').replace(/^\s+|\s+$/g, '');
       if (/^\d+$/.test(roundsRaw)) draft.clock.rounds = Number(roundsRaw);
-      syncStart();
       return;
     }
     if (field.id === 'circuit-lib-q') { libQuery = field.value; scheduleSearch(); return; }
@@ -740,6 +736,209 @@
       paintMissing();
     });
   }
+  function classKey(person) { return model().personKey(person); }
+  function chipHtml(person) {
+    var C = model();
+    var manual = person.source === 'manual';
+    var color = manual ? '' : C.avatarColor(person.name);
+    return '<button type="button" class="c-person' + (manual ? ' is-manual' : '') + '" data-person="' + esc(classKey(person)) + '" data-label="' + esc(C.initials(person.name)) + '" aria-label="' + esc(person.name) + '">' +
+      '<span class="c-ava' + (manual ? ' is-manual' : '') + '"' + (color ? ' style="background:' + color + '"' : '') + ' aria-hidden="true">' + esc(C.initials(person.name)) + '</span></button>';
+  }
+  function peopleAt(stationId, bench) {
+    var html = '';
+    classClients.forEach(function (person) {
+      var spot = classSpot[classKey(person)];
+      var onBench = !!(spot && spot.bench);
+      var onStation = !!(spot && spot.stationId && !spot.bench);
+      if (bench && onBench) html += chipHtml(person);
+      if (!bench && onStation && spot.stationId === stationId) html += chipHtml(person);
+    });
+    return html;
+  }
+  function trayHtml() {
+    var html = '';
+    classClients.forEach(function (person) {
+      var spot = classSpot[classKey(person)];
+      if (spot && (spot.bench || spot.stationId)) return;
+      html += chipHtml(person);
+    });
+    return html;
+  }
+  function prepareGrid() {
+    var C = model();
+    var cols = editorCols(draft.stations);
+    var rows = C.visibleRows(draft.stations);
+    var byPos = {};
+    (draft.stations || []).forEach(function (s) { if (s) byPos[s.col + ',' + s.row] = s; });
+    var h = '<div class="circuit-board" id="circuit-board"><svg class="circuit-arrows" aria-hidden="true"></svg>' +
+      '<div class="wb-grid" role="grid" aria-label="Circuit stations" style="grid-template-columns:repeat(' + cols + ',minmax(0,1fr))">';
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        var station = byPos[c + ',' + r];
+        h += '<div class="wb-cell" role="gridcell" data-col="' + c + '" data-row="' + r + '"' + (station ? ' data-station="' + esc(station.id) + '"' : '') + '>';
+        if (station) {
+          var n = C.stationNumber(draft.order, station.id);
+          var exercise = station.exercise;
+          var name = exercise && exercise.name ? exercise.name : 'Station';
+          h += '<div class="wb-tile" data-station="' + esc(station.id) + '">' +
+            '<span class="circuit-num">' + (n || '·') + '</span>' +
+            '<div class="circuit-ex"><span class="circuit-name">' + esc(name) + '</span></div>' +
+            '<div class="c-faces">' + peopleAt(station.id, false) + '</div></div>';
+        }
+        h += '</div>';
+      }
+    }
+    return h + '</div></div>';
+  }
+  function paintPrepare() {
+    if (!ctx || !draft) return paintMissing();
+    ctx.titleEl.textContent = 'Prepare Class';
+    ctx.backBtn.hidden = false;
+    var h = '<div class="circuit-prepare" id="circuit-prepare">' + errorsHtml();
+    h += prepareGrid();
+    h += '<div class="circuit-hint" id="circuit-hint">Drag your clients to their station.</div>';
+    h += '<div class="circuit-clients" id="circuit-prepare-clients"><div class="circuit-section"><h2>Clients</h2>' +
+      '<button type="button" class="circuit-sm ghost" data-act="manual-open">+ Manual client</button></div>' +
+      '<div class="circuit-people">' + trayHtml() + '</div></div>';
+    h += '<div class="circuit-prepare-bench" data-bench="1"><div class="circuit-bench-label">Bench</div>' +
+      '<p>During class, drag a client to the Bench to pull them out of the rotation, or back onto a station to rejoin.</p>' +
+      '<div class="c-faces">' + peopleAt('', true) + '</div></div>';
+    h += '<button type="button" class="pri circuit-start" data-act="start-class">Start</button></div>';
+    ctx.app.innerHTML = h;
+    ctx.app.onclick = onClick;
+    ctx.app.oninput = null;
+    ctx.app.onkeydown = null;
+    ctx.app.onpointerdown = onPreparePointer;
+    watchArrows();
+  }
+  function placeClass(key, stationId) {
+    classSpot[key] = stationId ? { stationId: stationId } : {};
+    paintPrepare();
+  }
+  function benchClass(key) {
+    classSpot[key] = { bench: true };
+    paintPrepare();
+  }
+  function onPreparePointer(e) {
+    if (!prepare || (e.button != null && e.button !== 0)) return;
+    var chip = e.target.closest ? e.target.closest('[data-person]') : null;
+    if (!chip || !ctx || !ctx.app.contains(chip)) return;
+    var key = chip.getAttribute('data-person');
+    var pointerId = e.pointerId;
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var moved = false;
+    var ghost = null;
+    function move(ev) {
+      if (ev.pointerId !== pointerId) return;
+      if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 8) return;
+      if (!moved) {
+        moved = true;
+        ghost = document.createElement('div');
+        ghost.className = 'wb-ghost';
+        ghost.textContent = chip.getAttribute('data-label') || '';
+        document.body.appendChild(ghost);
+      }
+      ev.preventDefault();
+      ghost.style.left = (ev.clientX + 10) + 'px';
+      ghost.style.top = (ev.clientY + 12) + 'px';
+    }
+    function up(ev) {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', up);
+      if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+      if (!moved) return;
+      var under = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (!under || !under.closest) return;
+      if (under.closest('[data-bench]')) return benchClass(key);
+      var station = under.closest('[data-station]');
+      if (station) placeClass(key, station.getAttribute('data-station'));
+    }
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+  }
+  function onPrepareManual() {
+    var typed = '';
+    try { typed = window.prompt('Client name') || ''; } catch (e) { typed = ''; }
+    if (!typed) return;
+    var added = model().addManualClient(classClients, typed);
+    if (!added.ok) { formError = [added.error]; paintPrepare(); return; }
+    classClients = added.clients;
+    formError = [];
+    paintPrepare();
+  }
+  function onStartClass() {
+    if (!ctx || !draft || !draft.id) return;
+    var C = model();
+    var assigned = {};
+    classClients.forEach(function (person) {
+      var key = classKey(person);
+      var spot = classSpot[key];
+      if (spot && spot.stationId && !spot.bench) assigned[key] = { stationId: spot.stationId };
+      else assigned[key] = { bench: true };
+    });
+    try {
+      localStorage.setItem('wb.circuit.class', JSON.stringify({
+        circuitId: draft.id,
+        clients: classClients,
+        assigned: assigned
+      }));
+    } catch (e) {}
+    ctx.go('#/circuits/' + draft.id + '/run' + (fromCalendar() ? '?from=calendar' : ''));
+  }
+  function loadPrepare(id) {
+    var token = ++loadToken;
+    prepare = true;
+    if (!ctx) return;
+    ctx.titleEl.textContent = 'Prepare Class';
+    ctx.backBtn.hidden = false;
+    ctx.app.innerHTML = '<p class="mute">Loading…</p>';
+    var circuitP;
+    var rosterP;
+    try {
+      circuitP = root.WBAuth && root.WBAuth.circuits ? root.WBAuth.circuits() : Promise.reject(new Error(unavailable()));
+    } catch (e) { circuitP = Promise.reject(e); }
+    try {
+      rosterP = root.WBAuth && root.WBAuth.roster ? root.WBAuth.roster() : Promise.resolve({ clients: [] });
+    } catch (e2) { rosterP = Promise.resolve({ clients: [] }); }
+    Promise.all([
+      Promise.resolve(circuitP),
+      Promise.resolve(rosterP).then(function (res) { return res; }, function () { return { clients: [] }; })
+    ]).then(function (pair) {
+      if (token !== loadToken || !ctx) return;
+      var list = Array.isArray(pair[0]) ? pair[0] : [];
+      var row = list.filter(function (item) { return item && String(item.id) === String(id); })[0];
+      if (!row) {
+        draft = null;
+        formError = ['That circuit was not found.'];
+        paintMissing();
+        return;
+      }
+      var opened = model().fromRow(row);
+      if (!opened.ok) {
+        draft = null;
+        formError = opened.errors.length ? opened.errors : ['That circuit could not be opened.'];
+        paintMissing();
+        return;
+      }
+      draft = opened.value;
+      classClients = [];
+      ((pair[1] && pair[1].clients) || []).forEach(function (person) {
+        var linked = model().linkedClient(person);
+        if (linked) classClients.push(linked);
+      });
+      classSpot = {};
+      formError = [];
+      paintPrepare();
+    }, function (err) {
+      if (token !== loadToken || !ctx) return;
+      draft = null;
+      formError = [unavailable(err)];
+      paintMissing();
+    });
+  }
   function markPage() { try { document.body.classList.add('circuit-on'); } catch (e) {} }
   function clearPage() { try { document.body.classList.remove('circuit-on'); } catch (e2) {} }
   function mount(next) {
@@ -755,6 +954,7 @@
     }
     var parts = hashParts();
     if (parts[0] !== 'circuits' || !parts[1]) return loadList();
+    if (parts[2] === 'prepare') return loadPrepare(parts[1]);
     if (parts[1] === 'new') return loadEditor('');
     return loadEditor(parts[1]);
   }
@@ -773,12 +973,19 @@
     }
     ctx = null;
     draft = null;
+    prepare = false;
+    classClients = [];
+    classSpot = {};
     busy = false;
   }
   function back() {
     if (!ctx) return false;
     var parts = hashParts();
     if (parts[0] !== 'circuits' || !parts[1]) return false;
+    if (prepare || parts[2] === 'prepare') {
+      ctx.go(fromCalendar() ? '#/programs' : '#/circuits');
+      return true;
+    }
     onCancel();
     return true;
   }

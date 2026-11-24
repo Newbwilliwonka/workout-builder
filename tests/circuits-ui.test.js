@@ -57,6 +57,10 @@ async function stub(page, membership) {
         api.clientStatus = function () { return Promise.resolve({ shared: true, enthusiast: false, linked: true }); };
         api.programEntries = function () { return Promise.resolve([]); };
         api.programEntriesFor = function () { return Promise.resolve([]); };
+        api.saveCircuitInvites = function (entry) {
+          window.__invites = (entry && entry.invites) || [];
+          return Promise.resolve(true);
+        };
         api.circuitGuestPlacements = function (clientId) {
           window.__guestCalls = window.__guestCalls || [];
           window.__guestCalls.push(clientId);
@@ -139,6 +143,7 @@ async function shot(page, name) {
   page.on('dialog', function (dialog) {
     dialogs.push(dialog.message());
     if (dialog.message().indexOf('Delete') === 0) dialog.accept();
+    else if (dialog.type() === 'prompt') dialog.accept('Walk-in');
     else dialog.dismiss();
   });
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
@@ -257,24 +262,50 @@ async function shot(page, name) {
     return document.querySelectorAll('.circuit-arrows polyline').length === 6;
   });
 
-  await page.click('[data-act=client][data-id="' + ADA + '"]');
-  await page.click('[data-act=client][data-id="' + BEN + '"]');
-  await page.click('[data-act=client][data-id="' + BLANK + '"]');
-  await page.click('[data-act=client][data-id="' + MAIL + '"]');
-  await page.click('[data-act=manual-open]');
-  await page.waitForSelector('#circuit-client-name');
-  await page.type('#circuit-client-name', 'Walk-in');
-  await page.click('[data-act=manual-add]');
-  await page.waitForFunction(function () {
-    return Array.prototype.some.call(document.querySelectorAll('.circuit-person'), function (el) {
-      return el.textContent.indexOf('Walk-in') >= 0 && el.textContent.indexOf('manual') >= 0;
+  const body = await page.$eval('#app', function (el) { return el.innerText; });
+  assert.ok(body.indexOf('Create and name your stations, then tap each station to set up the order of flow.') >= 0);
+  assert.ok(body.indexOf('Tracking: time per station (editable)') >= 0);
+  assert.ok(!/Rest|Reps|Weight|@/.test(body));
+  assert.strictEqual(await page.$('#circuit-start'), null);
+  assert.strictEqual(await page.$('[data-act=client]'), null);
+  assert.strictEqual(await page.$('.circuit-clients'), null);
+  assert.deepStrictEqual(await page.$$eval('.circuit-actions button', function (nodes) {
+    return nodes.map(function (el) { return el.textContent; });
+  }), ['Save', 'Cancel']);
+  const setupOrder = await page.evaluate(function () {
+    var root = document.querySelector('.circuit-setup');
+    return Array.prototype.map.call(root.children, function (el) {
+      if (el.id) return el.id;
+      if (el.classList.contains('circuit-section')) return 'stations';
+      if (el.classList.contains('circuit-hint')) return 'hint';
+      if (el.classList.contains('circuit-board')) return 'grid';
+      if (el.classList.contains('circuit-clock')) return 'clock';
+      if (el.classList.contains('circuit-actions')) return 'actions';
+      return el.className;
     });
   });
-  const body = await page.$eval('#app', function (el) { return el.innerText; });
-  assert.ok(body.indexOf('Tap stations in order to draw the loop.') >= 0);
-  assert.ok(body.indexOf('Tracking: time per station (automatic)') >= 0);
-  assert.ok(!/Rest|Reps|Weight|@/.test(body));
-  assert.ok(body.indexOf('Client') >= 0);
+  assert.ok(setupOrder.indexOf('circuit-name') < setupOrder.indexOf('stations'), setupOrder.join('>'));
+  assert.ok(setupOrder.indexOf('stations') < setupOrder.indexOf('circuit-hint'), setupOrder.join('>'));
+  assert.ok(setupOrder.indexOf('circuit-hint') < setupOrder.indexOf('circuit-board'), setupOrder.join('>'));
+  assert.ok(setupOrder.indexOf('circuit-board') < setupOrder.indexOf('clock'), setupOrder.join('>'));
+  assert.ok(setupOrder.indexOf('clock') < setupOrder.indexOf('circuit-track'), setupOrder.join('>'));
+  assert.ok(setupOrder.indexOf('circuit-track') < setupOrder.indexOf('actions'), setupOrder.join('>'));
+  await page.click('[data-act=add]');
+  await page.click('[data-act=save]');
+  await page.waitForFunction(function () {
+    var err = document.getElementById('circuit-err');
+    return err && err.textContent.indexOf('Name every station before saving.') !== -1;
+  });
+  await page.evaluate(function () {
+    var tiles = document.querySelectorAll('.wb-tile');
+    for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i].textContent.indexOf('Choose exercise') !== -1) {
+        tiles[i].querySelector('.circuit-x').click();
+        return;
+      }
+    }
+  });
+  await page.waitForFunction(function () { return document.querySelectorAll('.wb-tile').length === 6; });
   const clipped = await page.$$eval('.circuit-name', function (nodes) {
     return nodes.map(function (el) { return { text: el.textContent, cut: el.scrollWidth > el.clientWidth + 1 }; });
   });
@@ -330,7 +361,7 @@ async function shot(page, name) {
   await page.waitForSelector('#circuit-new');
   await page.waitForFunction(function () {
     var card = document.querySelector('[data-circuit]');
-    return card && card.innerText.indexOf('Saturday class') >= 0 && card.innerText.indexOf('6 stations') >= 0 && card.innerText.indexOf('5 clients') >= 0;
+    return card && card.innerText.indexOf('Saturday class') >= 0 && card.innerText.indexOf('6 stations') >= 0 && card.innerText.indexOf('client') === -1;
   });
   const saved = await page.evaluate(function () { return window.__circuits && window.__circuits[0]; });
   assert.strictEqual(saved.name, 'Saturday class');
@@ -339,9 +370,7 @@ async function shot(page, name) {
   assert.strictEqual(saved.data.clock.workSec, 45);
   assert.strictEqual(saved.data.clock.moveSec, 15);
   assert.strictEqual(saved.data.clock.rounds, 6);
-  assert.strictEqual(saved.data.clients.filter(function (c) { return c.source === 'linked'; }).length, 4);
-  assert.deepStrictEqual(saved.data.clients.filter(function (c) { return c.source === 'manual'; }), [{ source: 'manual', name: 'Walk-in' }]);
-  assert.ok(saved.data.clients.every(function (c) { return String(c.name).indexOf('@') < 0; }));
+  assert.ok(!saved.data.clients);
   assert.ok(JSON.stringify(saved.data).indexOf('hidden@') < 0);
   assert.ok(!('reps' in saved.data) && !('weight' in saved.data));
   await shot(page, 'circuits-list-after.png');
@@ -372,6 +401,8 @@ async function shot(page, name) {
     }
   });
   await page.waitForSelector('.pv-pick.on');
+  await page.click('[data-invite="' + ADA + '"]');
+  await page.click('[data-invite="' + BEN + '"]');
   await page.click('#pv-sheet .pv-presence input[value="solo"]');
   await page.evaluate(function () {
     document.getElementById('pv-start-h').value = '09';
@@ -383,7 +414,9 @@ async function shot(page, name) {
   await page.waitForFunction(function () {
     var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
     return rows.some(function (row) {
-      return row.workoutName === 'Saturday class' && row.items && row.items[0] && row.items[0].source === 'circuit';
+      return row.workoutName === 'Saturday class' && row.items && row.items[0] && row.items[0].source === 'circuit'
+        && row.invites && row.invites.indexOf('22222222-2222-4222-8222-222222222222') !== -1
+        && row.invites.indexOf('33333333-3333-4333-8333-333333333333') !== -1;
     });
   });
   await page.evaluate(function () {
@@ -496,10 +529,56 @@ async function shot(page, name) {
   await page.click('#pv-day-sheet .pv-day-row');
   await page.waitForSelector('[data-run]');
   await page.click('[data-run]');
+  await page.waitForFunction(function () { return /#\/circuits\/[^/?]+\/prepare(?:\?|$)/.test(location.hash); });
+  await page.waitForFunction(function () {
+    var title = document.getElementById('title');
+    var hint = document.getElementById('circuit-hint');
+    var bench = document.querySelector('[data-bench]');
+    if (!title || title.textContent !== 'Prepare Class') return false;
+    if (!hint || hint.textContent !== 'Drag your clients to their station.') return false;
+    if (!bench || bench.textContent.indexOf('During class, drag a client to the Bench to pull them out of the rotation, or back onto a station to rejoin.') === -1) return false;
+    if (document.querySelector('[data-act=add], #circuit-clear, .circuit-x, .circuit-change, input[type=checkbox]')) return false;
+    var labels = Array.prototype.map.call(document.querySelectorAll('#circuit-prepare-clients [data-person]'), function (el) {
+      return el.getAttribute('aria-label');
+    });
+    return labels.indexOf('Ada Client') !== -1 && labels.indexOf('Ben Ortiz') !== -1 && labels.indexOf('Client') !== -1;
+  });
+  await page.click('[data-act=manual-open]');
+  await page.waitForFunction(function () {
+    var chip = document.querySelector('#circuit-prepare-clients [aria-label="Walk-in"]');
+    return chip && chip.querySelector('.c-ava.is-manual') && chip.textContent.indexOf('manual') === -1 && chip.textContent.indexOf('Walk-in') === -1;
+  });
+  const dragged = await page.evaluate(function () {
+    var chip = document.querySelector('#circuit-prepare-clients [aria-label="Ada Client"]');
+    var station = document.querySelector('#circuit-board [data-station]');
+    if (!chip || !station) return null;
+    var from = chip.getBoundingClientRect();
+    var to = station.getBoundingClientRect();
+    return {
+      key: chip.getAttribute('data-person'),
+      station: station.getAttribute('data-station'),
+      x1: from.left + from.width / 2,
+      y1: from.top + from.height / 2,
+      x2: to.left + to.width / 2,
+      y2: to.top + to.height / 2
+    };
+  });
+  await page.mouse.move(dragged.x1, dragged.y1);
+  await page.mouse.down();
+  await page.mouse.move(dragged.x2, dragged.y2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction(function (key) {
+    var tile = document.querySelector('#circuit-board [data-person="' + key + '"]');
+    return !!tile;
+  }, {}, dragged.key);
+  await page.click('[data-act=start-class]');
   await page.waitForFunction(function () { return /#\/circuits\/[^/?]+\/run(?:\?|$)/.test(location.hash); });
   await page.waitForSelector('#circuit-live:not([data-track])');
-  await page.click('#back');
-  await page.waitForFunction(function () { return location.hash === '#/programs'; });
+  await page.waitForFunction(function () {
+    var bench = document.querySelector('.circuit-bench');
+    return bench && bench.innerText.indexOf('Ben') !== -1;
+  });
+  await page.evaluate(function () { location.hash = '#/circuits'; });
   await page.evaluate(function () { location.hash = '#/circuits'; });
   await page.waitForSelector('#circuit-new');
 

@@ -1122,6 +1122,32 @@
         return res.data || [];
       });
     },
+    saveCircuitInvites: function (entry) {
+      if (!entry || !isUuid(entry.ownerId) || !entry.id) return Promise.resolve(false);
+      var ids = [];
+      (Array.isArray(entry.invites) ? entry.invites : []).forEach(function (id) {
+        if (isUuid(id) && ids.indexOf(id) < 0) ids.push(id);
+      });
+      return db().then(function (c) {
+        return c.from('circuit_placement_invites').delete().eq('trainer_id', entry.ownerId).eq('placement_id', entry.id).then(function (cleared) {
+          var msg = cleared && cleared.error && (cleared.error.message || cleared.error.code || '');
+          if (cleared && cleared.error && /schema cache|could not find|does not exist|PGRST|42P01/i.test(String(msg))) return false;
+          if (cleared && cleared.error) throw cleared.error;
+          if (!ids.length) return true;
+          return c.from('circuit_placement_invites').insert(ids.map(function (id) {
+            return { trainer_id: entry.ownerId, placement_id: entry.id, client_id: id };
+          }));
+        });
+      }).then(function (res) {
+        if (res === false) return false;
+        if (res && res.error) {
+          var msg = res.error.message || res.error.code || '';
+          if (/schema cache|could not find|does not exist|PGRST|42P01/i.test(String(msg))) return false;
+          throw res.error;
+        }
+        return true;
+      }, function () { return false; });
+    },
     circuitGuestPlacements: function (clientId) {
       if (!isUuid(clientId)) return Promise.resolve([]);
       return db().then(function (c) {
@@ -1343,6 +1369,7 @@
       'Add a station.',
       'The grid is full.',
       'Choose an exercise for every station.',
+      'Name every station before saving.',
       'Tap every station to close the loop.',
       'Two stations are on the same square.',
       'Move that station onto the grid.',

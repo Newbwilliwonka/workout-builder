@@ -56,7 +56,7 @@ assert.strictEqual(C.visibleRows([{ row: 5 }]), 6);
     assert.strictEqual(added.ok, true);
     narrow = added.circuit;
   }
-  assert.deepStrictEqual(narrow.stations.map(function (s) { return s.col + ',' + s.row; }), ['0,0', '1,0', '2,0', '0,1']);
+  assert.deepStrictEqual(narrow.stations.map(function (s) { return s.col + ',' + s.row; }), ['0,0', '1,0', '2,0', '2,1']);
   assert.strictEqual(C.visibleRows(narrow.stations), 3);
 })();
 assert.strictEqual(C.loopComplete(six.stations, six.order), true);
@@ -151,6 +151,7 @@ assert.strictEqual(saved.data.clock.workSec, 45);
 assert.strictEqual(saved.data.clock.moveSec, 15);
 assert.strictEqual(saved.data.clock.rounds, 6);
 assert.strictEqual(saved.data.stations.length, 6);
+assert.ok(!saved.data.clients);
 assert.ok(!('reps' in saved.data));
 assert.ok(!('weight' in saved.data));
 saved.data.stations.forEach(function (station) {
@@ -162,7 +163,7 @@ assert.strictEqual(opened.ok, true);
 assert.strictEqual(opened.value.id, ROW);
 assert.deepStrictEqual(opened.value.stations, saved.data.stations);
 assert.deepStrictEqual(opened.value.order, saved.data.order);
-assert.deepStrictEqual(C.summary(opened.value), { name: 'Saturday class', stations: 6, clients: 2 });
+assert.deepStrictEqual(C.summary(opened.value), { name: 'Saturday class', stations: 6, clients: 0 });
 
 assert.strictEqual(C.guard(C.blank()).ok, false);
 assert.ok(C.guard(Object.assign({}, ready, { name: '' })).errors.indexOf('Name this circuit.') >= 0);
@@ -196,7 +197,8 @@ assert.ok(C.guard(badClock).errors.indexOf('Enter the move time.') >= 0);
 
 const mailed = build(1);
 mailed.clients = [{ source: 'manual', name: 'a@b.com' }];
-assert.ok(C.guard(mailed).errors.indexOf('Name every client.') >= 0);
+assert.strictEqual(C.guard(mailed).ok, true);
+assert.ok(!C.toPayload(mailed).data.clients);
 
 const huge = build(1);
 huge.blob = 'x'.repeat(C.DATA_MAX + 1);
@@ -204,7 +206,7 @@ assert.ok(C.guard(huge).errors.indexOf('This circuit is too large.') >= 0);
 
 const emptyExercise = build(1);
 emptyExercise.stations[0].exercise = null;
-assert.ok(C.guard(emptyExercise).errors.indexOf('Choose an exercise for every station.') >= 0);
+assert.ok(C.guard(emptyExercise).errors.indexOf('Name every station before saving.') >= 0);
 
 function cellGrid(cols, rows) {
   const size = 100;

@@ -264,7 +264,9 @@
     return h;
   }
   function ready() {
-    return !!(doc && model().assignmentReady(doc.clients, assigned));
+    if (!doc) return false;
+    if (!doc.clients || !doc.clients.length) return true;
+    return model().assignmentReady(doc.clients, assigned);
   }
   function paintClock() {
     if (!state || !doc) return;
@@ -747,14 +749,27 @@
     ctx.app.innerHTML = '<div class="errs">' + esc(message) + '</div><button type="button" id="circuit-back-miss">Back</button>';
     ctx.app.onclick = function () { if (ctx) ctx.go(fromCalendar() ? '#/programs' : '#/circuits'); };
   }
+  function takeClass(id) {
+    try {
+      var raw = localStorage.getItem('wb.circuit.class');
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || String(parsed.circuitId) !== String(id)) return null;
+      localStorage.removeItem('wb.circuit.class');
+      return parsed;
+    } catch (e) { return null; }
+  }
   function load(id) {
     var token = ++loadToken;
-    if (tracking) {
+    var handoff = tracking ? takeClass(id) : null;
+    if (tracking && !handoff) {
       var snap = readStore();
-      if (snap && String(snap.circuitId) === String(id) && snap.doc && (snap.mode === 'place' || snap.mode === 'live')) {
+      if (snap && String(snap.circuitId) === String(id) && snap.doc && snap.mode === 'live') {
         restore(snap);
         return;
       }
+      if (ctx) ctx.go('#/circuits/' + encodeURIComponent(id) + '/prepare' + (fromCalendar() ? '?from=calendar' : ''));
+      return;
     }
     if (!ctx) return;
     ctx.titleEl.textContent = 'Group Circuit Training';
@@ -777,6 +792,12 @@
       running = false;
       selected = '';
       record = null;
+      if (handoff && Array.isArray(handoff.clients)) {
+        doc.clients = handoff.clients;
+        assigned = handoff.assigned || {};
+        onStart();
+        return;
+      }
       paint();
     }, function (err) {
       if (token !== loadToken || !ctx) return;

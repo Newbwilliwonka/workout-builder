@@ -196,8 +196,7 @@
   function choiceMeta(w) {
     if (w && w.circuit) {
       var stations = Number(w.stations) || 0;
-      var clients = Number(w.clients) || 0;
-      return stations + ' station' + (stations === 1 ? '' : 's') + ' · ' + clients + ' client' + (clients === 1 ? '' : 's');
+      return stations + ' station' + (stations === 1 ? '' : 's');
     }
     var n = (w && w.items || []).length;
     return n + ' exercise' + (n === 1 ? '' : 's');
@@ -322,8 +321,14 @@
       if (cleared && persist) persist();
     }
   }
+  function syncInvites(row) {
+    if (!row || !options || !options.saveInvites || !markerCircuitId(row.items)) return;
+    var copy = Object.assign({}, row, { invites: Array.isArray(row.invites) ? row.invites : [] });
+    Promise.resolve().then(function () { return options.saveInvites(copy); }).then(function () {}, function () {});
+  }
   function dropRemote(row) {
     if (!row || !options.deleteEntry || !P.isUuid(row.ownerId)) return;
+    if (markerCircuitId(row.items)) syncInvites(Object.assign({}, row, { invites: [] }));
     Promise.resolve().then(function () { return options.deleteEntry(row); }).then(function () {
       if (state) state.remote = '';
     }, function (err) {
@@ -895,6 +900,24 @@
     });
     return list;
   }
+  function inviteHtml(sheet, target) {
+    var workout = workoutById(sheet.workoutId);
+    if (!workout || !workout.circuit || !ownerIsSelf(target)) return '';
+    var picked = {};
+    (sheet.invites || []).forEach(function (id) { if (id) picked[id] = 1; });
+    var h = '<div class="pv-invites" id="pv-invites" role="group" aria-label="Invite clients">';
+    var any = false;
+    (state.clients || []).forEach(function (client) {
+      if (!clientShown(client)) return;
+      var name = clientVisible(client);
+      if (!name || name.indexOf('@') !== -1) name = 'Client';
+      var on = !!picked[client.id];
+      any = true;
+      h += '<button type="button" class="pv-invite' + (on ? ' on' : '') + '" data-invite="' + esc(client.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + esc(name) + '</button>';
+    });
+    if (!any) return '';
+    return h + '</div>';
+  }
   function addSheetHtml() {
     var sheet = state.sheet;
     var target = viewingAll() ? (sheet.ownerId || selfId()) : ownerId();
@@ -921,6 +944,7 @@
       });
       h += '</div>';
     }
+    h += inviteHtml(sheet, target);
     h += presenceChoice('pv-presence', sheet.presence || '', '') +
       timeField('start', sheet.startH, sheet.startM, sheet.startAp) +
       timeField('end', sheet.endH, sheet.endM, sheet.endAp);
@@ -1212,6 +1236,7 @@
       error: '',
       bad: null,
       ownerId: viewingAll() ? (state.userId || 'self') : '',
+      invites: [],
       returnTo: fromList ? 'list' : ''
     };
     state.hint = '';
@@ -1280,6 +1305,7 @@
     }
     if (!canEditOwner(owner)) { sheet.error = 'You cannot add to that calendar.'; render(); return; }
     if (workout.circuit && !ownerIsSelf(owner)) { sheet.error = 'You cannot add to that calendar.'; render(); return; }
+    var invites = (workout.circuit && ownerIsSelf(owner) && Array.isArray(sheet.invites)) ? sheet.invites.slice() : [];
     var placed = P.place(data().programs, {
       id: window.WB.uid('pg'),
       ownerId: owner,
@@ -1289,7 +1315,8 @@
       date: sheet.date,
       start: times.start,
       end: times.end,
-      presence: sheet.presence
+      presence: sheet.presence,
+      invites: invites
     });
     if (placed.duplicate) { sheet.error = 'That workout is already on this day.'; render(); return; }
     if (!placed.created) { sheet.error = placed.error || 'Pick a workout.'; render(); return; }
@@ -1300,6 +1327,7 @@
     state.month = sheet.date.slice(0, 7);
     savePrograms(placed.programs, 'Saved on this device.');
     pushRemote(placed.created);
+    syncInvites(placed.created);
     if (backTo) state.sheet = { type: 'list', date: backTo };
     render();
   }
@@ -1685,7 +1713,7 @@
         return;
       }
       if (options && options.go) {
-        options.go('#/circuits/' + encodeURIComponent(circuit.id) + (mode === 'view' ? '/view' : '/run') + '?from=calendar');
+        options.go('#/circuits/' + encodeURIComponent(circuit.id) + (mode === 'view' ? '/view' : '/prepare') + '?from=calendar');
       }
       return;
     }
@@ -2005,6 +2033,17 @@
       return;
     }
     if (e.target.closest('#pv-gcal-reset-confirm')) return;
+    var invite = e.target.closest('[data-invite]');
+    if (invite && state.sheet && state.sheet.type === 'add') {
+      var inviteId = invite.getAttribute('data-invite');
+      var list = (state.sheet.invites || []).slice();
+      var at = list.indexOf(inviteId);
+      if (at >= 0) list.splice(at, 1);
+      else list.push(inviteId);
+      state.sheet.invites = list;
+      render();
+      return;
+    }
     var pick = e.target.closest('[data-pick]');
     if (pick && state.sheet && state.sheet.type === 'add') {
       readSheetTimes();

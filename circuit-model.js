@@ -149,8 +149,10 @@
     (stations || []).forEach(function (s) {
       if (s && typeof s.col === 'number' && typeof s.row === 'number') used[s.col + ',' + s.row] = 1;
     });
+    var snake = width === 3;
     for (var r = 0; r < ROWS; r++) {
-      for (var c = 0; c < width; c++) {
+      for (var i = 0; i < width; i++) {
+        var c = (snake && r % 2 === 1) ? (width - 1 - i) : i;
         if (!used[c + ',' + r]) return { col: c, row: r };
       }
     }
@@ -315,7 +317,8 @@
     (Array.isArray(doc.stations) ? doc.stations : []).forEach(function (station) {
       if (!station || typeof station !== 'object') { errors.push('That circuit could not be saved.'); return; }
       if (!exactKeys(station, ['id', 'col', 'row', 'exercise'])) errors.push('That circuit could not be saved.');
-      if (!exerciseKeysOk(station.exercise)) errors.push('Choose an exercise for every station.');
+      if (station.exercise == null) errors.push('Name every station before saving.');
+      else if (!exerciseKeysOk(station.exercise)) errors.push('Choose an exercise for every station.');
       var id = String(station.id || '');
       if (!STATION_ID.test(id) || seenIds[id]) errors.push('That circuit could not be saved.');
       var col = integer(station.col, 0, COLS - 1);
@@ -323,8 +326,8 @@
       if (col == null || row == null) errors.push('Move that station onto the grid.');
       else if (positions[col + ',' + row]) errors.push('Two stations are on the same square.');
       else positions[col + ',' + row] = 1;
-      var exercise = normalizeExercise(station.exercise);
-      if (!exercise) errors.push('Choose an exercise for every station.');
+      var exercise = station.exercise == null ? null : normalizeExercise(station.exercise);
+      if (station.exercise != null && !exercise) errors.push('Choose an exercise for every station.');
       if (STATION_ID.test(id)) seenIds[id] = 1;
       if (exercise && col != null && row != null && STATION_ID.test(id) && !stations.some(function (s) { return s.id === id; })) {
         stations.push({ id: id, col: col, row: row, exercise: exercise });
@@ -339,34 +342,6 @@
     } else {
       doc.order.forEach(function (id) { order.push(String(id)); });
     }
-    if (!Array.isArray(doc.clients)) errors.push('That circuit could not be saved.');
-    var clients = [];
-    var linked = {};
-    var manuals = {};
-    (Array.isArray(doc.clients) ? doc.clients : []).forEach(function (client) {
-      if (!client || typeof client !== 'object') { errors.push('That circuit could not be saved.'); return; }
-      if (client.source === 'linked') {
-        if (!exactKeys(client, ['source', 'id', 'name'])) errors.push('That circuit could not be saved.');
-        var id = String(client.id || '');
-        var shown = clean(client.name);
-        if (!UUID.test(id) || !shown || shown.indexOf('@') !== -1 || shown.length > NAME_MAX) errors.push('Name every client.');
-        else if (linked[id]) errors.push('That client is already on this circuit.');
-        else {
-          linked[id] = 1;
-          clients.push({ source: 'linked', id: id, name: shown });
-        }
-      } else if (client.source === 'manual') {
-        if (!exactKeys(client, ['source', 'name'])) errors.push('That circuit could not be saved.');
-        var manual = clean(client.name);
-        if (!manual || manual.indexOf('@') !== -1 || manual.length > NAME_MAX) errors.push('Name every client.');
-        else if (manuals[manual.toLowerCase()]) errors.push('That client is already on this circuit.');
-        else {
-          manuals[manual.toLowerCase()] = 1;
-          clients.push({ source: 'manual', name: manual });
-        }
-      } else errors.push('That circuit could not be saved.');
-    });
-    if (clients.length > CLIENT_MAX) errors.push('Too many clients.');
     var clockIn = doc.clock;
     var clock = null;
     if (!clockIn || typeof clockIn !== 'object' || Array.isArray(clockIn)) errors.push('Enter the work time.');
@@ -381,9 +356,9 @@
       if (workSec != null && moveSec != null && rounds != null) clock = { workSec: workSec, moveSec: moveSec, rounds: rounds };
     }
     if (errors.length || !clock) return fail(errors);
-    var value = { name: name, stations: stations, order: order, clients: clients, clock: clock };
+    var value = { name: name, stations: stations, order: order, clock: clock };
     if (doc.id) value.id = String(doc.id);
-    if (bytesOf({ stations: stations, order: order, clients: clients, clock: clock }) > DATA_MAX) {
+    if (bytesOf({ stations: stations, order: order, clock: clock }) > DATA_MAX) {
       return fail(['This circuit is too large.']);
     }
     return { ok: true, errors: [], value: value };
@@ -519,7 +494,6 @@
       data: {
         stations: checked.value.stations,
         order: checked.value.order,
-        clients: checked.value.clients,
         clock: checked.value.clock
       }
     };
@@ -532,7 +506,6 @@
       name: row.name,
       stations: data.stations,
       order: data.order,
-      clients: data.clients,
       clock: data.clock
     });
   }
