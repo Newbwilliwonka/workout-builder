@@ -23,12 +23,10 @@ const FEATURES = [
 const SHOTS = [
   'assets/landing/team-drills.jpg',
   'assets/landing/team-gym.jpg',
-  'assets/landing/feature-3.jpg',
-  'assets/landing/feature-4.jpg',
-  'assets/landing/feature-5.jpg',
-  'assets/landing/feature-6.jpg',
-  'assets/landing/feature-7.jpg'
+  'assets/landing/feature-3.jpg'
 ];
+// Features after the photos are text-only cards.
+const TEXT_ONLY = FEATURES.slice(SHOTS.length);
 
 assert.ok(html.indexOf('<title>' + TITLE + '</title>') !== -1);
 assert.ok(html.indexOf('<meta name="description" content="' + DESCRIPTION + '">') !== -1);
@@ -47,6 +45,11 @@ const srcs = [];
 landing.replace(/<img src="([^"]+)"/g, function (_, src) { srcs.push(src); return _; });
 assert.deepStrictEqual(srcs, SHOTS);
 assert.strictEqual(landing.split('loading="lazy"').length - 1, SHOTS.length);
+assert.strictEqual(landing.split('class="landing-frame"').length - 1, SHOTS.length);
+TEXT_ONLY.forEach(function (text) {
+  assert.ok(landing.indexOf('<section class="landing-feature is-text"><h2>' + text + '</h2></section>') !== -1, text);
+});
+assert.ok(landing.indexOf('feature-4') === -1 && landing.indexOf('feature-7') === -1);
 assert.strictEqual(landing.split('>Sign up / Sign in</a>').length - 1, 2);
 assert.strictEqual(landing.split('href="#/signin"').length - 1, 2);
 assert.ok(landing.indexOf('Coach Trainer <b>App</b>') !== -1);
@@ -58,6 +61,7 @@ assert.ok(shotStart > 0 && shotEnd > shotStart);
 SHOTS.forEach(function (shot) {
   assert.ok(appSrc.slice(shotStart, shotEnd).indexOf("'" + shot + "'") !== -1, shot);
 });
+assert.strictEqual(appSrc.slice(shotStart, shotEnd).split('assets/landing/').length - 1, SHOTS.length);
 const plansStart = appSrc.indexOf('function landingPlansHtml(');
 const plansEnd = appSrc.indexOf('function fillLandingPlans(');
 assert.ok(plansStart > 0 && plansEnd > plansStart);
@@ -131,7 +135,11 @@ Mem.TIERS.forEach(function (tier) {
         shell: edges(shell),
         feats: edges(document.querySelector('.landing-features')),
         plans: edges(document.getElementById('landing-plans')),
-        end: edges(document.querySelector('.landing-end'))
+        end: edges(document.querySelector('.landing-end')),
+        cards: Array.prototype.map.call(document.querySelectorAll('.landing-feature.is-text'), function (el) {
+          var h = el.querySelector('h2');
+          return { edges: edges(el), kids: el.children.length, h2Margin: getComputedStyle(h).marginBottom, radius: getComputedStyle(el).borderRadius, bg: getComputedStyle(el).backgroundColor };
+        })
       };
     }
     await page.goto(URL, { waitUntil: 'networkidle0' });
@@ -200,6 +208,14 @@ Mem.TIERS.forEach(function (tier) {
     assert.ok(phoneInset.feats.left >= 16 && phoneInset.feats.left <= 24, 'phone feature inset ' + phoneInset.feats.left);
     assert.deepStrictEqual(phoneInset.plans, phoneInset.feats);
     assert.deepStrictEqual(phoneInset.end, phoneInset.feats);
+    assert.strictEqual(phoneInset.cards.length, TEXT_ONLY.length);
+    phoneInset.cards.forEach(function (card) {
+      assert.deepStrictEqual(card.edges, phoneInset.feats);
+      assert.strictEqual(card.kids, 1);
+      assert.strictEqual(card.h2Margin, '0px');
+      assert.strictEqual(card.radius, '14px');
+      assert.strictEqual(card.bg, 'rgb(255, 255, 255)');
+    });
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     const deskInset = await page.evaluate(landingInset);
     assert.strictEqual(deskInset.max, '1100px');
@@ -208,6 +224,8 @@ Mem.TIERS.forEach(function (tier) {
     assert.deepStrictEqual(deskInset.plans, deskInset.feats);
     assert.deepStrictEqual(deskInset.end, deskInset.feats);
     assert.ok(deskInset.feats.left >= deskInset.shell.left);
+    assert.strictEqual(deskInset.cards.length, TEXT_ONLY.length);
+    deskInset.cards.forEach(function (card) { assert.deepStrictEqual(card.edges, deskInset.feats); });
     await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
     assert.strictEqual(seen.frames.length, SHOTS.length);
     seen.frames.forEach(function (frame, i) {
@@ -228,9 +246,11 @@ Mem.TIERS.forEach(function (tier) {
       });
     });
     assert.strictEqual(shots[0].missing, false);
-    assert.ok(shots[0].width > 0 && shots[1].width > 0 && shots[2].width > 0);
-    assert.strictEqual(shots[2].missing, false);
-    shots.slice(3).forEach(function (shot, i) { assert.strictEqual(shot.missing, true, SHOTS[i + 3]); });
+    assert.strictEqual(shots.length, SHOTS.length);
+    shots.forEach(function (shot, i) {
+      assert.strictEqual(shot.missing, false, SHOTS[i]);
+      assert.ok(shot.width > 0, SHOTS[i]);
+    });
     Mem.TIERS.forEach(function (tier) {
       assert.ok(seen.text.indexOf(tier.name) !== -1, tier.name);
       assert.ok(seen.text.indexOf(tier.priceLabel) !== -1, tier.priceLabel);
