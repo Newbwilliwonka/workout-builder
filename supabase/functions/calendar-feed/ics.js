@@ -133,9 +133,9 @@ export function buildIcs(feed, now) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Coach Trainer//Program Calendar//EN',
+    'PRODID:-//Coach Trainer//Workout Calendar//EN',
     'CALSCALE:GREGORIAN',
-    'X-WR-CALNAME:Calendar'
+    'X-WR-CALNAME:Workout Calendar'
   ];
   if (zone) lines.push('X-WR-TIMEZONE:' + zone);
   lines.push('REFRESH-INTERVAL;VALUE=DURATION:PT4H');
