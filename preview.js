@@ -714,7 +714,8 @@
     var items = onDay(date);
     var extras = unscheduledFor(date);
     var tracked = sessions();
-    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">';
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">' +
+      '<div class="pv-grab" data-sheet-grab="1" role="button" aria-label="Close"></div>';
     h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3>';
     if (!items.length && !extras.length) h += '<p class="mute" id="pv-empty-day">No workouts scheduled</p>';
     var rows = '';
@@ -734,14 +735,16 @@
     if (state.sheet.loggedId) return loggedSheetHtml();
     var row = entryById(state.sheet.entryId);
     var actions = row ? P.entryMenu(contextForOwner(row.ownerId)) : [];
-    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">';
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">' +
+      '<div class="pv-grab" data-sheet-grab="1" role="button" aria-label="Close"></div>';
     if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
     else h += dayWorkoutHtml(row, actions);
     return h + '</div></div>';
   }
   function loggedSheetHtml() {
     var row = loggedById(state.sheet.loggedId);
-    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">';
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">' +
+      '<div class="pv-grab" data-sheet-grab="1" role="button" aria-label="Close"></div>';
     if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
     else {
       var name = loggedName(row);
@@ -1315,8 +1318,28 @@
     if (!under || !under.closest) return null;
     return under.closest('.pv-day') || under.closest('.pv-cell[data-date]');
   }
+  function startSheetGrab(e) {
+    if (!state || !state.sheet) return;
+    var startY = e.clientY;
+    var card = e.target.closest('.pv-sheet-card');
+    function move(ev) {
+      var dy = Math.max(0, ev.clientY - startY);
+      if (card) card.style.transform = 'translateY(' + dy + 'px)';
+    }
+    function up(ev) {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', up);
+      if (card) card.style.transform = '';
+      if (ev.clientY - startY > 48) closeSheetLayer();
+    }
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+  }
   function onPointerDown(e) {
     if (e.button != null && e.button !== 0) return;
+    if (e.target.closest && e.target.closest('[data-sheet-grab]')) { startSheetGrab(e); return; }
     if (e.target.closest('[data-presence], #pv-sheet, input, select, textarea, button')) return;
     var handle = e.target.closest('[data-drag]');
     if (!handle) return;

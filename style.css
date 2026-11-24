@@ -517,6 +517,9 @@ body.pv-on main{max-width:1240px;padding-bottom:32px}
 .pv-presence-opt input{position:absolute;opacity:0;width:1px;height:1px}
 .pv-presence-opt input{width:20px;height:20px;min-height:20px;margin:0;flex:none}
 .pv-sheet-card::before{content:"";display:block;width:36px;height:4px;border-radius:3px;background:#d1d5db;margin:0 auto 6px;flex:none}
+.pv-grab{display:block;width:44px;height:18px;margin:0 auto 2px;flex:none;touch-action:none;position:relative;cursor:grab}
+.pv-grab:before{content:"";display:block;width:36px;height:4px;border-radius:3px;background:#d1d5db;margin:6px auto 0}
+.pv-sheet-card:has(.pv-grab)::before{display:none}
 .client-pill{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;background:#fff;border:1px solid #d1d5db;border-radius:12px;margin-bottom:8px}
 .client-pill label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .client-pill::before{content:"Client:";font-weight:400;color:var(--ink);white-space:nowrap}

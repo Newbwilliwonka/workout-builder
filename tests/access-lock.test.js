@@ -441,6 +441,39 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   assert.strictEqual(await card.evaluate(() => sessionStorage.getItem('wb.invite')), null);
   assert.strictEqual(await card.evaluate(() => window.__cardRedeemed), 1);
 
+  const slow = await open(
+    { user: { id: 'slow-gate', email: 'kinisiathletics@gmail.com' } },
+    { id: 'slow-gate', email: 'kinisiathletics@gmail.com', membership: 'none', intended_plan: null, access_approved: true }
+  );
+  await seed(slow);
+  await slow.goto(URL + '#/subscriptions');
+  await slow.waitForSelector('#level-lock');
+  await slow.evaluate(function () {
+    var read = window.WBAuth.profile.bind(window.WBAuth);
+    window.WBAuth.profile = function () {
+      return new Promise(function (resolve) {
+        setTimeout(function () { Promise.resolve(read()).then(resolve); }, 400);
+      });
+    };
+    window.__navDuringLoad = [];
+    var obs = new MutationObserver(function () {
+      if (location.hash.indexOf('#/subscriptions') !== 0) return;
+      var links = document.getElementById('nav-links');
+      window.__navDuringLoad.push({
+        hidden: !!(links && links.hidden),
+        lock: !!document.getElementById('level-lock')
+      });
+    });
+    obs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+    location.hash = '#/subscriptions?loading=1';
+  });
+  await slow.waitForFunction(function () {
+    return location.hash === '#/subscriptions?loading=1' && document.getElementById('level-lock') && document.getElementById('nav-links').hidden;
+  });
+  const during = await slow.evaluate(function () { return window.__navDuringLoad; });
+  assert.ok(during.some(function (row) { return row.hidden && !row.lock; }), 'nav showed before the plan gate finished loading');
+  assert.ok(during.every(function (row) { return row.hidden; }), JSON.stringify(during));
+
   assert.deepStrictEqual(errs, []);
   console.log('ACCESS LOCK OK');
   await b.close();

@@ -312,6 +312,26 @@ function today() {
   await page.waitForSelector('#pv-day-sheet');
   await page.evaluate(() => document.getElementById('pv-sheet').click());
   await page.waitForFunction(() => !document.getElementById('pv-sheet') && (!history.state || history.state.wbProgramsOverlay !== 1));
+
+  await page.click('.pv-day.today .pv-day-h');
+  await page.waitForSelector('[data-sheet-grab]');
+  assert.strictEqual(await page.$eval('#back', function (el) { return el.hidden; }), true);
+  await page.evaluate(function () {
+    var grab = document.querySelector('[data-sheet-grab]');
+    var box = grab.getBoundingClientRect();
+    var x = box.left + box.width / 2;
+    var y = box.top + 4;
+    grab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: x, clientY: y + 80, pointerId: 1 }));
+    document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y + 80, pointerId: 1 }));
+  });
+  await page.waitForFunction(function () { return !document.getElementById('pv-day-sheet'); });
+
+  await page.click('.pv-day.today .pv-day-h');
+  await page.waitForSelector('#pv-day-sheet');
+  assert.strictEqual(await page.$eval('#back', function (el) { return el.hidden; }), true);
+  await page.evaluate(function () { return window.WBPreview.back(); });
+  await page.waitForFunction(function () { return !document.getElementById('pv-day-sheet'); });
   await page.evaluate(() => history.back());
   await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && !document.getElementById('pv-day-sheet'));
 

@@ -252,6 +252,7 @@
     if (!auth || !auth.trainerRequestDecide) return;
     Promise.resolve().then(function () { return auth.trainerRequestDecide(id, approve); }).then(function () {
       if (ctx && ctx.toast) ctx.toast(approve ? 'Approved. They can message you for 7 days.' : 'Declined.');
+      if (ctx && ctx.onBadges) ctx.onBadges();
       loadThreads(true);
     }, function (err) {
       if (ctx && ctx.toast) ctx.toast((err && err.message) || 'Could not update that request.');
@@ -392,7 +393,9 @@
     });
     if (!fresh.length) return;
     fresh.forEach(function (mid) { marked[mid] = 1; });
-    auth.markRead(id).catch(function () {
+    Promise.resolve(auth.markRead(id)).then(function () {
+      if (ctx && ctx.onBadges) ctx.onBadges();
+    }, function () {
       fresh.forEach(function (mid) { delete marked[mid]; });
     });
   }

@@ -88,13 +88,10 @@
   function hashPage() { return hashBody().split('/')[0]; }
   backBtn.onclick = function () {
     var page = hashPage();
+    if ((page === 'programs' || page === 'preview') && window.WBPreview && WBPreview.back()) return;
     if (backBtn.hidden) return;
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') return;
-    if (page === 'subscriptions' && backBtn.hidden) return;
-    if (page === 'programs' || page === 'preview') {
-      if (window.WBPreview && WBPreview.back()) return;
-      return go('#/');
-    }
+    if (page === 'programs' || page === 'preview') return go('#/');
     if (page === 'tracking') {
       var backTail = hashBody().split('/');
       if (backTail[1] === 'dashboard' && backTail[2]) return go('#/tracking/dashboard');
@@ -2183,7 +2180,10 @@
     var parts = hashBody().split('/');
     var live = page === 'circuits' && parts[2] === 'run';
     var player = page === 'play' || page === 'view' || document.body.classList.contains('playing');
-    var gate = page === 'subscriptions' && !!document.getElementById('level-lock');
+    var gate = page === 'subscriptions' && (
+      !!document.getElementById('level-lock') ||
+      !(window.WBMembership && WBMembership.hasDesignated(cachedProfile))
+    );
     var links = document.getElementById('nav-links');
     var me = document.getElementById('account-me');
     var showMe = !bare && !player && !live && !gate && !profileGateOn && !!signedInNow;
@@ -2209,6 +2209,7 @@
     }
     syncHeaderSignOut();
     paintReceivedDot();
+    refreshRequestBadges();
   }
   function signOutFromAccount() {
     var from = hashPage();
@@ -2888,12 +2889,13 @@
       badge.setAttribute('aria-label', count === 1 ? '1 request' : (count + ' requests'));
     });
   }
+  var badgeGen = 0;
   function refreshRequestBadges() {
     if (!window.WBProfile || !WBProfile.canListInSearch || !WBProfile.canListInSearch(cachedProfile)) return;
     if (!window.WBAuth || !WBAuth.trainerRequestCount) return;
-    var token = routeToken;
+    var gen = ++badgeGen;
     Promise.resolve().then(function () { return WBAuth.trainerRequestCount(); }).then(function (n) {
-      if (token !== routeToken) return;
+      if (gen !== badgeGen) return;
       paintRequestBadges(n);
     }, function () {});
   }
@@ -3281,7 +3283,10 @@
       if (token !== routeToken || location.hash !== requested) return;
       if (!session) return goSignedOutHome();
       if (!window.WBMessages) return;
-      WBMessages.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast });
+      WBMessages.mount({
+        app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast,
+        onBadges: function () { refreshRequestBadges(); }
+      });
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
       go('#/signin');
