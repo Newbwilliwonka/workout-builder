@@ -431,7 +431,7 @@
     if (mode === 'live' && running) raf = requestAnimationFrame(frame);
   }
   function persist() {
-    if (!doc || mode === 'summary') return;
+    if (!tracking || !doc || mode === 'summary') return;
     try {
       localStorage.setItem(KEY, JSON.stringify({
         circuitId: doc.id || '',
@@ -461,7 +461,13 @@
     } catch (e) { return null; }
   }
   function clearStore() {
+    if (!tracking) return;
     try { localStorage.removeItem(KEY); } catch (e) {}
+  }
+  function fromCalendar() {
+    var q = '';
+    try { q = String(location.hash || '').split('?')[1] || ''; } catch (e) {}
+    return /(^|&)from=calendar(&|$)/.test(q);
   }
   function armSchedule() {
     var C = model();
@@ -739,14 +745,16 @@
     ctx.titleEl.textContent = 'Group Circuit Training';
     ctx.backBtn.hidden = false;
     ctx.app.innerHTML = '<div class="errs">' + esc(message) + '</div><button type="button" id="circuit-back-miss">Back</button>';
-    ctx.app.onclick = function () { if (ctx) ctx.go('#/circuits'); };
+    ctx.app.onclick = function () { if (ctx) ctx.go(fromCalendar() ? '#/programs' : '#/circuits'); };
   }
   function load(id) {
     var token = ++loadToken;
-    var snap = readStore();
-    if (snap && String(snap.circuitId) === String(id) && snap.doc && (snap.mode === 'place' || snap.mode === 'live')) {
-      restore(snap);
-      return;
+    if (tracking) {
+      var snap = readStore();
+      if (snap && String(snap.circuitId) === String(id) && snap.doc && (snap.mode === 'place' || snap.mode === 'live')) {
+        restore(snap);
+        return;
+      }
     }
     if (!ctx) return;
     ctx.titleEl.textContent = 'Group Circuit Training';
@@ -811,9 +819,10 @@
     if (!ctx) return false;
     var parts = hashParts();
     if (parts[0] !== 'circuits' || (parts[2] !== 'run' && parts[2] !== 'view')) return false;
-    if (mode === 'summary') { ctx.go('#/circuits'); return true; }
+    if (mode === 'summary') { ctx.go(fromCalendar() ? '#/programs' : '#/circuits'); return true; }
     if (mode === 'live') { onEnd(); return true; }
     clearStore();
+    if (fromCalendar()) { ctx.go('#/programs'); return true; }
     ctx.go(doc && doc.id ? '#/circuits/' + doc.id : '#/circuits');
     return true;
   }

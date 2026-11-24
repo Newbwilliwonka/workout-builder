@@ -177,8 +177,19 @@
     if (!snap) return null;
     return { id: String(id), name: snap.workoutName || 'Circuit', circuit: true, items: snap.items, stations: 0, clients: 0 };
   }
-  function scheduleChoices() {
-    return workouts().concat(circuitChoices());
+  function selfId() { return (state && state.userId) || 'self'; }
+  function ownerIsSelf(owner) {
+    var self = selfId();
+    return !owner || owner === 'self' || owner === self;
+  }
+  function choicesFor(owner) {
+    var list = workouts();
+    if (ownerIsSelf(owner)) return list.concat(circuitChoices());
+    return list;
+  }
+  function railChoices() {
+    if (!state || viewingAll()) return workouts();
+    return choicesFor(ownerId());
   }
   function choiceMeta(w) {
     if (w && w.circuit) {
@@ -643,7 +654,7 @@
     if (hidden) {
       return h + '<div class="card" id="pv-private"><div class="name">Not shared</div><p class="mute">This Enthusiast has turned off sharing. You cannot see or edit their program.</p></div></div>';
     }
-    var list = scheduleChoices();
+    var list = railChoices();
     h += '<div class="pv-layout" id="pv-layout"><section class="pv-workouts" id="pv-workouts" aria-label="Workouts"><h2 class="pv-h">Workouts</h2><div class="pv-rail" id="pv-rail">';
     if (!list.length) h += '<p class="mute">No workouts yet. Build one from the workout list, then drag it onto a day.</p>';
     list.forEach(function (row) { h += workoutCard(row); });
@@ -868,7 +879,8 @@
   }
   function addSheetHtml() {
     var sheet = state.sheet;
-    var list = scheduleChoices();
+    var target = viewingAll() ? (sheet.ownerId || selfId()) : ownerId();
+    var list = choicesFor(target);
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" role="dialog" aria-label="Add a workout">' +
       '<h3 class="name">Add a workout</h3><p class="mute">' + esc(prettyDate(sheet.date)) + '</p>';
     var targets = addTargets();
@@ -1249,6 +1261,7 @@
       owner = (picked && picked.value) || sheet.ownerId || state.userId || 'self';
     }
     if (!canEditOwner(owner)) { sheet.error = 'You cannot add to that calendar.'; render(); return; }
+    if (workout.circuit && !ownerIsSelf(owner)) { sheet.error = 'You cannot add to that calendar.'; render(); return; }
     var placed = P.place(data().programs, {
       id: window.WB.uid('pg'),
       ownerId: owner,
@@ -1482,7 +1495,10 @@
       return;
     }
     if (e.target.id === 'pv-add-who' && state.sheet && state.sheet.type === 'add') {
+      readSheetTimes();
       state.sheet.ownerId = e.target.value;
+      if (!ownerIsSelf(state.sheet.ownerId) && circuitById(state.sheet.workoutId)) state.sheet.workoutId = '';
+      render();
       return;
     }
     if (e.target.id !== 'pv-client') return;
@@ -1633,11 +1649,6 @@
   function playFrom(node, mode) {
     state.focusClientPlay = null;
     var workoutId = node.getAttribute(mode === 'view' ? 'data-view-wo' : 'data-run');
-    var circuit = circuitById(workoutId);
-    if (circuit && options && options.go) {
-      options.go('#/circuits/' + encodeURIComponent(circuit.id) + (mode === 'view' ? '/view' : '/run'));
-      return;
-    }
     var entryId = node.getAttribute('data-entry') || '';
     if (state.sheet && state.sheet.type === 'day' && canEdit() && entryId) {
       readSheetTimes();
@@ -1645,6 +1656,20 @@
       var row = entryById(entryId);
       var edited = draft && row && ((draft.start || '') !== (row.start || '') || (draft.end || '') !== (row.end || ''));
       if (edited && !saveEntryTimes(entryId)) return;
+    }
+    var circuit = circuitById(workoutId);
+    if (circuit) {
+      if (!P.isTrainer(state.role)) {
+        if (state.sheet) {
+          state.sheet.openError = 'Could not open that workout.';
+          render();
+        }
+        return;
+      }
+      if (options && options.go) {
+        options.go('#/circuits/' + encodeURIComponent(circuit.id) + (mode === 'view' ? '/view' : '/run') + '?from=calendar');
+      }
+      return;
     }
     if (mode === 'run' && !runnableWorkout(workoutId)) {
       if (options && options.toast) options.toast('Fill in every number before running this workout.');
