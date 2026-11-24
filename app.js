@@ -2260,10 +2260,14 @@
     if (!document.getElementById('profile-sheet')) return;
     closeProfileSheet(true);
   }
+  var profileBarTitle = '';
   function closeProfileSheet(force) {
     var el = document.getElementById('profile-sheet');
     if (!el) return;
     if (!force && el.getAttribute('data-required') === '1') return;
+    if (titleEl && titleEl.textContent === 'Profile' && profileBarTitle) titleEl.textContent = profileBarTitle;
+    var parked = document.querySelector('#app-bar #profile-cancel');
+    if (parked) parked.remove();
     if (window.WBPlaces && WBPlaces.destroyProfilePin) WBPlaces.destroyProfilePin();
     el.remove();
     profileSheetRequired = false;
@@ -2289,6 +2293,8 @@
     profile = profile || cachedProfile || {};
     profileSheetRequired = !!opts.required;
     if (profileSheetRequired) profileGateOn = true;
+    if (titleEl && titleEl.textContent !== 'Profile') profileBarTitle = titleEl.textContent;
+    if (titleEl) titleEl.textContent = 'Profile';
     profilePhotoBlob = null;
     if (profileObjectUrl) {
       try { URL.revokeObjectURL(profileObjectUrl); } catch (err) {}
@@ -2438,6 +2444,16 @@
         var photoEl = document.getElementById('profile-photo');
         if (url && photoEl && photoEl.isConnected && !profilePhotoBlob) photoEl.innerHTML = '<img alt="" src="' + esc(url) + '">';
       }).catch(function () {});
+    }
+    var cancelBtn = document.getElementById('profile-cancel');
+    var signOut = document.getElementById('account-signout');
+    if (cancelBtn && signOut && signOut.parentNode) {
+      signOut.parentNode.insertBefore(cancelBtn, signOut);
+      cancelBtn.addEventListener('click', function () { closeProfileSheet(true); });
+    }
+    if (nameEl && opts.required && !String(nameEl.value || '').replace(/^\s+|\s+$/g, '')) {
+      nameEl.classList.add('is-empty');
+      nameEl.setAttribute('aria-invalid', 'true');
     }
     if (nameEl && opts.required) {
       try { nameEl.focus(); } catch (err) {}

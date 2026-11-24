@@ -329,14 +329,14 @@
     if (bio.length > BIO_MAX) bio = bio.slice(0, BIO_MAX);
     var h = '<div class="pv-sheet" id="profile-sheet" data-required="' + (opts.required ? '1' : '0') + '">';
     h += '<div class="pv-sheet-card" role="dialog" aria-modal="true" aria-labelledby="profile-title">';
-    if (!opts.required) h += '<div class="profile-top"><button type="button" id="profile-cancel-top">Cancel</button></div>';
+    if (!opts.required) h += '<button type="button" id="profile-cancel" class="profile-bar-cancel">Cancel</button>';
     if (opts.required) h += '<p class="profile-note" id="profile-prompt">' + esc(PROMPT) + '</p>';
     h += '<div class="profile-scroll">';
     if (opts.verified && clean(opts.display_name)) h += '<h3 class="name" id="profile-title">' + nameHtml(opts.display_name, true) + '</h3>';
     else h += '<h3 class="name" id="profile-title">Profile</h3>';
     if (opts.unavailable) h += '<p class="errs" id="profile-unavailable">Profile details are not available yet. Apply the profile SQL in the Supabase SQL editor.</p>';
-    h += '<div class="avatar" id="profile-photo" aria-hidden="true">' + (opts.photoUrl ? '<img alt="" src="' + esc(opts.photoUrl) + '">' : personIcon()) + '</div>';
-    h += '<label class="file-btn">Upload photo<input id="profile-file" type="file" accept="image/*"></label>';
+    h += '<div class="profile-id"><div class="avatar" id="profile-photo" aria-hidden="true">' + (opts.photoUrl ? '<img alt="" src="' + esc(opts.photoUrl) + '">' : personIcon()) + '</div>';
+    h += '<label class="file-btn">Upload photo<input id="profile-file" type="file" accept="image/*"></label></div>';
     h += '<label for="profile-name">Name</label><input id="profile-name" maxlength="' + NAME_MAX + '" autocomplete="nickname" value="' + esc(opts.display_name || '') + '">';
     if (opts.master) {
       h += '<div id="verify-slot">';
@@ -376,7 +376,6 @@
     }
     h += '<p class="errs" id="profile-error" hidden>Fill in the highlighted fields.</p>';
     h += '<button type="button" class="pri" id="profile-save"' + (opts.unavailable ? ' disabled' : '') + '>Save</button>';
-    if (!opts.required) h += '<button type="button" id="profile-cancel">Cancel</button>';
     h += '</div></div></div>';
     return h;
   }

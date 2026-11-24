@@ -367,7 +367,7 @@ const ART = '/opt/cursor/artifacts';
       script: document.querySelector('#hub-post script, #hub-replies script')
     };
   });
-  assert.strictEqual(open.title, 'Saturday strength block');
+  assert.strictEqual(open.title, 'Trainer Hub');
   assert.ok(open.text.indexOf('@') === -1);
   assert.ok(open.text.indexOf('Ada Lee') !== -1);
   assert.ok(open.text.toUpperCase().indexOf('FREE CLIENT') !== -1);

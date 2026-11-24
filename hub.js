@@ -133,7 +133,7 @@
     return '<span class="pill blue role" data-role="' + esc(label) + '">' + esc(label) + '</span>';
   }
   function bylineHtml(author) {
-    return '<span class="hub-by"><span class="name">' + nameHtml(author) + '</span>' + badgeHtml(author.role) + '</span>';
+    return '<span class="hub-by"><span class="av ' + toneOf(author.name) + '" aria-hidden="true">' + esc(initialsOf(author.name)) + '</span><span class="name">' + nameHtml(author) + '</span>' + badgeHtml(author.role) + '</span>';
   }
   function newId() {
     var c = (root && root.crypto) || (typeof crypto !== 'undefined' ? crypto : null);
@@ -291,6 +291,15 @@
     if (!text) return '';
     return '<p class="mute find-place">' + esc(text) + '</p>';
   }
+  function metaLine(row, near) {
+    var service = serviceLabel(row && (row.serviceType || row.service_type));
+    var place = placeText(row, near);
+    var parts = [];
+    if (service) parts.push(service);
+    if (place) parts.push(place);
+    if (!parts.length) return '';
+    return '<p class="mute find-place">' + esc(parts.join(' · ')) + '</p>';
+  }
   function isLinkedTrainer(row) {
     return !!(row && (row.isLinked === true || row.is_linked === true));
   }
@@ -309,23 +318,19 @@
   }
   function trainerCardHtml(row, near, linked) {
     var person = personBits(row);
-    var service = serviceLabel(row.serviceType || row.service_type);
     var h = '';
     if (linked) {
       h += '<button type="button" class="card find-person find-linked" data-message="' + esc(row.id) + '">';
       h += '<span class="tag find-yours">Your trainer</span>';
-      h += bylineHtml(person);
-      if (service) h += '<span class="mute">' + esc(service) + '</span>';
-      var yours = placeText(row, near);
-      if (yours) h += '<span class="mute find-place">' + esc(yours) + '</span>';
+    h += bylineHtml(person);
+    h += metaLine(row, near);
       h += '</button>';
       return h;
     }
     var state = row.request || 'none';
     h += '<article class="card find-person" data-trainer="' + esc(row.id) + '">';
     h += bylineHtml(person);
-    if (service) h += '<p class="mute">' + esc(service) + '</p>';
-    h += placeLine(row, near);
+    h += metaLine(row, near);
     if (state === 'open') {
       h += '<button type="button" class="pri" disabled>Requested</button>';
     } else if (state === 'cooldown') {
@@ -504,7 +509,7 @@
   function showThread(post, replies) {
     if (!ctx) return;
     openCache = { id: post.id, post: post, replies: replies || [] };
-    ctx.titleEl.textContent = post.title || 'Post';
+    ctx.titleEl.textContent = 'Trainer Hub';
     ctx.backBtn.hidden = false;
     ctx.app.innerHTML = postHtml(post, replies || [], editingReply);
     ctx.app.onclick = onClick;
