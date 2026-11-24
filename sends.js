@@ -408,7 +408,8 @@
       var n = (w.items || []).length;
       h += '<div class="card" data-copy="' + esc(w.id) + '"><div class="name">' + esc(w.name) + '</div>';
       h += '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + ' · ' + (edit ? 'You can edit it' : 'You can run it') + '</div>';
-      h += '<div class="actions"><button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Open</button>';
+      h += '<div class="actions">';
+      if (edit) h += '<button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Edit</button>';
       if (n) h += '<button type="button" class="sm" data-view-copy="' + esc(w.id) + '">View</button>';
       if (n) h += '<button type="button" class="sm" data-run-copy="' + esc(w.id) + '">Run</button>';
       h += '</div></div>';

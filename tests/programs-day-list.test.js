@@ -180,10 +180,10 @@ async function stub(page, extra) {
   await openToday(editor);
   await editor.evaluate(function () { document.querySelectorAll('#pv-day-sheet .pv-day-row')[2].click(); });
   await editor.waitForFunction(function () { return document.querySelector('#pv-day-sheet h3') && document.querySelector('#pv-day-sheet h3').textContent === 'Evening strength'; });
-  await editor.click('#back');
+  await editor.evaluate(function () { return window.WBPreview.back(); });
   await editor.waitForFunction(function () { return document.querySelectorAll('#pv-day-sheet .pv-day-row').length === 3; });
   assert.strictEqual(await editor.evaluate(function () { return location.hash; }), '#/programs');
-  await editor.click('#back');
+  await editor.evaluate(function () { return window.WBPreview.back(); });
   await editor.waitForFunction(function () {
     return !document.getElementById('pv-sheet') && location.hash === '#/programs' && document.querySelector('.pv-week');
   });
@@ -203,7 +203,7 @@ async function stub(page, extra) {
   await editor.waitForSelector('[data-run]');
   await editor.evaluate(function () { history.back(); });
   await editor.waitForFunction(function () { return document.querySelectorAll('.pv-day-row').length === 3 && document.querySelector('.pv-month'); });
-  await editor.click('#back');
+  await editor.evaluate(function () { return window.WBPreview.back(); });
   await editor.waitForFunction(function () {
     return !document.getElementById('pv-sheet') && document.querySelector('.pv-month') && location.hash === '#/programs';
   });
@@ -223,7 +223,7 @@ async function stub(page, extra) {
   await editor.click('[data-sheet=add-day]');
   await editor.waitForSelector('#pv-start-h');
   assert.strictEqual(await editor.$('#pv-empty-day'), null);
-  await editor.click('#back');
+  await editor.evaluate(function () { return window.WBPreview.back(); });
   await editor.waitForSelector('#pv-empty-day');
   assert.strictEqual(await editor.$('#pv-start-h'), null);
   await editor.evaluate(function () { history.back(); });
@@ -259,9 +259,9 @@ async function stub(page, extra) {
   assert.strictEqual(clientOne.times, 0);
   assert.strictEqual(clientOne.add, false);
   assert.strictEqual(clientOne.when, '7:00–8:00 AM');
-  await client.click('#back');
+  await client.evaluate(function () { return window.WBPreview.back(); });
   await client.waitForFunction(function () { return document.querySelectorAll('.pv-day-row').length === 3; });
-  await client.click('#back');
+  await client.evaluate(function () { return window.WBPreview.back(); });
   await client.waitForFunction(function () { return !document.getElementById('pv-sheet') && location.hash === '#/programs'; });
   await client.evaluate(function () {
     var el = document.querySelector('[data-cal=month]');
@@ -332,7 +332,7 @@ async function stub(page, extra) {
   });
   await openToday(trainer);
   assert.deepStrictEqual((await rows(trainer)).map(function (row) { return row.client; }), ['']);
-  await trainer.click('#back');
+  await trainer.evaluate(function () { return window.WBPreview.back(); });
   await trainer.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await trainer.select('#pv-client', 'client-sam');
   await trainer.waitForFunction(function () {
@@ -349,7 +349,7 @@ async function stub(page, extra) {
   assert.ok(named.every(function (row) { return row.client === 'Sam' && row.slot; }));
   assert.strictEqual(await trainer.$eval('#pv-day-sheet .pv-day-row', function (el) { return el.getAttribute('aria-label'); }), 'Morning lift, 7:00–8:00 AM, Solo, Sam');
   await trainer.screenshot({ path: path.join(ART, 'programs_day_client_name.png') });
-  await trainer.click('#back');
+  await trainer.evaluate(function () { return window.WBPreview.back(); });
   await trainer.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await trainer.evaluate(function () {
     var el = document.querySelector('[data-cal=month]');

@@ -1696,7 +1696,10 @@
           if (!levelCan(profile, 'send')) return renderLevelNote(profile);
           return openSends(token);
         }
-        if (page === 'received') return openSends(token);
+        if (page === 'received') {
+          if (!hashBody().split('/')[1]) return go('#/');
+          return openSends(token);
+        }
         if (page === 'w' && !levelCan(profile, 'open')) {
           var opened = getW(hashBody().split('/')[1]);
           if (!(opened && opened.sourceTrainerId)) return renderLevelNote(profile);
@@ -2977,9 +2980,9 @@
       h += '<article class="card" data-account="' + esc(id) + '">';
       h += '<div class="name">' + esc(name) + '</div>';
       h += '<p class="mute">' + esc(row.email || '') + '</p>';
-      h += '<div class="actions">';
-      if (waiting) h += '<button type="button" class="pri" data-access="approve" data-id="' + esc(id) + '">Approve</button>';
-      h += '<button type="button" class="danger" data-access="remove" data-id="' + esc(id) + '">Remove access</button>';
+      h += '<div class="actions admin-halves">';
+      if (waiting) h += '<button type="button" class="pri sm" data-access="approve" data-id="' + esc(id) + '">Approve</button>';
+      h += '<button type="button" class="sm danger" data-access="remove" data-id="' + esc(id) + '">Remove access</button>';
       h += '</div></article>';
     });
     return h;
@@ -2993,12 +2996,9 @@
       h += '<article class="card" data-request="' + esc(id) + '">';
       h += '<div class="name">' + esc(name) + '</div>';
       h += '<p class="mute">' + esc(row.email || '') + '</p>';
-      h += '<p class="verify-meta">Certifying organization<br><b>' + esc(row.cert_body || '') + '</b></p>';
-      h += '<p class="verify-meta">Certification number<br><b>' + esc(row.cert_number || '') + '</b></p>';
-      h += '<p class="verify-meta">Expiration date<br><b>' + esc(window.WBProfile ? WBProfile.formatDay(row.expires_on) : (row.expires_on || '')) + '</b></p>';
-      h += '<p class="verify-meta">Submitted<br><b>' + esc(window.WBProfile ? WBProfile.formatDay(row.created_at) : '') + '</b></p>';
-      h += '<div class="actions"><button type="button" class="pri" data-verify="approve" data-id="' + esc(id) + '">Approve</button>';
-      h += '<button type="button" data-verify="decline" data-id="' + esc(id) + '">Decline</button></div>';
+      h += '<p class="verify-line">Certifying organization <b>' + esc(row.cert_body || '') + '</b> · Certification number <b>' + esc(row.cert_number || '') + '</b> · Expiration date <b>' + esc(window.WBProfile ? WBProfile.formatDay(row.expires_on) : (row.expires_on || '')) + '</b> · Submitted <b>' + esc(window.WBProfile ? WBProfile.formatDay(row.created_at) : '') + '</b></p>';
+      h += '<div class="actions admin-halves"><button type="button" class="pri sm" data-verify="approve" data-id="' + esc(id) + '">Approve</button>';
+      h += '<button type="button" class="sm" data-verify="decline" data-id="' + esc(id) + '">Decline</button></div>';
       h += '<div class="decline-box" id="decline-' + esc(id) + '" hidden>';
       h += '<label for="note-' + esc(id) + '">Note</label>';
       h += '<textarea id="note-' + esc(id) + '" maxlength="280" placeholder="Short note for the trainer"></textarea>';
@@ -3013,17 +3013,17 @@
     var queueRows = Array.isArray(queue) ? queue : [];
     var accountRows = Array.isArray(accounts) ? accounts : [];
     var h = '<div class="admin-page">';
-    h += '<section id="access-section"><h2>Access</h2>';
+    h += '<section id="access-section">';
     if (accounts && accounts.__err) {
       h += '<div class="errs" id="access-admin-error">' + esc((accounts.__err && accounts.__err.message) || 'Could not load accounts.') + '</div>';
     } else if (accounts == null) {
       h += '<div class="card" id="access-unavailable"><div class="name">Not available yet</div><p class="mute">Access approval is not available yet. Apply the access SQL in the Supabase SQL editor.</p></div>';
     } else {
-      h += '<h3>Waiting for approval</h3><div id="access-waiting">' + accessCards(accountRows, true) + '</div>';
-      h += '<h3>Approved</h3><div id="access-approved">' + accessCards(accountRows, false) + '</div>';
+      h += '<div class="sec">Access · Waiting for approval</div><div id="access-waiting">' + accessCards(accountRows, true) + '</div>';
+      h += '<div class="sec">Access · Approved</div><div id="access-approved">' + accessCards(accountRows, false) + '</div>';
     }
     h += '</section>';
-    h += '<section id="verifications-section"><h2>Verifications</h2>';
+    h += '<section id="verifications-section"><div class="sec">Verifications</div>';
     if (!WBAuth.verificationQueue || queue == null) {
       h += '<div class="card" id="verify-wait"><div class="name">Not available yet</div><p class="mute">Verification is not available yet. Apply the verification SQL in the Supabase SQL editor.</p></div>';
     } else if (queue && queue.__err) {
@@ -3032,7 +3032,7 @@
       h += verificationCards(queueRows);
     }
     h += '</section>';
-    h += '<section id="hub-reports-section"><div class="admin-h"><h2>Hub reports</h2><span class="admin-count" id="hub-report-count" hidden></span></div>';
+    h += '<section id="hub-reports-section"><div class="admin-h"><div class="sec">Hub reports</div><span class="admin-count" id="hub-report-count" hidden></span></div>';
     h += '<div id="hub-reports-body"><p class="mute" id="hub-reports-loading">Loading…</p></div></section>';
     h += '</div>';
     app.innerHTML = h;
@@ -4787,7 +4787,7 @@
       (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
       (trainerHome
         ? '<div class="home-tiles" id="home-tiles"><button type="button" class="home-tile" id="circuits-open" data-a="circuits">' + tileIco + '<span class="home-tile-label">Group Circuits</span></button><button type="button" class="home-tile" id="send-nav" data-a="send">' + sendIco + '<span class="home-tile-label">Send workout</span></button></div>'
-        : '<button type="button" class="link-row" id="received-open" data-a="received"><span class="grow"><span class="name">Workouts from your trainer</span></span><span class="chev" aria-hidden="true">›</span></button>') +
+        : '') +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     var statusLine = libraryStatusHtml();
     if (statusLine) h += statusLine;
@@ -4814,6 +4814,11 @@
       h += '</div></div>';
     });
     app.innerHTML = h;
+    if (!trainerHome) {
+      var seenIds = [];
+      data.workouts.forEach(function (w) { if (w && w.sourceTrainerId) seenIds.push(w.id); });
+      if (seenIds.length) markReceivedSeen(seenIds);
+    }
     refreshRequestBadges();
     syncChrome();
     if (data.workouts.some(function (w) { return w && w.sourceTrainerId; }) && !cachedProfile) {
@@ -4915,7 +4920,7 @@
   function paintWorkoutTitle(w) {
     if (!w) return;
     if (!canRenameWorkout(w)) { titleEl.textContent = w.name; return; }
-    titleEl.innerHTML = '<button type="button" id="wo-name" class="bar-name">' + esc(w.name) + '</button>';
+    titleEl.innerHTML = '<button type="button" id="wo-name" class="bar-name">' + esc(w.name) + ' <span class="name-pen" aria-hidden="true">✎</span></button>';
     var btn = document.getElementById('wo-name');
     if (btn) btn.onclick = function () { editWorkoutTitle(w); };
   }
@@ -5591,7 +5596,7 @@
     var ssBlock = d.groupId ? M.blocks(w).filter(function (b) { return b.groupId === d.groupId; })[0] : null;
     var ssNonFinal = !!(ssBlock && ssBlock.items[ssBlock.items.length - 1].id !== d.id);
     titleEl.textContent = isNew ? 'New exercise' : 'Edit exercise'; backBtn.hidden = false;
-    var h = '<div class="card">' + (ssBlock ? '<div class="warn" role="status">Only the final rest period will function in each set of a superset</div>' : '') +
+    var h = '<div class="ex-form">' + (ssBlock ? '<div class="warn" role="status">Only the final rest period will function in each set of a superset</div>' : '') +
       seg('source', [['custom', 'Enter manually'], ['library', 'Exercise library']], d.source || 'custom') +
       (d.source === 'library'
         ? '<input id="lib-q" aria-label="Search exercises" placeholder="Search exercises" autocomplete="off" value="' + esc(d.libQuery || '') + '">' +

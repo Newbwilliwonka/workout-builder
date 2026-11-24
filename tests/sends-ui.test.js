@@ -331,14 +331,9 @@ function armSlow() {
   const copyId = box.copies.filter(function (c) { return c.ownerId === E; })[0].id;
   assert.strictEqual(await enthusiast.$('[data-a=rename]'), null);
   assert.ok(await enthusiast.$('[data-a=del][data-id="' + copyId + '"]'));
-  assert.ok(await enthusiast.$('#received-open'));
-  assert.strictEqual(await enthusiast.$eval('#workouts-nav .request-count', function (el) { return el.textContent; }), '1');
-  await enthusiast.click('#received-open');
-  await enthusiast.waitForSelector('#received-lead');
-  await enthusiast.click('#back');
-  await enthusiast.waitForFunction(function () {
-    return (location.hash === '#/' || location.hash === '#') && document.getElementById('received-open') && !document.querySelector('#workouts-nav .request-count');
-  });
+  assert.strictEqual(await enthusiast.$('#received-open'), null);
+  assert.strictEqual(await enthusiast.$('#workouts-nav .request-count'), null);
+  assert.ok((await enthusiast.$eval('#app', function (el) { return el.innerText; })).indexOf('Workouts from your trainer') === -1);
   await enthusiast.screenshot({ path: ART + '/enthusiast-received-list.png', fullPage: true });
   await enthusiast.click('[data-a=open][data-id="' + copyId + '"]');
   await enthusiast.waitForSelector('#copy-note');
@@ -367,7 +362,7 @@ function armSlow() {
   await client.goto(URL + '#/subscriptions');
   await client.waitForSelector('#workouts-nav');
   assert.strictEqual(await client.$('[data-a=new], [data-a=run], .pl-screen'), null);
-  await client.goto(URL + '#/received');
+  await client.goto(URL + '#/');
   await client.waitForFunction(function () {
     return document.body.innerText.indexOf('From Trainer') === -1 &&
       document.body.innerText.indexOf('Friday full body') !== -1 &&
@@ -377,9 +372,9 @@ function armSlow() {
   });
   const clientCopy = box.copies.filter(function (c) { return c.ownerId === C && c.name === 'Friday full body'; })[0];
   assert.ok(clientCopy);
-  assert.strictEqual(await client.$('[data-a=rename], [data-a=del], [data-a=new]'), null);
+  assert.strictEqual(await client.$('[data-a=rename], [data-a=del]'), null);
   await client.screenshot({ path: ART + '/free-client-received-list.png', fullPage: true });
-  await client.click('[data-open-copy="' + clientCopy.id + '"]');
+  await client.click('[data-a=open][data-id="' + clientCopy.id + '"]');
   await client.waitForSelector('#copy-run');
   assert.ok((await client.evaluate(function () { return document.getElementById('copy-note').textContent; })).indexOf('Only an Enthusiast can edit it') !== -1);
   assert.strictEqual(await client.$('[data-a=edit], [data-a=add], [data-b=name]'), null);

@@ -197,8 +197,8 @@ const ART = '/opt/cursor/artifacts';
     });
     return {
       title: document.getElementById('title').textContent,
-      accessHeading: document.querySelector('#access-section h2').textContent,
-      verifyHeading: document.querySelector('#verifications-section h2').textContent,
+      accessHeading: document.querySelector('#access-section .sec').textContent,
+      verifyHeading: document.querySelector('#verifications-section .sec').textContent,
       waitingIds: waitingIds,
       approvedIds: approvedIds,
       sam: card('wait-new'),
@@ -207,7 +207,7 @@ const ART = '/opt/cursor/artifacts';
     };
   });
   assert.strictEqual(access.title, 'Admin');
-  assert.strictEqual(access.accessHeading, 'Access');
+  assert.strictEqual(access.accessHeading, 'Access · Waiting for approval');
   assert.strictEqual(access.verifyHeading, 'Verifications');
   assert.deepStrictEqual(access.waitingIds, ['wait-new', 'wait-old']);
   assert.deepStrictEqual(access.approvedIds, ['ok-new', 'ok-old']);

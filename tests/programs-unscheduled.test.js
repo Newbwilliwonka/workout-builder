@@ -272,9 +272,9 @@ function entry(id, ownerId, wo, start, end, presence, when) {
   });
   assert.ok(detail.text.indexOf('Evening extra') !== -1 && detail.text.indexOf('Completed, not scheduled') !== -1);
   assert.deepStrictEqual(detail.buttons, ['View', 'Run']);
-  await trainer.click('#back');
+  await trainer.evaluate(function () { return window.WBPreview.back(); });
   await trainer.waitForSelector('#pv-day-sheet .pv-day-row.is-extra');
-  await trainer.click('#back');
+  await trainer.evaluate(function () { return window.WBPreview.back(); });
   await trainer.waitForFunction(function () { return !document.getElementById('pv-sheet') && document.querySelector('.pv-month'); });
 
   for (var hop = 0; hop < 3 && !(await trainer.$('.pv-cell[data-date="' + future + '"]')); hop++) {

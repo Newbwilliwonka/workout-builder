@@ -565,12 +565,13 @@
     spec = spec || {};
     var id = String(spec.id || 'client-pick');
     var selected = spec.selected == null ? '' : String(spec.selected);
-    var h = '<label class="mute" for="' + esc(id) + '">' + esc(spec.label || 'Client') + '</label><select id="' + esc(id) + '">';
+    var pill = id === 'pv-client';
+    var h = (pill ? '<div class="client-pill">' : '') + '<label class="mute" for="' + esc(id) + '">' + esc(spec.label || 'Client') + '</label><select id="' + esc(id) + '">';
     (spec.options || []).forEach(function (opt) {
       var value = opt && opt.value != null ? String(opt.value) : '';
       h += '<option value="' + esc(value) + '"' + (value === selected ? ' selected' : '') + '>' + esc(opt && opt.label || '') + '</option>';
     });
-    return h + '</select>';
+    return h + '</select>' + (pill ? '</div>' : '');
   }
   function clientPicker() {
     if (!P.isTrainer(state.role)) return '';
@@ -762,8 +763,8 @@
     h += '<h3 class="name pv-slot-title">' + ico(kind) + '<span>' + esc(name) + '</span></h3><p class="mute">' + esc(prettyDate(row.date)) + ' · ' + esc(presenceLabel(kind)) + '</p>';
     if (editing) h += presenceChoice('pv-presence-' + row.id, kind, row.id);
     if (editing) {
-      h += '<label for="pv-start-' + esc(row.id) + '">Start</label><input id="pv-start-' + esc(row.id) + '" data-time="start" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.start || '') + '">' +
-        '<label for="pv-end-' + esc(row.id) + '">End</label><input id="pv-end-' + esc(row.id) + '" data-time="end" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.end || '') + '">';
+      h += '<div class="pv-times"><div><label for="pv-start-' + esc(row.id) + '">Start</label><input id="pv-start-' + esc(row.id) + '" data-time="start" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.start || '') + '"></div>' +
+        '<div><label for="pv-end-' + esc(row.id) + '">End</label><input id="pv-end-' + esc(row.id) + '" data-time="end" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.end || '') + '"></div></div>';
     } else if (when) h += '<p class="pv-when">' + esc(when) + '</p>';
     if (draft.error) h += '<p class="errs" id="pv-sheet-error">' + esc(draft.error) + '</p>';
     if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">View</button>';
@@ -956,8 +957,7 @@
   function applyChrome() {
     if (titleEl && !(state && state.screen === 'player')) titleEl.textContent = 'Programs';
     if (!backBtn) return;
-    var sub = !!(state && (state.sheet || state.screen === 'player' || state.playerLive));
-    backBtn.hidden = !sub;
+    backBtn.hidden = !(state && (state.screen === 'player' || state.playerLive));
   }
   function returnsToList(sheet) {
     if (!sheet || !sheet.date) return false;
