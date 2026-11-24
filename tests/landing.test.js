@@ -13,7 +13,7 @@ const TITLE = 'Coach Trainer App | Build, Run, and Track Client Training';
 const DESCRIPTION = 'Coach Trainer App helps trainers create team drills, run gym circuits, build personal training sessions, schedule programs, and track client progress live.';
 const FEATURES = [
   'Create team Drills with cones and events.',
-  'Run Team Gym Training.',
+  'Run and track Group Circuit Training.',
   'Customize your Personal Training sessions with Reps, Intervals, Timed sets, and Stopwatch.',
   'Schedule your programs in the calendar and track your clients\' progress in real time.',
   'Design personalized Tracking Dashboards for your clients.',
@@ -228,8 +228,9 @@ Mem.TIERS.forEach(function (tier) {
       });
     });
     assert.strictEqual(shots[0].missing, false);
-    assert.ok(shots[0].width > 0 && shots[1].width > 0);
-    shots.slice(2).forEach(function (shot, i) { assert.strictEqual(shot.missing, true, SHOTS[i + 2]); });
+    assert.ok(shots[0].width > 0 && shots[1].width > 0 && shots[2].width > 0);
+    assert.strictEqual(shots[2].missing, false);
+    shots.slice(3).forEach(function (shot, i) { assert.strictEqual(shot.missing, true, SHOTS[i + 3]); });
     Mem.TIERS.forEach(function (tier) {
       assert.ok(seen.text.indexOf(tier.name) !== -1, tier.name);
       assert.ok(seen.text.indexOf(tier.priceLabel) !== -1, tier.priceLabel);
