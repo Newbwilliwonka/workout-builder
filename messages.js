@@ -58,6 +58,12 @@
     if (prev && prev.id && prev.body === text) return { id: prev.id, body: text };
     return { id: makeId(), body: text };
   }
+  function toneOf(name) {
+    var s = String(name || '');
+    var n = 0;
+    for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
+    return 'c' + ((n % 7) + 1);
+  }
   function initials(name) {
     var raw = String(name || '').trim();
     if (!raw || raw.indexOf('@') !== -1) return '?';
@@ -230,7 +236,7 @@
     var heading = threadHeading(p);
     var planLine = heading.life ? (heading.sub ? heading.sub + ' · ' + heading.life : heading.life) : (p.plan || '');
     return '<button type="button" class="person" data-thread="' + esc(p.id) + '">' +
-      '<span class="ava" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(title)) + '</span>' +
+      '<span class="av ' + toneOf(title) + '" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(title)) + '</span>' +
       '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + (root.WBProfile ? WBProfile.nameHtml(title, !!p.verified) : esc(title)) + '</span>' +
       '<span class="mute" style="margin-left:auto">' + esc(whenLabel(p.at)) + '</span></span>' +
       '<span class="preview">' + esc(p.preview || 'No messages yet') + '</span>' +
@@ -246,6 +252,7 @@
     if (!auth || !auth.trainerRequestDecide) return;
     Promise.resolve().then(function () { return auth.trainerRequestDecide(id, approve); }).then(function () {
       if (ctx && ctx.toast) ctx.toast(approve ? 'Approved. They can message you for 7 days.' : 'Declined.');
+      if (ctx && ctx.onBadges) ctx.onBadges();
       loadThreads(true);
     }, function (err) {
       if (ctx && ctx.toast) ctx.toast((err && err.message) || 'Could not update that request.');
@@ -279,7 +286,7 @@
     if (!ctx) return;
     openId = '';
     ctx.titleEl.textContent = 'Messages';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     var detail = (err && err.message) || 'Messages are not available yet. Apply the messages SQL in the Supabase SQL editor.';
     ctx.app.innerHTML = '<div class="card" id="messages-wait"><div class="name">Not available yet</div><p class="mute">' + esc(detail) + '</p></div>';
     ctx.app.onclick = null;
@@ -300,7 +307,7 @@
     if (!ctx) return;
     openId = '';
     ctx.titleEl.textContent = 'Messages';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     ctx.app.innerHTML = '<div class="errs" id="messages-error">' + esc((err && err.message) || 'Could not load messages') + '</div>';
     ctx.app.onclick = null;
   }
@@ -308,7 +315,7 @@
     if (!ctx) return;
     openId = '';
     ctx.titleEl.textContent = 'Messages';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     var threads = data.threads || [];
     var requests = data.requests || [];
     var h = '';
@@ -386,7 +393,9 @@
     });
     if (!fresh.length) return;
     fresh.forEach(function (mid) { marked[mid] = 1; });
-    auth.markRead(id).catch(function () {
+    Promise.resolve(auth.markRead(id)).then(function () {
+      if (ctx && ctx.onBadges) ctx.onBadges();
+    }, function () {
       fresh.forEach(function (mid) { delete marked[mid]; });
     });
   }

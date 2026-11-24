@@ -473,6 +473,21 @@
         [edgeB, yB]
       ]));
     }
+    // A 4-across wrap parks its arrowhead in the gap under the first station.
+    // The closing arrow must not arrive through that same gap.
+    if (close && b.row < a.row && cellAt(cells, b.col, b.row + 1)) {
+      var outside = b.left - Math.max(10, (b.right - b.left) * 0.12);
+      var drop = a.bottom + Math.max(8, (a.bottom - a.top) * 0.1);
+      var mid = clampNum(b.cy, b.top + 8, b.bottom - 8);
+      var leave = clampNum(a.cx, a.left + 8, a.right - 8);
+      return pullTip(dedupePoints([
+        [leave, a.bottom],
+        [leave, drop],
+        [outside, drop],
+        [outside, mid],
+        [b.left, mid]
+      ]));
+    }
     var up = b.row < a.row;
     var exitY = up ? a.top : a.bottom;
     var enterY = a.row < b.row ? b.top : b.bottom;

@@ -96,7 +96,7 @@ const ART = '/opt/cursor/artifacts';
           display_name: 'Kinisi Admin', profileReady: true, online_only: true, intended_plan: 'trainer'
         });
       };
-      api.signOut = function () { window.__signedOut = true; return Promise.resolve(); };
+      api.signOut = function () { window.__signedOut = true; window.__mode = 'out'; return Promise.resolve(); };
       api.roster = function () { return Promise.resolve({ role: 'trainer', cap: 10, clientCount: 0, canCreate: true, clients: [], invites: [] }); };
       api.myConnection = function () { return Promise.resolve(null); };
       api.workoutCopies = function () { return Promise.resolve([]); };
@@ -133,7 +133,8 @@ const ART = '/opt/cursor/artifacts';
       heading: gate.querySelector('h2').textContent,
       lede: gate.querySelector('.lede').textContent,
       signOut: document.getElementById('access-signout').textContent,
-      headerOut: !document.getElementById('account-signout').hidden,
+      headerOut: document.getElementById('account-signout').hidden,
+      barHidden: getComputedStyle(document.querySelector('body > header.bar')).display === 'none',
       builder: !!document.querySelector('[data-b]'),
       admin: !!document.getElementById('admin-open')
     };
@@ -143,12 +144,13 @@ const ART = '/opt/cursor/artifacts';
   assert.strictEqual(waiting.lede, 'Your account is waiting for approval.');
   assert.strictEqual(waiting.signOut, 'Sign out');
   assert.strictEqual(waiting.headerOut, true);
+  assert.strictEqual(waiting.barHidden, true);
   assert.strictEqual(waiting.builder, false);
   assert.strictEqual(waiting.admin, false);
   await p.screenshot({ path: ART + '/waiting-for-access.png' });
 
   await p.click('#access-signout');
-  await p.waitForFunction(function () { return location.hash === '#/signin' && window.__signedOut === true; });
+  await p.waitForFunction(function () { return (location.hash === '' || location.hash === '#') && window.__signedOut === true && document.getElementById('landing') && getComputedStyle(document.getElementById('landing')).display !== 'none'; });
 
   await p.evaluate(function () {
     window.__mode = 'admin';
@@ -160,18 +162,19 @@ const ART = '/opt/cursor/artifacts';
     return btn && badge && !badge.hidden && badge.textContent === '3';
   });
   const account = await p.evaluate(function () {
-    var nav = document.getElementById('account-nav');
+    var admin = document.getElementById('admin-open');
     var badge = document.getElementById('admin-count');
     return {
       title: document.getElementById('title').textContent,
-      buttons: Array.prototype.map.call(nav.querySelectorAll('button'), function (b) { return b.textContent.replace(/\s+/g, ' ').trim(); }),
+      admin: admin.textContent.replace(/\s+/g, ' ').trim(),
       label: badge.getAttribute('aria-label'),
-      link: !!document.querySelector('.admin-link, #admin-verifications')
+      link: !!document.querySelector('.admin-link, #admin-verifications'),
+      nav: document.getElementById('account-nav')
     };
   });
   assert.strictEqual(account.title, 'Account');
-  assert.ok(account.buttons.indexOf('Messages') !== -1);
-  assert.ok(account.buttons.some(function (t) { return t.indexOf('Admin') === 0; }));
+  assert.strictEqual(account.nav, null);
+  assert.ok(account.admin.indexOf('Admin') === 0);
   assert.strictEqual(account.label, '3 pending');
   assert.strictEqual(account.link, false);
   await p.evaluate(function () {
@@ -194,8 +197,8 @@ const ART = '/opt/cursor/artifacts';
     });
     return {
       title: document.getElementById('title').textContent,
-      accessHeading: document.querySelector('#access-section h2').textContent,
-      verifyHeading: document.querySelector('#verifications-section h2').textContent,
+      accessHeading: document.querySelector('#access-section .sec').textContent,
+      verifyHeading: document.querySelector('#verifications-section .sec').textContent,
       waitingIds: waitingIds,
       approvedIds: approvedIds,
       sam: card('wait-new'),
@@ -204,7 +207,7 @@ const ART = '/opt/cursor/artifacts';
     };
   });
   assert.strictEqual(access.title, 'Admin');
-  assert.strictEqual(access.accessHeading, 'Access');
+  assert.strictEqual(access.accessHeading, 'Access · Waiting for approval');
   assert.strictEqual(access.verifyHeading, 'Verifications');
   assert.deepStrictEqual(access.waitingIds, ['wait-new', 'wait-old']);
   assert.deepStrictEqual(access.approvedIds, ['ok-new', 'ok-old']);

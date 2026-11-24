@@ -297,7 +297,8 @@ const ART = '/opt/cursor/artifacts';
       return { text: el.textContent, left: r.left, right: r.right, width: r.width };
     }
     return {
-      tools: document.getElementById('home-tools').innerText.replace(/\s+/g, ' '),
+      tools: document.getElementById('nav-links').innerText.replace(/\s+/g, ' '),
+      sendText: document.getElementById('send-nav').textContent,
       messages: box('messages-nav'),
       hub: box('hub-nav'),
       send: box('send-nav'),
@@ -305,12 +306,12 @@ const ART = '/opt/cursor/artifacts';
     };
   });
   assert.ok(nav.tools.indexOf('Messages') !== -1);
-  assert.ok(nav.tools.indexOf('Trainer Hub') !== -1);
-  assert.ok(nav.tools.indexOf('Send workout') !== -1);
+  assert.ok(nav.tools.indexOf('Hub') !== -1);
+  assert.ok(nav.sendText.indexOf('Send workout') !== -1);
   [nav.messages, nav.hub, nav.send].forEach(function (item) {
     assert.ok(item.left >= -1 && item.right <= nav.width + 1, item.text + ' overflows');
-    assert.ok(item.width > 70, item.text + ' is too narrow');
   });
+  assert.ok(nav.send.width > 70, 'Send workout tile is too narrow');
 
   await p.click('#hub-nav');
   await p.waitForSelector('#hub-list');
@@ -330,9 +331,9 @@ const ART = '/opt/cursor/artifacts';
   assert.ok(list.text.indexOf('@') === -1);
   assert.ok(list.text.indexOf('Saturday strength block') !== -1);
   assert.ok(list.text.indexOf('Coach Kim') !== -1);
-  assert.ok(list.text.indexOf('Master Trainer') !== -1);
+  assert.ok(list.text.toUpperCase().indexOf('MASTER TRAINER') !== -1);
   assert.ok(list.text.indexOf('Jo Park') !== -1);
-  assert.ok(list.text.indexOf('Enthusiast') !== -1);
+  assert.ok(list.text.toUpperCase().indexOf('ENTHUSIAST') !== -1);
   assert.strictEqual(list.ids[0], 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2');
   assert.strictEqual(list.script, null);
   const line = await p.evaluate(function () {
@@ -366,10 +367,10 @@ const ART = '/opt/cursor/artifacts';
       script: document.querySelector('#hub-post script, #hub-replies script')
     };
   });
-  assert.strictEqual(open.title, 'Saturday strength block');
+  assert.strictEqual(open.title, 'Trainer Hub');
   assert.ok(open.text.indexOf('@') === -1);
   assert.ok(open.text.indexOf('Ada Lee') !== -1);
-  assert.ok(open.text.indexOf('Free Client') !== -1);
+  assert.ok(open.text.toUpperCase().indexOf('FREE CLIENT') !== -1);
   assert.ok(open.edit);
   assert.ok(open.reportReply);
   assert.strictEqual(open.script, null);
@@ -455,7 +456,7 @@ const ART = '/opt/cursor/artifacts';
   await p.evaluate(function () { location.hash = '#/hub'; });
   await p.waitForSelector('#access-wait');
   assert.strictEqual(await p.$('#hub-list'), null);
-  assert.strictEqual(await p.$('#hub-nav'), null);
+  assert.strictEqual(await p.$eval('#nav-links', function (el) { return el.hidden; }), true);
 
   await p.evaluate(function () {
     var toast = document.getElementById('toast');
@@ -475,7 +476,7 @@ const ART = '/opt/cursor/artifacts';
     var badge = document.getElementById('hub-report-count');
     var style = getComputedStyle(badge);
     return {
-      heading: section.querySelector('h2').textContent,
+      heading: section.querySelector('.sec').textContent,
       count: badge.textContent,
       label: badge.getAttribute('aria-label'),
       bg: style.backgroundColor,
@@ -528,7 +529,7 @@ const ART = '/opt/cursor/artifacts';
   assert.ok((await p.evaluate(function () { return document.getElementById('app').innerText; })).indexOf('@') === -1);
 
   await p.evaluate(function () { window.__mode = 'out'; location.hash = '#/hub'; });
-  await p.waitForFunction(function () { return location.hash.indexOf('signin') !== -1 || location.hash.indexOf('subscriptions') !== -1; });
+  await p.waitForFunction(function () { return location.hash === '' || location.hash === '#'; });
   assert.strictEqual(await p.$('#hub-list'), null);
 
   assert.deepStrictEqual(errs, []);

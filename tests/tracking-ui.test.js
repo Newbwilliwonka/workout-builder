@@ -100,7 +100,7 @@ async function openPage(browser, membership, payload) {
   await page.setViewport({ width: 320, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const narrow = await page.$eval('#tracking-open', function (el) {
     var rect = el.getBoundingClientRect();
-    var row = document.getElementById('home-nav').getBoundingClientRect();
+    var row = document.getElementById('nav-links').getBoundingClientRect();
     return {
       inside: rect.left >= 0 && rect.right <= window.innerWidth + 0.5,
       textFits: el.scrollWidth <= el.clientWidth + 1,
@@ -157,7 +157,7 @@ async function openPage(browser, membership, payload) {
     labelled: 'tracking-tab-history',
     badgeHidden: true,
     badgeText: '',
-    back: false
+    back: true
   });
   const historyText = await page.$eval('#app', function (el) { return el.innerText; });
   assert.ok(historyText.indexOf('By workout') >= 0);
@@ -326,14 +326,14 @@ async function openPage(browser, membership, payload) {
   assert.strictEqual(badgeStyle.round, true);
   assert.strictEqual(await page.$eval('#dashboard-count', function (el) { return el.hidden && el.textContent; }), '');
 
-  await page.click('#back');
+  await page.click('#workouts-nav');
   await page.waitForSelector('#tracking-open');
   assert.ok(/#\/?$/.test(await page.evaluate(function () { return location.hash; })));
   await page.click('#tracking-open');
   await page.waitForSelector('#tracking-tab-dashboard');
   await page.click('#tracking-tab-dashboard');
   await page.waitForSelector('#dashboard-sheet');
-  await page.click('#back');
+  await page.click('#workouts-nav');
   await page.waitForSelector('#tracking-open');
   assert.ok(/#\/?$/.test(await page.evaluate(function () { return location.hash; })));
 

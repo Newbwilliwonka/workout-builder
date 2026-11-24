@@ -304,7 +304,7 @@ function workout(name, items) {
   assert.strictEqual(await p.$eval('[data-lename="0"]', e => e.value), 'catch a pass');
   await click('[data-lev="4"]');
   await p.type('[data-lename="4"]', 'score a goal');
-  await (await p.$('.card')).screenshot({ path: SHOT + '/builder-lap-events.png' });
+  await (await p.$('.ex-form')).screenshot({ path: SHOT + '/builder-lap-events.png' });
   await typeNum('[data-b="cfg.lapCount"]', '3');
   await wait(40);
   assert.strictEqual(await p.$$eval('.lap-ev', a => a.length), 3);

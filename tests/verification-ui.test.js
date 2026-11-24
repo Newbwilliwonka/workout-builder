@@ -355,7 +355,7 @@ const ART = '/opt/cursor/artifacts';
     };
   });
   assert.strictEqual(pendingBadge.label, '1 pending');
-  assert.strictEqual(pendingBadge.bg, 'rgb(220, 38, 38)');
+  assert.strictEqual(pendingBadge.bg, 'rgb(37, 99, 235)');
   assert.ok(pendingBadge.round, 'badge is not circular');
   assert.ok(parseFloat(pendingBadge.radius) >= 11);
   await p.evaluate(function () {

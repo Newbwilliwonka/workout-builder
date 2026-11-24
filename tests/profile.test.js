@@ -196,6 +196,7 @@ assertBefore(sheet, [
 assert.ok(sheet.indexOf('id="verify-slot"') === -1);
 assert.ok(sheet.indexOf('id="profile-listing"') === -1);
 assertBefore(inPerson, [
+  'id="profile-cancel"',
   'id="profile-title"',
   'id="profile-photo"',
   'id="profile-file"',
@@ -219,8 +220,7 @@ assertBefore(inPerson, [
   'id="pin-save"',
   'id="pin-remove"',
   'id="profile-error"',
-  'id="profile-save"',
-  'id="profile-cancel"'
+  'id="profile-save"'
 ]);
 const masterSheet = P.sheetHtml({
   master: true,
@@ -274,6 +274,8 @@ assert.ok(clientSheet.indexOf('id="pin-remove" hidden') > 0);
 assert.ok(clientSheet.indexOf('No pin yet. Search or tap the map.') > 0);
 assert.ok(clientSheet.indexOf('@') === -1);
 assertBefore(clientSheet, [
+  'id="profile-cancel"',
+  'id="profile-title"',
   'id="profile-name"',
   'id="profile-bio"',
   'id="profile-count"',
@@ -286,8 +288,7 @@ assertBefore(clientSheet, [
   'id="pin-save"',
   'id="pin-remove"',
   'id="profile-error"',
-  'id="profile-save"',
-  'id="profile-cancel"'
+  'id="profile-save"'
 ]);
 const enthusiastSheet = P.sheetHtml({
   membership: 'enthusiast',

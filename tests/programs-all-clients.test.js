@@ -245,7 +245,7 @@ function remoteSession(clientId, programId, workoutId) {
     'Owen Blake · Enthusiast',
     'Client · Free Client'
   ]);
-  assert.ok((await trainer.$eval('#pv-role-note', function (el) { return el.textContent; })).indexOf('every client you can see') !== -1);
+  assert.strictEqual(await trainer.$('#pv-role-note'), null);
 
   const calls = await trainer.evaluate(function () { return window.__wbAllCalls; });
   assert.ok(calls.entries.length >= 1 && calls.entries.length < 7, 'entry reads ' + calls.entries.length);
@@ -445,7 +445,7 @@ function remoteSession(clientId, programId, workoutId) {
   await trainer.waitForFunction(function (id) {
     return window.__wbClientLoads.indexOf(id) >= 0 && !document.querySelector('.pl-name');
   }, {}, MIA);
-  await trainer.click('#back');
+  await trainer.evaluate(function () { return window.WBPreview.back(); });
   await trainer.waitForSelector('#pv-day-sheet .pv-day-row.is-extra');
   await trainer.evaluate(function (id) {
     return new Promise(function (resolve) {
@@ -464,7 +464,7 @@ function remoteSession(clientId, programId, workoutId) {
   await trainer.waitForFunction(function (id) {
     return window.__wbReleaseLoads && window.__wbReleaseLoads[id] && !document.querySelector('.pl-name');
   }, {}, NINA);
-  await trainer.click('#back');
+  await trainer.evaluate(function () { return window.WBPreview.back(); });
   await trainer.waitForSelector('#pv-day-sheet .pv-day-row');
   await openNamed('Mia legs');
   const kept = await expectPlayer('Mia curl');
@@ -512,7 +512,7 @@ function remoteSession(clientId, programId, workoutId) {
     return hit;
   });
 
-  await trainer.click('#back');
+  await trainer.evaluate(function () { return window.WBPreview.back(); });
   await trainer.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await trainer.evaluate(function () {
     var el = document.querySelector('[data-cal=week]');
@@ -541,7 +541,7 @@ function remoteSession(clientId, programId, workoutId) {
   assert.strictEqual(await trainer.$('#pv-add-who'), null);
   await trainer.click('[data-sheet=cancel]');
   await trainer.waitForSelector('#pv-day-sheet .pv-day-row');
-  await trainer.click('#back');
+  await trainer.evaluate(function () { return window.WBPreview.back(); });
   await trainer.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
 
   await trainer.select('#pv-client', '');
@@ -623,7 +623,7 @@ function remoteSession(clientId, programId, workoutId) {
   await client.click('.pv-day.today .pv-day-h');
   await client.waitForSelector('#pv-day-sheet .pv-day-row .pv-check');
   assert.strictEqual(await client.$eval('#pv-day-sheet .pv-row-client', function (el) { return el.textContent; }), '');
-  await client.click('#back');
+  await client.evaluate(function () { return window.WBPreview.back(); });
   await client.waitForFunction(function () { return !document.getElementById('pv-sheet'); });
   await client.evaluate(function () {
     var strip = document.querySelector('.pv-week-scroll');

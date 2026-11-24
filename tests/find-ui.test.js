@@ -232,7 +232,7 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   assert.ok(results.text.indexOf('Near me') !== -1);
   assert.ok(results.text.indexOf('Coming soon') === -1);
   assert.ok(results.text.indexOf('Amy Coach') !== -1);
-  assert.ok(results.text.indexOf('Master Trainer') !== -1);
+  assert.ok(results.text.toUpperCase().indexOf('MASTER TRAINER') !== -1);
   assert.ok(results.text.indexOf('In Person and Online') !== -1);
   assert.ok(results.text.indexOf('Both') === -1);
   assert.ok(results.text.indexOf('Austin, Texas') !== -1);
@@ -366,7 +366,7 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
   });
   assert.strictEqual(inbox.title, 'Requests');
   assert.ok(inbox.text.indexOf('Ada <Lee>') !== -1 || inbox.text.indexOf('Ada') !== -1);
-  assert.ok(inbox.text.indexOf('Free Client') !== -1);
+  assert.ok(inbox.text.toUpperCase().indexOf('FREE CLIENT') !== -1);
   assert.ok(inbox.text.indexOf('Hello <script>alert(1)</script>') !== -1);
   assert.strictEqual(inbox.approve, 'Approve');
   assert.strictEqual(inbox.decline, 'Decline');
@@ -389,9 +389,60 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
       messages: messages ? messages.textContent : ''
     };
   });
-  assert.strictEqual(navBadge.hub, '1');
+  assert.strictEqual(navBadge.hub, '');
   assert.strictEqual(navBadge.messages, '1');
   await p.screenshot({ path: ART + '/trainer-request-badges.png' });
+  await p.evaluate(function () { window.__savedRequests = window.__requests.slice(); window.__requests = []; });
+  await p.evaluate(function () { location.hash = '#/programs'; });
+  await p.waitForFunction(function () {
+    return location.hash.indexOf('#/programs') === 0 && !document.querySelector('#messages-nav .request-count');
+  });
+  await p.evaluate(function () { window.__requests = window.__savedRequests; location.hash = '#/messages'; });
+  await p.waitForFunction(function () {
+    var dot = document.querySelector('#messages-nav .request-count');
+    return location.hash.indexOf('#/messages') === 0 && dot && dot.textContent === '1';
+  });
+  await p.evaluate(function () { location.hash = '#/'; });
+  await p.waitForSelector('#messages-nav');
+
+  await p.evaluate(function () {
+    window.__countGate = null;
+    window.__origCount = window.WBAuth.trainerRequestCount;
+    window.__origSession = window.WBAuth.session;
+    window.__origSignOut = window.WBAuth.signOut;
+    window.WBAuth.trainerRequestCount = function () {
+      return new Promise(function (resolve) { window.__countGate = resolve; });
+    };
+    location.hash = '#/account';
+  });
+  await p.waitForFunction(function () { return typeof window.__countGate === 'function'; });
+  await p.waitForSelector('#account-signout');
+  await p.evaluate(function () {
+    window.WBAuth.session = function () { return Promise.resolve(null); };
+    window.WBAuth.signOut = function () { return Promise.resolve(); };
+  });
+  await p.click('#account-signout');
+  await p.waitForFunction(function () {
+    return (location.hash === '' || location.hash === '#') && !document.querySelector('#messages-nav .request-count');
+  });
+  await p.evaluate(function () {
+    window.__mode = 'trainer';
+    window.WBAuth.session = window.__origSession;
+    window.WBAuth.signOut = window.__origSignOut;
+    window.WBAuth.trainerRequestCount = function () { return Promise.resolve(2); };
+    location.hash = '#/';
+  });
+  await p.waitForFunction(function () {
+    var badge = document.querySelector('#messages-nav .request-count');
+    return (location.hash === '#/' || location.hash === '#') && badge && badge.textContent === '2';
+  });
+  await p.evaluate(function () { window.__countGate(9); });
+  await new Promise(function (r) { setTimeout(r, 80); });
+  assert.strictEqual(await p.evaluate(function () {
+    var badge = document.querySelector('#messages-nav .request-count');
+    return badge ? badge.textContent : '';
+  }), '2');
+  await p.evaluate(function () { window.WBAuth.trainerRequestCount = window.__origCount; });
 
   await p.goto(URL + '#/messages/' + ADA, { waitUntil: 'domcontentloaded' });
   await p.waitForSelector('#days-left');

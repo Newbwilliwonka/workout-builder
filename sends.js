@@ -156,6 +156,12 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  function toneOf(name) {
+    var s = String(name || '');
+    var n = 0;
+    for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
+    return 'c' + ((n % 7) + 1);
+  }
   function initials(name) {
     var raw = String(name || '').trim();
     if (!raw || raw.indexOf('@') !== -1) return '?';
@@ -189,8 +195,7 @@
     try { return decodeURIComponent(parts[1]); } catch (e) { return parts[1]; }
   }
   function lockedHtml(w) {
-    var h = '<span class="tag">From ' + trainerTag(w) + '</span>';
-    h += '<p class="mute" id="copy-note">You can run this copy. Only an Enthusiast can edit it. Your trainer\'s workout stays as it is.</p>';
+    var h = '<p class="mute" id="copy-note">You can run this copy. Only an Enthusiast can edit it. Your trainer\'s workout stays as it is.</p>';
     (w.items || []).forEach(function (it) {
       var line = '';
       try { if (root.WB && root.WB.summarize) line = root.WB.summarize(it); } catch (e) { line = ''; }
@@ -260,7 +265,7 @@
     ctx.titleEl.textContent = 'Send workout';
     ctx.backBtn.hidden = false;
     var h = '<p class="mute">Pick one of your workouts and the clients who should get a copy. A linked Enthusiast counts as a client.</p>';
-    h += '<div class="name" style="margin:12px 0 8px">Workout</div>';
+    h += '<div class="sec">Workout</div><div class="list pick-list">';
     if (!workouts.length) h += '<div class="empty">No workouts yet. Build one, then send it.</div>';
     workouts.forEach(function (w) {
       var on = String(w.id) === String(pickedWorkout);
@@ -269,16 +274,18 @@
         '<span class="grow"><span class="name">' + esc(w.name) + '</span><span class="preview">' + n + ' exercise' + (n === 1 ? '' : 's') + '</span></span>' +
         '<span class="mark" aria-hidden="true">' + (on ? '✓' : '') + '</span></button>';
     });
-    h += '<div class="name" style="margin:14px 0 8px">Clients</div>';
+    h += '</div><div class="sec">Clients</div>';
     h += '<p class="mute">Each person gets their own copy. An Enthusiast can edit it. A Free Client can run it. Your workout stays as it is.</p>';
     if (!clients.length) h += '<p class="mute">No linked clients yet.</p>';
+    h += '<div class="list pick-list">';
     clients.forEach(function (c) {
       var on = !!picked[c.id];
       h += '<button type="button" class="pick' + (on ? ' on' : '') + '" data-pick-client="' + esc(c.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
-        '<span class="ava" data-avatar-path="' + esc(c.avatarPath || '') + '" aria-hidden="true">' + esc(initials(personName(c))) + '</span>' +
+        '<span class="av ' + toneOf(personName(c)) + '" data-avatar-path="' + esc(c.avatarPath || '') + '" aria-hidden="true">' + esc(initials(personName(c))) + '</span>' +
         '<span class="grow"><span class="name">' + esc(personName(c)) + '</span><span class="preview">' + esc(c.plan || 'Client') + ' · client</span></span>' +
         '<span class="mark" aria-hidden="true">' + (on ? '✓' : '') + '</span></button>';
     });
+    h += '</div>';
     var key = currentKey();
     if (notes[key]) h += '<div class="card" id="sent-note"><div class="name">Copies for their workouts</div><p>' + esc(notes[key]) + '</p></div>';
     var n = chosenClients().length;
@@ -394,23 +401,26 @@
     var profile = profileNow();
     ctx.titleEl.textContent = 'Workouts';
     ctx.backBtn.hidden = false;
-    var h = '<p class="mute" id="received-lead">Workouts from your trainer land here as your own copy.</p>';
+    var h = '<p class="mute" id="received-lead">Workouts from your trainer land here. View plays your workout without tracking. Run tracks your actual workout and saves it in History.</p>';
     if (!copies.length) h += '<div class="empty" id="received-empty">No workouts from your trainer yet.</div>';
     copies.forEach(function (w) {
       var edit = canEditCopy(profile, w);
       var n = (w.items || []).length;
-      h += '<div class="card" data-copy="' + esc(w.id) + '"><div class="row"><div class="name grow">' + esc(w.name) + '</div>' +
-        '<span class="tag">From ' + trainerTag(w) + '</span></div>';
+      h += '<div class="card" data-copy="' + esc(w.id) + '"><div class="name">' + esc(w.name) + '</div>';
       h += '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + ' · ' + (edit ? 'You can edit it' : 'You can run it') + '</div>';
-      h += '<div class="actions"><button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Open</button>';
+      h += '<div class="actions">';
+      if (edit) h += '<button type="button" class="pri sm" data-open-copy="' + esc(w.id) + '">Edit</button>';
+      if (n) h += '<button type="button" class="sm" data-view-copy="' + esc(w.id) + '">View</button>';
       if (n) h += '<button type="button" class="sm" data-run-copy="' + esc(w.id) + '">Run</button>';
       h += '</div></div>';
     });
     ctx.app.innerHTML = h;
+    if (ctx.markSeen) ctx.markSeen(copies.map(function (w) { return w.id; }));
     ctx.app.onclick = function (e) {
-      var t = e.target && e.target.closest ? e.target.closest('[data-open-copy], [data-run-copy]') : null;
+      var t = e.target && e.target.closest ? e.target.closest('[data-open-copy], [data-run-copy], [data-view-copy]') : null;
       if (!t || !ctx) return;
       try { sessionStorage.setItem('wb.copyReturn', '#/received'); } catch (err) {}
+      if (t.dataset.viewCopy) return ctx.go('#/view/' + t.dataset.viewCopy);
       if (t.dataset.runCopy) return ctx.go('#/play/' + t.dataset.runCopy);
       var w = null;
       copies.forEach(function (item) { if (String(item.id) === t.dataset.openCopy) w = item; });

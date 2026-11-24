@@ -22,6 +22,7 @@ async function stubAuth(page, opts) {
       api.TURNSTILE_SITE_KEY = '';
       api.session = function () { return Promise.resolve(session); };
       if (hasProfile) api.profile = function () { return Promise.resolve(profile); };
+      api.trainerRequestCount = function () { return Promise.resolve(0); };
       return api;
     }
     Object.defineProperty(window, 'WBAuth', {

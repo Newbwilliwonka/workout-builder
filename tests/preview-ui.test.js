@@ -237,7 +237,7 @@ async function shareMode(page, mode) {
   assert.strictEqual(mobile.cls, 'pri');
   assert.strictEqual(mobile.bg, 'rgb(37, 99, 235)');
   assert.strictEqual(mobile.color, 'rgb(255, 255, 255)');
-  assert.strictEqual(mobile.weight, '600');
+  assert.strictEqual(mobile.weight, '700');
   assert.strictEqual(mobile.full, true);
   assert.strictEqual(mobile.reset, 'Reset link');
   assert.strictEqual(mobile.noOpen, true);

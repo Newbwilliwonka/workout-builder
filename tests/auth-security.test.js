@@ -77,7 +77,13 @@ const FAKE = [
     window.WBAuth.TURNSTILE_SITE_KEY = '';
     location.hash = '#/subscriptions';
   });
-  await p.waitForFunction(function () { return location.hash === '#/subscriptions'; });
+  await p.waitForFunction(function () {
+    var links = document.getElementById('nav-links');
+    return (location.hash === '' || location.hash === '#') &&
+      document.documentElement.classList.contains('wb-landing') &&
+      !document.getElementById('dash-editor') &&
+      (!links || links.hidden);
+  });
   await p.evaluate(function () { location.hash = '#/signin'; });
   await p.waitForSelector('[data-auth=in]');
   assert.strictEqual(await p.$('#turnstile-box'), null, 'empty site key skips the widget');

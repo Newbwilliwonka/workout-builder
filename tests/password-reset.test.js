@@ -238,7 +238,7 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   assert.strictEqual(await leave.evaluate(() => window.__signedOut), 1);
   assert.strictEqual(await leave.evaluate(() => localStorage.getItem('wb.recovery')), null);
   await leave.evaluate(() => { location.hash = '#/'; });
-  await leave.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]') && document.getElementById('header-signin') && !document.getElementById('header-signin').hidden);
+  await leave.waitForFunction(() => (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]') && document.getElementById('header-signin').hidden);
 
   const again = await open({
     session: { user: { id: 'u', email: 'ada@example.com' } },

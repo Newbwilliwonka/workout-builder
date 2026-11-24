@@ -403,7 +403,7 @@ function install(page, who) {
   await trainer.waitForSelector('#thread-list');
   assert.strictEqual(await trainer.$('[data-thread="' + E + '"]'), null);
   assert.ok(await trainer.$('[data-thread="' + C + '"]'));
-  await trainer.click('#back');
+  await trainer.click('#workouts-nav');
   await trainer.waitForSelector('[data-a=new]');
 
   const closed = await browser.newPage();
@@ -442,7 +442,7 @@ function install(page, who) {
   });
   await signedOut.goto(URL + '#/messages');
   await signedOut.reload();
-  await signedOut.waitForFunction(function () { return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]'); });
+  await signedOut.waitForFunction(function () { return (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]'); });
 
   assert.deepStrictEqual(errs, []);
   console.log('MESSAGES UI OK');

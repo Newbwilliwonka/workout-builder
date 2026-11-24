@@ -416,7 +416,7 @@
       opt('solo', 'Solo') + opt('trainer', 'Trainer present') + '</div>';
   }
   function legendHtml() {
-    return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span><span>' + check(true) + 'Not scheduled</span></div>';
+    return '<div class="pv-legend"><span>' + ico('trainer') + 'Trainer present</span><span>' + ico('solo') + 'Solo</span><span>' + check() + 'Completed</span><span>' + check(true) + 'Unscheduled</span></div>';
   }
   var MONTH_ICON_CAP = 6;
   function presenceKind(row) {
@@ -542,7 +542,7 @@
   }
   function noteHtml() {
     if (!state.ready) return '';
-    if (viewingAll()) return '<div class="card" id="pv-role-note"><p style="margin:0">Your calendar and every client you can see.</p></div>';
+    if (viewingAll()) return '';
     if (state.role === 'free_client') return '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer schedules your program</p></div>';
     if (state.role === 'enthusiast' && state.shareOn === true) return '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer can also edit this calendar</p></div>';
     if (state.role === 'enthusiast' && state.shareOn === false) return '<div class="card" id="pv-role-note"><p style="margin:0">Sharing is off. Your trainer cannot see or edit this calendar.</p></div>';
@@ -565,12 +565,13 @@
     spec = spec || {};
     var id = String(spec.id || 'client-pick');
     var selected = spec.selected == null ? '' : String(spec.selected);
-    var h = '<label class="mute" for="' + esc(id) + '">' + esc(spec.label || 'Client') + '</label><select id="' + esc(id) + '">';
+    var pill = id === 'pv-client';
+    var h = (pill ? '<div class="client-pill">' : '') + '<label class="mute" for="' + esc(id) + '">' + esc(spec.label || 'Client') + '</label><select id="' + esc(id) + '">';
     (spec.options || []).forEach(function (opt) {
       var value = opt && opt.value != null ? String(opt.value) : '';
       h += '<option value="' + esc(value) + '"' + (value === selected ? ' selected' : '') + '>' + esc(opt && opt.label || '') + '</option>';
     });
-    return h + '</select>';
+    return h + '</select>' + (pill ? '</div>' : '');
   }
   function clientPicker() {
     if (!P.isTrainer(state.role)) return '';
@@ -595,8 +596,8 @@
     if (!list.length) h += '<p class="mute">No workouts yet. Build one from the workout list, then drag it onto a day.</p>';
     list.forEach(function (row) { h += workoutCard(row); });
     h += '</div></section><section class="pv-cal" id="pv-cal" aria-label="Programs"><h2 class="pv-h">Programs</h2>' +
-      '<p class="mute">Workouts scheduled on a calendar. A check is a day you actually tracked.</p>' +
-      (canEditHere() ? '<p class="mute" id="pv-schedule-hint">Drag a workout onto a day, or tap a day to choose one.</p>' : '') +
+      '<p class="mute" id="pv-schedule-hint">Workouts scheduled on a calendar. A check is a day you actually tracked.' +
+      (canEditHere() ? ' Drag a workout onto a day, or tap a day to choose one.' : '') + '</p>' +
       '<div class="pv-views"><div class="seg" id="pv-range-switch" role="group" aria-label="Week or month"><button type="button" data-cal="week" class="' + (state.view === 'week' ? 'on' : '') + '">Week</button>' +
       '<button type="button" data-cal="month" class="' + (state.view === 'month' ? 'on' : '') + '">Month</button></div>' +
       '<button type="button" id="pv-gcal">Add to Google Calendar</button></div>' +
@@ -713,11 +714,14 @@
     var items = onDay(date);
     var extras = unscheduledFor(date);
     var tracked = sessions();
-    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">';
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">' +
+      '<div class="pv-grab" data-sheet-grab="1" role="button" aria-label="Close"></div>';
     h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3>';
     if (!items.length && !extras.length) h += '<p class="mute" id="pv-empty-day">No workouts scheduled</p>';
-    items.forEach(function (row) { h += dayRowHtml(row, tracked); });
-    extras.forEach(function (row) { h += extraRowHtml(row); });
+    var rows = '';
+    items.forEach(function (row) { rows += dayRowHtml(row, tracked); });
+    extras.forEach(function (row) { rows += extraRowHtml(row); });
+    if (rows) h += '<div class="pv-day-list">' + rows + '</div>';
     if (canEditHere()) h += '<button type="button" data-sheet="add-day">Add workout</button>';
     return h + '</div></div>';
   }
@@ -731,22 +735,24 @@
     if (state.sheet.loggedId) return loggedSheetHtml();
     var row = entryById(state.sheet.entryId);
     var actions = row ? P.entryMenu(contextForOwner(row.ownerId)) : [];
-    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">';
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">' +
+      '<div class="pv-grab" data-sheet-grab="1" role="button" aria-label="Close"></div>';
     if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
     else h += dayWorkoutHtml(row, actions);
     return h + '</div></div>';
   }
   function loggedSheetHtml() {
     var row = loggedById(state.sheet.loggedId);
-    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">';
+    var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">' +
+      '<div class="pv-grab" data-sheet-grab="1" role="button" aria-label="Close"></div>';
     if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
     else {
       var name = loggedName(row);
       var actions = P.entryMenu(contextForOwner(row.ownerId)).filter(function (action) { return action === 'run' || action === 'view'; });
       h += '<div class="pv-slot"><h3 class="name pv-slot-title">' + check(true) + '<span>' + esc(name) + '</span></h3>';
       h += '<p class="mute">' + esc(prettyDate(row.date)) + ' · Completed, not scheduled</p>';
-      if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '">Run</button>';
       if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '">View</button>';
+      if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '">Run</button>';
       h += openErrorHtml() + '</div>';
     }
     return h + '</div></div>';
@@ -762,12 +768,12 @@
     h += '<h3 class="name pv-slot-title">' + ico(kind) + '<span>' + esc(name) + '</span></h3><p class="mute">' + esc(prettyDate(row.date)) + ' · ' + esc(presenceLabel(kind)) + '</p>';
     if (editing) h += presenceChoice('pv-presence-' + row.id, kind, row.id);
     if (editing) {
-      h += '<label for="pv-start-' + esc(row.id) + '">Start</label><input id="pv-start-' + esc(row.id) + '" data-time="start" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.start || '') + '">' +
-        '<label for="pv-end-' + esc(row.id) + '">End</label><input id="pv-end-' + esc(row.id) + '" data-time="end" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.end || '') + '">';
+      h += '<div class="pv-times"><div><label for="pv-start-' + esc(row.id) + '">Start</label><input id="pv-start-' + esc(row.id) + '" data-time="start" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.start || '') + '"></div>' +
+        '<div><label for="pv-end-' + esc(row.id) + '">End</label><input id="pv-end-' + esc(row.id) + '" data-time="end" data-entry="' + esc(row.id) + '" type="time" value="' + esc(draft.end || '') + '"></div></div>';
     } else if (when) h += '<p class="pv-when">' + esc(when) + '</p>';
     if (draft.error) h += '<p class="errs" id="pv-sheet-error">' + esc(draft.error) + '</p>';
-    if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">Run</button>';
     if (actions.indexOf('view') >= 0) h += '<button type="button" data-view-wo="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">View</button>';
+    if (actions.indexOf('run') >= 0) h += '<button type="button" class="pri" data-run="' + esc(row.workoutId) + '" data-entry="' + esc(row.id) + '">Run</button>';
     if (editing) h += '<button type="button" data-sheet="times" data-entry="' + esc(row.id) + '">Save times</button>';
     if (actions.indexOf('remove') >= 0) h += '<button type="button" class="danger" data-sheet="remove" data-entry="' + esc(row.id) + '">Remove workout</button>';
     return h + openErrorHtml() + '</div>';
@@ -954,8 +960,9 @@
     window.scrollTo(0, 0);
   }
   function applyChrome() {
-    if (titleEl) titleEl.textContent = 'Programs';
-    if (backBtn) backBtn.hidden = false;
+    if (titleEl && !(state && state.screen === 'player')) titleEl.textContent = 'Programs';
+    if (!backBtn) return;
+    backBtn.hidden = !(state && (state.screen === 'player' || state.playerLive));
   }
   function returnsToList(sheet) {
     if (!sheet || !sheet.date) return false;
@@ -1311,8 +1318,28 @@
     if (!under || !under.closest) return null;
     return under.closest('.pv-day') || under.closest('.pv-cell[data-date]');
   }
+  function startSheetGrab(e) {
+    if (!state || !state.sheet) return;
+    var startY = e.clientY;
+    var card = e.target.closest('.pv-sheet-card');
+    function move(ev) {
+      var dy = Math.max(0, ev.clientY - startY);
+      if (card) card.style.transform = 'translateY(' + dy + 'px)';
+    }
+    function up(ev) {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', up);
+      if (card) card.style.transform = '';
+      if (ev.clientY - startY > 48) closeSheetLayer();
+    }
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+  }
   function onPointerDown(e) {
     if (e.button != null && e.button !== 0) return;
+    if (e.target.closest && e.target.closest('[data-sheet-grab]')) { startSheetGrab(e); return; }
     if (e.target.closest('[data-presence], #pv-sheet, input, select, textarea, button')) return;
     var handle = e.target.closest('[data-drag]');
     if (!handle) return;

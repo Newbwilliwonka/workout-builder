@@ -88,12 +88,10 @@
   function hashPage() { return hashBody().split('/')[0]; }
   backBtn.onclick = function () {
     var page = hashPage();
+    if ((page === 'programs' || page === 'preview') && window.WBPreview && WBPreview.back()) return;
+    if (backBtn.hidden) return;
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') return;
-    if (page === 'subscriptions' && backBtn.hidden) return;
-    if (page === 'programs' || page === 'preview') {
-      if (window.WBPreview && WBPreview.back()) return;
-      return go('#/');
-    }
+    if (page === 'programs' || page === 'preview') return go('#/');
     if (page === 'tracking') {
       var backTail = hashBody().split('/');
       if (backTail[1] === 'dashboard' && backTail[2]) return go('#/tracking/dashboard');
@@ -122,7 +120,7 @@
       return go('#/');
     }
     if (page === 'send') return go('#/');
-    if (page === 'received') return go(hashBody().split('/')[1] ? '#/received' : '#/account');
+    if (page === 'received') return go(hashBody().split('/')[1] ? '#/received' : '#/');
     if (page === 'client') return go('#/account');
     if (page === 'admin') return go('#/account');
     if (page === 'w') {
@@ -201,7 +199,17 @@
       history.replaceState(null, '', path + (search ? '?' + search : '') + (u.hash || ''));
     } catch (e) {}
   }
-  function signedOutHome() { return (linkInviteCode() || inviteArrival) ? '#/join' : '#/subscriptions'; }
+  function signedOutHome() { return (linkInviteCode() || inviteArrival) ? '#/join' : ''; }
+  // Signed-out visitors, including right after sign-out, land on the marketing page.
+  function goSignedOutHome() {
+    if (linkInviteCode() || inviteArrival) return go('#/join');
+    if (location.hash === '' || location.hash === '#') {
+      showLanding();
+      syncChrome();
+      return;
+    }
+    location.hash = '';
+  }
   function takeInviteNotice() { var n = pendingInviteNotice; pendingInviteNotice = null; return n; }
   function inviteWaiting(err) {
     var msg = String(err && err.message || '').replace(/^\s+|\s+$/g, '');
@@ -388,8 +396,7 @@
   }
   function copyNote(w) {
     if (!w || !w.sourceTrainerId) return '';
-    return '<span class="tag">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'Trainer')) + '</span>' +
-      '<p class="mute" id="copy-note">Copy from your trainer. Edits stay on this copy and do not change their workout.</p>';
+    return '<p class="mute" id="copy-note">Copy from your trainer. Edits stay on this copy and do not change their workout.</p>';
   }
   function ensureProfile() {
     if (cachedProfile) return Promise.resolve(cachedProfile);
@@ -432,6 +439,60 @@
     persistLocal();
     applyingCopies = false;
     scheduleCopySave();
+    paintReceivedDot();
+  }
+  var RECEIVED_SEEN = 'wb.receivedSeen';
+  function receivedSeenKey() {
+    var id = cachedProfile && cachedProfile.id;
+    return RECEIVED_SEEN + '.' + (id || 'local');
+  }
+  function readReceivedSeen() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(receivedSeenKey()) || '{}');
+      return raw && typeof raw === 'object' ? raw : {};
+    } catch (e) { return {}; }
+  }
+  function markReceivedSeen(ids) {
+    var seen = readReceivedSeen();
+    var changed = false;
+    (ids || []).forEach(function (id) {
+      if (id == null) return;
+      var key = String(id);
+      if (seen[key]) return;
+      seen[key] = 1;
+      changed = true;
+    });
+    if (changed) {
+      try { localStorage.setItem(receivedSeenKey(), JSON.stringify(seen)); } catch (e2) {}
+    }
+    paintReceivedDot();
+  }
+  function unseenReceivedCount() {
+    if (window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile))) return 0;
+    var seen = readReceivedSeen();
+    var n = 0;
+    (data.workouts || []).forEach(function (w) {
+      if (w && w.sourceTrainerId && !seen[String(w.id)]) n += 1;
+    });
+    return n;
+  }
+  function paintReceivedDot() {
+    var link = document.getElementById('workouts-nav');
+    if (!link) return;
+    var n = unseenReceivedCount();
+    var badge = link.querySelector('.request-count');
+    if (!n) {
+      if (badge) badge.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'request-count';
+      link.appendChild(badge);
+    }
+    badge.hidden = false;
+    badge.textContent = String(n);
+    badge.setAttribute('aria-label', n === 1 ? '1 new workout' : (n + ' new workouts'));
   }
   function pullCopies() {
     if (!WBAuth.workoutCopies || !window.WBSends) return;
@@ -1074,7 +1135,7 @@
     var from = hashPage();
     WBAuth.session().then(function (session) {
       if (hashPage() !== from) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== from) return;
         go(WBMembership.hasDesignated(profile) ? '#/account' : '#/subscriptions');
@@ -1090,7 +1151,7 @@
     // Redeeming happens once inside the signed-in route, including before approval.
     pending.then(function (session) {
       if (!onAuthPage()) return;
-      if (!session) return go('#/subscriptions');
+      if (!session) return goSignedOutHome();
       go('#/');
     }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
   }
@@ -1531,7 +1592,10 @@
     recoveryPhase = 'checking';
     recoverySettled = false;
     renderReset();
-    Promise.resolve().then(function () { return WBAuth.signOut(); }).then(goSign, function () {
+    Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
+      forgetRequestBadges();
+      goSign();
+    }, function () {
       holdRecovery('Could not sign out. Stay here until the new password is set.');
     });
   }
@@ -1575,7 +1639,7 @@
     backBtn.hidden = true;
     showHeaderSignIn(false);
     app.innerHTML = '<div class="gate" id="access-wait"><h2>Waiting for access</h2><p class="lede">Your account is waiting for approval.</p><button type="button" class="pri" id="access-signout" style="width:100%">Sign out</button></div>';
-    syncHeaderSignOut();
+    syncChrome();
     app.onclick = function (e) {
       if (e.target && e.target.closest && e.target.closest('#access-signout')) signOutFromAccount();
     };
@@ -1632,7 +1696,10 @@
           if (!levelCan(profile, 'send')) return renderLevelNote(profile);
           return openSends(token);
         }
-        if (page === 'received') return openSends(token);
+        if (page === 'received') {
+          if (!hashBody().split('/')[1]) return go('#/');
+          return openSends(token);
+        }
         if (page === 'w' && !levelCan(profile, 'open')) {
           var opened = getW(hashBody().split('/')[1]);
           if (!(opened && opened.sourceTrainerId)) return renderLevelNote(profile);
@@ -1975,6 +2042,12 @@
     });
     persistLocal();
   }
+  function initialsOf(name) {
+    var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  }
   function trainerSection(roster) {
     if (!roster) return '';
     if (roster.error) return '<div class="errs">' + esc(roster.error) + '</div>';
@@ -1985,17 +2058,20 @@
     if (!roster.invites.length) h += '<p class="mute">No open invites.</p>';
     roster.invites.forEach(function (inv) {
       var link = WBInvites.inviteLink(inv.code);
-      h += '<div class="card" data-open-invite="' + esc(inv.code) + '"><div class="invite-code">' + esc(WBInvites.formatCode(inv.code)) + '</div>';
+      h += '<div class="card flat" data-open-invite="' + esc(inv.code) + '"><div class="invite-code">' + esc(WBInvites.formatCode(inv.code)) + '</div>';
       h += '<p class="mute">' + esc(WBInvites.timeLeft(inv.expiresAt, Date.now())) + '</p>';
-      h += '<p class="mute invite-code">' + esc(link) + '</p><div class="actions">';
+      h += '<p class="mute invite-url">' + esc(link) + '</p><div class="actions">';
       h += '<button class="sm" data-invite="copy-code" data-code="' + esc(inv.code) + '">Copy code</button>';
       h += '<button class="sm" data-invite="copy-link" data-link="' + esc(link) + '">Copy link</button>';
       h += '<button class="sm danger" data-invite="cancel" data-code="' + esc(inv.code) + '">Cancel</button></div></div>';
     });
-    h += '<div class="name">Clients</div>';
+    h += '<div class="name" style="margin-top:12px">Clients</div>';
     if (!roster.clients.length) h += '<p class="mute">No clients yet.</p>';
-    roster.clients.forEach(function (c) {
-      h += '<div class="row"><div class="grow"><b>' + esc(personLabel(c) || 'Client') + '</b><div class="mute">' + esc(c.plan) + '</div></div>';
+    roster.clients.forEach(function (c, i) {
+      var label = personLabel(c) || 'Client';
+      var tone = 'c' + ((i % 7) + 1);
+      h += '<div class="client-row"><span class="av ' + tone + '">' + esc(initialsOf(label)) + '</span>';
+      h += '<div class="grow"><b>' + esc(label) + '</b><div class="mute">' + esc(c.plan) + '</div></div>';
       h += '<button class="sm" type="button" data-client-view="' + esc(c.id) + '">View</button>';
       h += '<button class="sm danger" data-invite="end" data-client="' + esc(c.id) + '">End connection</button></div>';
     });
@@ -2077,17 +2153,71 @@
   function syncHeaderSignOut() {
     var link = document.getElementById('account-signout');
     if (!link) return;
-    link.hidden = !(hashPage() === 'account' || profileGateOn || accessWaitOn);
+    var bare = document.documentElement.classList.contains('wb-bare');
+    link.hidden = bare || !(hashPage() === 'account' || profileGateOn);
   }
-  // Plain header link, same treatment as Sign out. Only the signed-out Subscriptions page shows it.
-  function showHeaderSignIn(show) {
+  // Signed-out pages have no header Sign in. The landing page carries that link.
+  function showHeaderSignIn() {
     var link = document.getElementById('header-signin');
     if (!link) return;
-    link.hidden = !(show && hashPage() === 'subscriptions');
+    link.hidden = true;
+  }
+  function paintAccountMe(profile) {
+    var el = document.getElementById('account-me');
+    if (!el || el.hidden) return;
+    var name = personLabel({ display_name: profile && profile.display_name });
+    var initials = '';
+    if (name) {
+      var parts = name.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) initials = parts[0].slice(0, 2).toUpperCase();
+      else initials = (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+    }
+    if (initials) el.textContent = initials;
+    else el.innerHTML = window.WBProfile ? WBProfile.personIcon() : '';
+  }
+  function syncChrome() {
+    var page = hashPage();
+    var landingOn = document.documentElement.classList.contains('wb-landing');
+    var bare = landingOn || accessWaitOn || page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset';
+    document.documentElement.classList.toggle('wb-bare', bare);
+    var parts = hashBody().split('/');
+    var live = page === 'circuits' && parts[2] === 'run';
+    var player = page === 'play' || page === 'view' || document.body.classList.contains('playing');
+    var gate = page === 'subscriptions' && (
+      !!document.getElementById('level-lock') ||
+      !(window.WBMembership && WBMembership.hasDesignated(cachedProfile))
+    );
+    var links = document.getElementById('nav-links');
+    var me = document.getElementById('account-me');
+    var showMe = !bare && !player && !live && !gate && !profileGateOn && !!signedInNow;
+    var showLinks = showMe;
+    if (links) {
+      links.hidden = !showLinks;
+      Array.prototype.forEach.call(links.querySelectorAll('a'), function (a) {
+        var on = false;
+        if (showLinks) {
+          if (a.id === 'programs-open') on = page === 'programs' || page === 'preview';
+          else if (a.id === 'tracking-open') on = page === 'tracking' || page === 'history';
+          else if (a.id === 'messages-nav') on = page === 'messages';
+          else if (a.id === 'hub-nav') on = page === 'hub';
+          else if (a.id === 'workouts-nav') on = page === '' || page === 'w' || page === 'send' || page === 'received' || page === 'circuits';
+        }
+        a.classList.toggle('on', !!on);
+      });
+    }
+    if (me) {
+      me.hidden = !showMe;
+      me.classList.toggle('on', page === 'account');
+      paintAccountMe(cachedProfile);
+    }
+    syncHeaderSignOut();
+    paintReceivedDot();
+    refreshRequestBadges();
   }
   function signOutFromAccount() {
     var from = hashPage();
     WBAuth.signOut().then(function () {
+      forgetRequestBadges();
       cachedProfile = null;
       copyStamp = {};
       removedCopies = [];
@@ -2102,7 +2232,7 @@
       syncHeaderSignOut();
       signedInNow = false;
       if (hashPage() !== from) return;
-      go('#/signin');
+      goSignedOutHome();
     }).catch(function (err) {
       if (hashPage() !== from) return;
       app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
@@ -2113,6 +2243,8 @@
     e.preventDefault();
     signOutFromAccount();
   };
+  var accountMe = document.getElementById('account-me');
+  if (accountMe) accountMe.onclick = function () { openAccount(); };
   function paintAccountAvatar(profile) {
     var el = document.getElementById('profile-open');
     if (!el) return;
@@ -2133,14 +2265,19 @@
     if (!document.getElementById('profile-sheet')) return;
     closeProfileSheet(true);
   }
+  var profileBarTitle = '';
   function closeProfileSheet(force) {
     var el = document.getElementById('profile-sheet');
     if (!el) return;
     if (!force && el.getAttribute('data-required') === '1') return;
+    if (titleEl && titleEl.textContent === 'Profile' && profileBarTitle) titleEl.textContent = profileBarTitle;
+    var parked = document.querySelector('#app-bar #profile-cancel');
+    if (parked) parked.remove();
     if (window.WBPlaces && WBPlaces.destroyProfilePin) WBPlaces.destroyProfilePin();
     el.remove();
     profileSheetRequired = false;
     profilePhotoBlob = null;
+    syncChrome();
     if (profileObjectUrl) {
       try { URL.revokeObjectURL(profileObjectUrl); } catch (err) {}
       profileObjectUrl = '';
@@ -2150,7 +2287,7 @@
     profileGateOn = true;
     titleEl.textContent = 'Account';
     backBtn.hidden = true;
-    syncHeaderSignOut();
+    syncChrome();
     var open = document.getElementById('profile-sheet');
     if (open && open.getAttribute('data-required') === '1') return;
     openProfileSheet(profile, { required: true });
@@ -2161,6 +2298,8 @@
     profile = profile || cachedProfile || {};
     profileSheetRequired = !!opts.required;
     if (profileSheetRequired) profileGateOn = true;
+    if (titleEl && titleEl.textContent !== 'Profile') profileBarTitle = titleEl.textContent;
+    if (titleEl) titleEl.textContent = 'Profile';
     profilePhotoBlob = null;
     if (profileObjectUrl) {
       try { URL.revokeObjectURL(profileObjectUrl); } catch (err) {}
@@ -2299,7 +2438,7 @@
         return;
       }
       if (e.target && e.target.id === 'profile-sheet' && !profileSheetRequired) closeProfileSheet(true);
-      if (e.target && e.target.closest && e.target.closest('#profile-cancel')) closeProfileSheet(true);
+      if (e.target && e.target.closest && (e.target.closest('#profile-cancel') || e.target.closest('#profile-cancel-top'))) closeProfileSheet(true);
       if (e.target && e.target.closest && e.target.closest('#profile-save')) saveProfileFromSheet(profile, readFields, mark, showErr);
       if (e.target && e.target.closest && e.target.closest('#verify-open')) openVerifyForm();
       if (e.target && e.target.closest && e.target.closest('#verify-submit')) submitVerification(profile);
@@ -2310,6 +2449,16 @@
         var photoEl = document.getElementById('profile-photo');
         if (url && photoEl && photoEl.isConnected && !profilePhotoBlob) photoEl.innerHTML = '<img alt="" src="' + esc(url) + '">';
       }).catch(function () {});
+    }
+    var cancelBtn = document.getElementById('profile-cancel');
+    var signOut = document.getElementById('account-signout');
+    if (cancelBtn && signOut && signOut.parentNode) {
+      signOut.parentNode.insertBefore(cancelBtn, signOut);
+      cancelBtn.addEventListener('click', function () { closeProfileSheet(true); });
+    }
+    if (nameEl && opts.required && !String(nameEl.value || '').replace(/^\s+|\s+$/g, '')) {
+      nameEl.classList.add('is-empty');
+      nameEl.setAttribute('aria-invalid', 'true');
     }
     if (nameEl && opts.required) {
       try { nameEl.focus(); } catch (err) {}
@@ -2461,12 +2610,14 @@
     var h = '<div class="sales">';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
-    h += '<p class="note">Beta pricing for the first 100 members.</p>';
+    h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';
     h += '<div class="plan-grid">';
     WBMembership.TIERS.forEach(function (t) {
-      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + (t.beta ? ' is-beta' : '') + '">';
-      if (t.beta) h += '<span class="ribbon">BETA</span>';
-      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
+      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
+      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>';
+      if (t.recommended) h += '<span class="pill solid">Recommended</span>';
+      if (t.beta) h += '<span class="pill amber">Beta</span>';
+      h += '</div>';
       h += '<div class="price">';
       if (t.oldPriceLabel) h += '<span class="was">' + esc(t.oldPriceLabel) + '</span>';
       h += '<span class="now">' + esc(t.priceLabel) + '</span>';
@@ -2525,6 +2676,7 @@
   function hideLanding() {
     document.documentElement.classList.add('wb-app');
     document.documentElement.classList.remove('wb-landing');
+    syncChrome();
   }
   function showLanding() {
     if (!landingEl) return;
@@ -2532,6 +2684,8 @@
     document.documentElement.classList.add('wb-landing');
     fillLandingPlans();
     bindLandingShots();
+    backBtn.hidden = true;
+    syncChrome();
   }
   function renderSubscriptions(message, isError) {
     titleEl.textContent = 'Subscriptions';
@@ -2540,11 +2694,7 @@
     app.innerHTML = '<p class="mute">Loading…</p>';
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'subscriptions') return;
-          if (!session) {
-            if (linkInviteCode() || inviteArrival) return go('#/join');
-        backBtn.hidden = true;
-        return drawSubscriptions(null, null, message, isError, null, false);
-      }
+          if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
         if (profile) cachedProfile = profile;
@@ -2582,21 +2732,16 @@
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     if (locked) h += '<p class="mute" id="level-lock">Choose a level to continue.</p>';
-    if (session && !locked) {
-      h += '<button id="messages-nav" type="button" data-go="messages" style="width:100%;margin-bottom:12px">Messages</button>';
-      h += '<button id="hub-nav" type="button" data-go="hub" style="width:100%;margin-bottom:12px">Trainer Hub</button>';
-      if (!(window.WBInvites && profile && WBInvites.trainerRole(profile))) {
-        h += '<button id="workouts-nav" type="button" data-go="received" style="width:100%;margin-bottom:12px">Workouts</button>';
-      }
-    }
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
-    h += '<p class="note">Beta pricing for the first 100 members.</p>';
+    h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';
     if (session) h += redeemCard(conn, profile);
     WBMembership.TIERS.forEach(function (t) {
-      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + (t.beta ? ' is-beta' : '') + '">';
-      if (t.beta) h += '<span class="ribbon">BETA</span>';
-      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
+      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
+      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>';
+      if (t.recommended) h += '<span class="pill solid">Recommended</span>';
+      if (t.beta) h += '<span class="pill amber">Beta</span>';
+      h += '</div>';
       h += '<div class="price">';
       if (t.oldPriceLabel) h += '<span class="was">' + esc(t.oldPriceLabel) + '</span>';
       h += '<span class="now">' + esc(t.priceLabel) + '</span>';
@@ -2625,14 +2770,21 @@
     app.innerHTML = h;
     refreshRequestBadges();
     if (!session) backBtn.hidden = true;
-    showHeaderSignIn(!session);
+    showHeaderSignIn(false);
+    syncChrome();
     app.onchange = function (e) {
       if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
     };
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        return WBAuth.signOut().then(function () { cachedProfile = null; signedInNow = false; resetLibraryMemory(); go('#/signin'); });
+        return WBAuth.signOut().then(function () {
+          forgetRequestBadges();
+          cachedProfile = null;
+          signedInNow = false;
+          resetLibraryMemory();
+          goSignedOutHome();
+        });
       }
       if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
@@ -2656,11 +2808,11 @@
     };
   }
   function renderSimpleAccount() {
-    titleEl.textContent = 'Account'; backBtn.hidden = false;
+    titleEl.textContent = 'Account'; backBtn.hidden = true;
     app.innerHTML = '<p class="mute">Loading account…</p>';
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'account') return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'account') return;
         if (!WBMembership.hasDesignated(profile)) return go('#/subscriptions');
@@ -2686,27 +2838,18 @@
     var note = takeInviteNotice();
     var ent = WBMembership.entitlements(profile);
     var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
-    var h = '<div class="gate">';
+    var h = '<div class="account-page">';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     var who = signedInLabel(profile, session);
     var verifiedName = window.WBProfile && WBProfile.isVerified(profile && profile.verified_until, WBProfile.todayISO());
     var whoHtml = window.WBProfile ? WBProfile.nameHtml(who, verifiedName) : esc(who);
     h += '<div class="card" id="account-card"><div class="account-id">' +
-      '<button type="button" class="avatar" id="profile-open" aria-label="Profile">' +
-      (window.WBProfile ? WBProfile.personIcon() : '') + '</button>' +
+      '<button type="button" class="avatar av-lg" id="profile-open" aria-label="Profile">' + esc(initialsOf(who)) + '</button>' +
       '<div class="grow"><div class="name" id="account-label">' + whoHtml + '</div>' +
       '<p class="mute">' + esc(plan ? plan.name : 'Membership') + ' · <button type="button" id="profile-edit">Edit profile</button></p></div></div></div>';
-    var trainerNav = window.WBInvites && WBInvites.trainerRole(profile);
-    h += '<div class="row" id="account-nav" style="margin-bottom:12px">' +
-      '<button id="messages-nav" class="grow" type="button" data-go="messages">Messages</button>' +
-      '<button id="hub-nav" class="grow" type="button" data-go="hub">Trainer Hub</button>' +
-      (trainerNav
-        ? '<button id="send-nav" class="grow" type="button" data-go="send">Send workout</button>'
-        : '<button id="workouts-nav" class="grow" type="button" data-go="received">Workouts</button>');
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) {
-      h += '<button id="admin-open" class="grow" type="button" data-go="admin">Admin<span class="admin-count" id="admin-count" hidden></span></button>';
+      h += '<button type="button" class="link-row" id="admin-open" data-go="admin"><span class="grow"><span class="name">Admin</span><div class="mute">Access, verifications, Hub reports</div></span><span class="admin-count" id="admin-count" hidden></span><span class="chev" aria-hidden="true">›</span></button>';
     }
-    h += '</div>';
     if (window.WBProfile && WBProfile.needsName(profile)) {
       h += '<p class="lede" id="account-name-note">' + esc(WBProfile.PROMPT) + '</p>';
     }
@@ -2719,7 +2862,7 @@
     app.innerHTML = h;
     paintAccountAvatar(profile);
     refreshRequestBadges();
-    syncHeaderSignOut();
+    syncChrome();
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) loadPendingCount();
     if (shareHere) loadShare();
     app.onclick = function (e) {
@@ -2738,7 +2881,7 @@
   }
   function paintRequestBadges(n) {
     var count = Math.max(0, Number(n) || 0);
-    ['messages-nav', 'hub-nav'].forEach(function (id) {
+    ['messages-nav'].forEach(function (id) {
       var btn = document.getElementById(id);
       if (!btn) return;
       var badge = btn.querySelector('.request-count');
@@ -2756,12 +2899,17 @@
       badge.setAttribute('aria-label', count === 1 ? '1 request' : (count + ' requests'));
     });
   }
+  var badgeGen = 0;
+  function forgetRequestBadges() {
+    badgeGen++;
+    paintRequestBadges(0);
+  }
   function refreshRequestBadges() {
+    var gen = ++badgeGen;
     if (!window.WBProfile || !WBProfile.canListInSearch || !WBProfile.canListInSearch(cachedProfile)) return;
     if (!window.WBAuth || !WBAuth.trainerRequestCount) return;
-    var token = routeToken;
     Promise.resolve().then(function () { return WBAuth.trainerRequestCount(); }).then(function (n) {
-      if (token !== routeToken) return;
+      if (gen !== badgeGen) return;
       paintRequestBadges(n);
     }, function () {});
   }
@@ -2818,7 +2966,7 @@
     var requested = location.hash;
     WBAuth.session().then(function (session) {
       if (hashPage() !== 'admin' || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       var email = session.user && session.user.email;
       if (!window.WBProfile || !WBProfile.isAdminEmail(email)) {
         app.innerHTML = '<div class="card" id="verify-admin-denied"><div class="name">Only the admin can open this page</div></div>';
@@ -2864,9 +3012,9 @@
       h += '<article class="card" data-account="' + esc(id) + '">';
       h += '<div class="name">' + esc(name) + '</div>';
       h += '<p class="mute">' + esc(row.email || '') + '</p>';
-      h += '<div class="actions">';
-      if (waiting) h += '<button type="button" class="pri" data-access="approve" data-id="' + esc(id) + '">Approve</button>';
-      h += '<button type="button" class="danger" data-access="remove" data-id="' + esc(id) + '">Remove access</button>';
+      h += '<div class="actions admin-halves">';
+      if (waiting) h += '<button type="button" class="pri sm" data-access="approve" data-id="' + esc(id) + '">Approve</button>';
+      h += '<button type="button" class="sm danger" data-access="remove" data-id="' + esc(id) + '">Remove access</button>';
       h += '</div></article>';
     });
     return h;
@@ -2880,12 +3028,9 @@
       h += '<article class="card" data-request="' + esc(id) + '">';
       h += '<div class="name">' + esc(name) + '</div>';
       h += '<p class="mute">' + esc(row.email || '') + '</p>';
-      h += '<p class="verify-meta">Certifying organization<br><b>' + esc(row.cert_body || '') + '</b></p>';
-      h += '<p class="verify-meta">Certification number<br><b>' + esc(row.cert_number || '') + '</b></p>';
-      h += '<p class="verify-meta">Expiration date<br><b>' + esc(window.WBProfile ? WBProfile.formatDay(row.expires_on) : (row.expires_on || '')) + '</b></p>';
-      h += '<p class="verify-meta">Submitted<br><b>' + esc(window.WBProfile ? WBProfile.formatDay(row.created_at) : '') + '</b></p>';
-      h += '<div class="actions"><button type="button" class="pri" data-verify="approve" data-id="' + esc(id) + '">Approve</button>';
-      h += '<button type="button" data-verify="decline" data-id="' + esc(id) + '">Decline</button></div>';
+      h += '<p class="verify-line">Certifying organization <b>' + esc(row.cert_body || '') + '</b> · Certification number <b>' + esc(row.cert_number || '') + '</b> · Expiration date <b>' + esc(window.WBProfile ? WBProfile.formatDay(row.expires_on) : (row.expires_on || '')) + '</b> · Submitted <b>' + esc(window.WBProfile ? WBProfile.formatDay(row.created_at) : '') + '</b></p>';
+      h += '<div class="actions admin-halves"><button type="button" class="pri sm" data-verify="approve" data-id="' + esc(id) + '">Approve</button>';
+      h += '<button type="button" class="sm" data-verify="decline" data-id="' + esc(id) + '">Decline</button></div>';
       h += '<div class="decline-box" id="decline-' + esc(id) + '" hidden>';
       h += '<label for="note-' + esc(id) + '">Note</label>';
       h += '<textarea id="note-' + esc(id) + '" maxlength="280" placeholder="Short note for the trainer"></textarea>';
@@ -2900,17 +3045,17 @@
     var queueRows = Array.isArray(queue) ? queue : [];
     var accountRows = Array.isArray(accounts) ? accounts : [];
     var h = '<div class="admin-page">';
-    h += '<section id="access-section"><h2>Access</h2>';
+    h += '<section id="access-section">';
     if (accounts && accounts.__err) {
       h += '<div class="errs" id="access-admin-error">' + esc((accounts.__err && accounts.__err.message) || 'Could not load accounts.') + '</div>';
     } else if (accounts == null) {
       h += '<div class="card" id="access-unavailable"><div class="name">Not available yet</div><p class="mute">Access approval is not available yet. Apply the access SQL in the Supabase SQL editor.</p></div>';
     } else {
-      h += '<h3>Waiting for approval</h3><div id="access-waiting">' + accessCards(accountRows, true) + '</div>';
-      h += '<h3>Approved</h3><div id="access-approved">' + accessCards(accountRows, false) + '</div>';
+      h += '<div class="sec">Access · Waiting for approval</div><div id="access-waiting">' + accessCards(accountRows, true) + '</div>';
+      h += '<div class="sec">Access · Approved</div><div id="access-approved">' + accessCards(accountRows, false) + '</div>';
     }
     h += '</section>';
-    h += '<section id="verifications-section"><h2>Verifications</h2>';
+    h += '<section id="verifications-section"><div class="sec">Verifications</div>';
     if (!WBAuth.verificationQueue || queue == null) {
       h += '<div class="card" id="verify-wait"><div class="name">Not available yet</div><p class="mute">Verification is not available yet. Apply the verification SQL in the Supabase SQL editor.</p></div>';
     } else if (queue && queue.__err) {
@@ -2919,7 +3064,7 @@
       h += verificationCards(queueRows);
     }
     h += '</section>';
-    h += '<section id="hub-reports-section"><div class="admin-h"><h2>Hub reports</h2><span class="admin-count" id="hub-report-count" hidden></span></div>';
+    h += '<section id="hub-reports-section"><div class="admin-h"><div class="sec">Hub reports</div><span class="admin-count" id="hub-report-count" hidden></span></div>';
     h += '<div id="hub-reports-body"><p class="mute" id="hub-reports-loading">Loading…</p></div></section>';
     h += '</div>';
     app.innerHTML = h;
@@ -3121,7 +3266,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       var profileP = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
       profileP.then(function (profile) { return profile; }, function () { return null; }).then(function (profile) {
         if (token !== routeToken || location.hash !== requested) return;
@@ -3131,7 +3276,8 @@
           app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast,
           profile: function () { return cachedProfile; },
           workouts: function () { return data.workouts; },
-          applyCopies: function (list) { applyCopies(list || []); }
+          applyCopies: function (list) { applyCopies(list || []); },
+          markSeen: function (ids) { markReceivedSeen(ids); }
         });
       });
     }).catch(function () {
@@ -3149,9 +3295,12 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       if (!window.WBMessages) return;
-      WBMessages.mount({ app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast });
+      WBMessages.mount({
+        app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast,
+        onBadges: function () { refreshRequestBadges(); }
+      });
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
       go('#/signin');
@@ -3167,7 +3316,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       if (!window.WBHub) {
         titleEl.textContent = 'Trainer Hub';
         app.innerHTML = '<div class="card" id="hub-wait"><div class="name">Not available yet</div><p class="mute">Trainer Hub is not available yet. Apply the hub SQL in the Supabase SQL editor.</p></div>';
@@ -3342,7 +3491,7 @@
     if (!pending || !pending.then) return go('#/signin');
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
-      if (!session) return go('#/signin');
+      if (!session) return goSignedOutHome();
       if (!id || !WBAuth.clientStatus || !window.WBSharing) return showWait();
       return WBAuth.clientStatus(id).then(function (row) {
         if (token !== routeToken || location.hash !== requested) return;
@@ -3512,11 +3661,11 @@
     }
     if (!recoverySettled && !recoveryPhase && WBAuth.recoveryArrival && WBAuth.recoveryArrival()) return beginRecovery(token);
     if (!recoverySettled && !recoveryPhase && recoveryLocked()) return resumeRecovery(token);
-    // Sign-in, create-account, forgot/reset password, and Subscriptions stay reachable with no session.
+    // Sign-in, create-account, and forgot/reset password stay reachable with no session.
     // A signed-out visit that carries an invite code opens create-account with the code filled in.
     // Sign-in has no code box. A stored code is still redeemed after sign-in.
     // A bare visit with no invite keeps the public landing.
-    // Any other signed-out visit opens Subscriptions.
+    // Any other signed-out visit, including #/subscriptions, opens the landing page.
     // Recovery links are claimed above. A failed session check still opens sign-in.
     if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') {
       profileGateOn = false;
@@ -3536,7 +3685,6 @@
       recoverySettled = true;
       return renderReset();
     }
-    if (page === 'subscriptions') return renderSubscriptions();
     var requested = location.hash;
     app.innerHTML = '';
     app.onclick = null; app.oninput = null; app.onchange = null;
@@ -3549,14 +3697,16 @@
         signedInNow = false;
         if (publicRoot && !recoveryNow && (location.hash === '' || location.hash === '#')) return showLanding();
         hideLanding();
-        return go(signedOutHome());
+        return goSignedOutHome();
       }
       signedInNow = true;
       hideLanding();
+      if (page === 'subscriptions') return renderSubscriptions();
       openSignedIn(token, requested, page);
-    }).catch(function () {
+    }).catch(function (err) {
       if (token !== routeToken || location.hash !== requested) return;
       hideLanding();
+      if (page === 'subscriptions') return showSignInNotice((err && err.message) || 'Could not reach sign-in', true);
       go('#/signin');
     });
   }
@@ -3565,6 +3715,12 @@
     try { URL.revokeObjectURL(draft.pendingUrl); } catch (e) {}
     draft.pendingUrl = '';
   }
+  var workoutsNav = document.getElementById('workouts-nav');
+  if (workoutsNav) workoutsNav.addEventListener('click', function () {
+    var ids = [];
+    (data.workouts || []).forEach(function (w) { if (w && w.sourceTrainerId) ids.push(w.id); });
+    if (ids.length) markReceivedSeen(ids);
+  });
   window.addEventListener('hashchange', function () {
     closeLibStill();
     releasePendingImage();
@@ -4033,11 +4189,14 @@
     if (!window.WBDashboard || !trainerModel) return;
     var self = !editorClient;
     var order = dashboardEditing && Array.isArray(editDraft) ? editDraft : trainerOrder;
-    var body = pickerHtml(editorClient) + WBDashboard.editorHtml(trainerModel, order, {
+    var editor = WBDashboard.editorHtml(trainerModel, order, {
       self: self,
       share: !self && receivesShares(clientRecord(editorClient)),
       editing: dashboardEditing
     });
+    var pick = pickerHtml(editorClient);
+    if (pick) editor = editor.replace('<div id="dash-editor">', '<div id="dash-editor" class="dash-top">' + pick);
+    var body = editor;
     paintTracking('dashboard', body, true);
   }
   function rememberOwnOrder(order) {
@@ -4526,7 +4685,8 @@
     });
   }
   function renderDashboard(token) {
-    backBtn.hidden = false;
+    var dashTail = trackingTail();
+    backBtn.hidden = !(dashTail && dashTail.kind);
     app.oninput = null;
     app.onchange = null;
     var tail = trackingTail();
@@ -4583,7 +4743,7 @@
     }
     if (key.indexOf('session:') === 0) {
       var sessionView = WBHistory.sessionDetail(sets, key.slice(8));
-      titleEl.textContent = sessionView.name || 'History';
+      titleEl.textContent = 'Tracking';
       app.innerHTML = WBHistory.sessionHtml(sessionView, opts);
       app.onclick = null;
       app.oninput = null;
@@ -4596,7 +4756,6 @@
     app.oninput = null;
   }
   function renderHistory(token) {
-    backBtn.hidden = false;
     app.onclick = null;
     app.oninput = null;
     app.onchange = null;
@@ -4605,6 +4764,7 @@
     if (fromHash && !trainerAccount()) return go('#/tracking');
     if (fromHash && (!window.WBShares || !WBShares.isUuid(fromHash))) return go('#/tracking');
     var key = historyFocusKey();
+    backBtn.hidden = !key && !trackingClientFromHash();
     if (!key && !showingHistoryList()) return;
     if (!window.WBHistory) {
       if (!key) paintTracking('history', '<div class="empty">History is not available yet.</div>', true);
@@ -4664,18 +4824,13 @@
   function renderList() {
     titleEl.textContent = 'Workouts'; backBtn.hidden = true;
     var note = takeInviteNotice();
+    var trainerHome = !!(window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile)));
+    var tileIco = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M12 8v5l3 2"/></svg>';
+    var sendIco = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 11.5 21 3l-7.2 18-2.3-7.2z"/></svg>';
     var h = (levelNoteOn ? levelNoteHtml(cachedProfile) : '') +
       (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
-      '<div class="row" id="home-nav" style="margin-bottom:8px">' +
-      '<button class="grow" type="button" data-a="account">Account</button>' +
-      '<button id="programs-open" class="grow" type="button" data-a="programs">Programs</button>' +
-      '<button id="tracking-open" class="grow" type="button" data-a="tracking">Tracking</button></div>' +
-      '<div class="row" id="home-tools" style="margin-bottom:8px">' +
-      '<button id="messages-nav" class="grow" type="button" data-a="messages">Messages</button>' +
-      '<button id="hub-nav" class="grow" type="button" data-a="hub">Trainer Hub</button>' +
-      '<button id="send-nav" class="grow" type="button" data-a="send">Send workout</button></div>' +
-      (window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile))
-        ? '<div class="row" id="home-circuits" style="margin-bottom:8px"><button id="circuits-open" class="grow" type="button" data-a="circuits">Group Circuits</button></div>'
+      (trainerHome
+        ? '<div class="home-tiles" id="home-tiles"><button type="button" class="home-tile" id="circuits-open" data-a="circuits">' + tileIco + '<span class="home-tile-label">Group Circuits</span></button><button type="button" class="home-tile" id="send-nav" data-a="send">' + sendIco + '<span class="home-tile-label">Send workout</span></button></div>'
         : '') +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     var statusLine = libraryStatusHtml();
@@ -4686,17 +4841,17 @@
       var n = Array.isArray(w.items) ? w.items.length : 0, nW = data.workouts.length;
       var locked = copyLocked(w);
       h += '<div class="card">';
-      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'Trainer')) + '</span>';
       h += '<div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
         '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') +
         (w.sourceTrainerId ? (locked ? ' · You can run it' : ' · You can edit it') : '') + '</div><div class="actions">';
+      var canEditCard = !locked && (!!(w && w.sourceTrainerId) || levelCan(cachedProfile, 'open'));
       if (!locked) {
         h += '<button class="sm" data-a="wup" data-id="' + w.id + '" aria-label="Move up"' + (wi === 0 ? ' disabled' : '') + '>▲</button>' +
           '<button class="sm" data-a="wdown" data-id="' + w.id + '" aria-label="Move down"' + (wi === nW - 1 ? ' disabled' : '') + '>▼</button>';
       }
-      h += '<button class="pri sm" data-a="open" data-id="' + w.id + '">Open</button>' +
-        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>' +
-        '<button class="sm" data-a="view" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>View</button>';
+      if (canEditCard) h += '<button class="pri sm" data-a="open" data-id="' + w.id + '">Edit</button>';
+      h += '<button class="sm" data-a="view" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>View</button>' +
+        '<button class="sm" data-a="run" data-id="' + w.id + '"' + (n ? '' : ' disabled') + '>Run</button>';
       if (!locked) {
         h += '<button class="sm danger" data-a="del" data-id="' + w.id + '">Delete</button>';
       }
@@ -4704,6 +4859,7 @@
     });
     app.innerHTML = h;
     refreshRequestBadges();
+    syncChrome();
     if (data.workouts.some(function (w) { return w && w.sourceTrainerId; }) && !cachedProfile) {
       var paint = routeToken;
       ensureProfile().then(function () {
@@ -4733,21 +4889,25 @@
         if (!levelCan(cachedProfile, 'send')) { levelNoteOn = true; return renderList(); }
         return go('#/send');
       }
+      if (a === 'received') return go('#/received');
       if (a === 'new') {
         if (!levelCan(cachedProfile, 'open') || atWorkoutCap(cachedProfile)) { levelNoteOn = true; return renderList(); }
         var name = prompt('Workout name', 'New workout'); if (name === null) return;
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);
       } else if (a === 'open') {
         if (!(w && w.sourceTrainerId) && !levelCan(cachedProfile, 'open')) { levelNoteOn = true; return renderList(); }
+        if (w && w.sourceTrainerId) markReceivedSeen([w.id]);
         setCopyReturn(''); go('#/w/' + w.id);
       }
       else if (a === 'run') {
         if (!(w && w.items && w.items.length)) return;
         if (!workoutRunnable(w)) { toast(RUN_NEEDS_NUMBERS); return; }
+        if (w && w.sourceTrainerId) markReceivedSeen([w.id]);
         setCopyReturn(''); go('#/play/' + w.id);
       }
       else if (a === 'view') {
         if (!(w && w.items && w.items.length)) return;
+        if (w && w.sourceTrainerId) markReceivedSeen([w.id]);
         setCopyReturn(''); go('#/view/' + w.id);
       }
       else if (a === 'del') {
@@ -4792,7 +4952,6 @@
       '<button class="sm" data-a="up" data-id="' + it.id + '" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
       '<button class="sm" data-a="down" data-id="' + it.id + '" aria-label="Move down"' + (i === n - 1 ? ' disabled' : '') + '>▼</button>' +
       '<button class="sm" data-a="edit" data-id="' + it.id + '">Edit</button>' +
-      (inGroup ? '<button class="sm" data-a="unlink1" data-id="' + it.id + '">Unlink</button>' : '') +
       '<button class="sm danger" data-a="delex" data-id="' + it.id + '">Delete</button></div></div>';
   }
   function canRenameWorkout(w) {
@@ -4803,7 +4962,7 @@
   function paintWorkoutTitle(w) {
     if (!w) return;
     if (!canRenameWorkout(w)) { titleEl.textContent = w.name; return; }
-    titleEl.innerHTML = '<button type="button" id="wo-name" class="bar-name">' + esc(w.name) + '</button>';
+    titleEl.innerHTML = '<button type="button" id="wo-name" class="bar-name">' + esc(w.name) + ' <span class="name-pen" aria-hidden="true">✎</span></button>';
     var btn = document.getElementById('wo-name');
     if (btn) btn.onclick = function () { editWorkoutTitle(w); };
   }
@@ -5479,7 +5638,7 @@
     var ssBlock = d.groupId ? M.blocks(w).filter(function (b) { return b.groupId === d.groupId; })[0] : null;
     var ssNonFinal = !!(ssBlock && ssBlock.items[ssBlock.items.length - 1].id !== d.id);
     titleEl.textContent = isNew ? 'New exercise' : 'Edit exercise'; backBtn.hidden = false;
-    var h = '<div class="card">' + (ssBlock ? '<div class="warn" role="status">Only the final rest period will function in each set of a superset</div>' : '') +
+    var h = '<div class="ex-form">' + (ssBlock ? '<div class="warn" role="status">Only the final rest period will function in each set of a superset</div>' : '') +
       seg('source', [['custom', 'Enter manually'], ['library', 'Exercise library']], d.source || 'custom') +
       (d.source === 'library'
         ? '<input id="lib-q" aria-label="Search exercises" placeholder="Search exercises" autocomplete="off" value="' + esc(d.libQuery || '') + '">' +
@@ -5492,12 +5651,15 @@
       (d.source === 'library' ? '' : ' role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="name-suggest"') + '>' +
       (d.source === 'library' ? '' : '<div id="name-suggest" class="name-suggest" role="listbox" aria-label="Saved exercise names" hidden></div>') +
       (d.source === 'library' && d.libraryId ? '<p class="mute">Library demo is attached.</p>' : '') +
-      '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode) +
-      (d.mode === 'stopwatch' ? '<label>Attempts</label>' + numIn('sets', d.sets, 'e.g. 3', null, true) : d.mode === 'intervals' ? '<label># of intervals</label>' + numIn('sets', d.sets, 'e.g. 8', null, true) : '<label>Sets</label>' + numIn('sets', d.sets, 'e.g. 3', null, true)) +
-      '<label>Weight</label>' + seg('unit', [['lb', 'lb'], ['kg', 'kg'], ['bodyweight', 'Bodyweight']], d.unit) +
-      (d.unit !== 'bodyweight' ? '<div style="margin-top:8px">' + numIn('wval', d.wval, 'Weight in ' + d.unit + ' (optional)', 'any') + '</div>' : '') +
-      '';
-    function repsUI(allowStatic) {
+      '<label>Mode</label>' + seg('mode', [['reps', 'Reps'], ['intervals', 'Intervals'], ['timer', 'Timer'], ['stopwatch', 'Stopwatch']], d.mode);
+    function weightFields() {
+      return '<label>Weight</label>' + seg('unit', [['lb', 'lb'], ['kg', 'kg'], ['bodyweight', 'Bodyweight']], d.unit) +
+        (d.unit !== 'bodyweight' ? '<div style="margin-top:8px">' + numIn('wval', d.wval, 'Weight in ' + d.unit + ' (optional)', 'any') + '</div>' : '');
+    }
+    function setsField(label, hint) {
+      return '<label>' + label + '</label>' + numIn('sets', d.sets, hint, null, true);
+    }
+    function repsFields(allowStatic) {
       var o = [['number', 'Number'], ['range', 'Range']]; if (allowStatic) o.push(['static', 'Static hold']);
       var x = '<label>Reps type' + (allowStatic ? ' <span class="mute" style="font-weight:400">(optional — tap again to clear)</span>' : '') + '</label>' + seg('repsType', o, c.repsType);
       if (c.repsType === 'number') x += '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10', null, true);
@@ -5505,14 +5667,24 @@
       if (c.repsType === 'static') x += '<p class="mute">Static hold — time only, no rep count.</p>';
       return x;
     }
+    function repsColumn() {
+      if (c.repsType === 'range') return '<label>Rep range</label><div class="row"><div class="grow">' + numIn('cfg.min', c.min, 'min', null, true) + '</div><span>–</span><div class="grow">' + numIn('cfg.max', c.max, 'max', null, true) + '</div></div>';
+      if (c.repsType === 'static') return '<label>Reps</label><p class="mute">Static hold — time only, no rep count.</p>';
+      return '<label>Reps</label>' + numIn('cfg.count', c.count, 'e.g. 10', null, true);
+    }
     if (d.mode === 'reps') {
-      h += repsUI(false);
-      h += '<label>Rest time between sets (optional)' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal);
+      h += '<label>Reps type</label>' + seg('repsType', [['number', 'Number'], ['range', 'Range']], c.repsType);
+      h += '<div class="field-row"><div>' + setsField('Sets', 'e.g. 3') + '</div><div>' + repsColumn() + '</div></div>';
+      h += weightFields();
+      h += '<label>Rest time between sets (optional)</label>' + (ssNonFinal ? '<p class="mute">Disabled — not final in a superset</p>' : '') + timeIn('cfg', c, 'rm', 'rs', ssNonFinal);
     } else if (d.mode === 'intervals') {
-      h += '<label>Interval time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + repsUI(true);
+      h += setsField('# of intervals', 'e.g. 8') + weightFields();
+      h += '<label>Interval time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + repsFields(true);
     } else if (d.mode === 'timer') {
-      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + '<label>Rest time' + (ssNonFinal ? ' <span class="mute">(disabled — not final in superset)</span>' : '') + '</label>' + timeIn('cfg', c, 'rm', 'rs', ssNonFinal, true) + repsUI(true);
+      h += setsField('Sets', 'e.g. 3') + weightFields();
+      h += '<label>Work time</label>' + timeIn('cfg', c, 'wm', 'ws', false, true) + '<label>Rest time</label>' + (ssNonFinal ? '<p class="mute">Disabled — not final in a superset</p>' : '') + timeIn('cfg', c, 'rm', 'rs', ssNonFinal, true) + repsFields(true);
     } else {
+      h += setsField('Attempts', 'e.g. 3') + weightFields();
       h += '<p class="mute">Counts up from 0:00 during the workout. No settings needed.</p>' +
         '<label class="row" style="font-weight:400"><input type="checkbox" class="sel" data-b="cfg.lapsEnabled"' + (c.lapsEnabled ? ' checked' : '') + '> Record laps (agility / splits)</label>' +
         (c.lapsEnabled ? '<label>Lap quantity</label>' + numIn('cfg.lapCount', c.lapCount, 'e.g. 4', null, true) + '<div id="lap-events">' + lapEventsHtml(c) + '</div>' : '');

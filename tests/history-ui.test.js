@@ -84,26 +84,21 @@ async function shot(page, name) {
   await page.waitForSelector('#tracking-open');
   await page.waitForFunction(function () { return document.body.innerText.indexOf('Lower strength') >= 0; });
   const placed = await page.$eval('#tracking-open', function (el) {
-    var row = el.parentElement;
     var rect = el.getBoundingClientRect();
-    var programs = document.getElementById('programs-open').getBoundingClientRect();
+    var row = document.getElementById('nav-links').getBoundingClientRect();
     return {
       text: el.textContent,
-      action: el.getAttribute('data-a'),
-      first: row.firstElementChild.getAttribute('data-a'),
-      next: row.nextElementSibling.firstElementChild.id + ' ' + row.nextElementSibling.lastElementChild.id,
-      inside: rect.left >= 0 && rect.right <= window.innerWidth && rect.width > 70,
-      beside: rect.left >= programs.right - 1,
+      href: el.getAttribute('href'),
+      inside: rect.left >= 0 && rect.right <= window.innerWidth + 1,
+      rowFits: row.right <= window.innerWidth + 1,
       historyButton: !!document.getElementById('history-open')
     };
   });
   assert.deepStrictEqual(placed, {
     text: 'Tracking',
-    action: 'tracking',
-    first: 'account',
-    next: 'messages-nav send-nav',
+    href: '#/tracking',
     inside: true,
-    beside: true,
+    rowFits: true,
     historyButton: false
   });
   await shot(page, 'history-entry.png');
@@ -136,9 +131,9 @@ async function shot(page, name) {
   await shot(page, 'history-by-workout.png');
   await page.click('[data-session="sq-1112"]');
   await page.waitForSelector('.hx-set');
-  assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'Lower strength');
+  assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'Tracking');
   const sessionText = await page.$eval('#app', function (el) { return el.textContent; });
-  assert.ok(sessionText.indexOf('Thu Nov 12 · Lower strength') >= 0);
+  assert.ok(sessionText.indexOf('Lower strength · Thu, Nov 12') >= 0);
   assert.ok(sessionText.indexOf('Barbell squat') >= 0);
   assert.ok(sessionText.indexOf('3 × 225 lb') >= 0);
   assert.ok(sessionText.indexOf('8 × 185 lb') >= 0);

@@ -298,6 +298,7 @@ function armSlow() {
   await trainer.waitForFunction(function () { return document.getElementById('send-go').disabled; });
   await trainer.goto(URL + '#/');
   await trainer.waitForSelector('[data-a=new]');
+  assert.strictEqual(await trainer.$('#received-open'), null);
   releaseNav();
   await new Promise(function (r) { setTimeout(r, 500); });
   await trainer.goto(URL + '#/send');
@@ -321,7 +322,8 @@ function armSlow() {
   await seed(enthusiast, dataWith([ownWorkout()]));
   await enthusiast.goto(URL + '#/');
   await enthusiast.waitForFunction(function () {
-    return document.body.innerText.indexOf('From Trainer') !== -1 &&
+    return document.body.innerText.indexOf('From Trainer') === -1 &&
+      document.body.innerText.indexOf('Friday full body') !== -1 &&
       document.body.innerText.indexOf('kinisiathletics@gmail.com') === -1 &&
       document.body.innerText.indexOf('You can edit it') !== -1 &&
       document.body.innerText.indexOf('Saturday easy') !== -1;
@@ -329,6 +331,9 @@ function armSlow() {
   const copyId = box.copies.filter(function (c) { return c.ownerId === E; })[0].id;
   assert.strictEqual(await enthusiast.$('[data-a=rename]'), null);
   assert.ok(await enthusiast.$('[data-a=del][data-id="' + copyId + '"]'));
+  assert.strictEqual(await enthusiast.$('#received-open'), null);
+  assert.strictEqual(await enthusiast.$eval('#workouts-nav .request-count', function (el) { return el.textContent; }), '1');
+  assert.ok((await enthusiast.$eval('#app', function (el) { return el.innerText; })).indexOf('Workouts from your trainer') === -1);
   await enthusiast.screenshot({ path: ART + '/enthusiast-received-list.png', fullPage: true });
   await enthusiast.click('[data-a=open][data-id="' + copyId + '"]');
   await enthusiast.waitForSelector('#copy-note');
@@ -357,18 +362,19 @@ function armSlow() {
   await client.goto(URL + '#/subscriptions');
   await client.waitForSelector('#workouts-nav');
   assert.strictEqual(await client.$('[data-a=new], [data-a=run], .pl-screen'), null);
-  await client.goto(URL + '#/received');
+  await client.goto(URL + '#/');
   await client.waitForFunction(function () {
-    return document.body.innerText.indexOf('From Trainer') !== -1 &&
+    return document.body.innerText.indexOf('From Trainer') === -1 &&
+      document.body.innerText.indexOf('Friday full body') !== -1 &&
       document.body.innerText.indexOf('@') === -1 &&
       document.body.innerText.indexOf('You can run it') !== -1 &&
       document.body.innerText.indexOf('You can edit it') === -1;
   });
   const clientCopy = box.copies.filter(function (c) { return c.ownerId === C && c.name === 'Friday full body'; })[0];
   assert.ok(clientCopy);
-  assert.strictEqual(await client.$('[data-a=rename], [data-a=del], [data-a=new]'), null);
+  assert.strictEqual(await client.$('[data-a=rename], [data-a=del]'), null);
   await client.screenshot({ path: ART + '/free-client-received-list.png', fullPage: true });
-  await client.click('[data-open-copy="' + clientCopy.id + '"]');
+  await client.click('[data-a=open][data-id="' + clientCopy.id + '"]');
   await client.waitForSelector('#copy-run');
   assert.ok((await client.evaluate(function () { return document.getElementById('copy-note').textContent; })).indexOf('Only an Enthusiast can edit it') !== -1);
   assert.strictEqual(await client.$('[data-a=edit], [data-a=add], [data-b=name]'), null);
@@ -402,7 +408,7 @@ function armSlow() {
   await seed(unknown, localCopy(LOCAL, 'Local edit'));
   await unknown.goto(URL + '#/');
   await unknown.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('back').hidden && !document.getElementById('messages-nav');
+    return location.hash === '#/subscriptions' && document.getElementById('level-lock') && document.getElementById('back').hidden && document.getElementById('nav-links').hidden;
   });
   assert.ok((await unknown.evaluate(function () { return localStorage.getItem('wb.data.v1'); })).indexOf('Local edit') !== -1);
   box.profileDown = false;

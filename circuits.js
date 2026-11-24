@@ -238,7 +238,7 @@
         faceHtml(client.name, true) + '</button>';
     });
     h += '</div>';
-    if (!rosterRows().length && !rosterError) h += '<p class="mute">No linked clients yet.</p>';
+    if (!rosterRows().length && !(draft.clients || []).length && !rosterError) h += '<p class="mute" id="circuit-no-linked">No linked clients yet.</p>';
     if (rosterError) h += '<p class="mute">' + esc(rosterError) + '</p>';
     if (manualOpen) {
       h += '<label for="circuit-client-name">Client name</label>' +

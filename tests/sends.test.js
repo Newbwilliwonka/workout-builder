@@ -102,10 +102,12 @@ assert.ok(text.indexOf('@') === -1);
 const unnamed = S.confirmation([{ email: 'ada@example.com', plan: 'Free Client' }], 'Friday full body');
 assert.strictEqual(unnamed, 'Client gets a copy of Friday full body they can run. Your workout was not changed.');
 const locked = S.lockedHtml({ name: 'Friday', sourceTrainerEmail: 'coach@example.com', items: [] });
-assert.ok(locked.indexOf('From Trainer') !== -1);
+assert.ok(locked.indexOf('From Trainer') === -1);
+assert.ok(locked.indexOf('Only an Enthusiast') !== -1);
 assert.ok(locked.indexOf('@') === -1);
 const namedFrom = S.lockedHtml({ name: 'Friday', sourceTrainerName: 'Sam', sourceTrainerEmail: 'coach@example.com', items: [] });
-assert.ok(namedFrom.indexOf('From Sam') !== -1);
+assert.ok(namedFrom.indexOf('From Sam') === -1);
+assert.ok(namedFrom.indexOf('Sam') === -1);
 assert.ok(namedFrom.indexOf('@') === -1);
 
 assert.strictEqual(S.isUnavailable(new Error('Sending workouts is not available yet.')), true);

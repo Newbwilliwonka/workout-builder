@@ -50,7 +50,7 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
       api.shareSetting = function () { return Promise.resolve({ on: false, enthusiast: true }); };
       api.accountPull = function () { return Promise.resolve([]); };
       api.accountImport = function () { return Promise.resolve({ localId: 'skip', revisedAt: 1 }); };
-      api.signOut = function () { window.__signedOut = true; return Promise.resolve(); };
+      api.signOut = function () { window.__signedOut = true; session = null; return Promise.resolve(); };
       api.saveProfile = function (fields) {
         window.__profile.display_name = fields.display_name;
         window.__profile.city = fields.city;
@@ -131,7 +131,7 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   assert.strictEqual(gate.signHidden, false);
   assert.strictEqual(gate.sameLine, true);
   assert.strictEqual(gate.signRight, true);
-  assert.strictEqual(gate.backHidden, false);
+  assert.strictEqual(gate.backHidden, true);
   const signHit = await p.evaluate(function () {
     var link = document.getElementById('account-signout');
     var box = link.getBoundingClientRect();
@@ -269,7 +269,7 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   assert.strictEqual(account.editText, 'Edit profile');
   assert.strictEqual(account.planText, 'Enthusiast · Edit profile');
   assert.strictEqual(account.editColor, 'rgb(37, 99, 235)');
-  assert.strictEqual(account.editDecoration, 'underline');
+  assert.strictEqual(account.editDecoration, 'none');
   assert.ok(account.editBg === 'rgba(0, 0, 0, 0)' || account.editBg === 'transparent');
   assert.strictEqual(account.editSameLine, true);
   assert.strictEqual(account.editAfterPlan, true);
@@ -413,7 +413,10 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   assert.ok(await p.$('#profile-prompt'));
 
   await p.click('#account-signout');
-  await p.waitForFunction(function () { return window.__signedOut && document.querySelector('h2') && document.querySelector('h2').textContent === 'Sign in'; });
+  await p.waitForFunction(function () {
+    var landing = document.getElementById('landing');
+    return window.__signedOut && (location.hash === '' || location.hash === '#') && landing && getComputedStyle(landing).display !== 'none' && landing.innerText.indexOf('Choose how you want to train') !== -1;
+  });
   assert.deepStrictEqual(errs, []);
   await b.close();
   console.log('profile ui ok');

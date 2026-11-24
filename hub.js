@@ -116,12 +116,24 @@
     if (root.WBProfile && root.WBProfile.nameHtml) return root.WBProfile.nameHtml(name, !!author.verified);
     return esc(name);
   }
+  function toneOf(name) {
+    var s = String(name || '');
+    var n = 0;
+    for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
+    return 'c' + ((n % 7) + 1);
+  }
+  function initialsOf(name) {
+    var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length || String(name).indexOf('@') !== -1) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  }
   function badgeHtml(role) {
     var label = roleOf(role);
-    return '<span class="tag" data-role="' + esc(label) + '">' + esc(label) + '</span>';
+    return '<span class="pill blue role" data-role="' + esc(label) + '">' + esc(label) + '</span>';
   }
   function bylineHtml(author) {
-    return '<span class="hub-by"><span class="name">' + nameHtml(author) + '</span>' + badgeHtml(author.role) + '</span>';
+    return '<span class="hub-by"><span class="av ' + toneOf(author.name) + '" aria-hidden="true">' + esc(initialsOf(author.name)) + '</span><span class="name">' + nameHtml(author) + '</span>' + badgeHtml(author.role) + '</span>';
   }
   function newId() {
     var c = (root && root.crypto) || (typeof crypto !== 'undefined' ? crypto : null);
@@ -164,12 +176,13 @@
     var h = tools + '<button type="button" class="pri" id="hub-new" style="width:100%;margin-bottom:12px">New post</button><div id="hub-list">';
     posts.forEach(function (row) {
       var author = authorOf(row);
-      h += '<button type="button" class="person" data-post="' + esc(row.id) + '">';
-      h += '<span class="grow"><span class="row hub-line"><span class="name">' + esc(row.title || '') + '</span>';
+      h += '<button type="button" class="hub-card" data-post="' + esc(row.id) + '">';
+      h += '<span class="row hub-line"><span class="name">' + esc(row.title || '') + '</span>';
       h += '<span class="mute hub-when">' + esc(whenLabel(row.activityAt || row.createdAt)) + '</span></span>';
-      h += '<span class="preview">' + esc(previewText(row.body)) + '</span>';
-      h += '<span class="hub-by">' + nameHtml(author) + badgeHtml(author.role);
-      h += '<span class="mute">' + esc(replyLabel(row.replyCount)) + '</span></span></span></button>';
+      h += '<span class="hub-body">' + esc(previewText(row.body)) + '</span>';
+      h += '<span class="hub-by"><span class="av ' + toneOf(author.name) + '" aria-hidden="true">' + esc(initialsOf(author.name)) + '</span>';
+      h += '<b>' + nameHtml(author) + '</b>' + badgeHtml(author.role);
+      h += '<span class="mute">' + esc(replyLabel(row.replyCount)) + '</span></span></button>';
     });
     h += '</div>';
     return h;
@@ -278,6 +291,15 @@
     if (!text) return '';
     return '<p class="mute find-place">' + esc(text) + '</p>';
   }
+  function metaLine(row, near) {
+    var service = serviceLabel(row && (row.serviceType || row.service_type));
+    var place = placeText(row, near);
+    var parts = [];
+    if (service) parts.push(service);
+    if (place) parts.push(place);
+    if (!parts.length) return '';
+    return '<p class="mute find-place">' + esc(parts.join(' · ')) + '</p>';
+  }
   function isLinkedTrainer(row) {
     return !!(row && (row.isLinked === true || row.is_linked === true));
   }
@@ -296,23 +318,19 @@
   }
   function trainerCardHtml(row, near, linked) {
     var person = personBits(row);
-    var service = serviceLabel(row.serviceType || row.service_type);
     var h = '';
     if (linked) {
       h += '<button type="button" class="card find-person find-linked" data-message="' + esc(row.id) + '">';
       h += '<span class="tag find-yours">Your trainer</span>';
-      h += bylineHtml(person);
-      if (service) h += '<span class="mute">' + esc(service) + '</span>';
-      var yours = placeText(row, near);
-      if (yours) h += '<span class="mute find-place">' + esc(yours) + '</span>';
+    h += bylineHtml(person);
+    h += metaLine(row, near);
       h += '</button>';
       return h;
     }
     var state = row.request || 'none';
     h += '<article class="card find-person" data-trainer="' + esc(row.id) + '">';
     h += bylineHtml(person);
-    if (service) h += '<p class="mute">' + esc(service) + '</p>';
-    h += placeLine(row, near);
+    h += metaLine(row, near);
     if (state === 'open') {
       h += '<button type="button" class="pri" disabled>Requested</button>';
     } else if (state === 'cooldown') {
@@ -386,12 +404,13 @@
       var person = personBits(row);
       var note = clean(row.note || '');
       var h = '<article class="card" data-request-card="' + esc(row.id) + '">';
-      h += '<div class="row" style="width:100%;margin:0">' + bylineHtml(person);
-      h += '<span class="mute" style="margin-left:auto">' + esc(whenLabel(row.at || row.createdAt)) + '</span></div>';
-      if (note) h += '<p class="hub-body">' + esc(note) + '</p>';
-      h += '<div class="actions">';
-      h += '<button type="button" class="pri" data-request-approve="' + esc(row.id) + '">Approve</button>';
-      h += '<button type="button" class="danger" data-request-decline="' + esc(row.id) + '">Decline</button>';
+      h += '<div class="row" style="width:100%;margin:0"><span class="av ' + toneOf(person.name) + '" aria-hidden="true">' + esc(initialsOf(person.name)) + '</span>';
+      h += '<div class="grow"><b>' + nameHtml(person) + '</b> ' + badgeHtml(person.role);
+      if (note) h += '<div class="mute">' + esc(note) + '</div>';
+      h += '</div></div>';
+      h += '<div class="req-actions">';
+      h += '<button type="button" class="pri sm" data-request-approve="' + esc(row.id) + '">Approve</button>';
+      h += '<button type="button" class="sm" data-request-decline="' + esc(row.id) + '">Decline</button>';
       h += '</div></article>';
       return h;
     }).join('');
@@ -450,7 +469,7 @@
   function showUnavailable(err) {
     if (!ctx) return;
     ctx.titleEl.textContent = 'Trainer Hub';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     var detail = failMessage(err, 'Trainer Hub is not available yet. Apply the hub SQL in the Supabase SQL editor.');
     ctx.app.innerHTML = '<div class="card" id="hub-wait"><div class="name">Not available yet</div><p class="mute">' + esc(detail) + '</p></div>';
     ctx.app.onclick = null;
@@ -460,7 +479,7 @@
     var msg = failMessage(err, 'Could not load Trainer Hub.');
     if (/not available yet/i.test(msg)) return showUnavailable(err);
     ctx.titleEl.textContent = 'Trainer Hub';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     ctx.app.innerHTML = '<div class="errs" id="hub-error">' + esc(msg) + '</div>';
     ctx.app.onclick = null;
   }
@@ -468,7 +487,7 @@
     if (!ctx) return;
     editingReply = '';
     ctx.titleEl.textContent = 'Trainer Hub';
-    ctx.backBtn.hidden = false;
+    ctx.backBtn.hidden = true;
     ctx.app.innerHTML = listHtml(rows || [], {
       finder: !!(viewer && viewer.finder),
       inbox: !!(viewer && viewer.inbox),
@@ -490,7 +509,7 @@
   function showThread(post, replies) {
     if (!ctx) return;
     openCache = { id: post.id, post: post, replies: replies || [] };
-    ctx.titleEl.textContent = post.title || 'Post';
+    ctx.titleEl.textContent = 'Trainer Hub';
     ctx.backBtn.hidden = false;
     ctx.app.innerHTML = postHtml(post, replies || [], editingReply);
     ctx.app.onclick = onClick;

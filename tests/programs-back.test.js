@@ -140,9 +140,9 @@ function today() {
   assert.strictEqual(await page.$('.pl-screen'), null);
 
   await openPrograms();
-  // The calendar's own back arrow still leaves for Workouts.
-  await page.click('#back');
-  await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.getElementById('programs-open'));
+  // Top-level Programs has no back arrow. Workouts in the link row leaves the calendar.
+  await page.click('#workouts-nav');
+  await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.querySelector('[data-a=new]'));
   assert.strictEqual(await page.$('#pv-root'), null);
 
   await openPrograms();
@@ -231,7 +231,7 @@ function today() {
 
   // Confirm consumed the overlay entry. One more back leaves Programs and does not reopen the player.
   await page.evaluate(() => history.back());
-  await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.getElementById('programs-open') && !document.querySelector('.pl-screen'));
+  await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.querySelector('[data-a=new]') && !document.querySelector('.pl-screen'));
   await page.screenshot({ path: path.join(ART, 'programs_back_returns_to_workouts.png') });
 
   // In-app End and the player back arrow still show the summary, then Done returns to Programs.
@@ -253,7 +253,7 @@ function today() {
   await page.waitForSelector('#pv-root');
   await page.waitForFunction(() => !history.state || history.state.wbProgramsOverlay !== 1);
   await page.evaluate(() => history.back());
-  await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.getElementById('programs-open') && !document.querySelector('.pl-screen') && !document.getElementById('pv-day-sheet'));
+  await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.querySelector('[data-a=new]') && !document.querySelector('.pl-screen') && !document.getElementById('pv-day-sheet'));
 
   // Day window: month view and selected client survive browser back, and the entry does not linger.
   await openPrograms();
@@ -304,7 +304,7 @@ function today() {
   });
   await page.screenshot({ path: path.join(ART, 'programs_day_same_client_month.png') });
   await page.evaluate(() => history.back());
-  await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.getElementById('programs-open') && !document.getElementById('pv-sheet'));
+  await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && document.querySelector('[data-a=new]') && !document.getElementById('pv-sheet'));
 
   // Closing the day window with the in-app backdrop also drops the history entry.
   await openPrograms();
@@ -312,6 +312,26 @@ function today() {
   await page.waitForSelector('#pv-day-sheet');
   await page.evaluate(() => document.getElementById('pv-sheet').click());
   await page.waitForFunction(() => !document.getElementById('pv-sheet') && (!history.state || history.state.wbProgramsOverlay !== 1));
+
+  await page.click('.pv-day.today .pv-day-h');
+  await page.waitForSelector('[data-sheet-grab]');
+  assert.strictEqual(await page.$eval('#back', function (el) { return el.hidden; }), true);
+  await page.evaluate(function () {
+    var grab = document.querySelector('[data-sheet-grab]');
+    var box = grab.getBoundingClientRect();
+    var x = box.left + box.width / 2;
+    var y = box.top + 4;
+    grab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: x, clientY: y + 80, pointerId: 1 }));
+    document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y + 80, pointerId: 1 }));
+  });
+  await page.waitForFunction(function () { return !document.getElementById('pv-day-sheet'); });
+
+  await page.click('.pv-day.today .pv-day-h');
+  await page.waitForSelector('#pv-day-sheet');
+  assert.strictEqual(await page.$eval('#back', function (el) { return el.hidden; }), true);
+  await page.evaluate(function () { return window.WBPreview.back(); });
+  await page.waitForFunction(function () { return !document.getElementById('pv-day-sheet'); });
   await page.evaluate(() => history.back());
   await page.waitForFunction(() => (location.hash === '#/' || location.hash === '#') && !document.getElementById('pv-day-sheet'));
 

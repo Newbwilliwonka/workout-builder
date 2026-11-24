@@ -56,6 +56,16 @@
     var title = name || 'Workout';
     return day ? day + ' · ' + title : title;
   }
+  function sessionDetailTitle(date, name) {
+    var s = String(date || '');
+    var title = name || 'Workout';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return title;
+    var d = new Date(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+    if (!isFinite(d.getTime())) return title;
+    var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return title + ' · ' + days[d.getDay()] + ', ' + months[d.getMonth()] + ' ' + d.getDate();
+  }
   function clock(ts) {
     var t = typeof ts === 'number' ? ts : Date.parse(ts);
     if (!isFinite(t)) return '';
@@ -699,7 +709,7 @@
   function sessionHtml(view, opts) {
     opts = opts || {};
     if (!view || !view.exercises || !view.exercises.length) return emptyHtml(opts);
-    var h = '<h2 class="hx-date">' + esc(view.label || view.name || 'Workout') + '</h2>';
+    var h = '<h2 class="hx-session-title">' + esc(sessionDetailTitle(view.date, view.name || view.label)) + '</h2>';
     view.exercises.forEach(function (exercise) {
       h += '<article class="card hx-session"><div class="row"><div class="name grow">' + esc(exercise.name) + '</div></div>';
       (exercise.sets || []).forEach(function (set) { h += setBlock(set); });

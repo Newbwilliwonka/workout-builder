@@ -275,7 +275,7 @@ async function toastText(page) {
   assert.strictEqual(near.label, 'Add to Google Calendar');
   assert.strictEqual(near.phone, true);
   assert.ok(near.weekVisible && near.monthVisible && near.btnVisible, JSON.stringify(near));
-  assert.ok(near.gap >= -4 && near.gap < 48, JSON.stringify(near));
+  assert.ok(Math.abs(near.weekTop - near.btnTop) <= 8 && Math.abs(near.monthTop - near.btnTop) <= 8, JSON.stringify(near));
   if (shots) await phone.screenshot({ path: path.join(shots, 'programs_google_calendar_button.png') });
 
   await phone.click('#pv-gcal');
@@ -293,7 +293,7 @@ async function toastText(page) {
   assert.strictEqual(shareBtn.action, 'share');
   assert.strictEqual(shareBtn.bg, 'rgb(37, 99, 235)');
   assert.strictEqual(shareBtn.color, 'rgb(255, 255, 255)');
-  assert.strictEqual(shareBtn.weight, '600');
+  assert.strictEqual(shareBtn.weight, '700');
   assert.strictEqual(shareBtn.full, true);
   assert.strictEqual(await phone.$eval('#pv-gcal-reset', function (el) { return el.className; }), 'ghost');
   assert.strictEqual(await phone.$eval('#pv-gcal-reset', function (el) { return el.textContent; }), 'Reset link');
@@ -488,7 +488,7 @@ async function toastText(page) {
   assert.strictEqual(confirm.sheetText, 'Add to Google Calendar Open Google Calendar Reset link Close');
   assert.strictEqual(confirm.yesBg, 'rgb(37, 99, 235)');
   assert.strictEqual(confirm.yesColor, 'rgb(255, 255, 255)');
-  assert.strictEqual(confirm.yesWeight, '600');
+  assert.strictEqual(confirm.yesWeight, '700');
   assert.strictEqual(confirm.cancelBg, 'rgb(229, 231, 235)');
   assert.strictEqual(confirm.cancelColor, 'rgb(17, 24, 39)');
   assert.strictEqual(confirm.position, 'fixed');
@@ -725,7 +725,7 @@ async function toastText(page) {
   await require('./allow.js').stubAuth(signedOut, { session: null, profile: null });
   await signedOut.goto(URL + '#/programs');
   await signedOut.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
+    return (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
   });
   assert.strictEqual(await signedOut.$('#pv-gcal, .pv-week, .pv-month'), null);
   if (shots) await signedOut.screenshot({ path: path.join(shots, 'signed_out_programs.png') });
@@ -740,7 +740,7 @@ async function toastText(page) {
   });
   await signedOut.goto(URL + '#/subscriptions');
   await signedOut.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1;
+    return (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Choose how you want to train') !== -1;
   });
   assert.strictEqual(await signedOut.$('[data-a=new], #pv-gcal'), null);
 
