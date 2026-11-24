@@ -6019,5 +6019,38 @@
   }
   fillLandingPlans();
   bindLandingShots();
+  // Read once at launch. Entering full screen later also matches
+  // display-mode: fullscreen, and that must not hide the exit control.
+  var launchedInstalled = false;
+  try {
+    launchedInstalled = window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches;
+  } catch (e) {}
+  function fullscreenApi() {
+    var root = document.documentElement;
+    return !!(root && root.requestFullscreen && document.exitFullscreen && document.fullscreenEnabled !== false);
+  }
+  function syncFullscreenButton() {
+    var btn = document.getElementById('fullscreen-btn');
+    if (!btn) return;
+    btn.hidden = !(fullscreenApi() && !launchedInstalled);
+    var on = !!document.fullscreenElement;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
+  }
+  var fullscreenBtn = document.getElementById('fullscreen-btn');
+  if (fullscreenBtn) {
+    fullscreenBtn.addEventListener('click', function () {
+      if (!fullscreenApi()) return;
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+    });
+  }
+  document.addEventListener('fullscreenchange', syncFullscreenButton);
+  syncFullscreenButton();
+  if ('serviceWorker' in navigator) {
+    var workerSecure = false;
+    try { workerSecure = window.isSecureContext; } catch (e) {}
+    if (workerSecure) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {});
+  }
   route();
 })();
