@@ -792,6 +792,7 @@
     },
     toneSchedule: toneSchedule,
     step: function () { if (S) tick(true); },
+    redraw: function () { if (S) render(); },
     selectStep: function (i) { if (S && i >= 0 && i < S.queue.length) select(i); },
     unmount: function () { if (!S) return; stopTones(); cancelAnimationFrame(S.raf); S.running = false; document.removeEventListener('visibilitychange', onVis); WBClock.unlockScreen(); S = null; },
     requestEnd: function () {
