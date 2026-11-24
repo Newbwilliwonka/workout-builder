@@ -71,6 +71,10 @@ const C = require('../calendar.js');
   }, new Date('2026-11-12T15:00:00Z'));
 
   assert.ok(body.startsWith('BEGIN:VCALENDAR\r\n'));
+  assert.ok(body.includes('X-WR-CALNAME:Workout Calendar\r\n'));
+  assert.ok(body.includes('PRODID:-//Coach Trainer//Workout Calendar//EN\r\n'));
+  assert.ok(!body.includes('X-WR-CALNAME:Programs'));
+  assert.ok(!body.includes('X-WR-CALNAME:Calendar\r\n'));
   assert.ok(body.endsWith('END:VCALENDAR\r\n'));
   assert.ok(body.includes('UID:' + ownId + '@coachtrainerapp.com'));
   assert.ok(body.includes('UID:' + clientId + '@coachtrainerapp.com'));
