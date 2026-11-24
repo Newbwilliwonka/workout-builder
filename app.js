@@ -399,8 +399,7 @@
   }
   function copyNote(w) {
     if (!w || !w.sourceTrainerId) return '';
-    return '<span class="tag">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'Trainer')) + '</span>' +
-      '<p class="mute" id="copy-note">Copy from your trainer. Edits stay on this copy and do not change their workout.</p>';
+    return '<p class="mute" id="copy-note">Copy from your trainer. Edits stay on this copy and do not change their workout.</p>';
   }
   function ensureProfile() {
     if (cachedProfile) return Promise.resolve(cachedProfile);
@@ -2587,12 +2586,14 @@
     var h = '<div class="sales">';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
-    h += '<p class="note">Beta pricing for the first 100 members.</p>';
+    h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';
     h += '<div class="plan-grid">';
     WBMembership.TIERS.forEach(function (t) {
-      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + (t.beta ? ' is-beta' : '') + '">';
-      if (t.beta) h += '<span class="ribbon">BETA</span>';
-      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
+      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
+      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>';
+      if (t.recommended) h += '<span class="pill solid">Recommended</span>';
+      if (t.beta) h += '<span class="pill amber">Beta</span>';
+      h += '</div>';
       h += '<div class="price">';
       if (t.oldPriceLabel) h += '<span class="was">' + esc(t.oldPriceLabel) + '</span>';
       h += '<span class="now">' + esc(t.priceLabel) + '</span>';
@@ -2709,12 +2710,14 @@
     if (locked) h += '<p class="mute" id="level-lock">Choose a level to continue.</p>';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
-    h += '<p class="note">Beta pricing for the first 100 members.</p>';
+    h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';
     if (session) h += redeemCard(conn, profile);
     WBMembership.TIERS.forEach(function (t) {
-      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + (t.beta ? ' is-beta' : '') + '">';
-      if (t.beta) h += '<span class="ribbon">BETA</span>';
-      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>' + (t.recommended ? '<span class="tag">Recommended</span>' : '') + '</div>';
+      h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
+      h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>';
+      if (t.recommended) h += '<span class="pill solid">Recommended</span>';
+      if (t.beta) h += '<span class="pill amber">Beta</span>';
+      h += '</div>';
       h += '<div class="price">';
       if (t.oldPriceLabel) h += '<span class="was">' + esc(t.oldPriceLabel) + '</span>';
       h += '<span class="now">' + esc(t.priceLabel) + '</span>';
@@ -2805,7 +2808,7 @@
     var note = takeInviteNotice();
     var ent = WBMembership.entitlements(profile);
     var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
-    var h = '<div class="gate">';
+    var h = '<div class="account-page">';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     var who = signedInLabel(profile, session);
     var verifiedName = window.WBProfile && WBProfile.isVerified(profile && profile.verified_until, WBProfile.todayISO());
@@ -4794,7 +4797,6 @@
       var n = Array.isArray(w.items) ? w.items.length : 0, nW = data.workouts.length;
       var locked = copyLocked(w);
       h += '<div class="card">';
-      if (w.sourceTrainerId) h += '<span class="tag" style="margin-bottom:6px">From ' + (window.WBProfile ? WBProfile.fromTrainerHtml(w) : esc(trainerFrom(w) || 'Trainer')) + '</span>';
       h += '<div class="name" data-a="open" data-id="' + w.id + '" style="cursor:pointer">' + esc(w.name) + '</div>' +
         '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') +
         (w.sourceTrainerId ? (locked ? ' · You can run it' : ' · You can edit it') : '') + '</div><div class="actions">';

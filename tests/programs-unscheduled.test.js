@@ -384,7 +384,7 @@ function entry(id, ownerId, wo, start, end, presence, when) {
     return today && today.textContent.indexOf('Open gym') !== -1;
   });
   assert.strictEqual(await color(joy, '.pv-day.today .pv-session.is-extra .name'), 'rgb(107, 114, 128)');
-  assert.strictEqual(await color(joy, '.pv-day.today .pv-session.is-extra .pv-check'), 'rgb(37, 99, 235)');
+  assert.strictEqual(await color(joy, '.pv-day.today .pv-session.is-extra .pv-check'), 'rgb(217, 119, 6)');
 
   assert.deepStrictEqual(errors, []);
   console.log('UNSCHEDULED OK');

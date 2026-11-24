@@ -116,9 +116,21 @@
     if (root.WBProfile && root.WBProfile.nameHtml) return root.WBProfile.nameHtml(name, !!author.verified);
     return esc(name);
   }
+  function toneOf(name) {
+    var s = String(name || '');
+    var n = 0;
+    for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
+    return 'c' + ((n % 7) + 1);
+  }
+  function initialsOf(name) {
+    var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length || String(name).indexOf('@') !== -1) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  }
   function badgeHtml(role) {
     var label = roleOf(role);
-    return '<span class="tag" data-role="' + esc(label) + '">' + esc(label) + '</span>';
+    return '<span class="pill blue role" data-role="' + esc(label) + '">' + esc(label) + '</span>';
   }
   function bylineHtml(author) {
     return '<span class="hub-by"><span class="name">' + nameHtml(author) + '</span>' + badgeHtml(author.role) + '</span>';
@@ -164,12 +176,13 @@
     var h = tools + '<button type="button" class="pri" id="hub-new" style="width:100%;margin-bottom:12px">New post</button><div id="hub-list">';
     posts.forEach(function (row) {
       var author = authorOf(row);
-      h += '<button type="button" class="person" data-post="' + esc(row.id) + '">';
-      h += '<span class="grow"><span class="row hub-line"><span class="name">' + esc(row.title || '') + '</span>';
+      h += '<button type="button" class="hub-card" data-post="' + esc(row.id) + '">';
+      h += '<span class="row hub-line"><span class="name">' + esc(row.title || '') + '</span>';
       h += '<span class="mute hub-when">' + esc(whenLabel(row.activityAt || row.createdAt)) + '</span></span>';
-      h += '<span class="preview">' + esc(previewText(row.body)) + '</span>';
-      h += '<span class="hub-by">' + nameHtml(author) + badgeHtml(author.role);
-      h += '<span class="mute">' + esc(replyLabel(row.replyCount)) + '</span></span></span></button>';
+      h += '<span class="hub-body">' + esc(previewText(row.body)) + '</span>';
+      h += '<span class="hub-by"><span class="av ' + toneOf(author.name) + '" aria-hidden="true">' + esc(initialsOf(author.name)) + '</span>';
+      h += '<b>' + nameHtml(author) + '</b>' + badgeHtml(author.role);
+      h += '<span class="mute">' + esc(replyLabel(row.replyCount)) + '</span></span></button>';
     });
     h += '</div>';
     return h;
@@ -386,12 +399,13 @@
       var person = personBits(row);
       var note = clean(row.note || '');
       var h = '<article class="card" data-request-card="' + esc(row.id) + '">';
-      h += '<div class="row" style="width:100%;margin:0">' + bylineHtml(person);
-      h += '<span class="mute" style="margin-left:auto">' + esc(whenLabel(row.at || row.createdAt)) + '</span></div>';
-      if (note) h += '<p class="hub-body">' + esc(note) + '</p>';
-      h += '<div class="actions">';
-      h += '<button type="button" class="pri" data-request-approve="' + esc(row.id) + '">Approve</button>';
-      h += '<button type="button" class="danger" data-request-decline="' + esc(row.id) + '">Decline</button>';
+      h += '<div class="row" style="width:100%;margin:0"><span class="av ' + toneOf(person.name) + '" aria-hidden="true">' + esc(initialsOf(person.name)) + '</span>';
+      h += '<div class="grow"><b>' + nameHtml(person) + '</b> ' + badgeHtml(person.role);
+      if (note) h += '<div class="mute">' + esc(note) + '</div>';
+      h += '</div></div>';
+      h += '<div class="req-actions">';
+      h += '<button type="button" class="pri sm" data-request-approve="' + esc(row.id) + '">Approve</button>';
+      h += '<button type="button" class="sm" data-request-decline="' + esc(row.id) + '">Decline</button>';
       h += '</div></article>';
       return h;
     }).join('');

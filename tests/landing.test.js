@@ -49,7 +49,7 @@ assert.deepStrictEqual(srcs, SHOTS);
 assert.strictEqual(landing.split('loading="lazy"').length - 1, SHOTS.length);
 assert.strictEqual(landing.split('>Sign up / Sign in</a>').length - 1, 2);
 assert.strictEqual(landing.split('href="#/signin"').length - 1, 2);
-assert.ok(landing.indexOf('Coach Trainer App') !== -1);
+assert.ok(landing.indexOf('Coach Trainer <b>App</b>') !== -1);
 assert.ok(landing.indexOf('data-plan') === -1);
 
 const shotStart = appSrc.indexOf('var LANDING_SHOTS = [');
@@ -195,7 +195,7 @@ Mem.TIERS.forEach(function (tier) {
     assert.strictEqual(await page.evaluate(function () { return document.documentElement.classList.contains('wb-landing'); }), true);
     assert.strictEqual(await page.evaluate(function () { return window.__appChromeInstead; }), false);
     const phoneInset = await page.evaluate(landingInset);
-    assert.strictEqual(phoneInset.pad, '20px');
+    assert.strictEqual(phoneInset.pad, '16px');
     assert.strictEqual(phoneInset.max, '1100px');
     assert.ok(phoneInset.feats.left >= 16 && phoneInset.feats.left <= 24, 'phone feature inset ' + phoneInset.feats.left);
     assert.deepStrictEqual(phoneInset.plans, phoneInset.feats);

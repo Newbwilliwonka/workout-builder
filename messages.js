@@ -58,6 +58,12 @@
     if (prev && prev.id && prev.body === text) return { id: prev.id, body: text };
     return { id: makeId(), body: text };
   }
+  function toneOf(name) {
+    var s = String(name || '');
+    var n = 0;
+    for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
+    return 'c' + ((n % 7) + 1);
+  }
   function initials(name) {
     var raw = String(name || '').trim();
     if (!raw || raw.indexOf('@') !== -1) return '?';
@@ -230,7 +236,7 @@
     var heading = threadHeading(p);
     var planLine = heading.life ? (heading.sub ? heading.sub + ' · ' + heading.life : heading.life) : (p.plan || '');
     return '<button type="button" class="person" data-thread="' + esc(p.id) + '">' +
-      '<span class="ava" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(title)) + '</span>' +
+      '<span class="av ' + toneOf(title) + '" data-avatar-path="' + esc(p.avatarPath || '') + '" aria-hidden="true">' + esc(initials(title)) + '</span>' +
       '<span class="grow"><span class="row" style="width:100%;margin:0"><span class="name">' + (root.WBProfile ? WBProfile.nameHtml(title, !!p.verified) : esc(title)) + '</span>' +
       '<span class="mute" style="margin-left:auto">' + esc(whenLabel(p.at)) + '</span></span>' +
       '<span class="preview">' + esc(p.preview || 'No messages yet') + '</span>' +

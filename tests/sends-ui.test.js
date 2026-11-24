@@ -322,7 +322,8 @@ function armSlow() {
   await seed(enthusiast, dataWith([ownWorkout()]));
   await enthusiast.goto(URL + '#/');
   await enthusiast.waitForFunction(function () {
-    return document.body.innerText.indexOf('From Trainer') !== -1 &&
+    return document.body.innerText.indexOf('From Trainer') === -1 &&
+      document.body.innerText.indexOf('Friday full body') !== -1 &&
       document.body.innerText.indexOf('kinisiathletics@gmail.com') === -1 &&
       document.body.innerText.indexOf('You can edit it') !== -1 &&
       document.body.innerText.indexOf('Saturday easy') !== -1;
@@ -368,7 +369,8 @@ function armSlow() {
   assert.strictEqual(await client.$('[data-a=new], [data-a=run], .pl-screen'), null);
   await client.goto(URL + '#/received');
   await client.waitForFunction(function () {
-    return document.body.innerText.indexOf('From Trainer') !== -1 &&
+    return document.body.innerText.indexOf('From Trainer') === -1 &&
+      document.body.innerText.indexOf('Friday full body') !== -1 &&
       document.body.innerText.indexOf('@') === -1 &&
       document.body.innerText.indexOf('You can run it') !== -1 &&
       document.body.innerText.indexOf('You can edit it') === -1;
