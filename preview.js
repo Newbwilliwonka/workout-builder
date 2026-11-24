@@ -40,6 +40,7 @@
       ready: false,
       remote: '',
       playerLive: false,
+      circuits: [],
       sheet: null
     };
   }
@@ -138,6 +139,56 @@
     var rows = data() && data().workouts;
     return Array.isArray(rows) ? rows : [];
   }
+  function circuitMarker(id) {
+    return { source: 'circuit', circuitId: String(id) };
+  }
+  function markerCircuitId(items) {
+    var item = items && items[0];
+    if (!item || item.source !== 'circuit' || !item.circuitId) return '';
+    return String(item.circuitId);
+  }
+  function circuitChoices() {
+    var C = window.WBCircuit;
+    var out = [];
+    (state && state.circuits || []).forEach(function (row) {
+      if (!row || !row.id) return;
+      var body = row.data || {};
+      var info = C && C.summary ? C.summary({ name: row.name, stations: body.stations, clients: body.clients }) : {};
+      out.push({
+        id: String(row.id),
+        name: row.name || 'Circuit',
+        circuit: true,
+        stations: Number(info.stations) || 0,
+        clients: Number(info.clients) || 0,
+        items: [circuitMarker(row.id)]
+      });
+    });
+    return out;
+  }
+  function circuitById(id) {
+    if (!id) return null;
+    var found = null;
+    circuitChoices().forEach(function (row) { if (row.id === String(id)) found = row; });
+    if (found) return found;
+    var snap = null;
+    entries().forEach(function (row) {
+      if (row && String(row.workoutId) === String(id) && markerCircuitId(row.items)) snap = row;
+    });
+    if (!snap) return null;
+    return { id: String(id), name: snap.workoutName || 'Circuit', circuit: true, items: snap.items, stations: 0, clients: 0 };
+  }
+  function scheduleChoices() {
+    return workouts().concat(circuitChoices());
+  }
+  function choiceMeta(w) {
+    if (w && w.circuit) {
+      var stations = Number(w.stations) || 0;
+      var clients = Number(w.clients) || 0;
+      return stations + ' station' + (stations === 1 ? '' : 's') + ' · ' + clients + ' client' + (clients === 1 ? '' : 's');
+    }
+    var n = (w && w.items || []).length;
+    return n + ' exercise' + (n === 1 ? '' : 's');
+  }
   function sessions() {
     var local = [];
     if (options && options.sessions) {
@@ -162,6 +213,8 @@
     var found = null;
     workouts().forEach(function (row) { if (row && row.id === id) found = row; });
     if (found) return found;
+    var circuit = circuitById(id);
+    if (circuit) return circuit;
     var snap = null;
     entries().forEach(function (row) { if (row && row.workoutId === id) snap = row; });
     if (!snap) return null;
@@ -367,11 +420,10 @@
     return ' data-drag="' + esc(id) + '" data-drag-kind="' + kind + '" data-label="' + esc(label) + '"';
   }
   function workoutCard(w) {
-    var n = (w.items || []).length;
     var name = w.name || 'Workout';
     return '<div class="card pv-pick-card"' + dragAttrs('workout', w.id, name, canEditHere()) + ' data-wo="' + esc(w.id) + '"><div class="pv-session-top">' +
       '<div class="name">' + esc(name) + '</div></div>' +
-      '<div class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</div></div>';
+      '<div class="mute">' + esc(choiceMeta(w)) + '</div></div>';
   }
   function sessionCard(row) {
     var live = workoutById(row.workoutId);
@@ -591,11 +643,11 @@
     if (hidden) {
       return h + '<div class="card" id="pv-private"><div class="name">Not shared</div><p class="mute">This Enthusiast has turned off sharing. You cannot see or edit their program.</p></div></div>';
     }
-    var list = workouts();
+    var list = scheduleChoices();
     h += '<div class="pv-layout" id="pv-layout"><section class="pv-workouts" id="pv-workouts" aria-label="Workouts"><h2 class="pv-h">Workouts</h2><div class="pv-rail" id="pv-rail">';
     if (!list.length) h += '<p class="mute">No workouts yet. Build one from the workout list, then drag it onto a day.</p>';
     list.forEach(function (row) { h += workoutCard(row); });
-    h += '</div></section><section class="pv-cal" id="pv-cal" aria-label="Programs"><h2 class="pv-h">Programs</h2>' +
+    h += '</div></section><section class="pv-cal" id="pv-cal" aria-label="Calendar"><h2 class="pv-h">Calendar</h2>' +
       '<p class="mute" id="pv-schedule-hint">Workouts scheduled on a calendar. A check is a day you actually tracked.' +
       (canEditHere() ? ' Drag a workout onto a day, or tap a day to choose one.' : '') + '</p>' +
       '<div class="pv-views"><div class="seg" id="pv-range-switch" role="group" aria-label="Week or month"><button type="button" data-cal="week" class="' + (state.view === 'week' ? 'on' : '') + '">Week</button>' +
@@ -816,7 +868,7 @@
   }
   function addSheetHtml() {
     var sheet = state.sheet;
-    var list = workouts();
+    var list = scheduleChoices();
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" role="dialog" aria-label="Add a workout">' +
       '<h3 class="name">Add a workout</h3><p class="mute">' + esc(prettyDate(sheet.date)) + '</p>';
     var targets = addTargets();
@@ -835,8 +887,7 @@
       if (!list.length) h += '<p class="mute">No workouts yet. Build one from the workout list first.</p>';
       h += '<div class="pv-picks" role="listbox" aria-label="Your workouts">';
       list.forEach(function (w) {
-        var n = (w.items || []).length;
-        h += '<button type="button" class="pv-pick' + (w.id === sheet.workoutId ? ' on' : '') + '" data-pick="' + esc(w.id) + '"><span class="name">' + esc(w.name || 'Workout') + '</span><span class="mute">' + n + ' exercise' + (n === 1 ? '' : 's') + '</span></button>';
+        h += '<button type="button" class="pv-pick' + (w.id === sheet.workoutId ? ' on' : '') + '" data-pick="' + esc(w.id) + '"><span class="name">' + esc(w.name || 'Workout') + '</span><span class="mute">' + esc(choiceMeta(w)) + '</span></button>';
       });
       h += '</div>';
     }
@@ -960,7 +1011,7 @@
     window.scrollTo(0, 0);
   }
   function applyChrome() {
-    if (titleEl && !(state && state.screen === 'player')) titleEl.textContent = 'Programs';
+    if (titleEl && !(state && state.screen === 'player')) titleEl.textContent = 'Calendar';
     if (!backBtn) return;
     backBtn.hidden = !(state && (state.screen === 'player' || state.playerLive));
   }
@@ -1203,7 +1254,7 @@
       ownerId: owner,
       workoutId: workout.id,
       workoutName: workout.name,
-      items: workout.items,
+      items: workout.circuit ? [circuitMarker(workout.id)] : workout.items,
       date: sheet.date,
       start: times.start,
       end: times.end,
@@ -1481,6 +1532,7 @@
   }
   function runnableWorkout(id) {
     var workout = workoutById(id);
+    if (workout && workout.circuit) return true;
     if (!workout || !window.WB || !WB.validateExercise) return true;
     return !(workout.items || []).some(function (it) {
       var c = it.modeConfig || {};
@@ -1581,6 +1633,11 @@
   function playFrom(node, mode) {
     state.focusClientPlay = null;
     var workoutId = node.getAttribute(mode === 'view' ? 'data-view-wo' : 'data-run');
+    var circuit = circuitById(workoutId);
+    if (circuit && options && options.go) {
+      options.go('#/circuits/' + encodeURIComponent(circuit.id) + (mode === 'view' ? '/view' : '/run'));
+      return;
+    }
     var entryId = node.getAttribute('data-entry') || '';
     if (state.sheet && state.sheet.type === 'day' && canEdit() && entryId) {
       readSheetTimes();
@@ -2058,8 +2115,20 @@
       if (canSee()) { pullRemote(); pullSessions(); }
     });
   }
+  function pullCircuits(token) {
+    if (!options || !options.loadCircuits) return;
+    Promise.resolve().then(options.loadCircuits).then(function (rows) {
+      if (!state || token !== loadToken) return;
+      state.circuits = Array.isArray(rows) ? rows : [];
+      if (state.ready && state.screen === 'home' && !state.playerLive) render();
+    }, function () {
+      if (!state || token !== loadToken) return;
+      state.circuits = [];
+    });
+  }
   function refresh() {
     var token = ++loadToken;
+    pullCircuits(token);
     var profileP = options.loadProfile ? Promise.resolve().then(options.loadProfile) : Promise.resolve(null);
     var sessionP = options.loadSession ? Promise.resolve().then(options.loadSession) : Promise.resolve(null);
     Promise.all([profileP, sessionP]).then(function (pair) {

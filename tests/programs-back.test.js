@@ -111,10 +111,10 @@ function today() {
       localStorage.setItem(key, JSON.stringify(stored));
     }, M.STORAGE_KEY, JSON.stringify(data));
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('#programs-open');
+    await page.waitForSelector('#calendar-open');
   }
   async function openPrograms() {
-    await page.click('#programs-open');
+    await page.click('#calendar-open');
     await page.waitForFunction(() => {
       const root = document.getElementById('pv-root');
       return root && !document.getElementById('pv-loading') && document.querySelector('.pv-day.today');
@@ -136,7 +136,7 @@ function today() {
   assert.strictEqual(await page.evaluate(() => location.hash), '#/play/' + lift.id);
   await page.evaluate(() => history.back());
   await page.waitForFunction(() => location.hash === '#/' || location.hash === '#');
-  await page.waitForSelector('#programs-open');
+  await page.waitForSelector('#calendar-open');
   assert.strictEqual(await page.$('.pl-screen'), null);
 
   await openPrograms();
@@ -193,7 +193,7 @@ function today() {
     running: true,
     logged: true,
     hash: '#/programs',
-    title: 'Programs',
+    title: 'Calendar',
     trap: 1
   });
   await page.screenshot({ path: path.join(ART, 'programs_back_still_playing.png') });
@@ -213,7 +213,7 @@ function today() {
   }));
   assert.deepStrictEqual(onPrograms, {
     hash: '#/programs',
-    title: 'Programs',
+    title: 'Calendar',
     sheet: false,
     player: false,
     trap: null
@@ -293,7 +293,7 @@ function today() {
     range: beforeDay.range,
     client: 'client-1',
     monthOn: beforeDay.monthOn,
-    title: 'Programs',
+    title: 'Calendar',
     trap: null
   });
   assert.strictEqual(beforeDay.hash, '#/programs');

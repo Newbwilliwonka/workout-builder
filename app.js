@@ -2181,7 +2181,7 @@
     var bare = landingOn || accessWaitOn || page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset';
     document.documentElement.classList.toggle('wb-bare', bare);
     var parts = hashBody().split('/');
-    var live = page === 'circuits' && parts[2] === 'run';
+    var live = page === 'circuits' && (parts[2] === 'run' || parts[2] === 'view');
     var player = page === 'play' || page === 'view' || document.body.classList.contains('playing');
     var gate = page === 'subscriptions' && (
       !!document.getElementById('level-lock') ||
@@ -2196,8 +2196,7 @@
       Array.prototype.forEach.call(links.querySelectorAll('a'), function (a) {
         var on = false;
         if (showLinks) {
-          if (a.id === 'programs-open') on = page === 'programs' || page === 'preview';
-          else if (a.id === 'tracking-open') on = page === 'tracking' || page === 'history';
+          if (a.id === 'tracking-open') on = page === 'tracking' || page === 'history';
           else if (a.id === 'messages-nav') on = page === 'messages';
           else if (a.id === 'hub-nav') on = page === 'hub';
           else if (a.id === 'workouts-nav') on = page === '' || page === 'w' || page === 'send' || page === 'received' || page === 'circuits';
@@ -3340,7 +3339,7 @@
     app.oninput = null;
     app.onchange = null;
     var parts = circuitParts();
-    if (parts[0] === 'circuits' && parts[2] === 'run' && parts[1] && parts[1] !== 'new') {
+    if (parts[0] === 'circuits' && (parts[2] === 'run' || parts[2] === 'view') && parts[1] && parts[1] !== 'new') {
       if (!window.WBCircuitSession) {
         titleEl.textContent = 'Group Circuit Training';
         app.innerHTML = '<div class="card" id="circuit-wait"><div class="name">Not available yet</div><p class="mute">Group circuits are not available yet.</p></div>';
@@ -3624,6 +3623,7 @@
       saveEntry: function (entry) { return WBAuth.saveProgramEntry ? WBAuth.saveProgramEntry(entry) : Promise.reject(new Error('programs')); },
       deleteEntry: function (entry) { return WBAuth.deleteProgramEntry ? WBAuth.deleteProgramEntry(entry.ownerId, entry.id) : Promise.reject(new Error('programs')); },
       loadCalendar: function (zone, token) { return WBAuth.calendarFeed ? WBAuth.calendarFeed(zone, token) : Promise.reject(Object.assign(new Error('local'), { local: true })); },
+      loadCircuits: function () { return WBAuth.circuits ? WBAuth.circuits() : Promise.resolve([]); },
       resetCalendar: function (zone) { return WBAuth.resetCalendarFeed ? WBAuth.resetCalendarFeed(zone) : Promise.reject(Object.assign(new Error('local'), { local: true })); },
       onTracked: function () { capturePlayedSession(); }
     });
@@ -4827,11 +4827,15 @@
     var trainerHome = !!(window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile)));
     var tileIco = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M12 8v5l3 2"/></svg>';
     var sendIco = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 11.5 21 3l-7.2 18-2.3-7.2z"/></svg>';
+    var calIco = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" d="M8 3.5v4M16 3.5v4M4 10h16"/></svg>';
+    var calendarTile = '<button type="button" class="home-tile" id="calendar-open" data-a="programs">' + calIco + '<span class="home-tile-label">Calendar</span></button>';
     var h = (levelNoteOn ? levelNoteHtml(cachedProfile) : '') +
       (note ? '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>' : '') +
-      (trainerHome
-        ? '<div class="home-tiles" id="home-tiles"><button type="button" class="home-tile" id="circuits-open" data-a="circuits">' + tileIco + '<span class="home-tile-label">Group Circuits</span></button><button type="button" class="home-tile" id="send-nav" data-a="send">' + sendIco + '<span class="home-tile-label">Send workout</span></button></div>'
-        : '') +
+      '<div class="home-tiles" id="home-tiles">' +
+      (trainerHome ? '<button type="button" class="home-tile" id="circuits-open" data-a="circuits">' + tileIco + '<span class="home-tile-label">Group Circuits</span></button>' : '') +
+      calendarTile +
+      (trainerHome ? '<button type="button" class="home-tile" id="send-nav" data-a="send">' + sendIco + '<span class="home-tile-label">Send workout</span></button>' : '') +
+      '</div>' +
       '<button class="pri" style="width:100%;margin-bottom:12px" data-a="new">+ New workout</button>';
     var statusLine = libraryStatusHtml();
     if (statusLine) h += statusLine;

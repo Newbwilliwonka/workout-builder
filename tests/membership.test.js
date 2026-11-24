@@ -111,11 +111,10 @@ assert.strictEqual(byId.master_trainer.available.indexOf(byId.master_trainer.inc
 assert.strictEqual(byId.master_trainer.comingSoon.indexOf(byId.master_trainer.includes), -1);
 assert.deepStrictEqual(byId.master_trainer.available, [
   'Invite up to 30 clients and enthusiasts',
-  'Show a verified certification on your profile'
+  'Show a verified certification on your profile',
+  'Group circuit training with tracking'
 ]);
-assert.deepStrictEqual(byId.master_trainer.comingSoon, [
-  'Team Training and Team Drills with tracking'
-]);
+assert.deepStrictEqual(byId.master_trainer.comingSoon, []);
 assert.strictEqual(byId.master_trainer.highlight, 'Get found in the Trainer Hub by clients who have trained with a coach');
 assert.strictEqual(byId.master_trainer.recommended, false);
 assert.strictEqual(Mem.priceLine(byId.master_trainer), '$29.99 / month');

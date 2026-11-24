@@ -96,8 +96,8 @@ async function openPrograms(page) {
     localStorage.setItem(key, JSON.stringify(data));
   }, M.STORAGE_KEY, JSON.stringify(base));
   await page.reload();
-  await page.waitForSelector('#programs-open');
-  await page.click('#programs-open');
+  await page.waitForSelector('#calendar-open');
+  await page.click('#calendar-open');
   await page.waitForSelector('#pv-gcal');
 }
 

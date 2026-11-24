@@ -16,6 +16,7 @@
   var anchorElapsed = 0;
   var startedAt = null;
   var record = null;
+  var tracking = true;
   var sched = null;
   var toneMark = -1;
   var nodes = [];
@@ -245,7 +246,9 @@
   }
   function summaryHtml() {
     var people = record && record.people || [];
-    var h = '<div class="circuit-summary" id="circuit-summary"><p class="circuit-sum-title">' + esc(doc.name || 'Circuit') + '</p>';
+    var h = '<div class="circuit-summary" id="circuit-summary">';
+    if (!tracking) h += '<p class="tag" id="pv-not-tracked">Preview - not tracked</p>';
+    h += '<p class="circuit-sum-title">' + esc(doc.name || 'Circuit') + '</p>';
     if (!people.length) h += '<p class="mute">No clients were in this session.</p>';
     people.forEach(function (person) {
       h += '<div class="card circuit-sum"><div class="circuit-sum-who">' +
@@ -285,7 +288,7 @@
       stopArrows();
       return;
     }
-    var h = '<div class="circuit-live" id="circuit-live">';
+    var h = '<div class="circuit-live" id="circuit-live"' + (tracking ? '' : ' data-track="0"') + '>';
     if (mode === 'place') h += '<div class="circuit-hint">Place every client on a starting station.</div>';
     h += toolbarHtml();
     if (mode === 'live') h += clockHtml();
@@ -781,7 +784,8 @@
     document.addEventListener('visibilitychange', onVis);
     if (!root.WBCircuit || !root.WBClock) return showError('Group circuits are not available yet.');
     var parts = hashParts();
-    if (parts[0] !== 'circuits' || !parts[1] || parts[2] !== 'run') return showError('That circuit was not found.');
+    if (parts[0] !== 'circuits' || !parts[1] || (parts[2] !== 'run' && parts[2] !== 'view')) return showError('That circuit was not found.');
+    tracking = parts[2] !== 'view';
     load(parts[1]);
   }
   function stop() {
@@ -806,7 +810,7 @@
   function back() {
     if (!ctx) return false;
     var parts = hashParts();
-    if (parts[0] !== 'circuits' || parts[2] !== 'run') return false;
+    if (parts[0] !== 'circuits' || (parts[2] !== 'run' && parts[2] !== 'view')) return false;
     if (mode === 'summary') { ctx.go('#/circuits'); return true; }
     if (mode === 'live') { onEnd(); return true; }
     clearStore();

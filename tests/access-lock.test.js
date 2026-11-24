@@ -172,16 +172,15 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await allowed.goto(URL + '#/'); await allowed.reload();
   await allowed.waitForSelector('[data-a=run]');
   assert.strictEqual(await allowed.$eval('.name', e => e.textContent), 'Hidden workout');
-  assert.deepStrictEqual(await allowed.$eval('#programs-open', function (el) {
-    return {
-      text: el.textContent,
-      href: el.getAttribute('href'),
-      row: el.parentElement && el.parentElement.id
-    };
+  assert.strictEqual(await allowed.$('#programs-open'), null);
+  assert.ok((await allowed.$eval('#nav-links', function (el) { return el.innerText; })).indexOf('Programs') === -1);
+  assert.deepStrictEqual(await allowed.$eval('#calendar-open', function (el) {
+    var label = el.querySelector('.home-tile-label');
+    var ids = Array.prototype.map.call(el.parentElement.querySelectorAll('button'), function (b) { return b.id; });
+    return { text: label ? label.textContent : '', ids: ids };
   }), {
-    text: 'Programs',
-    href: '#/programs',
-    row: 'nav-links'
+    text: 'Calendar',
+    ids: ['circuits-open', 'calendar-open', 'send-nav']
   });
   assert.ok(await allowed.$('#circuits-open'));
   assert.ok(await allowed.$('#send-nav'));

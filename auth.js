@@ -1362,7 +1362,7 @@
       return new Error('Start and end times are saved on this device until the program times SQL is applied.');
     }
     if (/schema cache|could not find|does not exist|PGRST202|PGRST205|42P01|program_entries/i.test(msg)) {
-      return new Error('Programs are not on the server yet. Apply the programs SQL in the Supabase SQL editor.');
+      return new Error('The calendar is not on the server yet. Apply the programs SQL in the Supabase SQL editor.');
     }
     return new Error(msg || 'Could not save the calendar.');
   }

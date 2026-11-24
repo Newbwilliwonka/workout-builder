@@ -89,8 +89,8 @@ async function stub(page, extra) {
       localStorage.setItem(key, JSON.stringify(data));
     }, M.STORAGE_KEY, JSON.stringify(base));
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('#programs-open');
-    await page.click('#programs-open');
+    await page.waitForSelector('#calendar-open');
+    await page.click('#calendar-open');
     await page.waitForFunction(function () {
       var root = document.getElementById('pv-root');
       return root && !document.getElementById('pv-loading') && document.querySelector('.pv-day.today');
@@ -322,8 +322,8 @@ async function stub(page, extra) {
     localStorage.setItem(key, JSON.stringify(data));
   }, M.STORAGE_KEY, JSON.stringify(trainerData));
   await trainer.reload({ waitUntil: 'domcontentloaded' });
-  await trainer.waitForSelector('#programs-open');
-  await trainer.click('#programs-open');
+  await trainer.waitForSelector('#calendar-open');
+  await trainer.click('#calendar-open');
   await trainer.waitForSelector('#pv-client');
   await trainer.select('#pv-client', '');
   await trainer.waitForFunction(function () {

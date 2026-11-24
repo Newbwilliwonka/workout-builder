@@ -307,6 +307,14 @@ const ART = '/opt/cursor/artifacts';
   });
   assert.ok(nav.tools.indexOf('Messages') !== -1);
   assert.ok(nav.tools.indexOf('Hub') !== -1);
+  assert.ok(nav.tools.indexOf('Programs') === -1);
+  const navFit = await p.evaluate(function () {
+    var row = document.getElementById('nav-links');
+    var tops = Array.prototype.map.call(row.querySelectorAll('a'), function (a) { return a.getBoundingClientRect().top; });
+    return { scroll: row.scrollWidth, client: row.clientWidth, tops: tops };
+  });
+  assert.ok(navFit.scroll <= navFit.client + 1, 'nav links overflow');
+  assert.ok(Math.max.apply(null, navFit.tops) - Math.min.apply(null, navFit.tops) < 2, 'nav links wrap');
   assert.ok(nav.sendText.indexOf('Send workout') !== -1);
   [nav.messages, nav.hub, nav.send].forEach(function (item) {
     assert.ok(item.left >= -1 && item.right <= nav.width + 1, item.text + ' overflows');
