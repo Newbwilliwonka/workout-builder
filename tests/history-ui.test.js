@@ -131,9 +131,9 @@ async function shot(page, name) {
   await shot(page, 'history-by-workout.png');
   await page.click('[data-session="sq-1112"]');
   await page.waitForSelector('.hx-set');
-  assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'Lower strength');
+  assert.strictEqual(await page.$eval('#title', function (el) { return el.textContent; }), 'Tracking');
   const sessionText = await page.$eval('#app', function (el) { return el.textContent; });
-  assert.ok(sessionText.indexOf('Thu Nov 12 · Lower strength') >= 0);
+  assert.ok(sessionText.indexOf('Lower strength · Thu, Nov 12') >= 0);
   assert.ok(sessionText.indexOf('Barbell squat') >= 0);
   assert.ok(sessionText.indexOf('3 × 225 lb') >= 0);
   assert.ok(sessionText.indexOf('8 × 185 lb') >= 0);

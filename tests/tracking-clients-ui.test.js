@@ -253,7 +253,7 @@ async function shot(page, name) {
       tabs: !!document.getElementById('tracking-tabs')
     };
   });
-  assert.strictEqual(detail.title, 'Lower strength');
+  assert.strictEqual(detail.title, 'Tracking');
   assert.ok(detail.text.indexOf('Barbell squat') >= 0);
   assert.ok(detail.text.indexOf('225 lb') >= 0);
   assert.ok(detail.text.indexOf('Coach press') < 0);
@@ -263,7 +263,7 @@ async function shot(page, name) {
   await trainer.waitForFunction(function (id) {
     var title = document.getElementById('title');
     return location.hash === '#/history/client/' + id + '/session/sq-1112' &&
-      title && title.textContent === 'Lower strength' &&
+      title && title.textContent === 'Tracking' &&
       document.body.innerText.indexOf('Barbell squat') >= 0 &&
       document.body.innerText.indexOf('Coach press') < 0 &&
       window.__trackCalls.history === 0 &&

@@ -73,8 +73,8 @@ function actionsFor(id) {
   await p.waitForSelector('[data-a=view][data-id="' + normal.id + '"]');
 
   const normalActions = await p.evaluate(actionsFor, normal.id);
-  assert.deepStrictEqual(normalActions.map(a => a.action), ['wup', 'wdown', 'open', 'run', 'view', 'del']);
-  assert.deepStrictEqual(normalActions.map(a => a.text), ['▲', '▼', 'Open', 'Run', 'View', 'Delete']);
+  assert.deepStrictEqual(normalActions.map(a => a.action), ['wup', 'wdown', 'open', 'view', 'run', 'del']);
+  assert.deepStrictEqual(normalActions.map(a => a.text), ['▲', '▼', 'Edit', 'View', 'Run', 'Delete']);
   const viewBtn = normalActions.filter(a => a.action === 'view')[0];
   const runBtn = normalActions.filter(a => a.action === 'run')[0];
   assert.strictEqual(viewBtn.className, runBtn.className);
@@ -82,7 +82,7 @@ function actionsFor(id) {
   assert.strictEqual(viewBtn.disabled, false);
 
   const lockedActions = await p.evaluate(actionsFor, locked.id);
-  assert.deepStrictEqual(lockedActions.map(a => a.text), ['Open', 'Run', 'View']);
+  assert.deepStrictEqual(lockedActions.map(a => a.text), ['View', 'Run']);
   assert.strictEqual(lockedActions.filter(a => a.action === 'view')[0].disabled, false);
   assert.ok((await p.evaluate(function (id) {
     var name = document.querySelector('.name[data-id="' + id + '"]');

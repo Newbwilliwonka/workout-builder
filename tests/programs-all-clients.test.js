@@ -245,7 +245,7 @@ function remoteSession(clientId, programId, workoutId) {
     'Owen Blake · Enthusiast',
     'Client · Free Client'
   ]);
-  assert.ok((await trainer.$eval('#pv-role-note', function (el) { return el.textContent; })).indexOf('every client you can see') !== -1);
+  assert.strictEqual(await trainer.$('#pv-role-note'), null);
 
   const calls = await trainer.evaluate(function () { return window.__wbAllCalls; });
   assert.ok(calls.entries.length >= 1 && calls.entries.length < 7, 'entry reads ' + calls.entries.length);

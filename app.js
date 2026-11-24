@@ -3680,6 +3680,12 @@
     try { URL.revokeObjectURL(draft.pendingUrl); } catch (e) {}
     draft.pendingUrl = '';
   }
+  var workoutsNav = document.getElementById('workouts-nav');
+  if (workoutsNav) workoutsNav.addEventListener('click', function () {
+    var ids = [];
+    (data.workouts || []).forEach(function (w) { if (w && w.sourceTrainerId) ids.push(w.id); });
+    if (ids.length) markReceivedSeen(ids);
+  });
   window.addEventListener('hashchange', function () {
     closeLibStill();
     releasePendingImage();
@@ -4148,11 +4154,14 @@
     if (!window.WBDashboard || !trainerModel) return;
     var self = !editorClient;
     var order = dashboardEditing && Array.isArray(editDraft) ? editDraft : trainerOrder;
-    var body = pickerHtml(editorClient) + WBDashboard.editorHtml(trainerModel, order, {
+    var editor = WBDashboard.editorHtml(trainerModel, order, {
       self: self,
       share: !self && receivesShares(clientRecord(editorClient)),
       editing: dashboardEditing
     });
+    var pick = pickerHtml(editorClient);
+    if (pick) editor = editor.replace('<div id="dash-editor">', '<div id="dash-editor" class="dash-top">' + pick);
+    var body = editor;
     paintTracking('dashboard', body, true);
   }
   function rememberOwnOrder(order) {
@@ -4699,7 +4708,7 @@
     }
     if (key.indexOf('session:') === 0) {
       var sessionView = WBHistory.sessionDetail(sets, key.slice(8));
-      titleEl.textContent = sessionView.name || 'History';
+      titleEl.textContent = 'Tracking';
       app.innerHTML = WBHistory.sessionHtml(sessionView, opts);
       app.onclick = null;
       app.oninput = null;
@@ -4814,11 +4823,6 @@
       h += '</div></div>';
     });
     app.innerHTML = h;
-    if (!trainerHome) {
-      var seenIds = [];
-      data.workouts.forEach(function (w) { if (w && w.sourceTrainerId) seenIds.push(w.id); });
-      if (seenIds.length) markReceivedSeen(seenIds);
-    }
     refreshRequestBadges();
     syncChrome();
     if (data.workouts.some(function (w) { return w && w.sourceTrainerId; }) && !cachedProfile) {
@@ -4857,15 +4861,18 @@
         var nw = M.newWorkout(name.trim() || 'New workout'); data.workouts.unshift(nw); persist(); go('#/w/' + nw.id);
       } else if (a === 'open') {
         if (!(w && w.sourceTrainerId) && !levelCan(cachedProfile, 'open')) { levelNoteOn = true; return renderList(); }
+        if (w && w.sourceTrainerId) markReceivedSeen([w.id]);
         setCopyReturn(''); go('#/w/' + w.id);
       }
       else if (a === 'run') {
         if (!(w && w.items && w.items.length)) return;
         if (!workoutRunnable(w)) { toast(RUN_NEEDS_NUMBERS); return; }
+        if (w && w.sourceTrainerId) markReceivedSeen([w.id]);
         setCopyReturn(''); go('#/play/' + w.id);
       }
       else if (a === 'view') {
         if (!(w && w.items && w.items.length)) return;
+        if (w && w.sourceTrainerId) markReceivedSeen([w.id]);
         setCopyReturn(''); go('#/view/' + w.id);
       }
       else if (a === 'del') {

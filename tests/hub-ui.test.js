@@ -476,7 +476,7 @@ const ART = '/opt/cursor/artifacts';
     var badge = document.getElementById('hub-report-count');
     var style = getComputedStyle(badge);
     return {
-      heading: section.querySelector('h2').textContent,
+      heading: section.querySelector('.sec').textContent,
       count: badge.textContent,
       label: badge.getAttribute('aria-label'),
       bg: style.backgroundColor,

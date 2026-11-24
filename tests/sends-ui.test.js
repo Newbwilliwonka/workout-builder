@@ -332,7 +332,7 @@ function armSlow() {
   assert.strictEqual(await enthusiast.$('[data-a=rename]'), null);
   assert.ok(await enthusiast.$('[data-a=del][data-id="' + copyId + '"]'));
   assert.strictEqual(await enthusiast.$('#received-open'), null);
-  assert.strictEqual(await enthusiast.$('#workouts-nav .request-count'), null);
+  assert.strictEqual(await enthusiast.$eval('#workouts-nav .request-count', function (el) { return el.textContent; }), '1');
   assert.ok((await enthusiast.$eval('#app', function (el) { return el.innerText; })).indexOf('Workouts from your trainer') === -1);
   await enthusiast.screenshot({ path: ART + '/enthusiast-received-list.png', fullPage: true });
   await enthusiast.click('[data-a=open][data-id="' + copyId + '"]');

@@ -542,7 +542,7 @@
   }
   function noteHtml() {
     if (!state.ready) return '';
-    if (viewingAll()) return '<div class="card" id="pv-role-note"><p style="margin:0">Your calendar and every client you can see.</p></div>';
+    if (viewingAll()) return '';
     if (state.role === 'free_client') return '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer schedules your program</p></div>';
     if (state.role === 'enthusiast' && state.shareOn === true) return '<div class="card" id="pv-role-note"><p style="margin:0">Your trainer can also edit this calendar</p></div>';
     if (state.role === 'enthusiast' && state.shareOn === false) return '<div class="card" id="pv-role-note"><p style="margin:0">Sharing is off. Your trainer cannot see or edit this calendar.</p></div>';
@@ -596,8 +596,8 @@
     if (!list.length) h += '<p class="mute">No workouts yet. Build one from the workout list, then drag it onto a day.</p>';
     list.forEach(function (row) { h += workoutCard(row); });
     h += '</div></section><section class="pv-cal" id="pv-cal" aria-label="Programs"><h2 class="pv-h">Programs</h2>' +
-      '<p class="mute">Workouts scheduled on a calendar. A check is a day you actually tracked.</p>' +
-      (canEditHere() ? '<p class="mute" id="pv-schedule-hint">Drag a workout onto a day, or tap a day to choose one.</p>' : '') +
+      '<p class="mute" id="pv-schedule-hint">Workouts scheduled on a calendar. A check is a day you actually tracked.' +
+      (canEditHere() ? ' Drag a workout onto a day, or tap a day to choose one.' : '') + '</p>' +
       '<div class="pv-views"><div class="seg" id="pv-range-switch" role="group" aria-label="Week or month"><button type="button" data-cal="week" class="' + (state.view === 'week' ? 'on' : '') + '">Week</button>' +
       '<button type="button" data-cal="month" class="' + (state.view === 'month' ? 'on' : '') + '">Month</button></div>' +
       '<button type="button" id="pv-gcal">Add to Google Calendar</button></div>' +
@@ -717,8 +717,10 @@
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This day">';
     h += '<h3 class="name">' + esc(prettyDate(date)) + '</h3>';
     if (!items.length && !extras.length) h += '<p class="mute" id="pv-empty-day">No workouts scheduled</p>';
-    items.forEach(function (row) { h += dayRowHtml(row, tracked); });
-    extras.forEach(function (row) { h += extraRowHtml(row); });
+    var rows = '';
+    items.forEach(function (row) { rows += dayRowHtml(row, tracked); });
+    extras.forEach(function (row) { rows += extraRowHtml(row); });
+    if (rows) h += '<div class="pv-day-list">' + rows + '</div>';
     if (canEditHere()) h += '<button type="button" data-sheet="add-day">Add workout</button>';
     return h + '</div></div>';
   }

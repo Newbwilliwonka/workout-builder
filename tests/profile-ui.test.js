@@ -269,7 +269,7 @@ const PROMPT = 'To protect your email account from spammers, please enter a name
   assert.strictEqual(account.editText, 'Edit profile');
   assert.strictEqual(account.planText, 'Enthusiast · Edit profile');
   assert.strictEqual(account.editColor, 'rgb(37, 99, 235)');
-  assert.strictEqual(account.editDecoration, 'underline');
+  assert.strictEqual(account.editDecoration, 'none');
   assert.ok(account.editBg === 'rgba(0, 0, 0, 0)' || account.editBg === 'transparent');
   assert.strictEqual(account.editSameLine, true);
   assert.strictEqual(account.editAfterPlan, true);

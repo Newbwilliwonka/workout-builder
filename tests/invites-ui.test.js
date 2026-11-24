@@ -109,7 +109,11 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   await p.waitForFunction(() => document.body.innerText.includes('Connection ended'));
   await wait(200);
   await p.evaluate(() => { location.hash = '#/account?unlinked=1'; });
-  await p.waitForFunction(() => document.getElementById('invite-code') && !document.querySelector('[data-invite=end-self]') && document.body.innerText.includes('Invite code'));
+  await p.waitForFunction(() => {
+    var code = document.getElementById('invite-code');
+    var label = document.querySelector('label[for="invite-code"]');
+    return code && label && label.textContent.indexOf('Invite code') !== -1 && !document.querySelector('[data-invite=end-self]');
+  });
   await p.evaluate(() => { location.hash = '#/subscriptions?ended=1'; });
   await p.waitForFunction(() => location.hash === '#/subscriptions?ended=1' && document.getElementById('invite-code'));
   assert.deepStrictEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('wb.data.v1')).workouts.map(w => w.name)), ['My workout']);
