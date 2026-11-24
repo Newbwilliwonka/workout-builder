@@ -8,13 +8,17 @@
 --   A trainer's circuit placed on the trainer's own calendar shows on the
 --   calendar of each linked client invited to that circuit. The client cannot
 --   read the circuit row or the other people on it.
---   public.circuit_guest_placements(p_client) returns only the day, the start
---   and end, the circuit name, and the trainer's display name.
+--   public.circuit_guest_placements(p_client) returns the placement id, the
+--   day, the start and end, the circuit name, and the trainer's display name.
 --   The caller may be that client, or a trainer with a live link to that client.
+--   A client sees every linked trainer's circuits they are invited to. A
+--   trainer looking at someone else sees only circuits that trainer owns.
 --   A display name that is an email is returned as Trainer.
 --
 -- Until this is applied, the calendar still loads. The app treats a missing
 -- function as no guest placements.
+
+drop function if exists public.circuit_guest_placements(uuid);
 
 create or replace function public.circuit_guest_placements(p_client uuid)
 returns table (
@@ -28,7 +32,7 @@ returns table (
 language plpgsql
 stable
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 begin
   if auth.uid() is null or p_client is null then
@@ -66,6 +70,10 @@ begin
   join public.profiles p
     on p.id = c.owner_id
   where e.owner_id <> p_client
+    and (
+      auth.uid() = p_client
+      or c.owner_id = auth.uid()
+    )
     and exists (
       select 1
       from public.trainer_clients link

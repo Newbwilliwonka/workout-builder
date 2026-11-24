@@ -6,6 +6,10 @@ const path = require('path');
 
 const sql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261124200000_circuit_guest_calendar.sql'), 'utf8');
 assert.ok(sql.includes('circuit_guest_placements(p_client uuid)'));
+assert.ok(sql.indexOf('drop function if exists public.circuit_guest_placements(uuid)') < sql.indexOf('create or replace function public.circuit_guest_placements'));
+assert.ok(sql.includes('set search_path = public, pg_temp'));
+assert.ok(sql.includes('auth.uid() = p_client'));
+assert.ok(sql.includes('c.owner_id = auth.uid()'));
 assert.ok(/security definer/i.test(sql));
 assert.ok(sql.includes('placement_id text'));
 assert.ok(sql.includes('e.local_id'));

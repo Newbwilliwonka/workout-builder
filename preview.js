@@ -215,13 +215,10 @@
     return local.concat(remote);
   }
   function guestEntries() {
+    // All clients already shows the trainer's own placement. Guest copies
+    // would repeat that circuit once for every invited client.
+    if (viewingAll()) return [];
     var rows = state && state.circuitGuests || [];
-    var self = selfId();
-    if (viewingAll()) {
-      var allow = {};
-      peopleShown().forEach(function (id) { if (id && id !== self) allow[id] = 1; });
-      return rows.filter(function (row) { return row && row.guestCircuit && allow[row.ownerId]; });
-    }
     var owner = ownerId();
     return rows.filter(function (row) { return row && row.guestCircuit && row.ownerId === owner; });
   }
@@ -2134,28 +2131,24 @@
   }
   function pullGuestCircuits() {
     if (!options || !options.loadGuestCircuits || !state) return;
-    var ids = [];
     if (viewingAll()) {
-      var self = selfId();
-      peopleShown().forEach(function (id) {
-        if (id && id !== self) ids.push(id);
-      });
-    } else if (ownerId()) ids.push(ownerId());
+      if (state.circuitGuests.length) {
+        state.circuitGuests = [];
+        if (state.ready && state.screen === 'home' && !state.playerLive) render();
+      }
+      return;
+    }
+    var id = ownerId();
+    if (!id) return;
     var token = loadToken;
-    Promise.all(ids.map(function (id) {
-      return Promise.resolve().then(function () { return options.loadGuestCircuits(id); }).then(function (rows) {
-        var out = [];
-        (Array.isArray(rows) ? rows : []).forEach(function (row) {
-          var shaped = shapeGuest(row, id);
-          if (shaped) out.push(shaped);
-        });
-        return out;
-      }, function () { return []; });
-    })).then(function (groups) {
+    Promise.resolve().then(function () { return options.loadGuestCircuits(id); }).then(function (rows) {
       if (!state || token !== loadToken) return;
-      var flat = [];
-      groups.forEach(function (rows) { flat = flat.concat(rows); });
-      state.circuitGuests = flat;
+      var out = [];
+      (Array.isArray(rows) ? rows : []).forEach(function (row) {
+        var shaped = shapeGuest(row, id);
+        if (shaped) out.push(shaped);
+      });
+      state.circuitGuests = out;
       if (state.ready && state.screen === 'home' && !state.playerLive) render();
     }, function () {
       if (!state || token !== loadToken) return;

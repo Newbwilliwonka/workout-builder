@@ -58,6 +58,8 @@ async function stub(page, membership) {
         api.programEntries = function () { return Promise.resolve([]); };
         api.programEntriesFor = function () { return Promise.resolve([]); };
         api.circuitGuestPlacements = function (clientId) {
+          window.__guestCalls = window.__guestCalls || [];
+          window.__guestCalls.push(clientId);
           var rows = window.__guestPlacements || [];
           return Promise.resolve(rows.filter(function (row) { return !row.clientId || row.clientId === clientId; }).map(function (row) {
             return {
@@ -416,10 +418,56 @@ async function shot(page, name) {
   })), '11:15');
   assert.ok((await page.evaluate(function () { return localStorage.getItem('wb.circuit.live') || ''; })).indexOf('Live class') !== -1);
   await page.evaluate(function () { localStorage.removeItem('wb.circuit.live'); });
+  await page.evaluate(function (ada, ben) {
+    var now = new Date();
+    var day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    window.__guestCalls = [];
+    window.__guestPlacements = [{
+      clientId: ada,
+      placement_id: 'g-ada',
+      day: day,
+      starts_at: '15:00',
+      ends_at: '16:00',
+      circuit_name: 'Guest only class',
+      trainer_name: 'Coach Lee'
+    }, {
+      clientId: ben,
+      placement_id: 'g-ben',
+      day: day,
+      starts_at: '15:00',
+      ends_at: '16:00',
+      circuit_name: 'Guest only class',
+      trainer_name: 'Coach Lee'
+    }];
+  }, ADA, BEN);
   await page.select('#pv-client', 'all');
   await page.waitForFunction(function () {
     var rail = document.getElementById('pv-rail');
-    return rail && rail.innerText.indexOf('Morning lift') !== -1 && rail.innerText.indexOf('Saturday class') !== -1;
+    var today = document.querySelector('.pv-day.today');
+    if (!rail || !today || rail.innerText.indexOf('Morning lift') === -1 || rail.innerText.indexOf('Saturday class') === -1) return false;
+    var whos = Array.prototype.map.call(today.querySelectorAll('.pv-who'), function (el) { return el.textContent; });
+    return whos.length === 1 && whos[0] === 'Self' && today.innerText.indexOf('Guest only class') === -1 && (window.__guestCalls || []).length === 0;
+  });
+  await page.select('#pv-client', ADA);
+  await page.waitForFunction(function (ada) {
+    var cards = document.querySelectorAll('.pv-session');
+    var calls = window.__guestCalls || [];
+    if (calls.indexOf(ada) === -1) return false;
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      if (card.innerText.indexOf('Guest only class') === -1) continue;
+      if (card.hasAttribute('data-drag')) continue;
+      if (!card.querySelector('.pv-ico.trainer')) continue;
+      return true;
+    }
+    return false;
+  }, {}, ADA);
+  await page.select('#pv-client', 'all');
+  await page.waitForFunction(function () {
+    var today = document.querySelector('.pv-day.today');
+    if (!today) return false;
+    var whos = Array.prototype.map.call(today.querySelectorAll('.pv-who'), function (el) { return el.textContent; });
+    return whos.length === 1 && whos[0] === 'Self';
   });
   await page.evaluate(function () {
     document.querySelector('.pv-day.today .pv-day-h').click();
