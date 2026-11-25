@@ -81,22 +81,39 @@
       people: people
     };
   }
-  function readQueue() {
+  function storePending(row) {
     try {
-      var raw = root.localStorage.getItem(QUEUE);
-      var list = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(list)) return [];
-      var out = [];
-      list.forEach(function (row) {
-        var id = uuid(row && (row.ownerId || row.userId));
-        if (!id || !row.payload || !row.payload.runId) return;
-        out.push({ ownerId: id, payload: row.payload });
-      });
-      return out;
-    } catch (e) { return []; }
+      if (!row) root.localStorage.removeItem(QUEUE);
+      else root.localStorage.setItem(QUEUE, JSON.stringify({ ownerId: row.ownerId, payload: row.payload }));
+    } catch (e) {}
   }
-  function writeQueue(list) {
-    try { root.localStorage.setItem(QUEUE, JSON.stringify(list || [])); } catch (e) {}
+  function ownedRow(item) {
+    var id = uuid(item && item.ownerId);
+    if (!id || !item.payload || !item.payload.runId) return null;
+    return { ownerId: id, payload: item.payload };
+  }
+  function loadPending() {
+    var raw = null;
+    try { raw = root.localStorage.getItem(QUEUE); } catch (e) { return null; }
+    if (!raw) return null;
+    var parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e2) { parsed = null; }
+    if (Array.isArray(parsed)) {
+      var kept = null;
+      for (var i = parsed.length - 1; i >= 0; i--) {
+        kept = ownedRow(parsed[i]);
+        if (kept) break;
+      }
+      storePending(kept);
+      return kept;
+    }
+    var row = ownedRow(parsed);
+    if (!row) storePending(null);
+    return row;
+  }
+  function readQueue() {
+    var row = loadPending();
+    return row ? [row] : [];
   }
   function errorCode(err) {
     return String(err && err.code || '').toUpperCase();
@@ -118,30 +135,25 @@
   function remember(ownerId, payload) {
     var id = uuid(ownerId);
     if (!id || !payload || !payload.runId) return;
-    var list = readQueue().filter(function (row) {
-      return !(row.ownerId === id && row.payload.runId === payload.runId);
-    });
-    list.push({ ownerId: id, payload: payload });
-    writeQueue(list);
+    storePending({ ownerId: id, payload: payload });
   }
   function forget(ownerId, runId) {
     var id = uuid(ownerId);
     if (!id) return;
-    writeQueue(readQueue().filter(function (row) {
-      return !(row.ownerId === id && row.payload.runId === runId);
-    }));
+    var row = loadPending();
+    if (row && row.ownerId === id && row.payload.runId === runId) storePending(null);
   }
   function clearFor(ownerId) {
     var id = uuid(ownerId);
     if (!id) return;
-    writeQueue(readQueue().filter(function (row) { return row.ownerId !== id; }));
+    var row = loadPending();
+    if (row && row.ownerId === id) storePending(null);
   }
   function pendingCount(ownerId) {
     var id = uuid(ownerId);
     if (!id) return 0;
-    var n = 0;
-    readQueue().forEach(function (row) { if (row.ownerId === id) n += 1; });
-    return n;
+    var row = loadPending();
+    return row && row.ownerId === id ? 1 : 0;
   }
   function savePayload(ownerId, payload) {
     var auth = root.WBAuth;
@@ -187,16 +199,10 @@
   }
   function flush(signedInId) {
     var id = uuid(signedInId);
-    if (!id) return Promise.resolve(readQueue());
-    var pending = readQueue().filter(function (row) { return row.ownerId === id; });
-    if (!pending.length) return Promise.resolve([]);
-    function step(i) {
-      if (i >= pending.length) return Promise.resolve(readQueue());
-      return savePayload(id, pending[i].payload).then(function () {
-        return step(i + 1);
-      }, function () { return step(i + 1); });
-    }
-    return step(0);
+    if (!id) return Promise.resolve([]);
+    var row = loadPending();
+    if (!row || row.ownerId !== id) return Promise.resolve([]);
+    return savePayload(id, row.payload).then(function () { return []; }, function () { return []; });
   }
 
   var api = {

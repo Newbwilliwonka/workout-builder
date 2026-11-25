@@ -79,7 +79,8 @@ assert.strictEqual(Dash.build({ now: new Date('2026-11-25T12:00:00Z'), sessions:
 const store = {};
 global.localStorage = {
   getItem: function (key) { return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null; },
-  setItem: function (key, value) { store[key] = String(value); }
+  setItem: function (key, value) { store[key] = String(value); },
+  removeItem: function (key) { delete store[key]; }
 };
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -122,8 +123,14 @@ assert.ok(idSrc.indexOf('WBAuth.session') >= 0);
 assert.ok(signOutSrc.indexOf('signedInCircuitId()') >= 0);
 assert.ok(abandonSrc.indexOf('signedInCircuitId()') >= 0);
 assert.ok(appSrc.indexOf('function circuitUserId') < 0);
+global.localStorage.setItem('wb.circuitRuns.v1', JSON.stringify([
+  { userId: A, payload: { runId: 'legacy', name: 'Old class', startedAt: recent, endedAt: recent } },
+  { payload: { runId: 'blank', name: 'No owner' } }
+]));
+assert.strictEqual(H.readQueue().length, 0);
+assert.strictEqual(global.localStorage.getItem('wb.circuitRuns.v1'), null);
 H.remember(A, { runId: 'keep-a', name: 'Friday circuit', startedAt: recent, endedAt: recent });
-H.remember(B, { runId: 'drop-b', name: 'Other class', startedAt: recent, endedAt: recent });
+assert.strictEqual(H.readQueue().length, 1);
 H.clearFor(B);
 assert.strictEqual(H.pendingCount(A), 1);
 assert.strictEqual(H.pendingCount(B), 0);
@@ -156,12 +163,11 @@ H.saveRecord({ runId: 'run-a', name: 'Friday circuit', startedAt: recent, endedA
 }).then(function () {
   assert.deepStrictEqual(sent, []);
   assert.strictEqual(H.pendingCount(A), 1);
-  H.remember(B, { runId: 'run-c', name: 'Kept class', startedAt: recent, endedAt: recent });
-  assert.strictEqual(H.pendingCount(B), 1);
-  H.clearFor(A);
-  assert.strictEqual(H.pendingCount(A), 0);
-  assert.strictEqual(H.pendingCount(B), 1);
+  assert.strictEqual(H.pendingCount(B), 0);
+  assert.strictEqual(H.readQueue()[0].ownerId, A);
   H.clearFor(B);
+  assert.strictEqual(H.pendingCount(A), 1);
+  H.clearFor(A);
   assert.strictEqual(H.readQueue().length, 0);
   global.WBAuth.circuitSaveRun = function () { return Promise.reject(coded('22023')); };
   return H.saveRecord({ runId: 'run-bad', name: 'Friday circuit', startedAt: recent, endedAt: recent }, 'completed', A, A);
