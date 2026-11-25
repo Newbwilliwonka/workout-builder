@@ -2224,6 +2224,7 @@
     paintReceivedDot();
     refreshRequestBadges();
     if (!noteNavSection()) refreshNavBadges();
+    if (window.WBFeedback) WBFeedback.sync({ signedIn: !!signedInNow });
   }
   function signedInCircuitId() {
     if (!window.WBAuth || !WBAuth.session) return Promise.resolve('');
@@ -3477,6 +3478,7 @@
       ]).then(function (pair) {
         if (hashPage() !== 'admin' || location.hash !== requested) return;
         drawAdmin(pair[0], pair[1]);
+        if (window.WBFeedback) WBFeedback.loadAdmin();
         if (!WBAuth.hubReports) return paintHubReports(null);
         Promise.resolve().then(function () { return WBAuth.hubReports(); }).then(function (rows) {
           if (hashPage() !== 'admin' || location.hash !== requested) return;
@@ -3559,9 +3561,11 @@
     h += '</section>';
     h += '<section id="hub-reports-section"><div class="admin-h"><div class="sec">Hub reports</div><span class="admin-count" id="hub-report-count" hidden></span></div>';
     h += '<div id="hub-reports-body"><p class="mute" id="hub-reports-loading">Loading…</p></div></section>';
+    if (window.WBFeedback) h += WBFeedback.sectionShell();
     h += '</div>';
     app.innerHTML = h;
     app.onclick = function (e) {
+      if (window.WBFeedback && WBFeedback.onAdminClick(e)) return;
       var accessBtn = e.target.closest('[data-access]');
       if (accessBtn && !accessBtn.disabled) {
         var accessId = accessBtn.getAttribute('data-id');
@@ -3596,6 +3600,9 @@
       }
       var reportBtn = e.target.closest('[data-hub-report]');
       if (reportBtn && !reportBtn.disabled) return reviewHubReport(reportBtn);
+    };
+    app.onchange = function (e) {
+      if (window.WBFeedback && WBFeedback.onAdminChange(e)) return;
     };
   }
   function paintHubCount(n) {
