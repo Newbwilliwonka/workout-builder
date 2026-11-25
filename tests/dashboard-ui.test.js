@@ -160,6 +160,8 @@ async function openPage(browser, membership, payload) {
         value.roster = function () {
           return Promise.resolve(window.__roster || { clients: [] });
         };
+        value.navBadges = function () { return Promise.resolve({ messages: 0, hub: 0, tracking: 0 }); };
+        value.navMarkSeen = function () { return Promise.resolve(null); };
       }
     });
   }, payload || { sets: [], sessions: [], exercises: [], schedule: [] });

@@ -23,6 +23,8 @@ async function stubAuth(page, opts) {
       api.session = function () { return Promise.resolve(session); };
       if (hasProfile) api.profile = function () { return Promise.resolve(profile); };
       api.trainerRequestCount = function () { return Promise.resolve(0); };
+      api.navBadges = function () { return Promise.resolve({ messages: 0, hub: 0, tracking: 0 }); };
+      api.navMarkSeen = function () { return Promise.resolve(null); };
       api.circuits = function () { return Promise.resolve([]); };
       api.circuitGuestPlacements = function () { return Promise.resolve([]); };
       return api;

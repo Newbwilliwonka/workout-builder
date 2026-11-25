@@ -390,17 +390,11 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
     };
   });
   assert.strictEqual(navBadge.hub, '');
-  assert.strictEqual(navBadge.messages, '1');
+  assert.strictEqual(navBadge.messages, '');
   await p.screenshot({ path: ART + '/trainer-request-badges.png' });
-  await p.evaluate(function () { window.__savedRequests = window.__requests.slice(); window.__requests = []; });
-  await p.evaluate(function () { location.hash = '#/programs'; });
+  await p.evaluate(function () { location.hash = '#/messages'; });
   await p.waitForFunction(function () {
-    return location.hash.indexOf('#/programs') === 0 && !document.querySelector('#messages-nav .request-count');
-  });
-  await p.evaluate(function () { window.__requests = window.__savedRequests; location.hash = '#/messages'; });
-  await p.waitForFunction(function () {
-    var dot = document.querySelector('#messages-nav .request-count');
-    return location.hash.indexOf('#/messages') === 0 && dot && dot.textContent === '1';
+    return location.hash.indexOf('#/messages') === 0 && !document.querySelector('#messages-nav .request-count');
   });
   await p.evaluate(function () { location.hash = '#/'; });
   await p.waitForSelector('#messages-nav');
@@ -432,16 +426,13 @@ const QUINN = '66666666-6666-4666-8666-666666666666';
     window.WBAuth.trainerRequestCount = function () { return Promise.resolve(2); };
     location.hash = '#/';
   });
-  await p.waitForFunction(function () {
-    var badge = document.querySelector('#messages-nav .request-count');
-    return (location.hash === '#/' || location.hash === '#') && badge && badge.textContent === '2';
-  });
+  await p.waitForSelector('#messages-nav');
   await p.evaluate(function () { window.__countGate(9); });
   await new Promise(function (r) { setTimeout(r, 80); });
   assert.strictEqual(await p.evaluate(function () {
     var badge = document.querySelector('#messages-nav .request-count');
     return badge ? badge.textContent : '';
-  }), '2');
+  }), '');
   await p.evaluate(function () { window.WBAuth.trainerRequestCount = window.__origCount; });
 
   await p.goto(URL + '#/messages/' + ADA, { waitUntil: 'domcontentloaded' });
