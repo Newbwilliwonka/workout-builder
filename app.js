@@ -2865,6 +2865,13 @@
     var box = document.getElementById('client-info');
     return !!(active && box && box.contains(active) && active.id !== 'client-info-save');
   }
+  function sexRadioFrom(node) {
+    if (!node || !node.closest) return null;
+    if (node.name === 'client-sex') return node;
+    var label = node.closest('label');
+    var radio = label ? label.querySelector('input[name="client-sex"]') : null;
+    return radio || null;
+  }
   function watchClientInfo() {
     var box = document.getElementById('client-info');
     if (!box || box.getAttribute('data-watch')) return;
@@ -2872,6 +2879,26 @@
     function mark() { clientInfoDirty = true; }
     box.addEventListener('input', mark);
     box.addEventListener('change', mark);
+    var sexWas = null;
+    box.addEventListener('pointerdown', function (e) {
+      var radio = sexRadioFrom(e.target);
+      sexWas = radio && radio.checked ? radio : null;
+    });
+    box.addEventListener('click', function (e) {
+      var radio = sexRadioFrom(e.target);
+      if (!sexWas || radio !== sexWas) return;
+      radio.checked = false;
+      sexWas = null;
+      clientInfoDirty = true;
+    });
+    box.addEventListener('keydown', function (e) {
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      var radio = e.target && e.target.name === 'client-sex' ? e.target : null;
+      if (!radio || !radio.checked) return;
+      e.preventDefault();
+      radio.checked = false;
+      clientInfoDirty = true;
+    });
   }
   function cmFromFtIn(ft, inches) {
     var total = (Number(ft) || 0) * 12 + (Number(inches) || 0);
@@ -2941,15 +2968,16 @@
     if ((ft !== '' || inches !== '') && (feetN < 0 || feetN > 9 || inchN < 0 || inchN > 11.9)) {
       return { error: 'Enter feet from 0 to 9 and inches from 0 to 11.9.' };
     }
-    var totalIn = (ft !== '' || inches !== '') ? (feetN * 12 + inchN) : 0;
-    if ((ft !== '' || inches !== '') && totalIn > 0 && (totalIn < 12 || totalIn > 110)) {
+    var heightEntered = ft !== '' || inches !== '';
+    var totalIn = heightEntered ? (feetN * 12 + inchN) : 0;
+    if (heightEntered && (totalIn < 12 || totalIn > 110)) {
       return { error: 'Height must be between 1 ft and 9 ft 2 in.' };
     }
     var pounds = lb === '' ? null : Number(lb);
     if (lb !== '' && (!isFinite(pounds) || pounds < 3 || pounds > 1100)) {
       return { error: 'Weight must be between 3 and 1100 lb.' };
     }
-    var heightCm = totalIn ? cmFromFtIn(ft, inches) : null;
+    var heightCm = heightEntered ? cmFromFtIn(ft, inches) : null;
     var weightKg = pounds == null ? null : kgFromLb(pounds);
     return {
       error: '',
@@ -3028,8 +3056,12 @@
     err.hidden = false;
     err.textContent = message;
   }
+  function dropClientInfoLoads() {
+    clientInfoLoadGen++;
+  }
   function finishClientInfoWrite(saveGen, uid, row) {
     if (saveGen !== clientInfoSaveGen || uid !== clientInfoUser) return;
+    dropClientInfoLoads();
     clientInfoRow = row;
     clientInfoEditing = false;
     clientInfoDirty = false;
@@ -3043,6 +3075,7 @@
       if (!clientInfoRow) return;
       if (!window.WBAuth || !WBAuth.deleteClientInfo) return showClientInfoError('Could not save client info.');
       var dropGen = ++clientInfoSaveGen;
+      dropClientInfoLoads();
       var dropUid = clientInfoUser;
       WBAuth.deleteClientInfo().then(function () {
         finishClientInfoWrite(dropGen, dropUid, null);
@@ -3054,6 +3087,7 @@
     }
     if (!window.WBAuth || !WBAuth.saveClientInfo) return showClientInfoError('Could not save client info.');
     var saveGen = ++clientInfoSaveGen;
+    dropClientInfoLoads();
     var uid = clientInfoUser;
     WBAuth.saveClientInfo(parsed.fields).then(function (row) {
       var saved = row || {};
