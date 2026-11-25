@@ -110,6 +110,16 @@ assert.ok(namedFrom.indexOf('From Sam') === -1);
 assert.ok(namedFrom.indexOf('Sam') === -1);
 assert.ok(namedFrom.indexOf('@') === -1);
 
+assert.strictEqual(S.partialMessage(1, ['Saturday easy']), 'Sent 1 workout. Could not send Saturday easy.');
+assert.strictEqual(S.partialMessage(2, ['Legs', 'Core']), 'Sent 2 workouts. Could not send Legs and Core.');
+assert.strictEqual(S.partialMessage(3, ['A', 'B', 'C']), 'Sent 3 workouts. Could not send A, B, and C.');
+assert.ok(S.partialMessage(1, ['Saturday easy']).indexOf('@') === -1);
+
+assert.strictEqual(S.sendLabel(1, 1), 'Send 1 workout to 1 client');
+assert.strictEqual(S.sendLabel(3, 2), 'Send 3 workouts to 2 clients');
+assert.strictEqual(S.sendLabel(0, 0), 'Send 0 workouts to 0 clients');
+assert.strictEqual(S.selectionKey(['b', 'a'], ['d', 'c']), S.selectionKey(['a', 'b'], ['c', 'd']));
+
 assert.strictEqual(S.isUnavailable(new Error('Sending workouts is not available yet.')), true);
 assert.strictEqual(S.isUnavailable(new Error('Failed to fetch')), false);
 

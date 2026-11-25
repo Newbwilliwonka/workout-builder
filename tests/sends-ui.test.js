@@ -54,6 +54,11 @@ async function handleSend(deliveries, name, items, source) {
     items: JSON.parse(JSON.stringify(items)),
     source: source
   });
+  if (box.holds && box.holds.length) {
+    const slot = box.holds.shift();
+    await slot.promise;
+    if (slot.fail) throw new Error('Failed to fetch');
+  }
   if (box.mode === 'slow') {
     const wait = box.wait;
     box.mode = 'ok';
@@ -63,6 +68,13 @@ async function handleSend(deliveries, name, items, source) {
   if (box.mode === 'fail') {
     box.mode = 'ok';
     throw new Error('Failed to fetch');
+  }
+  if (box.failAfter != null) {
+    if (box.failAfter > 0) box.failAfter -= 1;
+    else {
+      box.failAfter = null;
+      throw new Error('Failed to fetch');
+    }
   }
   deliveries.forEach(function (d) {
     const existing = box.copies.filter(function (c) { return c.id === d.id; })[0];
@@ -185,6 +197,12 @@ function seed(page, raw) {
   }, raw);
 }
 
+function armHold() {
+  var slot = { fail: false };
+  slot.promise = new Promise(function (resolve) { slot.release = function () { resolve(); }; });
+  return slot;
+}
+
 function armSlow() {
   box.mode = 'slow';
   var release;
@@ -203,17 +221,58 @@ function armSlow() {
   trainer.on('pageerror', function (e) { errs.push('trainer ' + e); });
   await trainer.setViewport({ width: 412, height: 915, isMobile: true, deviceScaleFactor: 2 });
   await install(trainer, { id: T, email: 'kinisiathletics@gmail.com', membership: 'trainer' });
-  await seed(trainer, dataWith([friday]));
+  const saturday = M.newWorkout('Saturday easy');
+  saturday.id = 'wo_sat';
+  await seed(trainer, dataWith([friday, saturday]));
   await trainer.goto(URL + '#/send');
   await trainer.waitForSelector('[data-pick-client="' + E + '"]');
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && btn.disabled && btn.textContent === 'Send 0 workouts to 0 clients';
+  });
+  await trainer.click('[data-pick-workout="wo_friday"]');
   await trainer.click('[data-pick-client="' + E + '"]');
   await trainer.click('[data-pick-client="' + C + '"]');
   await trainer.waitForFunction(function () {
     var btn = document.getElementById('send-go');
-    return btn && !btn.disabled && btn.textContent === 'Send to 2 clients';
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 2 clients';
   });
-  assert.ok((await trainer.evaluate(function () { return document.body.innerText; })).indexOf('A linked Enthusiast counts as a client') !== -1);
+  const mark = await trainer.$eval('[data-pick-workout="wo_friday"].on .mark', function (el) {
+    var s = getComputedStyle(el);
+    return { radius: s.borderRadius, bg: s.backgroundColor };
+  });
+  assert.strictEqual(mark.radius, '6px');
+  assert.strictEqual(mark.bg, 'rgb(37, 99, 235)');
+  const intro = await trainer.evaluate(function () { return document.body.innerText; });
+  assert.ok(intro.indexOf('Pick one or more of your workouts and the clients who should get a copy. A linked Enthusiast counts as a client.') !== -1);
+  assert.ok(intro.indexOf('Each person gets their own copy. An Enthusiast can edit it. A Free Client can run it. Your workout stays as it is.') !== -1);
+  assert.strictEqual(await trainer.$eval('.sec', function (el) { return el.textContent; }), 'Workouts');
   await trainer.screenshot({ path: ART + '/trainer-send-workout.png', fullPage: true });
+
+  await trainer.evaluate(function () { window.__wbVisit = 1; location.hash = '#/send/wo_sat'; });
+  await trainer.waitForFunction(function () {
+    var sat = document.querySelector('[data-pick-workout="wo_sat"]');
+    var fri = document.querySelector('[data-pick-workout="wo_friday"]');
+    return window.__wbVisit === 1 && sat && sat.classList.contains('on') && fri && !fri.classList.contains('on');
+  });
+  await trainer.evaluate(function () { location.hash = '#/'; });
+  await trainer.waitForSelector('[data-a=new]');
+  assert.strictEqual(await trainer.evaluate(function () { return window.__wbVisit; }), 1);
+  await trainer.evaluate(function () { location.hash = '#/send'; });
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    var fri = document.querySelector('[data-pick-workout="wo_friday"]');
+    var sat = document.querySelector('[data-pick-workout="wo_sat"]');
+    return window.__wbVisit === 1 && btn && btn.textContent !== 'Sent' && !btn.disabled === false &&
+      fri && !fri.classList.contains('on') && sat && !sat.classList.contains('on');
+  });
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 2 clients';
+  });
 
   const release = armSlow();
   await trainer.click('#send-go');
@@ -221,7 +280,7 @@ function armSlow() {
   await trainer.click('[data-pick-client="' + C + '"]');
   await trainer.waitForFunction(function () {
     var btn = document.getElementById('send-go');
-    return btn && !btn.disabled && btn.textContent === 'Send to 1 client';
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client';
   });
   assert.strictEqual(box.calls.length, 1);
   assert.deepStrictEqual(box.calls[0].deliveries.map(function (d) { return d.clientId; }).sort(), [C, E].sort());
@@ -233,24 +292,33 @@ function armSlow() {
   assert.strictEqual(box.copies.length, 2);
   await trainer.waitForFunction(function () {
     var btn = document.getElementById('send-go');
-    return btn && !btn.disabled && !document.getElementById('sent-note');
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client' && !document.getElementById('sent-note');
   });
   assert.deepStrictEqual(box.copies.map(function (c) { return c.id; }).sort(), slowIds.slice().sort());
   assert.ok((await trainer.evaluate(function () { return document.getElementById('toast').textContent; })).indexOf('Could not send') === -1);
 
   await trainer.click('[data-pick-client="' + C + '"]');
-  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Send to 2 clients' && !document.getElementById('send-go').disabled; });
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Send 1 workout to 2 clients' && !document.getElementById('send-go').disabled; });
   const beforeSecond = box.calls.length;
+  const liveBox = await trainer.$eval('#send-go', function (el) {
+    var s = getComputedStyle(el);
+    return { h: s.height, font: s.fontSize, w: el.getBoundingClientRect().width };
+  });
   await trainer.click('#send-go');
   await trainer.waitForFunction(function () {
-    var note = document.getElementById('sent-note');
     var btn = document.getElementById('send-go');
-    return note && note.textContent.indexOf('Enthusiast gets an editable copy of Friday full body') !== -1 &&
-      note.textContent.indexOf('Client gets a copy of Friday full body they can run') !== -1 &&
-      note.textContent.indexOf('@') === -1 &&
-      note.textContent.indexOf('Your workout was not changed') !== -1 &&
-      btn && !btn.disabled;
+    return btn && btn.disabled && btn.textContent === 'Sent' && btn.className.indexOf('pri') === -1 && !document.getElementById('sent-note');
   });
+  const sentBox = await trainer.$eval('#send-go', function (el) {
+    var s = getComputedStyle(el);
+    return { h: s.height, font: s.fontSize, text: el.textContent, w: el.getBoundingClientRect().width };
+  });
+  assert.strictEqual(sentBox.text, 'Sent');
+  assert.strictEqual(sentBox.h, '48px');
+  assert.strictEqual(sentBox.font, '16px');
+  assert.strictEqual(sentBox.h, liveBox.h);
+  assert.strictEqual(sentBox.font, liveBox.font);
+  assert.strictEqual(sentBox.w, liveBox.w);
   assert.strictEqual(box.calls.length, beforeSecond + 1);
   const secondIds = box.calls[beforeSecond].deliveries.map(function (d) { return d.id; });
   secondIds.forEach(function (id) { assert.strictEqual(slowIds.indexOf(id), -1); });
@@ -268,44 +336,257 @@ function armSlow() {
   assert.ok(box.copies.every(function (c) { return c.items[0].name === 'Squat' && c.name === 'Friday full body'; }));
 
   await trainer.click('[data-pick-client="' + E + '"]');
-  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Send to 1 client'; });
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Send 1 workout to 1 client' && !document.getElementById('send-go').disabled; });
   box.mode = 'fail';
   await trainer.click('#send-go');
   await trainer.waitForFunction(function () {
     var btn = document.getElementById('send-go');
-    return btn && !btn.disabled && document.getElementById('toast').textContent.indexOf('Failed to fetch') !== -1;
+    var err = document.getElementById('send-fail');
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client' && err && err.textContent.indexOf('Failed to fetch') !== -1;
   });
   const failed = box.calls[box.calls.length - 1];
   assert.strictEqual(failed.deliveries.length, 1);
   assert.strictEqual(failed.deliveries[0].clientId, C);
   assert.strictEqual(box.copies.filter(function (c) { return c.id === failed.deliveries[0].id; }).length, 0);
   await trainer.click('#send-go');
-  await trainer.waitForFunction(function (id) {
-    return document.getElementById('send-go') && !document.getElementById('send-go').disabled &&
-      document.getElementById('sent-note') && document.getElementById('sent-note').textContent.indexOf('Client gets a copy') !== -1 &&
-      document.getElementById('sent-note').textContent.indexOf('@') === -1;
-  }, {}, failed.deliveries[0].id);
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && btn.disabled && btn.textContent === 'Sent' && !document.getElementById('sent-note');
+  });
   assert.strictEqual(box.calls[box.calls.length - 1].deliveries[0].id, failed.deliveries[0].id);
   assert.strictEqual(box.copies.filter(function (c) { return c.id === failed.deliveries[0].id; }).length, 1);
   const retriedCount = box.copies.length;
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Send 1 workout to 1 client' && !document.getElementById('send-go').disabled; });
   await trainer.click('#send-go');
-  await trainer.waitForFunction(function () { return document.getElementById('send-go') && !document.getElementById('send-go').disabled; });
+  await trainer.waitForFunction(function () { return document.getElementById('send-go') && document.getElementById('send-go').textContent === 'Sent'; });
   assert.ok(box.copies.length > retriedCount);
   assert.notStrictEqual(box.calls[box.calls.length - 1].deliveries[0].id, failed.deliveries[0].id);
 
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Send 1 workout to 2 clients' && !document.getElementById('send-go').disabled; });
   const releaseNav = armSlow();
   await trainer.click('#send-go');
+  await trainer.click('#send-go');
   await trainer.waitForFunction(function () { return document.getElementById('send-go').disabled; });
+  assert.strictEqual(box.calls.filter(function (call) { return call.name === 'Friday full body'; }).length > 0, true);
   await trainer.goto(URL + '#/');
   await trainer.waitForSelector('[data-a=new]');
   assert.strictEqual(await trainer.$('#received-open'), null);
   releaseNav();
   await new Promise(function (r) { setTimeout(r, 500); });
-  await trainer.goto(URL + '#/send');
+  await trainer.goto(URL + '?preset=1#/send/wo_sat');
+  await trainer.waitForFunction(function () {
+    var sat = document.querySelector('[data-pick-workout="wo_sat"]');
+    var friday = document.querySelector('[data-pick-workout="wo_friday"]');
+    return sat && sat.className.indexOf('on') !== -1 && friday && friday.className.indexOf('on') === -1;
+  });
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
   await trainer.waitForFunction(function () {
     var btn = document.getElementById('send-go');
-    return btn && !btn.disabled;
+    return btn && !btn.disabled && btn.textContent === 'Send 2 workouts to 1 client';
   });
+  const beforeMulti = box.copies.length;
+  const callsBeforePartial = box.calls.length;
+  box.failAfter = 1;
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    var err = document.getElementById('send-fail');
+    return btn && !btn.disabled && btn.textContent === 'Send 2 workouts to 1 client' && err &&
+      err.textContent === 'Sent 1 workout. Could not send Saturday easy.' && err.textContent.indexOf('@') === -1;
+  });
+  assert.strictEqual(box.copies.length, beforeMulti + 1);
+  assert.strictEqual(box.calls.length, callsBeforePartial + 2);
+  const partialId = box.copies[box.copies.length - 1].id;
+  const failedCall = box.calls[box.calls.length - 1];
+  assert.strictEqual(failedCall.name, 'Saturday easy');
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Sent'; });
+  assert.strictEqual(box.calls.length, callsBeforePartial + 3);
+  assert.strictEqual(box.calls[box.calls.length - 1].name, 'Saturday easy');
+  assert.strictEqual(box.calls[box.calls.length - 1].deliveries[0].id, failedCall.deliveries[0].id);
+  assert.strictEqual(box.copies.filter(function (c) { return c.id === partialId; }).length, 1);
+  assert.strictEqual(box.copies.length, beforeMulti + 2);
+  assert.strictEqual(await trainer.$('#sent-note'), null);
+
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 2 clients' && !document.getElementById('send-go').disabled;
+  });
+  const releaseOverlap = armSlow();
+  const satBefore = box.copies.filter(function (c) { return c.name === 'Saturday easy'; }).length;
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').disabled; });
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 1 workout to 2 clients' && !document.getElementById('send-go').disabled;
+  });
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Sent'; });
+  releaseOverlap();
+  const overlapDeadline = Date.now() + 4000;
+  while (box.copies.filter(function (c) { return c.name === 'Saturday easy'; }).length < satBefore + 2 && Date.now() < overlapDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Saturday easy'; }).length, satBefore + 2);
+  assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Saturday easy' && c.ownerId === E; }).length, 1);
+
+  await trainer.goto(URL + '?ids=1#/send');
+  await trainer.waitForSelector('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const satHold = armHold();
+  box.holds = [{ promise: Promise.resolve(), fail: false }, satHold];
+  const fridayBefore = box.copies.filter(function (c) { return c.name === 'Friday full body' && c.ownerId === C; }).length;
+  await trainer.click('#send-go');
+  const heldDeadline = Date.now() + 4000;
+  while (box.calls.filter(function (call) { return call.name === 'Saturday easy'; }).length < 1 && Date.now() < heldDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  const sharedFridayId = box.calls.filter(function (call) { return call.name === 'Friday full body'; }).pop().deliveries[0].id;
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 1 workout to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const friHold = armHold();
+  box.holds = [friHold];
+  await trainer.click('#send-go');
+  const friDeadline = Date.now() + 4000;
+  while (box.calls[box.calls.length - 1].name !== 'Friday full body' && Date.now() < friDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  satHold.release();
+  const satDeadline = Date.now() + 4000;
+  while (!box.copies.some(function (c) { return c.name === 'Saturday easy' && c.ownerId === C && box.calls.some(function (call) { return call.deliveries[0] && call.deliveries[0].id === c.id && call.name === 'Saturday easy'; }); }) && Date.now() < satDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  friHold.fail = true;
+  friHold.release();
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    var err = document.getElementById('send-fail');
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client' && err && err.textContent.indexOf('Failed to fetch') !== -1;
+  });
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Sent'; });
+  assert.strictEqual(box.calls[box.calls.length - 1].deliveries[0].id, sharedFridayId);
+  assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Friday full body' && c.ownerId === C; }).length, fridayBefore + 1);
+  box.holds = [];
+
+  await trainer.goto(URL + '?stale=1#/send');
+  await trainer.waitForSelector('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const staleHold = armHold();
+  box.holds = [{ promise: Promise.resolve(), fail: false }, staleHold];
+  await trainer.click('#send-go');
+  const staleCalls = box.calls.filter(function (call) { return call.name === 'Saturday easy'; }).length;
+  const staleDeadline = Date.now() + 4000;
+  while (box.calls.filter(function (call) { return call.name === 'Saturday easy'; }).length < staleCalls + 1 && Date.now() < staleDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 1 workout to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  box.holds = [];
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Sent'; });
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && btn.disabled && btn.textContent === 'Send 2 workouts to 1 client';
+  });
+  staleHold.release();
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && btn.disabled && btn.textContent === 'Sent' && btn.className.indexOf('pri') === -1;
+  });
+  box.holds = [];
+
+  await trainer.evaluate(function () { window.__wbVisit = 2; location.hash = '#/'; });
+  await trainer.waitForSelector('[data-a=new]');
+  assert.strictEqual(await trainer.evaluate(function () { return window.__wbVisit; }), 2);
+  await trainer.evaluate(function () { location.hash = '#/send'; });
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    var picked = document.querySelector('.pick.on');
+    return window.__wbVisit === 2 && btn && btn.textContent === 'Send 0 workouts to 0 clients' && !picked;
+  });
+
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const countHold = armHold();
+  const callsAtCount = box.calls.length;
+  box.holds = [countHold];
+  await trainer.click('#send-go');
+  const countDeadline = Date.now() + 4000;
+  while (box.calls.length < callsAtCount + 1 && Date.now() < countDeadline) await new Promise(function (r) { setTimeout(r, 30); });
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 1 workout to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  box.failAfter = 1;
+  countHold.release();
+  const countDone = Date.now() + 4000;
+  while (box.calls.length < callsAtCount + 2 && Date.now() < countDone) await new Promise(function (r) { setTimeout(r, 30); });
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client';
+  });
+  box.mode = 'fail';
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () {
+    var err = document.getElementById('send-fail');
+    var btn = document.getElementById('send-go');
+    return err && err.textContent.indexOf('Failed to fetch') !== -1 && err.textContent.indexOf('Sent 1 workout') === -1 &&
+      btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client';
+  });
+  box.holds = [];
+
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const midHold = armHold();
+  const callsAtMid = box.calls.length;
+  box.holds = [{ promise: Promise.resolve(), fail: false }, midHold];
+  await trainer.click('#send-go');
+  const midDeadline = Date.now() + 4000;
+  while (box.calls.length < callsAtMid + 2 && Date.now() < midDeadline) await new Promise(function (r) { setTimeout(r, 30); });
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.click('[data-pick-client="' + E + '"]');
+  midHold.fail = true;
+  midHold.release();
+  await trainer.waitForFunction(function () {
+    var err = document.getElementById('send-fail');
+    return err && err.textContent === 'Sent 1 workout. Could not send Saturday easy.';
+  });
+  const callsBeforeRetry = box.calls.length;
+  box.mode = 'fail';
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () {
+    var err = document.getElementById('send-fail');
+    return err && err.textContent === 'Sent 1 workout. Could not send Saturday easy.' && err.textContent.indexOf('Friday') === -1;
+  });
+  assert.strictEqual(box.calls.length, callsBeforeRetry + 1);
+  assert.strictEqual(box.calls[box.calls.length - 1].name, 'Saturday easy');
+  box.holds = [];
 
   const cleanItems = JSON.parse(JSON.stringify(box.copies[0].items));
   box.copies = [
@@ -320,6 +601,10 @@ function armSlow() {
   await enthusiast.setViewport({ width: 412, height: 915, isMobile: true, deviceScaleFactor: 2 });
   await install(enthusiast, { id: E, email: 'hempled@gmail.com', membership: 'enthusiast', intended: 'enthusiast' });
   await seed(enthusiast, dataWith([ownWorkout()]));
+  await enthusiast.goto(URL + '#/send');
+  await enthusiast.waitForFunction(function () {
+    return !document.getElementById('send-go') && (document.getElementById('level-note') || document.getElementById('send-locked'));
+  });
   await enthusiast.goto(URL + '#/');
   await enthusiast.waitForFunction(function () {
     return document.body.innerText.indexOf('From Trainer') === -1 &&
