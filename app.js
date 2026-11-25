@@ -1594,6 +1594,7 @@
     renderReset();
     Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
       forgetRequestBadges();
+      clearClientInfo();
       goSign();
     }, function () {
       holdRecovery('Could not sign out. Stay here until the new password is set.');
@@ -2218,6 +2219,7 @@
     WBAuth.signOut().then(function () {
       forgetRequestBadges();
       cachedProfile = null;
+      clearClientInfo();
       copyStamp = {};
       removedCopies = [];
       shareUser = '';
@@ -2776,6 +2778,7 @@
         return WBAuth.signOut().then(function () {
           forgetRequestBadges();
           cachedProfile = null;
+          clearClientInfo();
           signedInNow = false;
           resetLibraryMemory();
           goSignedOutHome();
@@ -2837,8 +2840,39 @@
     'Athletic performance',
     'Other'
   ];
+  var clientInfoUser = '';
   var clientInfoRow = null;
   var clientInfoEditing = false;
+  var clientInfoDirty = false;
+  var clientInfoLoadGen = 0;
+  var clientInfoSaveGen = 0;
+  function clearClientInfo() {
+    clientInfoUser = '';
+    clientInfoRow = null;
+    clientInfoEditing = false;
+    clientInfoDirty = false;
+    clientInfoLoadGen++;
+    clientInfoSaveGen++;
+  }
+  function clientInfoFormOpen() {
+    var box = document.getElementById('client-info');
+    return !!(box && box.querySelector('#client-info-save'));
+  }
+  function clientInfoBusy() {
+    if (!clientInfoFormOpen()) return false;
+    if (clientInfoDirty || clientInfoEditing) return true;
+    var active = document.activeElement;
+    var box = document.getElementById('client-info');
+    return !!(active && box && box.contains(active) && active.id !== 'client-info-save');
+  }
+  function watchClientInfo() {
+    var box = document.getElementById('client-info');
+    if (!box || box.getAttribute('data-watch')) return;
+    box.setAttribute('data-watch', '1');
+    function mark() { clientInfoDirty = true; }
+    box.addEventListener('input', mark);
+    box.addEventListener('change', mark);
+  }
   function cmFromFtIn(ft, inches) {
     var total = (Number(ft) || 0) * 12 + (Number(inches) || 0);
     if (!total) return null;
@@ -2900,10 +2934,16 @@
     if (sex && sex !== 'male' && sex !== 'female') return { error: 'Choose Male or Female.' };
     if (other.length > 120) return { error: 'Other goals can be at most 120 characters.' };
     if (other.indexOf('@') !== -1) return { error: 'Other goals cannot include an email.' };
-    var heightCm = (ft !== '' || inches !== '') ? cmFromFtIn(ft, inches) : null;
-    var weightKg = lb !== '' ? kgFromLb(lb) : null;
-    if ((ft !== '' || inches !== '') && heightCm == null) return { error: 'Enter a height in feet and inches.' };
-    if (lb !== '' && weightKg == null) return { error: 'Enter a weight in lb.' };
+    var totalIn = (ft !== '' || inches !== '') ? ((Number(ft) || 0) * 12 + (Number(inches) || 0)) : 0;
+    if ((ft !== '' || inches !== '') && (!isFinite(totalIn) || totalIn < 12 || totalIn > 110)) {
+      return { error: 'Height must be between 1 ft and 9 ft 2 in.' };
+    }
+    var pounds = lb === '' ? null : Number(lb);
+    if (lb !== '' && (!isFinite(pounds) || pounds < 3 || pounds > 1100)) {
+      return { error: 'Weight must be between 3 and 1100 lb.' };
+    }
+    var heightCm = totalIn ? cmFromFtIn(ft, inches) : null;
+    var weightKg = pounds == null ? null : kgFromLb(pounds);
     return {
       error: '',
       fields: {
@@ -2929,9 +2969,11 @@
     var chosen = {};
     (row && row.goals || []).forEach(function (goal) { chosen[goal] = 1; });
     CLIENT_GOALS.forEach(function (goal) {
-      if (chosen[goal]) h += '<p>' + esc(goal) + '</p>';
+      if (!chosen[goal] || goal === 'Other') return;
+      h += '<p>' + esc(goal) + '</p>';
     });
     if (row && row.goals_other) h += '<p>' + esc(row.goals_other) + '</p>';
+    else if (chosen.Other) h += '<p>Other</p>';
     h += '</div><button type="button" id="client-info-edit">Edit</button></div>';
     return h;
   }
@@ -2961,11 +3003,17 @@
     h += '<button type="button" class="pri" id="client-info-save">Save</button></div>';
     return h;
   }
-  function paintClientInfo() {
+  function clientInfoBlank(fields) {
+    return !fields.birthday && !fields.sex && fields.heightCm == null && fields.weightKg == null && !(fields.goals && fields.goals.length) && !fields.goalsOther;
+  }
+  function paintClientInfo(force) {
     var host = document.getElementById('client-info');
     if (!host) return;
+    if (!force && clientInfoBusy()) return;
     var html = (!clientInfoRow || clientInfoEditing) ? clientInfoFormHtml(clientInfoRow) : clientInfoReadHtml(clientInfoRow);
     host.outerHTML = html;
+    clientInfoDirty = false;
+    watchClientInfo();
   }
   function showClientInfoError(message) {
     var err = document.getElementById('client-info-err');
@@ -2976,11 +3024,15 @@
   function saveClientInfoFromForm() {
     var parsed = clientInfoPayload();
     if (parsed.error) return showClientInfoError(parsed.error);
+    if (clientInfoBlank(parsed.fields)) return;
     if (!window.WBAuth || !WBAuth.saveClientInfo) return showClientInfoError('Could not save client info.');
+    var saveGen = ++clientInfoSaveGen;
+    var uid = clientInfoUser;
     WBAuth.saveClientInfo(parsed.fields).then(function (row) {
-      if (hashPage() !== 'account') return;
+      if (saveGen !== clientInfoSaveGen || uid !== clientInfoUser || hashPage() !== 'account') return;
       var saved = row || {};
       clientInfoRow = {
+        userId: uid,
         birthday: saved.birthday != null ? saved.birthday : parsed.fields.birthday,
         sex: saved.sex != null ? saved.sex : parsed.fields.sex,
         height_cm: saved.height_cm != null ? saved.height_cm : parsed.fields.heightCm,
@@ -2989,23 +3041,42 @@
         goals_other: saved.goals_other != null ? saved.goals_other : parsed.fields.goalsOther
       };
       clientInfoEditing = false;
-      paintClientInfo();
+      clientInfoDirty = false;
+      paintClientInfo(true);
     }, function (err) {
-      if (hashPage() !== 'account') return;
+      if (saveGen !== clientInfoSaveGen || hashPage() !== 'account') return;
       showClientInfoError((err && err.message) || 'Could not save client info.');
     });
   }
   function loadClientInfo() {
     if (!window.WBAuth || !WBAuth.clientInfo) return;
     var token = routeToken;
+    var uid = clientInfoUser;
+    var gen = ++clientInfoLoadGen;
+    var saveAt = clientInfoSaveGen;
     Promise.resolve().then(function () { return WBAuth.clientInfo(); }).then(function (row) {
-      if (token !== routeToken || hashPage() !== 'account') return;
-      clientInfoRow = row;
-      if (!clientInfoEditing) paintClientInfo();
-    }, function () {});
+      if (gen !== clientInfoLoadGen || saveAt !== clientInfoSaveGen || token !== routeToken || uid !== clientInfoUser) return;
+      if (hashPage() !== 'account' || clientInfoBusy()) return;
+      clientInfoRow = row ? Object.assign({ userId: uid }, row) : null;
+      paintClientInfo(true);
+    }, function () {
+      if (gen !== clientInfoLoadGen || saveAt !== clientInfoSaveGen || token !== routeToken || uid !== clientInfoUser) return;
+      if (hashPage() !== 'account' || clientInfoBusy()) return;
+      clientInfoRow = null;
+      clientInfoEditing = false;
+      paintClientInfo(true);
+      showClientInfoError('Could not load client info.');
+    });
   }
   function drawAccount(session, profile, roster, conn) {
-    clientInfoEditing = false;
+    var uid = (session && session.user && session.user.id) || '';
+    if (uid !== clientInfoUser) {
+      clientInfoUser = uid;
+      clientInfoRow = null;
+      clientInfoEditing = false;
+      clientInfoDirty = false;
+      clientInfoLoadGen++;
+    }
     var note = takeInviteNotice();
     var ent = WBMembership.entitlements(profile);
     var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
@@ -3032,6 +3103,7 @@
     h += trainerSection(roster);
     h += '</div>';
     app.innerHTML = h;
+    watchClientInfo();
     paintAccountAvatar(profile);
     refreshRequestBadges();
     syncChrome();

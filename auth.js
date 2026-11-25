@@ -148,17 +148,21 @@
     return new Error(msg || 'Could not save your profile.');
   }
   function clientInfoError(err) {
-    var msg = String((err && (err.message || err.details || err.hint)) || '');
-    if (/schema cache|could not find|does not exist|PGRST205|PGRST202|42P01|client_info/i.test(msg)) {
+    var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
+    var code = String((err && err.code) || '');
+    if (code === '42P01' || code === 'PGRST205' || /could not find the table|relation ["']?public\.client_info["']? does not exist/i.test(msg)) {
       return new Error('Client info is not available yet. Apply the client info SQL in the Supabase SQL editor.');
     }
+    if (/client_info_height|height_cm/i.test(msg)) return new Error('Height must be between 1 ft and 9 ft 2 in.');
+    if (/client_info_weight|weight_kg/i.test(msg)) return new Error('Weight must be between 3 and 1100 lb.');
+    if (code === '42501' || /row-level security|permission denied/i.test(msg)) return new Error('Only you can change your client info.');
     if (/Other goals cannot include an email/i.test(msg)) return new Error('Other goals cannot include an email.');
     if (/at most 120/i.test(msg)) return new Error('Other goals can be at most 120 characters.');
     if (/Birthday cannot be in the future/i.test(msg)) return new Error('Birthday cannot be in the future.');
     if (/Choose Male or Female/i.test(msg)) return new Error('Choose Male or Female.');
     if (/Choose a goal from the list/i.test(msg)) return new Error('Choose a goal from the list.');
     if (/Only you can change your client info/i.test(msg)) return new Error('Only you can change your client info.');
-    return new Error(msg || 'Could not save client info.');
+    return new Error((err && err.message) || 'Could not save client info.');
   }
 
   function decodePart(s) {

@@ -27,7 +27,9 @@ function birthdayIso() {
     function patch(api) {
       if (!api || api.__infoStub) return api;
       api.__infoStub = true;
-      api.session = function () { return Promise.resolve({ user: { id: userId, email: 'ada@example.com' } }); };
+      api.session = function () {
+        return Promise.resolve({ user: { id: window.__userId || userId, email: 'ada@example.com' } });
+      };
       api.profile = function () {
         var plan = 'free_client';
         try { plan = new URLSearchParams(location.search).get('plan') || 'free_client'; } catch (e) {}
@@ -41,28 +43,34 @@ function birthdayIso() {
       api.roster = function () { return Promise.resolve({ role: null, clients: [], invites: [] }); };
       api.myConnection = function () { return Promise.resolve(null); };
       api.trainerRequestCount = function () { return Promise.resolve(0); };
+      api.signOut = function () { return Promise.resolve(); };
+      api.__saveClientInfo = api.saveClientInfo;
       api.clientInfo = function () {
-        var saved = window.__clientInfo;
-        if (!saved) return Promise.resolve(null);
-        return Promise.resolve({
-          birthday: saved.birthday,
-          sex: saved.sex,
-          height_cm: saved.heightCm,
-          weight_kg: saved.weightKg,
-          goals: saved.goals,
-          goals_other: saved.goalsOther
-        });
+        if (window.__infoHold) return new Promise(function () {});
+        if (window.__infoFail) return Promise.reject(new Error('Could not load client info.'));
+        var id = window.__userId || userId;
+        var saved = (window.__infoByUser || {})[id];
+        if (window.__infoDelay) {
+          return new Promise(function (resolve) {
+            setTimeout(function () { resolve(saved || null); }, 350);
+          });
+        }
+        return Promise.resolve(saved || null);
       };
       api.saveClientInfo = function (fields) {
-        window.__clientInfo = fields;
-        return Promise.resolve({
+        window.__infoSaves = (window.__infoSaves || 0) + 1;
+        var id = window.__userId || userId;
+        window.__infoByUser = window.__infoByUser || {};
+        var row = {
           birthday: fields.birthday,
           sex: fields.sex,
           height_cm: fields.heightCm,
           weight_kg: fields.weightKg,
           goals: fields.goals,
           goals_other: fields.goalsOther
-        });
+        };
+        window.__infoByUser[id] = row;
+        return Promise.resolve(row);
       };
       return api;
     }
@@ -77,7 +85,11 @@ function birthdayIso() {
   const born = birthdayIso();
   await page.goto(URL + '?plan=free_client#/account');
   await page.waitForSelector('#client-birthday');
-  const labels = await page.$eval('#client-info', function (el) { return el.textContent; });
+  const labels = await page.$eval('#client-info', function (el) { return el.innerText; });
+  assert.ok(labels.indexOf('Birthday') !== -1);
+  assert.strictEqual(labels.indexOf('BIRTHDAY'), -1);
+  assert.ok(labels.indexOf('Weight or fat loss') !== -1);
+  assert.strictEqual(labels.indexOf('WEIGHT OR FAT LOSS'), -1);
   assert.ok(labels.indexOf('Birthday') !== -1);
   assert.ok(labels.indexOf('Sex') !== -1);
   assert.ok(labels.indexOf('Male') !== -1);
@@ -107,7 +119,7 @@ function birthdayIso() {
     var err = document.getElementById('client-info-err');
     return err && !err.hidden && err.textContent.indexOf('Other goals cannot include an email.') !== -1;
   });
-  assert.strictEqual(await page.evaluate(function () { return window.__clientInfo || null; }), null);
+  assert.strictEqual(await page.evaluate(function () { return window.__infoSaves || 0; }), 0);
 
   await page.$eval('#client-other', function (el) { el.value = 'Track a 10k'; });
   await page.click('#client-info-save');
@@ -120,6 +132,7 @@ function birthdayIso() {
   assert.ok(read.indexOf('Weight or fat loss') !== -1);
   assert.ok(read.indexOf('Athletic performance') !== -1);
   assert.ok(read.indexOf('Track a 10k') !== -1);
+  assert.strictEqual(read.indexOf('Other'), -1);
   assert.strictEqual(read.indexOf('Building strength and muscle'), -1);
   assert.strictEqual(read.indexOf(born), -1);
   assert.strictEqual(read.indexOf('@'), -1);
@@ -128,6 +141,101 @@ function birthdayIso() {
   await page.click('#client-info-edit');
   await page.waitForSelector('#client-birthday');
   assert.strictEqual(await page.$eval('#client-birthday', function (el) { return el.value; }), born);
+  await page.$eval('#client-other', function (el) { el.value = ''; });
+  await page.click('#client-info-save');
+  await page.waitForFunction(function () {
+    var box = document.getElementById('client-info');
+    return box && box.textContent.indexOf('Other') !== -1 && box.textContent.indexOf('Track a 10k') === -1 && !document.getElementById('client-info-save');
+  });
+  await page.click('#client-info-edit');
+  await page.waitForSelector('#client-birthday');
+  await page.$eval('#client-info', function (box) {
+    box.querySelectorAll('input').forEach(function (el) {
+      if (el.type === 'checkbox' || el.type === 'radio') el.checked = false;
+      else el.value = '';
+    });
+  });
+  var saves = await page.evaluate(function () { return window.__infoSaves || 0; });
+  await page.click('#client-info-save');
+  await page.waitForSelector('#client-info-save');
+  assert.strictEqual(await page.evaluate(function () { return window.__infoSaves || 0; }), saves);
+  await page.$eval('#client-ft', function (el) { el.value = '0'; });
+  await page.$eval('#client-in', function (el) { el.value = '6'; });
+  await page.click('#client-info-save');
+  await page.waitForFunction(function () {
+    var err = document.getElementById('client-info-err');
+    return err && !err.hidden && err.textContent === 'Height must be between 1 ft and 9 ft 2 in.';
+  });
+  await page.$eval('#client-ft', function (el) { el.value = ''; });
+  await page.$eval('#client-in', function (el) { el.value = ''; });
+  await page.$eval('#client-lb', function (el) { el.value = '2'; });
+  await page.click('#client-info-save');
+  await page.waitForFunction(function () {
+    var err = document.getElementById('client-info-err');
+    return err && !err.hidden && err.textContent === 'Weight must be between 3 and 1100 lb.';
+  });
+  assert.strictEqual(await page.evaluate(function () { return window.__infoSaves || 0; }), saves);
+  const mapped = await page.evaluate(function () {
+    window.__wbTestDb = {
+      auth: {
+        getSession: function () {
+          return Promise.resolve({ data: { session: { user: { id: '22222222-2222-4222-8222-222222222222' } } }, error: null });
+        }
+      },
+      from: function () {
+        return {
+          upsert: function () {
+            return {
+              select: function () {
+                return Promise.resolve({
+                  data: null,
+                  error: { code: '23514', message: 'new row for relation "client_info" violates check constraint "client_info_height"' }
+                });
+              }
+            };
+          }
+        };
+      }
+    };
+    return WBAuth.__saveClientInfo({ birthday: null, sex: null, heightCm: 1, weightKg: 10, goals: [], goalsOther: null }).then(function () {
+      return '';
+    }, function (err) { return err.message; });
+  });
+  assert.strictEqual(mapped, 'Height must be between 1 ft and 9 ft 2 in.');
+
+  await page.click('#account-signout');
+  await page.waitForFunction(function () { return location.hash !== '#/account'; });
+  await page.evaluate(function () { window.__infoDelay = true; location.hash = '#/account'; });
+  await page.waitForSelector('#client-birthday');
+  await page.$eval('#client-birthday', function (el) {
+    el.focus();
+    el.value = '1991-04-02';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 500); });
+  assert.strictEqual(await page.$eval('#client-birthday', function (el) { return el.value; }), '1991-04-02');
+
+  await page.evaluate(function () {
+    window.__infoDelay = false;
+    window.__userId = '33333333-3333-4333-8333-333333333333';
+    window.__infoHold = true;
+    location.hash = '#/';
+  });
+  await page.waitForFunction(function () { return location.hash === '#/' || location.hash === ''; });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForSelector('#client-birthday');
+  const switched = await page.$eval('#client-info', function (el) { return el.textContent; });
+  assert.strictEqual(switched.indexOf('Age '), -1);
+  assert.strictEqual(switched.indexOf('Track a 10k'), -1);
+  await page.evaluate(function () { window.__infoHold = false; window.__infoFail = true; location.hash = '#/'; });
+  await page.waitForFunction(function () { return location.hash === '#/' || location.hash === ''; });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForFunction(function () {
+    var err = document.getElementById('client-info-err');
+    var box = document.getElementById('client-info');
+    return err && err.textContent.indexOf('Could not load client info.') !== -1
+      && box && box.textContent.indexOf('Age ') === -1 && box.textContent.indexOf('Track a 10k') === -1;
+  });
 
   for (var i = 0; i < ['enthusiast', 'trainer', 'master_trainer'].length; i++) {
     var plan = ['enthusiast', 'trainer', 'master_trainer'][i];
