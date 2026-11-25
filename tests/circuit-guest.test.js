@@ -38,11 +38,10 @@ assert.ok(sql.includes('grant execute on function public.circuit_guest_placement
 assert.ok(sql.includes('revoke all on function public.circuit_guest_placements(uuid) from public, anon'));
 
 const dropped = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261124220000_circuit_without_saved_clients.sql'), 'utf8');
-assert.ok(dropped.includes('begin;'));
-assert.ok(dropped.indexOf('begin;') < dropped.indexOf('disable trigger circuits_guard'));
+assert.ok(!/\bbegin\s*;/i.test(dropped));
+assert.ok(!/\bcommit\s*;/i.test(dropped));
 assert.ok(dropped.indexOf('disable trigger circuits_guard') < dropped.indexOf("data - 'clients'"));
 assert.ok(dropped.indexOf("data - 'clients'") < dropped.indexOf('enable trigger circuits_guard'));
-assert.ok(dropped.indexOf('enable trigger circuits_guard') < dropped.indexOf('commit;'));
 assert.ok(dropped.includes('drop column if exists clients'));
 assert.ok(dropped.includes('drop table if exists public.circuit_clients'));
 assert.ok(dropped.includes("new.data := new.data - 'clients'"));

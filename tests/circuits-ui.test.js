@@ -453,11 +453,13 @@ async function shot(page, name) {
   await page.waitForFunction(function () {
     var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
     var calls = window.__calls || [];
-    return rows.some(function (row) {
-      return row.workoutName === 'Saturday class' && row.items && row.items[0] && row.items[0].source === 'circuit'
-        && row.invites && row.invites.indexOf('22222222-2222-4222-8222-222222222222') !== -1
-        && row.invites.indexOf('33333333-3333-4333-8333-333333333333') !== -1;
-    }) && calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites');
+    var sent = window.__invites || [];
+    var scheduled = rows.some(function (row) {
+      return row.workoutName === 'Saturday class' && row.items && row.items[0] && row.items[0].source === 'circuit';
+    });
+    return scheduled && calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites')
+      && sent.indexOf('22222222-2222-4222-8222-222222222222') !== -1
+      && sent.indexOf('33333333-3333-4333-8333-333333333333') !== -1;
   });
   await page.evaluate(function () { window.__failEntry = true; window.__calls = []; });
   await page.evaluate(function (skip) {
@@ -494,7 +496,19 @@ async function shot(page, name) {
     var text = document.getElementById('app').innerText;
     return calls.join(',') === 'entry' && calls.indexOf('invites') === -1 && text.indexOf('Could not save that day.') !== -1;
   });
-  await page.evaluate(function () { window.__failEntry = false; window.__failInvites = true; window.__calls = []; });
+  await page.evaluate(function () { window.__failEntry = false; window.__calls = []; });
+  await page.evaluate(function () { location.hash = '#/'; });
+  await page.waitForSelector('#calendar-open');
+  await page.evaluate(function () { location.hash = '#/programs'; });
+  await page.waitForFunction(function () {
+    var calls = window.__calls || [];
+    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
+    var pending = rows.filter(function (row) {
+      return row && row.pending && row.invites && row.invites.length;
+    });
+    return calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites') && !pending.length;
+  });
+  await page.evaluate(function () { window.__failInvites = true; window.__calls = []; });
   await page.evaluate(function (skip) {
     var days = document.querySelectorAll('.pv-day');
     var today = document.querySelector('.pv-day.today');
@@ -675,7 +689,7 @@ async function shot(page, name) {
     });
     return labels.indexOf('Ada Client') !== -1 && labels.indexOf('Ben Ortiz') !== -1 && labels.indexOf('Client') !== -1;
   });
-  assert.strictEqual(await page.$eval('[data-act=start-class]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await page.$eval('[data-act=start-class]', function (el) { return el.disabled; }), false);
   await page.click('[data-act=manual-open]');
   await page.waitForFunction(function () {
     var chip = document.querySelector('#circuit-prepare-clients [aria-label="Walk-in"]');

@@ -309,15 +309,28 @@
         render();
         return;
       }
-      if (!state || superseded) return;
-      state.remote = '';
+      if (superseded) return;
+      if (state) state.remote = '';
+      var invites = row && Array.isArray(row.invites) ? row.invites : [];
+      if (markerCircuitId(row && row.items) && invites.length) {
+        syncInvites(row).then(function (ok) {
+          if (ok) clearPending(true);
+        });
+        return;
+      }
+      clearPending(false);
+    }
+    function clearPending(alsoInvites) {
+      if (!store) return;
       var cleared = false;
       store.programs = (store.programs || []).map(function (item) {
-        if (!item || item.id !== row.id || !item.pending) return item;
-        if ((item.updatedAt || 0) !== (row.updatedAt || 0)) return item;
+        if (!item || item.id !== row.id) return item;
+        if (item.pending && (item.updatedAt || 0) !== (row.updatedAt || 0)) return item;
+        if (!item.pending && !(alsoInvites && item.invites)) return item;
         cleared = true;
         var next = Object.assign({}, item, { synced: true });
         delete next.pending;
+        if (alsoInvites) delete next.invites;
         return next;
       });
       if (cleared && persist) persist();
@@ -1342,16 +1355,10 @@
     render();
     var created = placed.created;
     pushRemote(created).then(function (result) {
-      if (!result || result.skipped) return;
-      if (result.ok === false) {
-        if (state) {
-          state.remote = (result.error && result.error.message) || 'Could not save that day.';
-          render();
-        }
-        return;
-      }
-      if (!created.invites || !created.invites.length) return;
-      syncInvites(created);
+      if (!result || result.skipped || result.ok !== false) return;
+      if (!state) return;
+      state.remote = (result.error && result.error.message) || 'Could not save that day.';
+      render();
     });
   }
   function saveEntryTimes(id) {

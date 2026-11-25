@@ -790,10 +790,7 @@
     paintPrepare();
   }
   function classReady() {
-    return classClients.some(function (person) {
-      var spot = classSpot[classKey(person)];
-      return !!(spot && ((spot.stationId && !spot.bench) || spot.bench));
-    });
+    return classClients.length > 0;
   }
   function onStartClass() {
     if (!ctx || !draft || !draft.id || !classReady()) return;
