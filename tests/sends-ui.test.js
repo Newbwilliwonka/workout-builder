@@ -54,6 +54,11 @@ async function handleSend(deliveries, name, items, source) {
     items: JSON.parse(JSON.stringify(items)),
     source: source
   });
+  if (box.holds && box.holds.length) {
+    const slot = box.holds.shift();
+    await slot.promise;
+    if (slot.fail) throw new Error('Failed to fetch');
+  }
   if (box.mode === 'slow') {
     const wait = box.wait;
     box.mode = 'ok';
@@ -190,6 +195,12 @@ function seed(page, raw) {
   return page.evaluateOnNewDocument(function (raw) {
     try { localStorage.setItem('wb.data.v1', raw); } catch (e) {}
   }, raw);
+}
+
+function armHold() {
+  var slot = { fail: false };
+  slot.promise = new Promise(function (resolve) { slot.release = function () { resolve(); }; });
+  return slot;
 }
 
 function armSlow() {
@@ -374,6 +385,52 @@ function armSlow() {
   }
   assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Saturday easy'; }).length, satBefore + 2);
   assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Saturday easy' && c.ownerId === E; }).length, 1);
+
+  await trainer.goto(URL + '?ids=1#/send');
+  await trainer.waitForSelector('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const satHold = armHold();
+  box.holds = [{ promise: Promise.resolve(), fail: false }, satHold];
+  const fridayBefore = box.copies.filter(function (c) { return c.name === 'Friday full body' && c.ownerId === C; }).length;
+  await trainer.click('#send-go');
+  const heldDeadline = Date.now() + 4000;
+  while (box.calls.filter(function (call) { return call.name === 'Saturday easy'; }).length < 1 && Date.now() < heldDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  const sharedFridayId = box.calls.filter(function (call) { return call.name === 'Friday full body'; }).pop().deliveries[0].id;
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 1 workout to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const friHold = armHold();
+  box.holds = [friHold];
+  await trainer.click('#send-go');
+  const friDeadline = Date.now() + 4000;
+  while (box.calls[box.calls.length - 1].name !== 'Friday full body' && Date.now() < friDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  satHold.release();
+  const satDeadline = Date.now() + 4000;
+  while (!box.copies.some(function (c) { return c.name === 'Saturday easy' && c.ownerId === C && box.calls.some(function (call) { return call.deliveries[0] && call.deliveries[0].id === c.id && call.name === 'Saturday easy'; }); }) && Date.now() < satDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  friHold.fail = true;
+  friHold.release();
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    var err = document.getElementById('send-fail');
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client' && err && err.textContent.indexOf('Failed to fetch') !== -1;
+  });
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Sent'; });
+  assert.strictEqual(box.calls[box.calls.length - 1].deliveries[0].id, sharedFridayId);
+  assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Friday full body' && c.ownerId === C; }).length, fridayBefore + 1);
+  box.holds = [];
 
   await trainer.goto(URL + '#/send');
   await trainer.waitForSelector('#send-go');

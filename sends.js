@@ -212,7 +212,7 @@
     return h;
   }
 
-  var ctx = null, gen = 0, roster = null, pickedWorkouts = {}, picked = {}, attempts = {}, inflight = null, sendToken = 0, sentKey = '', sendError = '', presetDone = false;
+  var ctx = null, gen = 0, roster = null, pickedWorkouts = {}, picked = {}, attempts = {}, flights = [], inflight = null, sendToken = 0, sentKey = '', sendError = '', presetDone = false;
 
   function stop() {
     gen += 1;
@@ -247,9 +247,12 @@
   function sendLabelNow() {
     return sendLabel(chosenWorkouts().length, chosenClients().length);
   }
+  function keyInFlight(key) {
+    return flights.some(function (flight) { return flight.key === key; });
+  }
   function buttonState() {
     var key = currentKey();
-    var sameFlight = !!(inflight && inflight.key === key);
+    var sameFlight = keyInFlight(key);
     if (sentKey && sentKey === key && !sameFlight) return { label: 'Sent', disabled: true, sent: true };
     var workouts = chosenWorkouts().length;
     var clients = chosenClients().length;
@@ -346,10 +349,15 @@
     var parts = String(key || '').split('\n');
     var workouts = (parts[0] || '').split(',').filter(Boolean);
     var clients = parts[1] || '';
-    workouts.forEach(function (id) { delete attempts[id + '\n' + clients]; });
+    workouts.forEach(function (id) {
+      var oneKey = id + '\n' + clients;
+      var busy = flights.some(function (flight) { return flight.keys && flight.keys.indexOf(oneKey) !== -1; });
+      if (!busy) delete attempts[oneKey];
+    });
   }
   function finish(token, key, err) {
     var mine = !!(inflight && inflight.token === token);
+    flights = flights.filter(function (flight) { return flight.token !== token; });
     if (mine) inflight = null;
     if (!err) forgetAttempts(key);
     // A newer send owns the screen. This result must not redraw it or clear its lock.
@@ -382,15 +390,11 @@
     var ids = clients.map(function (c) { return String(c.id); });
     var key = currentKey();
     if (sentKey === key) return;
-    if (sendBlocked(inflight, key)) return;
+    if (keyInFlight(key) || sendBlocked(inflight, key)) return;
     sendError = '';
-    var token = ++sendToken;
-    inflight = { token: token, key: key };
     var auth = root.WBAuth;
-    if (!auth || !auth.sendWorkout) {
-      inflight = null;
-      return showUnavailable();
-    }
+    if (!auth || !auth.sendWorkout) return showUnavailable();
+    var token = ++sendToken;
     var plan = workouts.map(function (workout) {
       var oneKey = selectionKey(workout.id, ids);
       var delivery = prepareDeliveries(attempts[oneKey], workout, ids, newId);
@@ -403,6 +407,9 @@
         source: delivery.sourceWorkoutId
       };
     });
+    var flight = { token: token, key: key, keys: plan.map(function (item) { return item.key; }) };
+    flights.push(flight);
+    inflight = flight;
     drawSend();
     var index = 0;
     function step() {
