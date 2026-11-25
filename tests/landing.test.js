@@ -222,6 +222,24 @@ Mem.TIERS.forEach(function (tier) {
     assert.ok(deskInset.feats.left >= deskInset.shell.left);
     assert.strictEqual(deskInset.cards.length, TEXT_ONLY.length);
     deskInset.cards.forEach(function (card) { assert.deepStrictEqual(card.edges, deskInset.feats); });
+    const deskFeatures = await page.evaluate(function () {
+      var vw = document.documentElement.clientWidth;
+      function edges(el) {
+        var r = el.getBoundingClientRect();
+        return { left: Math.round(r.left), right: Math.round(vw - r.right), width: Math.round(r.width) };
+      }
+      var feats = edges(document.querySelector('.landing-features'));
+      return {
+        feats: feats,
+        cards: Array.prototype.map.call(document.querySelectorAll('.landing-feature'), function (el) { return edges(el); })
+      };
+    });
+    assert.strictEqual(deskFeatures.cards.length, FEATURES.length);
+    deskFeatures.cards.forEach(function (card, i) {
+      assert.strictEqual(card.width, deskFeatures.feats.width, 'feature ' + i + ' width');
+      assert.strictEqual(card.left, deskFeatures.feats.left, 'feature ' + i + ' left');
+      assert.strictEqual(card.right, deskFeatures.feats.right, 'feature ' + i + ' right');
+    });
     await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
     assert.strictEqual(seen.frames.length, SHOTS.length);
     seen.frames.forEach(function (frame, i) {

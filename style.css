@@ -947,9 +947,10 @@ body.circuit-on .circuit-sum-row.is-total{border-top:1px solid var(--line);margi
   .landing-bar a{font-size:16px}
   .landing-wrap{padding-top:32px;padding-bottom:72px}
   .landing-features{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .landing-feature{margin:0}
+  .landing-feature{margin:0;grid-column:1/-1}
   .landing-feature.is-text{grid-column:1/-1}
   .landing-feature h2{font-size:22px;line-height:1.25}
+  .landing-frame{max-width:720px;margin-left:auto;margin-right:auto}
   .landing-pricing .plan-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
 }
 button#feedback-open{position:fixed;z-index:34;right:max(16px,env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));width:48px;height:48px;min-width:48px;min-height:48px;padding:0;border:0;border-radius:50%;background:#2563eb;color:#fff;box-shadow:0 6px 16px rgba(37,99,235,.28);display:inline-flex;align-items:center;justify-content:center}
