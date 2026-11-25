@@ -41,7 +41,13 @@ function badge(page, id) {
       window.__signedIn = true;
       api.session = function () {
         if (!window.__signedIn) return Promise.resolve(null);
-        return Promise.resolve({ user: { id: userId, email: 'ada@example.com' } });
+        var session = { user: { id: userId, email: 'ada@example.com' } };
+        if (window.__gateDelay) {
+          return new Promise(function (resolve) {
+            window.__releaseGate = function () { resolve(session); };
+          });
+        }
+        return Promise.resolve(session);
       };
       api.profile = function () {
         return Promise.resolve({
@@ -55,6 +61,7 @@ function badge(page, id) {
       api.trainerRequestCount = function () { return Promise.resolve(7); };
       api.signOut = function () { window.__signedIn = false; return Promise.resolve(); };
       api.navBadges = function () {
+        window.__badgeFetches = (window.__badgeFetches || 0) + 1;
         if (window.__badgeFail) return Promise.resolve(null);
         var snap = {
           messages: window.__counts.messages,
@@ -203,6 +210,45 @@ function badge(page, id) {
   await page.waitForFunction(function () {
     var el = document.querySelector('#messages-nav .request-count');
     return (location.hash === '' || location.hash === '#' || location.hash === '#/') && el && el.textContent === '3';
+  });
+  await page.evaluate(function () {
+    window.__gateDelay = true;
+    window.__markDelay = true;
+    window.__counts = { messages: 1, hub: 0, tracking: 0 };
+  });
+  await page.click('#messages-nav');
+  await page.waitForFunction(function () {
+    return location.hash.indexOf('#/messages') === 0 && typeof window.__releaseMark === 'function' && typeof window.__releaseGate === 'function';
+  });
+  const fetchesBeforeGate = await page.evaluate(function () {
+    window.__counts = { messages: 1, hub: 1, tracking: 0 };
+    window.__releaseMark();
+    return window.__badgeFetches;
+  });
+  await new Promise(function (r) { setTimeout(r, 50); });
+  assert.strictEqual(await page.evaluate(function () { return window.__badgeFetches; }), fetchesBeforeGate);
+  assert.strictEqual(await page.$('#hub-nav .request-count'), null);
+  await page.evaluate(function () {
+    window.__gateDelay = false;
+    window.__releaseGate();
+  });
+  await page.waitForFunction(function () {
+    var hub = document.querySelector('#hub-nav .request-count');
+    return location.hash.indexOf('#/messages') === 0 && hub && hub.textContent === '1'
+      && !document.querySelector('#messages-nav .request-count');
+  });
+
+  await page.evaluate(function () {
+    window.__badgeFail = false;
+    window.__markDelay = false;
+    window.__gateDelay = false;
+    window.__counts = { messages: 3, hub: 0, tracking: 0 };
+    location.hash = '#/';
+  });
+  await page.waitForFunction(function () {
+    var el = document.querySelector('#messages-nav .request-count');
+    return (location.hash === '' || location.hash === '#' || location.hash === '#/') && el && el.textContent === '3'
+      && !document.querySelector('#hub-nav .request-count');
   });
   await page.evaluate(function () {
     window.__badgeFail = true;

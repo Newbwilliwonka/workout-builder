@@ -1665,7 +1665,7 @@
     }).then(function (session) {
       return loadGateProfile().then(function (gate) {
         if (token !== routeToken || location.hash !== requested) return;
-        navGateReady = true;
+        setNavGateReady();
         // Approval still blocks the app. Linking already ran above.
         if (!accessApproved(gate.profile, session)) return renderAccessWait();
         accessWaitOn = false;
@@ -2703,7 +2703,7 @@
         if (hashPage() !== 'subscriptions') return;
         if (profile) {
           cachedProfile = profile;
-          navGateReady = true;
+          setNavGateReady();
         }
         if (!accessApproved(profile, session)) return renderAccessWait();
         var shown = profile || cachedProfile;
@@ -3221,6 +3221,7 @@
   var navWriteGen = 0;
   var navSeenSeq = 0;
   var navGateReady = false;
+  var navBadgePending = false;
   var navSection = '';
   var navBadgeUser = '';
   var navCounts = { messages: 0, hub: 0, tracking: 0 };
@@ -3263,6 +3264,7 @@
     navBadgeGen++;
     navSeenSeq++;
     navGateReady = false;
+    navBadgePending = false;
     navSection = '';
     navBadgeUser = '';
     navSeenFlight = { messages: 0, hub: 0, tracking: 0 };
@@ -3279,8 +3281,20 @@
     if (started.tracking || navSeenFlight.tracking) out.tracking = 0;
     return out;
   }
+  function setNavGateReady() {
+    navGateReady = true;
+    refreshNavBadges();
+  }
   function refreshNavBadges() {
-    if (!navGateReady || !signedInNow) return;
+    if (!signedInNow) {
+      navBadgePending = false;
+      return;
+    }
+    if (!navGateReady) {
+      navBadgePending = true;
+      return;
+    }
+    navBadgePending = false;
     var user = (cachedProfile && cachedProfile.id) || '';
     if (user !== navBadgeUser) {
       var switched = !!navBadgeUser && user !== navBadgeUser;
