@@ -12,7 +12,11 @@ alter table public.circuits drop column if exists clients;
 drop table if exists public.circuit_clients;
 
 -- Strip saved rosters before the stricter guard exists, and without firing
--- the old guard. Existing rows, including unnamed stations, stay in place.
+-- the old guard. The pause, the update, and the resume commit together, so a
+-- failure cannot leave the guard switched off. Existing rows, including
+-- unnamed stations, stay in place.
+begin;
+
 do $pause_guard$
 begin
   if exists (
@@ -38,6 +42,8 @@ begin
   end if;
 end
 $resume_guard$;
+
+commit;
 
 create or replace function public.circuits_guard()
 returns trigger

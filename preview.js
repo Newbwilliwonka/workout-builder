@@ -273,16 +273,18 @@
     data().programDrops[id] = { at: Date.now(), ownerId: ownerId || '' };
   }
   function pushRemote(row) {
-    if (!row || !options || !options.saveEntry || !P.isUuid(row.ownerId)) return;
+    if (!row || !options || !options.saveEntry || !P.isUuid(row.ownerId)) return Promise.resolve({ ok: true, skipped: true });
     var epoch = pushEpoch[row.id] || 0;
     var saveEntry = options.saveEntry;
     var deleteEntry = options.deleteEntry;
     var persist = options.persist;
     var store = options.data;
-    Promise.resolve().then(function () { return saveEntry(row); }).then(function () {
+    return Promise.resolve().then(function () { return saveEntry(row); }).then(function () {
       afterPush(null);
+      return { ok: true };
     }, function (err) {
       afterPush(err);
+      return { ok: false, error: err };
     });
     function afterPush(err) {
       if (!store) return;
@@ -322,19 +324,21 @@
     }
   }
   function syncInvites(row) {
-    if (!row || !options || !options.saveInvites || !markerCircuitId(row.items)) return;
+    if (!row || !options || !options.saveInvites || !markerCircuitId(row.items)) return Promise.resolve(true);
     var copy = Object.assign({}, row, { invites: Array.isArray(row.invites) ? row.invites : [] });
-    Promise.resolve().then(function () { return options.saveInvites(copy); }).then(function () {}, function (err) {
-      if (!state) return;
-      state.remote = (err && err.message) || 'Could not save who is invited.';
+    return Promise.resolve().then(function () { return options.saveInvites(copy); }).then(function () {
+      return true;
+    }, function (err) {
+      if (!state) return false;
+      state.remote = 'This workout is scheduled. The invites did not save.';
       render();
+      return false;
     });
   }
   function dropRemote(row) {
     if (!row || !options.deleteEntry || !P.isUuid(row.ownerId)) return;
     Promise.resolve().then(function () { return options.deleteEntry(row); }).then(function () {
       if (state) state.remote = '';
-      if (markerCircuitId(row.items)) syncInvites(Object.assign({}, row, { invites: [] }));
     }, function (err) {
       if (!state) return;
       state.remote = remoteNote(err);
@@ -1334,10 +1338,21 @@
     state.cursor = sheet.date;
     state.month = sheet.date.slice(0, 7);
     savePrograms(placed.programs, 'Saved on this device.');
-    pushRemote(placed.created);
-    syncInvites(placed.created);
     if (backTo) state.sheet = { type: 'list', date: backTo };
     render();
+    var created = placed.created;
+    pushRemote(created).then(function (result) {
+      if (!result || result.skipped) return;
+      if (result.ok === false) {
+        if (state) {
+          state.remote = (result.error && result.error.message) || 'Could not save that day.';
+          render();
+        }
+        return;
+      }
+      if (!created.invites || !created.invites.length) return;
+      syncInvites(created);
+    });
   }
   function saveEntryTimes(id) {
     readSheetTimes();

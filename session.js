@@ -786,9 +786,14 @@
       selected = '';
       record = null;
       if (handoff && Array.isArray(handoff.clients)) {
+        if (!handoff.clients.length) {
+          if (ctx) ctx.go('#/circuits/' + encodeURIComponent(id) + '/prepare' + (fromCalendar() ? '?from=calendar' : ''));
+          return;
+        }
         doc.clients = handoff.clients;
         assigned = handoff.assigned || {};
         onStart();
+        if (mode !== 'live') paint();
         return;
       }
       paint();

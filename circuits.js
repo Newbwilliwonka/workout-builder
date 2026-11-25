@@ -103,9 +103,16 @@
   function editorCols() {
     return 3;
   }
-  function clampStations() {
-    if (!draft || !model().fitLayout) return;
-    draft.stations = model().fitLayout(draft.stations, 3);
+  function shownStations() {
+    if (!draft || !model().fitLayout) return (draft && draft.stations) || [];
+    return model().fitLayout(draft.stations, 3);
+  }
+  function shownRows(stations) {
+    var used = 0;
+    (stations || []).forEach(function (s) {
+      if (s && typeof s.row === 'number' && s.row + 1 > used) used = s.row + 1;
+    });
+    return Math.max(2, used + 1);
   }
   function stillUrl(id) {
     var base = root.WBAuth && root.WBAuth.gifBase;
@@ -328,7 +335,6 @@
   }
   function paint() {
     if (!ctx || !draft) return paintMissing();
-    clampStations();
     var C = model();
     ctx.titleEl.textContent = 'Set up circuit';
     ctx.backBtn.hidden = false;
@@ -358,11 +364,12 @@
     ctx.app.onkeydown = onKey;
     var grid = document.getElementById('circuit-grid');
     if (grid && root.WBGrid) {
+      var shown = shownStations();
       root.WBGrid.mount(grid, {
-        cols: editorCols(draft.stations),
-        rows: C.visibleRows(draft.stations),
+        cols: editorCols(),
+        rows: shownRows(shown),
         label: 'Circuit stations',
-        items: (draft.stations || []).map(function (station) {
+        items: shown.map(function (station) {
           var exercise = station.exercise;
           return {
             id: station.id,
@@ -672,11 +679,11 @@
   }
   function prepareGrid() {
     var C = model();
-    clampStations();
+    var shown = shownStations();
     var cols = editorCols();
-    var rows = C.visibleRows(draft.stations);
+    var rows = shownRows(shown);
     var byPos = {};
-    (draft.stations || []).forEach(function (s) { if (s) byPos[s.col + ',' + s.row] = s; });
+    shown.forEach(function (s) { if (s) byPos[s.col + ',' + s.row] = s; });
     var h = '<div class="circuit-board" id="circuit-board"><svg class="circuit-arrows" aria-hidden="true"></svg>' +
       '<div class="wb-grid" role="grid" aria-label="Circuit stations" style="grid-template-columns:repeat(' + cols + ',minmax(0,1fr))">';
     for (var r = 0; r < rows; r++) {
@@ -710,7 +717,7 @@
     h += '<div class="circuit-prepare-bench" data-bench="1"><div class="circuit-bench-label">Bench</div>' +
       '<p>During class, drag a client to the Bench to pull them out of the rotation, or back onto a station to rejoin.</p>' +
       '<div class="c-faces">' + peopleAt('', true) + '</div></div>';
-    h += '<button type="button" class="pri circuit-start" data-act="start-class">Start</button></div>';
+    h += '<button type="button" class="pri circuit-start" data-act="start-class"' + (classReady() ? '' : ' disabled') + '>Start</button></div>';
     ctx.app.innerHTML = h;
     ctx.app.onclick = onClick;
     ctx.app.oninput = null;
@@ -782,8 +789,14 @@
     formError = [];
     paintPrepare();
   }
+  function classReady() {
+    return classClients.some(function (person) {
+      var spot = classSpot[classKey(person)];
+      return !!(spot && ((spot.stationId && !spot.bench) || spot.bench));
+    });
+  }
   function onStartClass() {
-    if (!ctx || !draft || !draft.id) return;
+    if (!ctx || !draft || !draft.id || !classReady()) return;
     var C = model();
     var assigned = {};
     classClients.forEach(function (person) {

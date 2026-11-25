@@ -163,26 +163,29 @@
   function fitLayout(stations, cols) {
     var width = columnCount(cols == null ? 3 : cols);
     var used = {};
+    var limit = ROWS;
     var placed = [];
     function free() {
-      var r, i, c;
-      for (r = 0; r < ROWS; r++) {
-        for (i = 0; i < width; i++) {
-          c = (r % 2 === 1) ? (width - 1 - i) : i;
-          if (!used[c + ',' + r]) return { col: c, row: r };
+      var r, i, c, guard;
+      for (guard = 0; guard < 40; guard++) {
+        for (r = 0; r < limit; r++) {
+          for (i = 0; i < width; i++) {
+            c = (r % 2 === 1) ? (width - 1 - i) : i;
+            if (!used[c + ',' + r]) return { col: c, row: r };
+          }
         }
+        limit += 1;
       }
-      return null;
+      return { col: 0, row: limit };
     }
     (stations || []).forEach(function (station) {
       if (!station) return;
       var copy = clone(station);
       var col = integer(station.col, 0, COLS - 1);
-      var row = integer(station.row, 0, ROWS - 1);
+      var row = integer(station.row, 0, 80);
       var cell = null;
       if (col != null && row != null && col < width && !used[col + ',' + row]) cell = { col: col, row: row };
       if (!cell) cell = free();
-      if (!cell) return;
       used[cell.col + ',' + cell.row] = 1;
       copy.col = cell.col;
       copy.row = cell.row;

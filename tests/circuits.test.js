@@ -224,6 +224,13 @@ desktop.stations[1].row = 0;
 const fitted = C.fitLayout(desktop.stations, 3);
 assert.deepStrictEqual(fitted.map(function (s) { return s.col; }), [0, 1]);
 assert.ok(fitted.every(function (s) { return s.col >= 0 && s.col <= 2; }));
+const crowd = [];
+for (let i = 0; i < 20; i++) {
+  crowd.push({ id: 'st_crowd' + i, col: i % 4, row: Math.floor(i / 4), exercise: null });
+}
+const spread = C.fitLayout(crowd, 3);
+assert.strictEqual(spread.length, 20);
+assert.ok(spread.some(function (s) { return s.row >= 6; }));
 
 function cellGrid(cols, rows) {
   const size = 100;

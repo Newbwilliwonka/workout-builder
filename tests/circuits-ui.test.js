@@ -14,9 +14,9 @@ const MAIL = '55555555-5555-4555-8555-555555555555';
 const JO = '66666666-6666-4666-8666-666666666666';
 const OUT = process.env.CIRCUIT_SHOTS || '/tmp/circuit-shots';
 
-function profile(membership) {
+function profile(membership, id) {
   return {
-    id: 'allow-test',
+    id: id || 'allow-test',
     email: 'coach@example.com',
     membership: membership,
     intended_plan: membership,
@@ -24,10 +24,11 @@ function profile(membership) {
   };
 }
 
-async function stub(page, membership) {
+async function stub(page, membership, userId) {
+  var id = userId || 'allow-test';
   await require('./allow.js').stubAuth(page, {
-    profile: profile(membership),
-    session: { user: { id: 'allow-test', email: 'coach@example.com' } }
+    profile: profile(membership, id),
+    session: { user: { id: id, email: 'coach@example.com' } }
   });
   await page.evaluateOnNewDocument(function (ids) {
     var desc = Object.getOwnPropertyDescriptor(window, 'WBAuth');
@@ -57,10 +58,39 @@ async function stub(page, membership) {
         api.circuits = function () { return Promise.resolve(circuits.map(function (row) { return JSON.parse(JSON.stringify(row)); })); };
         api.shareSetting = function () { return Promise.resolve({ on: true, enthusiast: true, linked: false }); };
         api.clientStatus = function () { return Promise.resolve({ shared: true, enthusiast: false, linked: true }); };
-        api.programEntries = function () { return Promise.resolve([]); };
-        api.programEntriesFor = function () { return Promise.resolve([]); };
+        function remotePrograms() { return window.__remotePrograms || []; }
+        api.programEntries = function () { return Promise.resolve(remotePrograms().map(function (row) { return JSON.parse(JSON.stringify(row)); })); };
+        api.programEntriesFor = function () { return Promise.resolve(remotePrograms().map(function (row) { return JSON.parse(JSON.stringify(row)); })); };
+        api.saveProgramEntry = function (entry) {
+          window.__calls = window.__calls || [];
+          window.__calls.push('entry');
+          if (window.__failEntry) return Promise.reject(new Error('Could not save that day.'));
+          window.__remotePrograms = remotePrograms().filter(function (row) { return row.local_id !== entry.id; });
+          window.__remotePrograms.push({
+            local_id: entry.id,
+            owner_id: entry.ownerId,
+            workout_local_id: entry.workoutId,
+            workout_name: entry.workoutName,
+            items: entry.items || [],
+            day: entry.date,
+            starts_at: entry.start,
+            ends_at: entry.end,
+            presence: entry.presence,
+            updated_at: new Date().toISOString()
+          });
+          return new Promise(function (resolve) { setTimeout(function () { resolve(true); }, 30); });
+        };
+        api.deleteProgramEntry = function (ownerId, localId) {
+          window.__calls = window.__calls || [];
+          window.__calls.push('delete');
+          window.__remotePrograms = remotePrograms().filter(function (row) { return row.local_id !== localId; });
+          return Promise.resolve(true);
+        };
         api.saveCircuitInvites = function (entry) {
+          window.__calls = window.__calls || [];
+          window.__calls.push('invites');
           window.__invites = (entry && entry.invites) || [];
+          if (window.__failInvites) return Promise.reject(new Error('invite failed'));
           return Promise.resolve(true);
         };
         api.circuitGuestPlacements = function (clientId) {
@@ -149,7 +179,7 @@ async function shot(page, name) {
     else dialog.dismiss();
   });
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
-  await stub(page, 'trainer');
+  await stub(page, 'trainer', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   const seeded = M.emptyData();
   const lift = M.newWorkout('Morning lift');
   lift.items = [M.normalizeExercise(M.newExercise({
@@ -422,14 +452,107 @@ async function shot(page, name) {
   await page.click('[data-sheet=save]');
   await page.waitForFunction(function () {
     var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
+    var calls = window.__calls || [];
     return rows.some(function (row) {
       return row.workoutName === 'Saturday class' && row.items && row.items[0] && row.items[0].source === 'circuit'
         && row.invites && row.invites.indexOf('22222222-2222-4222-8222-222222222222') !== -1
         && row.invites.indexOf('33333333-3333-4333-8333-333333333333') !== -1;
-    });
+    }) && calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites');
+  });
+  await page.evaluate(function () { window.__failEntry = true; window.__calls = []; });
+  await page.evaluate(function (skip) {
+    var days = document.querySelectorAll('.pv-day');
+    var today = document.querySelector('.pv-day.today');
+    var n = 0;
+    for (var i = 0; i < days.length; i++) {
+      if (days[i] === today) continue;
+      if (n === skip) { days[i].querySelector('.pv-day-h').click(); return; }
+      n++;
+    }
+  }, 0);
+  await page.waitForSelector('[data-sheet=add-day]');
+  await page.click('[data-sheet=add-day]');
+  await page.waitForSelector('.pv-pick');
+  await page.evaluate(function () {
+    var picks = document.querySelectorAll('.pv-pick');
+    for (var i = 0; i < picks.length; i++) {
+      if (picks[i].textContent.indexOf('Saturday class') !== -1) { picks[i].click(); return; }
+    }
+  });
+  await page.waitForSelector('[data-invite="' + ADA + '"]');
+  await page.click('[data-invite="' + ADA + '"]');
+  await page.click('#pv-sheet .pv-presence input[value="solo"]');
+  await page.evaluate(function () {
+    document.getElementById('pv-start-h').value = '09';
+    document.getElementById('pv-start-m').value = '00';
+    document.getElementById('pv-end-h').value = '10';
+    document.getElementById('pv-end-m').value = '00';
+  });
+  await page.click('[data-sheet=save]');
+  await page.waitForFunction(function () {
+    var calls = window.__calls || [];
+    var text = document.getElementById('app').innerText;
+    return calls.join(',') === 'entry' && calls.indexOf('invites') === -1 && text.indexOf('Could not save that day.') !== -1;
+  });
+  await page.evaluate(function () { window.__failEntry = false; window.__failInvites = true; window.__calls = []; });
+  await page.evaluate(function (skip) {
+    var days = document.querySelectorAll('.pv-day');
+    var today = document.querySelector('.pv-day.today');
+    var n = 0;
+    for (var i = 0; i < days.length; i++) {
+      if (days[i] === today) continue;
+      if (n === skip) { days[i].querySelector('.pv-day-h').click(); return; }
+      n++;
+    }
+  }, 1);
+  await page.waitForSelector('[data-sheet=add-day]');
+  await page.click('[data-sheet=add-day]');
+  await page.waitForSelector('.pv-pick');
+  await page.evaluate(function () {
+    var picks = document.querySelectorAll('.pv-pick');
+    for (var i = 0; i < picks.length; i++) {
+      if (picks[i].textContent.indexOf('Saturday class') !== -1) { picks[i].click(); return; }
+    }
+  });
+  await page.waitForSelector('[data-invite="' + ADA + '"]');
+  await page.click('[data-invite="' + ADA + '"]');
+  await page.click('#pv-sheet .pv-presence input[value="solo"]');
+  await page.evaluate(function () {
+    document.getElementById('pv-start-h').value = '1';
+    document.getElementById('pv-start-m').value = '00';
+    document.getElementById('pv-end-h').value = '2';
+    document.getElementById('pv-end-m').value = '00';
+  });
+  await page.click('[data-sheet=save]');
+  await page.waitForFunction(function () {
+    var text = document.getElementById('app').innerText;
+    var calls = window.__calls || [];
+    return text.indexOf('This workout is scheduled. The invites did not save.') !== -1
+      && calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites');
+  });
+  await page.evaluate(function () { window.__failInvites = false; window.__calls = []; });
+  await page.evaluate(function (skip) {
+    var days = document.querySelectorAll('.pv-day');
+    var today = document.querySelector('.pv-day.today');
+    var n = 0;
+    for (var i = 0; i < days.length; i++) {
+      if (days[i] === today) continue;
+      if (n === skip) { days[i].querySelector('.pv-day-h').click(); return; }
+      n++;
+    }
+  }, 0);
+  await page.waitForSelector('#pv-day-sheet .pv-day-row');
+  await page.click('#pv-day-sheet .pv-day-row');
+  await page.waitForSelector('[data-sheet=remove]');
+  await page.click('[data-sheet=remove]');
+  await page.waitForFunction(function () {
+    var calls = window.__calls || [];
+    var text = document.getElementById('app').innerText;
+    return calls.indexOf('delete') !== -1 && calls.indexOf('invites') === -1
+      && text.indexOf('That placement was not found.') === -1;
   });
   await page.evaluate(function () {
-    document.querySelector('[data-open-session]').closest('[data-day]').querySelector('.pv-day-h').click();
+    document.querySelector('.pv-day.today [data-open-session]').closest('[data-day]').querySelector('.pv-day-h').click();
   });
   await page.waitForSelector('#pv-day-sheet .pv-day-row');
   await page.click('#pv-day-sheet .pv-day-row');
@@ -456,9 +579,8 @@ async function shot(page, name) {
   assert.strictEqual(await page.evaluate(function () { return location.hash; }), '#/programs');
   assert.strictEqual((await page.evaluate(function () {
     var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
-    var row = rows.filter(function (item) { return item.workoutName === 'Saturday class'; })[0];
-    return row ? row.end : '';
-  })), '11:15');
+    return rows.some(function (item) { return item.workoutName === 'Saturday class' && item.end === '11:15'; });
+  })), true);
   assert.ok((await page.evaluate(function () { return localStorage.getItem('wb.circuit.live') || ''; })).indexOf('Live class') !== -1);
   await page.evaluate(function () { localStorage.removeItem('wb.circuit.live'); });
   await page.evaluate(function (ada, ben) {
@@ -533,7 +655,7 @@ async function shot(page, name) {
   await page.select('#pv-client', '');
   await page.waitForSelector('[data-open-session]');
   await page.evaluate(function () {
-    document.querySelector('[data-open-session]').closest('[data-day]').querySelector('.pv-day-h').click();
+    document.querySelector('.pv-day.today [data-open-session]').closest('[data-day]').querySelector('.pv-day-h').click();
   });
   await page.waitForSelector('#pv-day-sheet .pv-day-row');
   await page.click('#pv-day-sheet .pv-day-row');
@@ -553,6 +675,7 @@ async function shot(page, name) {
     });
     return labels.indexOf('Ada Client') !== -1 && labels.indexOf('Ben Ortiz') !== -1 && labels.indexOf('Client') !== -1;
   });
+  assert.strictEqual(await page.$eval('[data-act=start-class]', function (el) { return el.disabled; }), true);
   await page.click('[data-act=manual-open]');
   await page.waitForFunction(function () {
     var chip = document.querySelector('#circuit-prepare-clients [aria-label="Walk-in"]');
@@ -603,16 +726,35 @@ async function shot(page, name) {
     var bench = document.querySelector('.circuit-bench');
     return bench && bench.innerText.indexOf('Ben') !== -1;
   });
-  await page.evaluate(function () { location.hash = '#/circuits'; });
+  await page.evaluate(function () {
+    localStorage.setItem('wb.circuit.class', JSON.stringify({
+      circuitId: '11111111-1111-4111-8111-111111111111',
+      clients: [],
+      assigned: {}
+    }));
+    location.hash = '#/circuits/11111111-1111-4111-8111-111111111111/run';
+  });
+  await page.waitForFunction(function () {
+    return location.hash.indexOf('/prepare') !== -1 && document.getElementById('circuit-prepare')
+      && document.getElementById('app').innerText.indexOf('Loading') === -1;
+  });
   await page.evaluate(function () { location.hash = '#/circuits'; });
   await page.waitForSelector('#circuit-new');
 
+  await page.evaluate(function () {
+    var row = (window.__circuits || [])[0];
+    row.data.stations[0].col = 3;
+  });
   await page.click('[data-act=open]');
   await page.waitForSelector('#circuit-name');
   assert.strictEqual(await page.$eval('#circuit-name', function (el) { return el.value; }), 'Saturday class');
   assert.strictEqual(await page.$$eval('.circuit-num:not(.is-open)', function (nodes) { return nodes.length; }), 6);
+  assert.strictEqual(await page.$$eval('.wb-tile', function (nodes) { return nodes.length; }), 6);
   await page.click('#back');
   await page.waitForSelector('#circuit-new');
+  assert.strictEqual(await page.evaluate(function () {
+    return (window.__circuits || [])[0].data.stations[0].col;
+  }), 3);
 
   await page.click('[data-act=del]');
   await page.waitForFunction(function () { return !!document.getElementById('circuit-empty'); });
