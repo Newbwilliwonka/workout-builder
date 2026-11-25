@@ -27,6 +27,16 @@
     function word(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
     return 'Send ' + word(workoutCount || 0, 'workout', 'workouts') + ' to ' + word(clientCount || 0, 'client', 'clients');
   }
+  function joinNames(names) {
+    var list = (names || []).map(function (name) { return String(name || 'Workout'); });
+    if (list.length <= 1) return list[0] || 'Workout';
+    if (list.length === 2) return list[0] + ' and ' + list[1];
+    return list.slice(0, -1).join(', ') + ', and ' + list[list.length - 1];
+  }
+  function partialMessage(sentCount, names) {
+    var n = sentCount || 0;
+    return 'Sent ' + n + ' workout' + (n === 1 ? '' : 's') + '. Could not send ' + joinNames(names) + '.';
+  }
   function snapshot(workout) {
     var items = [];
     try { items = JSON.parse(JSON.stringify(workout && workout.items || [])); } catch (e) { items = []; }
@@ -212,7 +222,7 @@
     return h;
   }
 
-  var ctx = null, gen = 0, roster = null, pickedWorkouts = {}, picked = {}, attempts = {}, flights = [], inflight = null, sendToken = 0, sentKey = '', sendError = '', presetDone = false;
+  var ctx = null, gen = 0, roster = null, pickedWorkouts = {}, picked = {}, attempts = {}, succeeded = {}, partialKey = '', flights = [], inflight = null, sendToken = 0, sentKey = '', sendError = '', presetDone = false;
 
   function stop() {
     gen += 1;
@@ -261,6 +271,23 @@
   function clearSent() {
     sentKey = '';
     sendError = '';
+    partialKey = '';
+    succeeded = {};
+  }
+  function resetSendForm() {
+    pickedWorkouts = {};
+    picked = {};
+    sentKey = '';
+    sendError = '';
+    partialKey = '';
+    succeeded = {};
+    presetDone = false;
+  }
+  function clearSucceeded(key) {
+    var parts = String(key || '').split('\n');
+    var workouts = (parts[0] || '').split(',').filter(Boolean);
+    var clients = parts[1] || '';
+    workouts.forEach(function (id) { delete succeeded[id + '\n' + clients]; });
   }
   function profileNow() {
     return ctx && ctx.profile ? ctx.profile() : null;
@@ -301,7 +328,7 @@
     ctx.titleEl.textContent = 'Send workout';
     ctx.backBtn.hidden = false;
     var h = '<p class="mute">Pick one or more of your workouts and the clients who should get a copy. A linked Enthusiast counts as a client.</p>';
-    h += '<div class="sec">Workout</div><div class="list pick-list">';
+    h += '<div class="sec">Workouts</div><div class="list pick-list">';
     if (!workouts.length) h += '<div class="empty">No workouts yet. Build one, then send it.</div>';
     workouts.forEach(function (w) {
       var on = !!pickedWorkouts[String(w.id)];
@@ -359,7 +386,13 @@
     var mine = !!(inflight && inflight.token === token);
     flights = flights.filter(function (flight) { return flight.token !== token; });
     if (mine) inflight = null;
-    if (!err) forgetAttempts(key);
+    if (!err) {
+      forgetAttempts(key);
+      clearSucceeded(key);
+      if (partialKey === key) partialKey = '';
+    } else if (currentKey() === key) {
+      partialKey = key;
+    }
     // A newer send owns the screen. This result must not redraw it or clear its lock.
     // The older send still finishes every workout, and a failure is still reported.
     if (!mine) {
@@ -419,21 +452,34 @@
         source: delivery.sourceWorkoutId
       };
     });
-    var flight = { token: token, key: key, keys: plan.map(function (item) { return item.key; }) };
+    var pending = plan.filter(function (item) { return !(partialKey === key && succeeded[item.key]); });
+    if (!pending.length) return finish(token, key, null);
+    var flight = { token: token, key: key, keys: pending.map(function (item) { return item.key; }) };
     flights.push(flight);
     inflight = flight;
     drawSend();
     var index = 0;
+    var sentNames = [];
+    var failed = [];
+    plan.forEach(function (item) { if (succeeded[item.key]) sentNames.push(item.name); });
     function step() {
-      if (index >= plan.length) return finish(token, key, null);
-      var item = plan[index];
+      if (index >= pending.length) {
+        if (failed.length && sentNames.length) return finish(token, key, new Error(partialMessage(sentNames.length, failed.map(function (item) { return item.name; }))));
+        if (failed.length) return finish(token, key, failed[0].err || new Error('Could not send'));
+        return finish(token, key, null);
+      }
+      var item = pending[index];
       Promise.resolve().then(function () {
         return auth.sendWorkout(item.deliveries, item.name, item.items, item.source);
       }).then(function () {
+        succeeded[item.key] = 1;
+        sentNames.push(item.name);
         index += 1;
         step();
       }, function (err) {
-        finish(token, key, err || new Error('Could not send'));
+        failed.push({ name: item.name, err: err || new Error('Could not send') });
+        index += 1;
+        step();
       });
     }
     step();
@@ -441,7 +487,7 @@
   function loadSend() {
     var myGen = gen;
     roster = null;
-    presetDone = false;
+    resetSendForm();
     if (!ctx) return;
     ctx.titleEl.textContent = 'Send workout';
     ctx.backBtn.hidden = false;
@@ -565,6 +611,7 @@
     serverId: serverId,
     selectionKey: selectionKey,
     sendLabel: sendLabel,
+    partialMessage: partialMessage,
     snapshot: snapshot,
     prepareDeliveries: prepareDeliveries,
     sendBlocked: sendBlocked,

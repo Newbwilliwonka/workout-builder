@@ -246,7 +246,33 @@ function armSlow() {
   const intro = await trainer.evaluate(function () { return document.body.innerText; });
   assert.ok(intro.indexOf('Pick one or more of your workouts and the clients who should get a copy. A linked Enthusiast counts as a client.') !== -1);
   assert.ok(intro.indexOf('Each person gets their own copy. An Enthusiast can edit it. A Free Client can run it. Your workout stays as it is.') !== -1);
+  assert.strictEqual(await trainer.$eval('.sec', function (el) { return el.textContent; }), 'Workouts');
   await trainer.screenshot({ path: ART + '/trainer-send-workout.png', fullPage: true });
+
+  await trainer.evaluate(function () { window.__wbVisit = 1; location.hash = '#/send/wo_sat'; });
+  await trainer.waitForFunction(function () {
+    var sat = document.querySelector('[data-pick-workout="wo_sat"]');
+    var fri = document.querySelector('[data-pick-workout="wo_friday"]');
+    return window.__wbVisit === 1 && sat && sat.classList.contains('on') && fri && !fri.classList.contains('on');
+  });
+  await trainer.evaluate(function () { location.hash = '#/'; });
+  await trainer.waitForSelector('[data-a=new]');
+  assert.strictEqual(await trainer.evaluate(function () { return window.__wbVisit; }), 1);
+  await trainer.evaluate(function () { location.hash = '#/send'; });
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    var fri = document.querySelector('[data-pick-workout="wo_friday"]');
+    var sat = document.querySelector('[data-pick-workout="wo_sat"]');
+    return window.__wbVisit === 1 && btn && btn.textContent !== 'Sent' && !btn.disabled === false &&
+      fri && !fri.classList.contains('on') && sat && !sat.classList.contains('on');
+  });
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 2 clients';
+  });
 
   const release = armSlow();
   await trainer.click('#send-go');
@@ -274,11 +300,25 @@ function armSlow() {
   await trainer.click('[data-pick-client="' + C + '"]');
   await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Send 1 workout to 2 clients' && !document.getElementById('send-go').disabled; });
   const beforeSecond = box.calls.length;
+  const liveBox = await trainer.$eval('#send-go', function (el) {
+    var s = getComputedStyle(el);
+    return { h: s.height, font: s.fontSize, w: el.getBoundingClientRect().width };
+  });
   await trainer.click('#send-go');
   await trainer.waitForFunction(function () {
     var btn = document.getElementById('send-go');
     return btn && btn.disabled && btn.textContent === 'Sent' && btn.className.indexOf('pri') === -1 && !document.getElementById('sent-note');
   });
+  const sentBox = await trainer.$eval('#send-go', function (el) {
+    var s = getComputedStyle(el);
+    return { h: s.height, font: s.fontSize, text: el.textContent, w: el.getBoundingClientRect().width };
+  });
+  assert.strictEqual(sentBox.text, 'Sent');
+  assert.strictEqual(sentBox.h, '48px');
+  assert.strictEqual(sentBox.font, '16px');
+  assert.strictEqual(sentBox.h, liveBox.h);
+  assert.strictEqual(sentBox.font, liveBox.font);
+  assert.strictEqual(sentBox.w, liveBox.w);
   assert.strictEqual(box.calls.length, beforeSecond + 1);
   const secondIds = box.calls[beforeSecond].deliveries.map(function (d) { return d.id; });
   secondIds.forEach(function (id) { assert.strictEqual(slowIds.indexOf(id), -1); });
@@ -349,17 +389,25 @@ function armSlow() {
     return btn && !btn.disabled && btn.textContent === 'Send 2 workouts to 1 client';
   });
   const beforeMulti = box.copies.length;
+  const callsBeforePartial = box.calls.length;
   box.failAfter = 1;
   await trainer.click('#send-go');
   await trainer.waitForFunction(function () {
     var btn = document.getElementById('send-go');
     var err = document.getElementById('send-fail');
-    return btn && !btn.disabled && btn.textContent === 'Send 2 workouts to 1 client' && err && err.textContent.indexOf('Failed to fetch') !== -1;
+    return btn && !btn.disabled && btn.textContent === 'Send 2 workouts to 1 client' && err &&
+      err.textContent === 'Sent 1 workout. Could not send Saturday easy.' && err.textContent.indexOf('@') === -1;
   });
   assert.strictEqual(box.copies.length, beforeMulti + 1);
+  assert.strictEqual(box.calls.length, callsBeforePartial + 2);
   const partialId = box.copies[box.copies.length - 1].id;
+  const failedCall = box.calls[box.calls.length - 1];
+  assert.strictEqual(failedCall.name, 'Saturday easy');
   await trainer.click('#send-go');
   await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Sent'; });
+  assert.strictEqual(box.calls.length, callsBeforePartial + 3);
+  assert.strictEqual(box.calls[box.calls.length - 1].name, 'Saturday easy');
+  assert.strictEqual(box.calls[box.calls.length - 1].deliveries[0].id, failedCall.deliveries[0].id);
   assert.strictEqual(box.copies.filter(function (c) { return c.id === partialId; }).length, 1);
   assert.strictEqual(box.copies.length, beforeMulti + 2);
   assert.strictEqual(await trainer.$('#sent-note'), null);
@@ -467,8 +515,15 @@ function armSlow() {
   });
   box.holds = [];
 
-  await trainer.goto(URL + '#/send');
-  await trainer.waitForSelector('#send-go');
+  await trainer.evaluate(function () { window.__wbVisit = 2; location.hash = '#/'; });
+  await trainer.waitForSelector('[data-a=new]');
+  assert.strictEqual(await trainer.evaluate(function () { return window.__wbVisit; }), 2);
+  await trainer.evaluate(function () { location.hash = '#/send'; });
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    var picked = document.querySelector('.pick.on');
+    return window.__wbVisit === 2 && btn && btn.textContent === 'Send 0 workouts to 0 clients' && !picked;
+  });
 
   const cleanItems = JSON.parse(JSON.stringify(box.copies[0].items));
   box.copies = [

@@ -46,6 +46,7 @@ main{max-width:640px;margin:0 auto;padding:12px 12px 120px}
 button{font:inherit;font-weight:700;font-size:14px;border:0;border-radius:12px;min-height:40px;height:40px;padding:0 14px;cursor:pointer;background:var(--line);color:var(--ink)}
 button.pri{background:var(--pri);color:#fff;font-weight:700}
 #app>button.pri{width:100%;height:48px;min-height:48px;font-size:16px;margin-bottom:10px}
+#send-go{width:100%;height:48px;min-height:48px;font-size:16px;margin-bottom:10px}
 #pv-gcal-sheet a.pri,#pv-gcal-sheet a.pri:visited,#pv-gcal-sheet a.pri:hover{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;padding:0 16px;border-radius:12px;background:var(--pri);color:#fff;font:inherit;font-weight:600;text-align:center;text-decoration:none;cursor:pointer}
 button.danger{background:#fef2f2;color:var(--danger)}
 button.ghost{background:transparent;color:var(--pri)}
