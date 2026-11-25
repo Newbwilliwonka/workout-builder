@@ -504,10 +504,27 @@
   }
 
   // ---------- rendering ----------
-  function stepper(f, label, val, step, si) {
+  function stepBox(f, label, val, step, si, inputLabel) {
     var di = si != null ? ' data-si="' + si + '"' : '';
-    return '<div class="pl-f"><span>' + label + '</span><div class="pl-step"><button data-st="' + f + '" data-d="-' + step + '"' + di + ' aria-label="Decrease ' + label + '">−</button>' +
-      '<input type="number" inputmode="decimal" min="0" data-f="' + f + '"' + di + ' value="' + (val == null ? '' : val) + '"><button data-st="' + f + '" data-d="' + step + '"' + di + ' aria-label="Increase ' + label + '">+</button></div></div>';
+    var al = inputLabel ? ' aria-label="' + esc(inputLabel) + '"' : '';
+    return '<div class="pl-step"><button data-st="' + f + '" data-d="-' + step + '"' + di + ' aria-label="Decrease ' + label + '">−</button>' +
+      '<input type="number" inputmode="decimal" min="0" data-f="' + f + '"' + di + al + ' value="' + (val == null ? '' : val) + '"><button data-st="' + f + '" data-d="' + step + '"' + di + ' aria-label="Increase ' + label + '">+</button></div>';
+  }
+  function stepper(f, label, val, step, si) {
+    return '<div class="pl-f"><span>' + label + '</span>' + stepBox(f, label, val, step, si) + '</div>';
+  }
+  // Stopwatch only: the weight value sits in the old title slot. A loaded weight opens the same stepper.
+  function weightReadout(r) {
+    if (r.unit === 'bodyweight') return 'Bodyweight';
+    return r.weight != null ? r.weight + ' ' + r.unit : r.unit;
+  }
+  function stopwatchWeight(r, mi) {
+    var text = weightReadout(r), label = 'Weight, ' + text;
+    if (r.unit !== 'bodyweight' && S.weightEdit === mi) {
+      return '<div class="pl-f pl-sw-weight-edit">' + stepBox('weight', 'Weight (' + r.unit + ')', r.weight, r.unit === 'kg' ? 2.5 : 5, mi, 'Weight') + '</div>';
+    }
+    if (r.unit === 'bodyweight') return '<span class="pl-bw pl-sw-weight" aria-label="' + esc(label) + '">' + esc(text) + '</span>';
+    return '<button type="button" class="pl-bw pl-sw-weight" data-wedit="1" data-si="' + mi + '" aria-label="' + esc(label) + '">' + esc(text) + '</button>';
   }
   function primaryLabel(ex) {
     var c = ex.modeConfig;
@@ -581,6 +598,10 @@
     // stage: visual screen + side carousel. Stopwatch taps live on .pl-go.
     // The stopwatch window is the clock only. Photos and demos stay on the carousel tile.
     var mems = roundMembers(i), sw = ex.mode === 'stopwatch', resting = S.phase === 'rest';
+    if (S.weightEdit != null) {
+      var editShown = (resting && st.groupId && mems.length > 1) ? mems : [i];
+      if (editShown.indexOf(S.weightEdit) < 0) S.weightEdit = null;
+    }
     var interval = ex.mode === 'intervals';
     var timedWork = S.phase === 'work' && (ex.mode === 'timer' || ex.mode === 'intervals'); // countdown only; stopwatch and holds still count up
     var choose = !sw && pausedIntervalWork(); // Skip and Resume are the controls; the window is not a second Resume button
@@ -620,7 +641,8 @@
       if (rT.holdSec !== undefined) out += stepper('holdSec', 'Hold (s)', rT.holdSec, 5, mi);
       if (rT.rounds !== undefined) out += stepper('rounds', 'Rounds', rT.rounds, 1, mi);
       if (rT.workSec !== undefined) out += stepper('workSec', exT.mode === 'intervals' ? 'Interval (s)' : 'Work (s)', rT.workSec, 5, mi);
-      if (rT.unit !== 'bodyweight') out += stepper('weight', 'Weight (' + rT.unit + ')', rT.weight, rT.unit === 'kg' ? 2.5 : 5, mi);
+      if (exT.mode === 'stopwatch') out += stopwatchWeight(rT, mi);
+      else if (rT.unit !== 'bodyweight') out += stepper('weight', 'Weight (' + rT.unit + ')', rT.weight, rT.unit === 'kg' ? 2.5 : 5, mi);
       else out += '<div class="pl-f"><span>Weight</span><div class="pl-bw">Bodyweight</div></div>';
       out += '</div>';
       if (rT.laps && rT.laps.length) out += '<div class="pl-laps">' + rT.laps.map(function (l, k) { return '<span><b>Lap ' + (k + 1) + '</b> ' + M.formatStopwatch(l.lapMs) + ' <i>' + M.formatStopwatch(l.totalMs) + '</i></span>'; }).join('') + '</div>';
@@ -724,6 +746,15 @@
 
   // ---------- events ----------
   function onClick(e) {
+    var closeWeight = false;
+    if (S && S.weightEdit != null) {
+      var edit = S.root.querySelector('.pl-sw-weight-edit');
+      if (!edit || !edit.contains(e.target)) { S.weightEdit = null; closeWeight = true; }
+    }
+    if (closeWeight) setTimeout(function () {
+      if (!S || S.weightEdit != null || !S.root) return;
+      if (S.root.querySelector('.pl-sw-weight-edit')) render();
+    }, 0);
     var b = e.target.closest('button,[data-p]'); if (!b || b.disabled) return;
     if (b.dataset.pf) { // stopwatch event pass/fail — does not touch the clock or lap times
       var si = b.dataset.si != null ? +b.dataset.si : S.idx, rr = res(si);
@@ -740,6 +771,15 @@
       return render();
     }
     if (b.dataset.sel) return select(+b.dataset.sel);
+    if (b.dataset.wedit != null) {
+      var wsi = b.dataset.si != null ? +b.dataset.si : S.idx;
+      if (res(wsi).unit === 'bodyweight') return;
+      S.weightEdit = wsi;
+      render();
+      var winp = S.root.querySelector('.pl-sw-weight-edit [data-f="weight"]');
+      if (winp) { winp.focus(); try { winp.select(); } catch (err) {} }
+      return;
+    }
     if (b.dataset.st) { var f = b.dataset.st, si = b.dataset.si != null ? +b.dataset.si : S.idx, r = res(si); r[f] = Math.max(0, Math.round(((+r[f] || 0) + +b.dataset.d) * 10) / 10); var inp = S.root.querySelector('[data-f="' + f + '"]' + (b.dataset.si != null ? '[data-si="' + si + '"]' : '')); if (inp) inp.value = r[f]; return; }
     var a = b.dataset.p;
       if (a === 'primary') {
