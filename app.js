@@ -1588,14 +1588,15 @@
       go('#/signin');
     }
     if (!mustSignOut || !WBAuth.signOut) return goSign();
-    if (!confirmCircuitSignOut()) return;
+    var signingOut = circuitUserId();
+    if (!confirmCircuitSignOut(signingOut)) return;
     // Sign out before dropping the lock. A failed read can leave the recovery
     // session in place, and clearing the lock first would open the app.
     recoveryPhase = 'checking';
     recoverySettled = false;
     renderReset();
     Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
-      if (window.WBCircuitHistory) WBCircuitHistory.clearQueue();
+      if (window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
       cachedProfile = null;
@@ -2223,8 +2224,11 @@
     refreshRequestBadges();
     if (!noteNavSection()) refreshNavBadges();
   }
-  function confirmCircuitSignOut() {
-    var n = window.WBCircuitHistory && WBCircuitHistory.pendingCount ? WBCircuitHistory.pendingCount() : 0;
+  function circuitUserId() {
+    return libraryUserId || libraryOwner() || '';
+  }
+  function confirmCircuitSignOut(userId) {
+    var n = window.WBCircuitHistory && WBCircuitHistory.pendingCount ? WBCircuitHistory.pendingCount(userId || circuitUserId()) : 0;
     if (!n) return true;
     var msg = n === 1
       ? 'A group circuit is still on this phone and has not been sent. Sign out anyway?'
@@ -2232,10 +2236,11 @@
     return confirm(msg);
   }
   function signOutFromAccount() {
-    if (!confirmCircuitSignOut()) return;
+    var signingOut = circuitUserId();
+    if (!confirmCircuitSignOut(signingOut)) return;
     var from = hashPage();
     WBAuth.signOut().then(function () {
-      if (window.WBCircuitHistory) WBCircuitHistory.clearQueue();
+      if (window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
       cachedProfile = null;
@@ -2798,9 +2803,10 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        if (!confirmCircuitSignOut()) return;
+        var signingOut = session && session.user && session.user.id || circuitUserId();
+        if (!confirmCircuitSignOut(signingOut)) return;
         return WBAuth.signOut().then(function () {
-          if (window.WBCircuitHistory) WBCircuitHistory.clearQueue();
+          if (window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
           forgetRequestBadges();
           clearNavBadges();
           cachedProfile = null;

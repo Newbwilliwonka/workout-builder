@@ -1468,12 +1468,17 @@
     return /invitees/i.test(msg) && /schema cache|could not find|PGRST204|42703|does not exist/i.test(msg);
   }
   function circuitSaveError(err) {
-    var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
-    if (/schema cache|could not find the function|PGRST202|PGRST205|42883|42P01/i.test(msg)) {
-      return new Error('Saving a circuit is not available yet.');
+    var msg = String((err && (err.message || err.details || err.hint)) || '');
+    var code = String(err && err.code || '');
+    var out;
+    if (/schema cache|could not find the function|PGRST202|PGRST205|42883|42P01/i.test(msg + ' ' + code)) {
+      out = new Error('Saving a circuit is not available yet.');
+    } else {
+      var line = msg.split('\n')[0];
+      out = new Error(line || 'Could not save the circuit.');
     }
-    var line = msg.split('\n')[0];
-    return new Error(line || 'Could not save the circuit.');
+    if (code) out.code = code;
+    return out;
   }
   function circuitError(err) {
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');

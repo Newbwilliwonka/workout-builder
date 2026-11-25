@@ -15,6 +15,9 @@
   var anchorWall = 0;
   var anchorElapsed = 0;
   var startedAt = null;
+  var runnerId = '';
+  var ownerId = '';
+  var sessionReady = null;
   var record = null;
   var summaryStatus = 'completed';
   var tracking = true;
@@ -286,7 +289,8 @@
     h += unplacedHtml();
     h += benchHtml();
     if (mode === 'place') {
-      h += '<button type="button" class="pri circuit-start" data-act="start"' + ((tracking && ready()) ? '' : ' disabled') + '>Start</button>';
+      if (tracking && !runnerId) h += '<p class="mute" id="circuit-signin">Sign in to run a class.</p>';
+      h += '<button type="button" class="pri circuit-start" data-act="start"' + ((tracking && ready() && runnerId) ? '' : ' disabled') + '>Start</button>';
     } else {
       h += '<div class="circuit-end-slot"><button type="button" class="circuit-end" data-act="end">End session</button></div>';
     }
@@ -441,7 +445,8 @@
         state: state,
         running: running,
         wallAt: wall(),
-        startedAt: startedAt
+        startedAt: startedAt,
+        ownerId: ownerId
       }));
       lastPersist = wall();
     } catch (e) {}
@@ -473,7 +478,8 @@
     );
   }
   function onStart() {
-    if (!ready() || !clockApi()) return;
+    if (!ready() || !clockApi() || !runnerId) return;
+    ownerId = runnerId;
     state = model().beginRun(doc, assigned);
     startedAt = Date.now();
     running = true;
@@ -542,15 +548,21 @@
       stations: stations,
       people: done.people
     };
+    var stamped = ownerId;
+    if (!stamped) {
+      if (ctx && ctx.toast) ctx.toast('Sign in to run a class.');
+      return;
+    }
     var who = root.WBAuth && root.WBAuth.session ? Promise.resolve().then(function () { return WBAuth.session(); }) : Promise.resolve(null);
     who.then(function (session) {
-      var id = session && session.user && session.user.id || '';
-      return WBCircuitHistory.saveRecord(body, status, id);
+      var current = session && session.user && session.user.id || '';
+      return WBCircuitHistory.saveRecord(body, status, stamped, current);
     }, function () {
-      return WBCircuitHistory.saveRecord(body, status, '');
+      return WBCircuitHistory.saveRecord(body, status, stamped, '');
     }).then(function () {}, function (err) {
       if (!ctx || !ctx.toast) return;
-      if (err && err.permanent) ctx.toast((err && err.message) || 'That circuit could not be saved.');
+      if (err && err.permanent) ctx.toast('Could not save ' + (err.circuitName || 'that circuit') + '.');
+      else if (err && err.signin) ctx.toast('Sign in to run a class.');
       else ctx.toast('Saved on this phone. It will send when you have a signal.');
     });
   }
@@ -746,6 +758,7 @@
     view = snap.view === 'list' ? 'list' : 'grid';
     assigned = snap.assigned || {};
     startedAt = snap.startedAt || null;
+    ownerId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(snap.ownerId || '')) ? String(snap.ownerId) : '';
     selected = '';
     if (snap.mode === 'live' && snap.state) {
       var extra = snap.running ? Math.max(0, wall() - (snap.wallAt || wall())) : 0;
@@ -764,7 +777,27 @@
     mode = 'place';
     state = null;
     running = false;
+    ownerId = '';
     paint();
+  }
+  function ensureRunner() {
+    if (sessionReady) return sessionReady;
+    var auth = root.WBAuth;
+    if (!auth || !auth.session) {
+      sessionReady = Promise.resolve('');
+      return sessionReady;
+    }
+    sessionReady = Promise.resolve().then(function () { return auth.session(); }).then(function (session) {
+      runnerId = session && session.user && session.user.id || '';
+      if (runnerId && root.WBCircuitHistory) WBCircuitHistory.flush(runnerId);
+      if (ctx && mode === 'place') paint();
+      return runnerId;
+    }, function () {
+      runnerId = '';
+      if (ctx && mode === 'place') paint();
+      return '';
+    });
+    return sessionReady;
   }
   function unavailable(err) {
     return (err && err.message) || 'Group circuits are not available yet. Apply the circuits SQL in the Supabase SQL editor.';
@@ -806,6 +839,8 @@
       pending = root.WBAuth && root.WBAuth.circuits ? root.WBAuth.circuits() : Promise.reject(new Error(unavailable()));
     } catch (e) { pending = Promise.reject(e); }
     Promise.resolve(pending).then(function (list) {
+      return ensureRunner().then(function () { return list; });
+    }).then(function (list) {
       if (token !== loadToken || !ctx) return;
       var row = (list || []).filter(function (item) { return item && String(item.id) === String(id); })[0];
       if (!row) return showError('That circuit was not found.');
@@ -847,11 +882,7 @@
     var parts = hashParts();
     if (parts[0] !== 'circuits' || !parts[1] || (parts[2] !== 'run' && parts[2] !== 'view')) return showError('That circuit was not found.');
     tracking = parts[2] !== 'view';
-    if (root.WBCircuitHistory && root.WBAuth && root.WBAuth.session) {
-      Promise.resolve().then(function () { return WBAuth.session(); }).then(function (session) {
-        if (session && session.user) WBCircuitHistory.flush(session.user.id);
-      }, function () {});
-    }
+    ensureRunner();
     load(parts[1]);
   }
   function stop() {
@@ -872,6 +903,9 @@
     state = null;
     running = false;
     drag = null;
+    runnerId = '';
+    ownerId = '';
+    sessionReady = null;
   }
   function back() {
     if (!ctx) return false;

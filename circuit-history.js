@@ -85,80 +85,114 @@
     try {
       var raw = root.localStorage.getItem(QUEUE);
       var list = raw ? JSON.parse(raw) : [];
-      return Array.isArray(list) ? list : [];
+      if (!Array.isArray(list)) return [];
+      var out = [];
+      list.forEach(function (row) {
+        var id = uuid(row && (row.ownerId || row.userId));
+        if (!id || !row.payload || !row.payload.runId) return;
+        out.push({ ownerId: id, payload: row.payload });
+      });
+      return out;
     } catch (e) { return []; }
   }
   function writeQueue(list) {
     try { root.localStorage.setItem(QUEUE, JSON.stringify(list || [])); } catch (e) {}
   }
-  function permanentError(err) {
-    var msg = String((err && err.message) || '');
-    return /choose a linked client|that circuit could not be saved/i.test(msg);
+  function errorCode(err) {
+    return String(err && err.code || '').toUpperCase();
   }
-  function remember(userId, payload) {
-    var id = String(userId || '');
+  function staleWindow(payload) {
+    var started = Date.parse(payload && payload.startedAt);
+    var ended = Date.parse(payload && payload.endedAt);
+    if (!isFinite(started)) return false;
+    if (started < Date.now() - 7 * 24 * 60 * 60 * 1000) return true;
+    if (isFinite(ended) && ended - started > 6 * 60 * 60 * 1000) return true;
+    return false;
+  }
+  function permanentError(err, payload) {
+    var code = errorCode(err);
+    if (code === '22023' || code === 'P0102' || code === '42501') return true;
+    if (code === 'P0101') return staleWindow(payload);
+    return false;
+  }
+  function remember(ownerId, payload) {
+    var id = uuid(ownerId);
+    if (!id || !payload || !payload.runId) return;
     var list = readQueue().filter(function (row) {
-      return !(row && row.userId === id && row.payload && row.payload.runId === payload.runId);
+      return !(row.ownerId === id && row.payload.runId === payload.runId);
     });
-    list.push({ userId: id, payload: payload });
+    list.push({ ownerId: id, payload: payload });
     writeQueue(list);
   }
-  function forget(userId, runId) {
-    var id = String(userId || '');
+  function forget(ownerId, runId) {
+    var id = uuid(ownerId);
+    if (!id) return;
     writeQueue(readQueue().filter(function (row) {
-      return !(row && row.userId === id && row.payload && row.payload.runId === runId);
+      return !(row.ownerId === id && row.payload.runId === runId);
     }));
   }
-  function clearQueue() {
-    writeQueue([]);
+  function clearFor(ownerId) {
+    var id = uuid(ownerId);
+    if (!id) return;
+    writeQueue(readQueue().filter(function (row) { return row.ownerId !== id; }));
   }
-  function pendingCount() {
-    return readQueue().length;
+  function pendingCount(ownerId) {
+    var id = uuid(ownerId);
+    if (!id) return 0;
+    var n = 0;
+    readQueue().forEach(function (row) { if (row.ownerId === id) n += 1; });
+    return n;
   }
-  function savePayload(userId, payload, opts) {
-    opts = opts || {};
+  function savePayload(ownerId, payload) {
     var auth = root.WBAuth;
-    var storedAs = opts.unowned ? '' : String(userId || '');
-    if (!userId) {
-      remember('', payload);
-      return Promise.reject(new Error('Saved on this phone. It will send when you have a signal.'));
+    var id = uuid(ownerId);
+    if (!id) {
+      var blocked = new Error('Sign in to run a class.');
+      blocked.signin = true;
+      return Promise.reject(blocked);
     }
     if (!auth || !auth.circuitSaveRun) {
-      remember(storedAs, payload);
+      remember(id, payload);
       return Promise.reject(new Error('Saving a circuit is not available yet.'));
     }
     return Promise.resolve().then(function () { return auth.circuitSaveRun(payload); }).then(function () {
-      forget(storedAs, payload.runId);
-      if (storedAs !== userId) forget(userId, payload.runId);
+      forget(id, payload.runId);
       return { ok: true };
     }, function (err) {
       err = err || new Error('Could not save the circuit.');
-      if (permanentError(err)) {
+      if (permanentError(err, payload)) {
         err.permanent = true;
-        forget(storedAs, payload.runId);
-        if (storedAs !== userId) forget(userId, payload.runId);
+        err.circuitName = payload.name || 'that circuit';
+        forget(id, payload.runId);
         return Promise.reject(err);
       }
-      remember(storedAs, payload);
+      remember(id, payload);
       return Promise.reject(err);
     });
   }
-  function saveRecord(record, status, userId) {
+  function saveRecord(record, status, ownerId, signedInId) {
     var payload = payloadFromRecord(record, status);
     if (record && record.runId) payload.runId = safeId(record.runId) || payload.runId;
-    return savePayload(userId || '', payload);
+    var owner = uuid(ownerId);
+    if (!owner) {
+      var blocked = new Error('Sign in to run a class.');
+      blocked.signin = true;
+      return Promise.reject(blocked);
+    }
+    if (uuid(signedInId) !== owner) {
+      remember(owner, payload);
+      return Promise.reject(new Error('Saved on this phone. It will send when you have a signal.'));
+    }
+    return savePayload(owner, payload);
   }
-  function flush(userId) {
-    var id = String(userId || '');
+  function flush(signedInId) {
+    var id = uuid(signedInId);
     if (!id) return Promise.resolve(readQueue());
-    var pending = readQueue().filter(function (row) {
-      return row && row.payload && (row.userId === id || !row.userId);
-    });
+    var pending = readQueue().filter(function (row) { return row.ownerId === id; });
     if (!pending.length) return Promise.resolve([]);
     function step(i) {
       if (i >= pending.length) return Promise.resolve(readQueue());
-      var row = pending[i];
-      return savePayload(id, row.payload, { unowned: !row.userId }).then(function () {
+      return savePayload(id, pending[i].payload).then(function () {
         return step(i + 1);
       }, function () { return step(i + 1); });
     }
@@ -172,7 +206,7 @@
     permanentError: permanentError,
     remember: remember,
     forget: forget,
-    clearQueue: clearQueue,
+    clearFor: clearFor,
     pendingCount: pendingCount,
     saveRecord: saveRecord,
     flush: flush

@@ -79,55 +79,116 @@ global.localStorage = {
   getItem: function (key) { return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null; },
   setItem: function (key, value) { store[key] = String(value); }
 };
-const H2 = require('../circuit-history.js');
-H2.remember('trainer-1', { runId: 'run-a', name: 'Friday circuit' });
-H2.remember('trainer-2', { runId: 'run-b', name: 'Other' });
-assert.strictEqual(H2.readQueue().length, 2);
-assert.strictEqual(H.permanentError(new Error('Choose a linked client.')), true);
-assert.strictEqual(H.permanentError(new Error('That circuit could not be saved.')), true);
-assert.strictEqual(H.permanentError(new Error('Only a trainer can save a circuit.')), false);
-assert.strictEqual(H.permanentError(new Error('That circuit is outside the save window.')), false);
-assert.strictEqual(H.permanentError(new Error('Saving a circuit is not available yet.')), false);
-assert.strictEqual(H.permanentError(new Error('Sign in first.')), false);
-assert.strictEqual(H.permanentError(new Error('Failed to fetch')), false);
-assert.strictEqual(H.permanentError(new Error('null value in column "manual" of relation "circuit_runs"')), false);
-H2.forget('trainer-1', 'run-a');
-assert.strictEqual(H2.readQueue().length, 1);
-H2.clearQueue();
-assert.strictEqual(H2.readQueue().length, 0);
+const A = '11111111-1111-4111-8111-111111111111';
+const B = '22222222-2222-4222-8222-222222222222';
+function coded(code) {
+  var err = new Error('save failed');
+  err.code = code;
+  return err;
+}
+const now = Date.now();
+const recent = new Date(now - 60 * 1000).toISOString();
+const soon = new Date(now + 10 * 60 * 1000).toISOString();
+const weekAgo = new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString();
+const longEnd = new Date(now - 60 * 1000 + 7 * 60 * 60 * 1000).toISOString();
+assert.strictEqual(H.permanentError(coded('22023'), { startedAt: recent, endedAt: recent }), true);
+assert.strictEqual(H.permanentError(coded('P0102'), { startedAt: recent, endedAt: recent }), true);
+assert.strictEqual(H.permanentError(coded('42501'), { startedAt: recent, endedAt: recent }), true);
+assert.strictEqual(H.permanentError(coded('P0101'), { startedAt: weekAgo, endedAt: weekAgo }), true);
+assert.strictEqual(H.permanentError(coded('P0101'), { startedAt: recent, endedAt: longEnd }), true);
+assert.strictEqual(H.permanentError(coded('P0101'), { startedAt: soon, endedAt: soon }), false);
+assert.strictEqual(H.permanentError(new Error('Choose a linked client.'), { startedAt: recent, endedAt: recent }), false);
+assert.strictEqual(H.permanentError(new Error('Failed to fetch'), { startedAt: recent, endedAt: recent }), false);
+assert.strictEqual(H.permanentError(coded('28000'), { startedAt: recent, endedAt: recent }), false);
 
 const sent = [];
 global.WBAuth = {
-  circuitSaveRun: function () {
-    return Promise.reject(new Error('Only a trainer can save a circuit.'));
+  circuitSaveRun: function (row) {
+    sent.push(row.runId);
+    return Promise.resolve({ ok: true });
   }
 };
-H.saveRecord({
-  runId: 'run-held',
-  name: 'Friday circuit',
-  stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
-  people: []
-}, 'completed', '').then(function () {
-  throw new Error('a run with no user id should stay on the phone');
+H.saveRecord({ runId: 'run-a', name: 'Friday circuit', startedAt: recent, endedAt: recent }, 'completed', A, A).then(function () {
+  assert.deepStrictEqual(sent, ['run-a']);
+  assert.strictEqual(H.pendingCount(A), 0);
+  sent.length = 0;
+  return H.saveRecord({ runId: 'run-b', name: 'Other class', startedAt: recent, endedAt: recent }, 'completed', A, B);
+}).then(function () {
+  throw new Error('another user sent the run');
 }, function (err) {
   assert.ok(!err.permanent);
-  assert.strictEqual(err.unsigned, undefined);
-  assert.strictEqual(H.readQueue().length, 1);
-  assert.strictEqual(H.readQueue()[0].userId, '');
-  assert.strictEqual(H.readQueue()[0].payload.runId, 'run-held');
-  return H.flush('client-1');
+  assert.deepStrictEqual(sent, []);
+  assert.strictEqual(H.pendingCount(A), 1);
+  assert.strictEqual(H.readQueue()[0].ownerId, A);
+  return H.flush(B);
 }).then(function () {
-  assert.strictEqual(H.readQueue().length, 1);
-  assert.strictEqual(H.readQueue()[0].userId, '');
-  assert.strictEqual(H.readQueue()[0].payload.runId, 'run-held');
+  assert.deepStrictEqual(sent, []);
+  assert.strictEqual(H.pendingCount(A), 1);
+  H.remember(B, { runId: 'run-c', name: 'Kept class', startedAt: recent, endedAt: recent });
+  assert.strictEqual(H.pendingCount(B), 1);
+  H.clearFor(A);
+  assert.strictEqual(H.pendingCount(A), 0);
+  assert.strictEqual(H.pendingCount(B), 1);
+  H.clearFor(B);
+  assert.strictEqual(H.readQueue().length, 0);
+  global.WBAuth.circuitSaveRun = function () { return Promise.reject(coded('22023')); };
+  return H.saveRecord({ runId: 'run-bad', name: 'Friday circuit', startedAt: recent, endedAt: recent }, 'completed', A, A);
+}).then(function () {
+  throw new Error('validation was kept');
+}, function (err) {
+  assert.strictEqual(err.permanent, true);
+  assert.strictEqual(err.circuitName, 'Friday circuit');
+  assert.strictEqual(H.pendingCount(A), 0);
+  global.WBAuth.circuitSaveRun = function () { return Promise.reject(coded('P0102')); };
+  return H.saveRecord({ runId: 'run-link', name: 'Friday circuit', startedAt: recent, endedAt: recent }, 'completed', A, A);
+}).then(function () {
+  throw new Error('unlinked client was kept');
+}, function (err) {
+  assert.strictEqual(err.permanent, true);
+  assert.strictEqual(H.pendingCount(A), 0);
+  global.WBAuth.circuitSaveRun = function () { return Promise.reject(coded('42501')); };
+  return H.saveRecord({ runId: 'run-role', name: 'Friday circuit', startedAt: recent, endedAt: recent }, 'completed', A, A);
+}).then(function () {
+  throw new Error('trainer role was kept');
+}, function (err) {
+  assert.strictEqual(err.permanent, true);
+  assert.strictEqual(H.pendingCount(A), 0);
+  global.WBAuth.circuitSaveRun = function () { return Promise.reject(coded('P0101')); };
+  return H.saveRecord({ runId: 'run-old', name: 'Friday circuit', startedAt: weekAgo, endedAt: weekAgo }, 'completed', A, A);
+}).then(function () {
+  throw new Error('old run was kept');
+}, function (err) {
+  assert.strictEqual(err.permanent, true);
+  assert.strictEqual(H.pendingCount(A), 0);
+  return H.saveRecord({ runId: 'run-long', name: 'Friday circuit', startedAt: recent, endedAt: longEnd }, 'completed', A, A);
+}).then(function () {
+  throw new Error('long run was kept');
+}, function (err) {
+  assert.strictEqual(err.permanent, true);
+  assert.strictEqual(H.pendingCount(A), 0);
+  return H.saveRecord({ runId: 'run-skew', name: 'Friday circuit', startedAt: soon, endedAt: soon }, 'completed', A, A);
+}).then(function () {
+  throw new Error('clock skew was dropped');
+}, function (err) {
+  assert.ok(!err.permanent);
+  assert.strictEqual(H.pendingCount(A), 1);
+  assert.strictEqual(H.readQueue()[0].payload.runId, 'run-skew');
+  H.clearFor(A);
+  global.WBAuth.circuitSaveRun = function () { return Promise.reject(new Error('Failed to fetch')); };
+  return H.saveRecord({ runId: 'run-net', name: 'Friday circuit', startedAt: recent, endedAt: recent }, 'completed', A, A);
+}).then(function () {
+  throw new Error('network error was dropped');
+}, function (err) {
+  assert.ok(!err.permanent);
+  assert.strictEqual(H.pendingCount(A), 1);
   global.WBAuth.circuitSaveRun = function (row) {
     sent.push(row.runId);
     return Promise.resolve({ ok: true });
   };
-  return H.flush('trainer-1');
+  return H.flush(A);
 }).then(function () {
-  assert.deepStrictEqual(sent, ['run-held']);
-  assert.strictEqual(H.readQueue().length, 0);
+  assert.deepStrictEqual(sent, ['run-net']);
+  assert.strictEqual(H.pendingCount(A), 0);
   console.log('CIRCUIT HISTORY UNIT OK');
 }).catch(function (err) {
   console.error(err);
