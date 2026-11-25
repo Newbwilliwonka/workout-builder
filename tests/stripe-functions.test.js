@@ -50,6 +50,22 @@ function stripeMock() {
           return { url: 'https://billing.stripe.com/p/session/test_portal' };
         }
       }
+    },
+    subscriptions: {
+      retrieve: async function (id) {
+        calls.push(['subscriptions.retrieve', id]);
+        return {
+          id: id,
+          current_period_end: Date.parse('2027-03-01T00:00:00.000Z') / 1000,
+          metadata: { supabase_user_id: USER },
+          items: {
+            data: [{
+              price: { id: 'price_current', lookup_key: 'master_trainer_standard_monthly' },
+              current_period_end: Date.parse('2027-03-01T00:00:00.000Z') / 1000
+            }]
+          }
+        };
+      }
     }
   };
 }
@@ -763,6 +779,75 @@ async function main() {
   });
   assert.ok(names(neverPaid.calls).indexOf('apply_stripe_membership') === -1);
 
+  const prorated = eventDb();
+  const currentEnd = Date.parse('2027-03-01T00:00:00.000Z') / 1000;
+  const prorateStripe = stripeMock();
+  await webhook.handleWebhook({
+    stripe: prorateStripe,
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_prorate1',
+        type: 'invoice.paid',
+        data: {
+          object: {
+            customer: 'cus_Existing1',
+            period_end: Date.parse('2026-01-01T00:00:00.000Z') / 1000,
+            parent: { subscription_details: { subscription: 'sub_payer001', metadata: { supabase_user_id: USER } } },
+            lines: {
+              data: [
+                {
+                  amount: -999,
+                  proration: true,
+                  type: 'invoiceitem',
+                  period: { end: Date.parse('2026-06-01T00:00:00.000Z') / 1000 },
+                  pricing: { price_details: { price: { id: 'price_old', lookup_key: 'enthusiast_beta_monthly' } } }
+                }
+              ]
+            }
+          }
+        }
+      };
+    },
+    db: prorated
+  });
+  assert.deepStrictEqual(prorateStripe.calls.filter(function (row) { return row[0] === 'subscriptions.retrieve'; })[0], ['subscriptions.retrieve', 'sub_payer001']);
+  const proratedGrant = prorated.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
+  assert.strictEqual(proratedGrant.p_plan, 'master_trainer');
+  assert.strictEqual(proratedGrant.p_period_end, new Date(currentEnd * 1000).toISOString());
+
+  const expiredOld = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_expired_old',
+        type: 'checkout.session.expired',
+        data: { object: { id: 'cs_test_old', metadata: { reservation_id: RES } } }
+      };
+    },
+    db: expiredOld
+  });
+  const currentRelease = expiredOld.calls.filter(function (row) { return row[0] === 'beta_reservation_release_current'; })[0][1];
+  assert.strictEqual(currentRelease.p_reservation, RES);
+  assert.strictEqual(currentRelease.p_checkout_session_id, 'cs_test_old');
+  assert.ok(names(expiredOld.calls).indexOf('beta_reservation_release') === -1);
+
+  const holdSql = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20261125220000_beta_hold_35_minutes.sql'), 'utf8');
+  assert.ok(holdSql.indexOf('greatest(expires_at, now() + interval \'35 minutes\')') !== -1);
+  assert.ok(holdSql.indexOf('beta_reservation_release_current') !== -1);
+  assert.ok(holdSql.indexOf('security definer') !== -1);
+  assert.ok(holdSql.indexOf("set search_path = ''") !== -1);
+
   const cors = await import(path.join(shared, 'billing-cors.mjs'));
   assert.strictEqual(cors.allowedOrigin('https://coachtrainerapp.com'), 'https://coachtrainerapp.com');
   assert.strictEqual(cors.allowedOrigin('http://localhost:8787'), 'http://localhost:8787');
@@ -790,7 +875,6 @@ async function main() {
   assert.strictEqual(wrapped.headers.get('access-control-allow-origin'), 'https://coachtrainerapp.com');
   assert.strictEqual(wrapped.headers.get('vary'), 'Origin');
 
-  const holdSql = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20261125220000_beta_hold_35_minutes.sql'), 'utf8');
   assert.ok(holdSql.indexOf("interval '35 minutes'") !== -1);
   const checkoutSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/create-checkout-session/index.ts'), 'utf8');
   const portalSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/create-portal-session/index.ts'), 'utf8');

@@ -186,17 +186,11 @@ async function dispatch(stripe, db, event) {
 
   if (type === 'checkout.session.async_payment_failed' || type === 'checkout.session.expired') {
     const reservation = object.metadata && object.metadata.reservation_id
-    if (reservation && UUID.test(String(reservation))) {
-      await db.rpc('beta_reservation_release', {
-        p_profile: null,
-        p_checkout_session_id: null,
-        p_reservation: String(reservation)
-      })
-    } else if (object.id) {
-      await db.rpc('beta_reservation_release', {
-        p_profile: null,
-        p_checkout_session_id: object.id,
-        p_reservation: null
+    const reservationId = reservation && UUID.test(String(reservation)) ? String(reservation) : null
+    if (object.id) {
+      await db.rpc('beta_reservation_release_current', {
+        p_reservation: reservationId,
+        p_checkout_session_id: object.id
       })
     }
     return
@@ -288,11 +282,21 @@ async function dispatch(stripe, db, event) {
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
     const profile = row.id
-    const choice = invoiceChoice(object, subObject)
+    let choice = invoiceChoice(object, subObject)
+    let periodSource = subObject
+    if (!choice.ref) {
+      const subId = typeof sub === 'string' ? sub : idOf(sub)
+      if (subId && stripe && stripe.subscriptions && stripe.subscriptions.retrieve) {
+        const loaded = await stripe.subscriptions.retrieve(subId)
+        periodSource = loaded
+        choice = invoiceChoice(object, loaded)
+        if (!choice.ref) choice = { ref: subscriptionPrice(loaded), line: null }
+      }
+    }
     const plan = await planForPrice(stripe, choice.ref)
     if (!plan) throw new BillingError('Checkout could not be started.', 500)
     const period = linePeriodEnd(choice.line)
-      || subscriptionPeriodEnd(subObject)
+      || subscriptionPeriodEnd(periodSource)
       || isoFromUnix(object.period_end)
     await db.rpc('apply_stripe_membership', {
       p_profile: profile,
