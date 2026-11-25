@@ -188,6 +188,112 @@ function birthdayIso() {
   assert.strictEqual(read.indexOf(born), -1);
   assert.strictEqual(read.indexOf('@'), -1);
   assert.strictEqual(await page.$('#client-birthday'), null);
+  const saved = await page.$eval('#client-info', function (el) {
+    function styleOf(node) {
+      var s = getComputedStyle(node);
+      return { size: s.fontSize, weight: s.fontWeight, color: s.color, bg: s.backgroundColor, radius: s.borderRadius };
+    }
+    var tile = el.querySelector('.client-stat');
+    var pill = el.querySelector('.goal-pill');
+    var title = el.querySelector('.name');
+    return {
+      titles: Array.prototype.map.call(el.querySelectorAll('.name'), function (n) { return n.textContent; }),
+      tiles: Array.prototype.map.call(el.querySelectorAll('.client-stat'), function (n) {
+        return n.querySelector('.client-stat-k').textContent + ':' + n.querySelector('.client-stat-v').textContent;
+      }),
+      pills: Array.prototype.map.call(el.querySelectorAll('.goal-pill'), function (n) { return n.textContent; }),
+      rule: !!el.querySelector('.client-rule'),
+      edit: (el.querySelector('#client-info-edit') || {}).textContent || '',
+      title: styleOf(title),
+      tile: styleOf(tile),
+      label: styleOf(tile.querySelector('.client-stat-k')),
+      value: styleOf(tile.querySelector('.client-stat-v')),
+      pill: styleOf(pill),
+      before: getComputedStyle(pill, '::before').content,
+      border: getComputedStyle(pill).borderTopWidth + ' ' + getComputedStyle(pill).borderTopStyle,
+      editGap: getComputedStyle(el.querySelector('#client-info-edit')).marginTop
+    };
+  });
+  assert.deepStrictEqual(saved.titles, ['About you', 'Goals']);
+  assert.deepStrictEqual(saved.tiles, ['Age:30', 'Sex:Female', 'Height:5 ft 8 in', 'Weight:150 lb']);
+  assert.deepStrictEqual(saved.pills, ['Weight or fat loss', 'Athletic performance', 'Track a 10k']);
+  assert.strictEqual(saved.rule, true);
+  assert.strictEqual(saved.edit, 'Edit');
+  assert.strictEqual(saved.title.size, '16px');
+  assert.strictEqual(saved.title.weight, '700');
+  assert.strictEqual(saved.tile.bg, 'rgb(243, 244, 246)');
+  assert.strictEqual(saved.tile.radius, '12px');
+  assert.strictEqual(saved.label.color, 'rgb(107, 114, 128)');
+  assert.strictEqual(saved.value.weight, '700');
+  assert.strictEqual(saved.value.color, 'rgb(17, 24, 39)');
+  assert.strictEqual(saved.pill.bg, 'rgb(239, 246, 255)');
+  assert.strictEqual(saved.pill.color, 'rgb(37, 99, 235)');
+  assert.strictEqual(saved.pill.weight, '600');
+  assert.strictEqual(saved.before, 'none');
+  assert.strictEqual(saved.border, '0px none');
+  assert.strictEqual(saved.editGap, '14px');
+
+  await page.click('#client-info-edit');
+  await page.waitForSelector('#client-birthday');
+  await page.$eval('#client-info', function (box) {
+    box.querySelector('#client-birthday').value = '';
+    box.querySelector('#client-ft').value = '';
+    box.querySelector('#client-in').value = '';
+    box.querySelector('#client-lb').value = '';
+    box.querySelectorAll('input[name="client-sex"]').forEach(function (el) { el.checked = false; });
+  });
+  await page.click('#client-info-save');
+  await page.waitForSelector('#client-info-edit');
+  const goalsOnly = await page.$eval('#client-info', function (el) {
+    return {
+      titles: Array.prototype.map.call(el.querySelectorAll('.name'), function (n) { return n.textContent; }),
+      tiles: el.querySelectorAll('.client-stat').length,
+      rule: !!el.querySelector('.client-rule'),
+      pills: el.querySelectorAll('.goal-pill').length
+    };
+  });
+  assert.deepStrictEqual(goalsOnly.titles, ['Goals']);
+  assert.strictEqual(goalsOnly.tiles, 0);
+  assert.strictEqual(goalsOnly.rule, false);
+  assert.strictEqual(goalsOnly.pills, 3);
+
+  await page.click('#client-info-edit');
+  await page.waitForSelector('#client-birthday');
+  await page.$eval('#client-info', function (box, born) {
+    box.querySelector('#client-birthday').value = born;
+    box.querySelector('input[value="female"]').checked = true;
+    box.querySelector('#client-ft').value = '5';
+    box.querySelector('#client-in').value = '8';
+    box.querySelector('#client-lb').value = '150';
+    box.querySelectorAll('input[name="client-goal"]').forEach(function (el) { el.checked = false; });
+    box.querySelector('#client-other').value = '';
+  }, born);
+  await page.click('#client-info-save');
+  await page.waitForSelector('#client-info-edit');
+  const aboutOnly = await page.$eval('#client-info', function (el) {
+    return {
+      titles: Array.prototype.map.call(el.querySelectorAll('.name'), function (n) { return n.textContent; }),
+      tiles: el.querySelectorAll('.client-stat').length,
+      rule: !!el.querySelector('.client-rule'),
+      goals: el.textContent.indexOf('Goals')
+    };
+  });
+  assert.deepStrictEqual(aboutOnly.titles, ['About you']);
+  assert.strictEqual(aboutOnly.tiles, 4);
+  assert.strictEqual(aboutOnly.rule, false);
+  assert.strictEqual(aboutOnly.goals, -1);
+
+  await page.click('#client-info-edit');
+  await page.waitForSelector('#client-other');
+  await page.click('#client-info input[value="Weight or fat loss"]');
+  await page.click('#client-info input[value="Athletic performance"]');
+  await page.click('#client-info input[value="Other"]');
+  await page.$eval('#client-other', function (el) { el.value = 'Track a 10k'; });
+  await page.click('#client-info-save');
+  await page.waitForFunction(function () {
+    var box = document.getElementById('client-info');
+    return box && box.textContent.indexOf('Track a 10k') !== -1 && box.textContent.indexOf('Age 30') !== -1;
+  });
 
   await page.evaluate(function () { window.__infoFail = true; location.hash = '#/'; });
   await page.waitForFunction(function () { return location.hash === '#/' || location.hash === ''; });
@@ -356,6 +462,19 @@ function birthdayIso() {
     return err && err.textContent.indexOf('Could not load client info.') !== -1
       && box && box.textContent.indexOf('Age ') === -1 && box.textContent.indexOf('Track a 10k') === -1;
   });
+
+  await page.evaluate(function () {
+    window.__infoFail = false;
+    window.__infoHold = false;
+    window.__infoDelay = false;
+    var id = window.__userId;
+    window.__infoByUser[id] = { birthday: null, sex: null, height_cm: null, weight_kg: null, goals: [], goals_other: null };
+    location.hash = '#/';
+  });
+  await page.waitForFunction(function () { return location.hash === '#/' || location.hash === ''; });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForSelector('#account-card');
+  await page.waitForFunction(function () { return !document.getElementById('client-info'); });
 
   for (var i = 0; i < ['enthusiast', 'trainer', 'master_trainer'].length; i++) {
     var plan = ['enthusiast', 'trainer', 'master_trainer'][i];

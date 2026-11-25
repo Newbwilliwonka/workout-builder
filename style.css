@@ -330,8 +330,16 @@ button.avatar{border:0;cursor:pointer}
 .client-measures span{color:var(--mute);font-size:13px;font-weight:700}
 #client-info .client-goal{display:flex;align-items:center;gap:8px;margin:6px 0;color:var(--ink);font-weight:600}
 .client-goal input{width:18px;height:18px;min-height:18px;flex:none}
-#client-info .client-read p{margin:0 0 2px;color:var(--ink);font-weight:600}
-#client-info-edit{display:inline;width:auto;min-height:0;margin:6px 0 0;padding:0;border:0;border-radius:0;background:transparent;color:var(--pri);font-size:13px;font-weight:700;line-height:inherit;cursor:pointer}
+#client-info>.name{margin:0}
+#client-info .client-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+#client-info .client-stat{background:var(--bg);border-radius:12px;padding:10px 12px}
+#client-info .client-stat-k{display:block;font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--mute)}
+#client-info .client-stat-v{display:block;margin-top:2px;font-size:18px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink)}
+#client-info .client-rule{height:0;margin:14px 0;border:0;border-top:1px solid var(--line)}
+#client-info .client-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+#client-info .goal-pill{display:inline-block;height:auto;min-height:0;margin:0;border:0;background:#eff6ff;color:var(--pri);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:600;letter-spacing:0;text-transform:none;line-height:1.3}
+#client-info .goal-pill::before{content:none}
+#client-info-edit{display:inline;width:auto;min-height:0;margin:14px 0 0;padding:0;border:0;border-radius:0;background:transparent;color:var(--pri);font-size:13px;font-weight:700;line-height:inherit;cursor:pointer}
 #client-info-save{width:100%;margin-top:12px}
 #client-info .errs[hidden]{display:none}
 #account-signout,#header-signin{color:#d1d5db;font-size:14px;font-weight:600;text-decoration:none;padding:6px 0 6px 8px;white-space:nowrap;background:none;border:0;height:auto;min-height:0}
