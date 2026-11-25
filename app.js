@@ -1588,7 +1588,7 @@
       go('#/signin');
     }
     if (!mustSignOut || !WBAuth.signOut) return goSign();
-    var signingOut = circuitUserId();
+    signedInCircuitId().then(function (signingOut) {
     if (!confirmCircuitSignOut(signingOut)) return;
     // Sign out before dropping the lock. A failed read can leave the recovery
     // session in place, and clearing the lock first would open the app.
@@ -1596,7 +1596,7 @@
     recoverySettled = false;
     renderReset();
     Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
-      if (window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
+      if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
       cachedProfile = null;
@@ -1604,6 +1604,7 @@
       goSign();
     }, function () {
       holdRecovery('Could not sign out. Stay here until the new password is set.');
+    });
     });
   }
   function holdRecovery(message) {
@@ -2224,11 +2225,14 @@
     refreshRequestBadges();
     if (!noteNavSection()) refreshNavBadges();
   }
-  function circuitUserId() {
-    return libraryUserId || libraryOwner() || '';
+  function signedInCircuitId() {
+    if (!window.WBAuth || !WBAuth.session) return Promise.resolve('');
+    return Promise.resolve().then(function () { return WBAuth.session(); }).then(function (session) {
+      return session && session.user && session.user.id || '';
+    }, function () { return ''; });
   }
   function confirmCircuitSignOut(userId) {
-    var n = window.WBCircuitHistory && WBCircuitHistory.pendingCount ? WBCircuitHistory.pendingCount(userId || circuitUserId()) : 0;
+    var n = userId && window.WBCircuitHistory && WBCircuitHistory.pendingCount ? WBCircuitHistory.pendingCount(userId) : 0;
     if (!n) return true;
     var msg = n === 1
       ? 'A group circuit is still on this phone and has not been sent. Sign out anyway?'
@@ -2236,11 +2240,11 @@
     return confirm(msg);
   }
   function signOutFromAccount() {
-    var signingOut = circuitUserId();
+    signedInCircuitId().then(function (signingOut) {
     if (!confirmCircuitSignOut(signingOut)) return;
     var from = hashPage();
     WBAuth.signOut().then(function () {
-      if (window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
+      if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
       cachedProfile = null;
@@ -2262,6 +2266,7 @@
     }).catch(function (err) {
       if (hashPage() !== from) return;
       app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
+    });
     });
   }
   var accountSignOut = document.getElementById('account-signout');
@@ -2803,10 +2808,10 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        var signingOut = session && session.user && session.user.id || circuitUserId();
+        var signingOut = session && session.user && session.user.id || '';
         if (!confirmCircuitSignOut(signingOut)) return;
         return WBAuth.signOut().then(function () {
-          if (window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
+          if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
           forgetRequestBadges();
           clearNavBadges();
           cachedProfile = null;

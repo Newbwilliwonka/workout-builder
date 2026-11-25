@@ -1,5 +1,7 @@
 // Payload, history wording, and the circuit dashboard card. No network.
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const H = require('../circuit-history.js');
 const History = require('../history.js');
 const Dash = require('../dashboard.js');
@@ -100,6 +102,36 @@ assert.strictEqual(H.permanentError(coded('P0101'), { startedAt: soon, endedAt: 
 assert.strictEqual(H.permanentError(new Error('Choose a linked client.'), { startedAt: recent, endedAt: recent }), false);
 assert.strictEqual(H.permanentError(new Error('Failed to fetch'), { startedAt: recent, endedAt: recent }), false);
 assert.strictEqual(H.permanentError(coded('28000'), { startedAt: recent, endedAt: recent }), false);
+
+const appSrc = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+function appSlice(startMark, endMark) {
+  var start = appSrc.indexOf(startMark);
+  var end = appSrc.indexOf(endMark, start + startMark.length);
+  assert.ok(start >= 0 && end > start);
+  return appSrc.slice(start, end);
+}
+const signOutSrc = appSlice('function signOutFromAccount()', 'var accountSignOut');
+const abandonSrc = appSlice('function abandonReset()', 'function holdRecovery');
+const levelSrc = appSlice("closest('#level-signout')", 'forgetRequestBadges');
+const idSrc = appSlice('function signedInCircuitId()', 'function confirmCircuitSignOut');
+[signOutSrc, abandonSrc, levelSrc, idSrc].forEach(function (src) {
+  assert.ok(src.indexOf('libraryOwner(') < 0);
+  assert.ok(src.indexOf('circuitUserId') < 0);
+});
+assert.ok(idSrc.indexOf('WBAuth.session') >= 0);
+assert.ok(signOutSrc.indexOf('signedInCircuitId()') >= 0);
+assert.ok(abandonSrc.indexOf('signedInCircuitId()') >= 0);
+assert.ok(appSrc.indexOf('function circuitUserId') < 0);
+H.remember(A, { runId: 'keep-a', name: 'Friday circuit', startedAt: recent, endedAt: recent });
+H.remember(B, { runId: 'drop-b', name: 'Other class', startedAt: recent, endedAt: recent });
+H.clearFor(B);
+assert.strictEqual(H.pendingCount(A), 1);
+assert.strictEqual(H.pendingCount(B), 0);
+assert.strictEqual(H.readQueue()[0].payload.runId, 'keep-a');
+H.clearFor('');
+assert.strictEqual(H.pendingCount(A), 1);
+H.clearFor(A);
+assert.strictEqual(H.readQueue().length, 0);
 
 const sent = [];
 global.WBAuth = {
