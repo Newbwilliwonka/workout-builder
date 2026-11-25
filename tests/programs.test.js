@@ -311,19 +311,41 @@ const afterSql = P.merge([keptPending], serverWithoutTimes, self, {}).filter(fun
 assert.strictEqual(afterSql.pending, true);
 assert.strictEqual(afterSql.start, '09:00');
 assert.strictEqual(afterSql.end, '10:30');
+const ada = '22222222-2222-4222-8222-222222222222';
+const ben = '33333333-3333-4333-8333-333333333333';
 const inviteLocal = [{
   id: 'pg9', ownerId: self, workoutId: 'circuit', workoutName: 'Saturday class', date: '2026-11-12',
-  presence: 'trainer', synced: true, updatedAt: 10,
-  invites: ['22222222-2222-4222-8222-222222222222'], invitesPending: true
+  presence: 'trainer', pending: true, updatedAt: 100, invites: [ada]
 }];
+const notOnServerYet = P.merge(inviteLocal, [], self, {}).filter(function (row) { return row.id === 'pg9'; })[0];
+assert.strictEqual(notOnServerYet.pending, true);
+assert.deepStrictEqual(notOnServerYet.invites, [ada]);
 const inviteRemote = [{
   local_id: 'pg9', owner_id: self, workout_local_id: 'circuit', workout_name: 'Saturday class', items: [],
-  day: '2026-11-12', presence: 'trainer', updated_at: new Date(50).toISOString()
+  day: '2026-11-12', presence: 'trainer', invitees: [ada], updated_at: new Date(50).toISOString()
 }];
-const inviteKept = P.merge(inviteLocal, inviteRemote, self, {}).filter(function (row) { return row.id === 'pg9'; })[0];
-assert.strictEqual(inviteKept.invitesPending, true);
-assert.deepStrictEqual(inviteKept.invites, ['22222222-2222-4222-8222-222222222222']);
+const inviteKept = P.merge([{
+  id: 'pg9', ownerId: self, workoutId: 'circuit', workoutName: 'Saturday class', date: '2026-11-12',
+  presence: 'trainer', synced: true, updatedAt: 10, invites: [ada]
+}], inviteRemote, self, {}).filter(function (row) { return row.id === 'pg9'; })[0];
+assert.deepStrictEqual(inviteKept.invites, [ada]);
 assert.ok(!inviteKept.pending);
+assert.ok(!inviteKept.invitesPending);
+const serverList = P.merge([{
+  id: 'pg9', ownerId: self, workoutId: 'circuit', workoutName: 'Saturday class', date: '2026-11-12',
+  presence: 'trainer', synced: true, updatedAt: 10, invites: [ben]
+}], inviteRemote, self, {}).filter(function (row) { return row.id === 'pg9'; })[0];
+assert.deepStrictEqual(serverList.invites, [ada]);
+const localNewer = P.merge(inviteLocal, inviteRemote, self, {}).filter(function (row) { return row.id === 'pg9'; })[0];
+assert.strictEqual(localNewer.pending, true);
+assert.deepStrictEqual(localNewer.invites, [ada]);
+const placedInvites = P.place([], {
+  id: 'pg-inv', ownerId: self, workoutId: 'circuit', workoutName: 'Saturday class', date: '2026-11-12',
+  presence: 'solo', invites: [ada, ada]
+});
+assert.deepStrictEqual(placedInvites.created.invites, [ada]);
+assert.ok(!placedInvites.created.invitesPending);
+assert.strictEqual(placedInvites.created.pending, true);
 assert.strictEqual(P.staleWrite(null, { pg1: 1 }, 'pg1', []), true);
 assert.strictEqual(P.staleWrite({ timesLocal: true }, { pg1: 1 }, 'pg1', []), true);
 assert.strictEqual(P.staleWrite(new Error('offline'), { pg1: 1 }, 'pg1', []), false);

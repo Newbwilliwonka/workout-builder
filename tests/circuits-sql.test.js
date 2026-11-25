@@ -66,7 +66,8 @@ grant execute on function auth.uid() to authenticated, anon;
   'supabase/migrations/20261123200000_circuits.sql',
   'supabase/migrations/20261123200000_circuits.sql',
   'supabase/migrations/20261124220000_circuit_without_saved_clients.sql',
-  'supabase/migrations/20261124200000_circuit_guest_calendar.sql'
+  'supabase/migrations/20261124200000_circuit_guest_calendar.sql',
+  'supabase/migrations/20261124233000_placement_invitees.sql'
 ].forEach(function (file) { psql('wb_circuits_test', null, path.join(root, file)); });
 
 const good = JSON.stringify({
@@ -293,6 +294,9 @@ begin
   if (select count(*) from public.circuit_placement_invites where placement_id = 'pg-invite' and client_id = '${C}') <> 1 then
     raise exception 'atomic save dropped the linked invite';
   end if;
+  if (select invitees from public.program_entries where local_id = 'pg-invite') is distinct from array['${C}']::uuid[] then
+    raise exception 'invites were not stored on the placement row';
+  end if;
   begin
     perform public.circuit_placement_invites_save('pg-invite', array['${E}']::uuid[]);
     raise exception 'unlinked invite saved';
@@ -310,6 +314,20 @@ begin
   exception when others then
     if SQLERRM like '%unlinked row inserted%' then raise; end if;
   end;
+  begin
+    update public.program_entries set invitees = array['${E}']::uuid[] where local_id = 'pg-invite';
+    raise exception 'unlinked column saved';
+  exception when others then
+    if SQLERRM like '%unlinked column saved%' then raise; end if;
+    if SQLERRM not like '%Invite only linked clients%' then raise; end if;
+  end;
+  if (select invitees from public.program_entries where local_id = 'pg-invite') is distinct from array['${C}']::uuid[] then
+    raise exception 'failed invite write changed the placement';
+  end if;
+  delete from public.program_entries where local_id = 'pg-invite';
+  if (select count(*) from public.circuit_placement_invites where placement_id = 'pg-invite') <> 0 then
+    raise exception 'deleting the placement left invites';
+  end if;
 end $$;
 
 reset role;

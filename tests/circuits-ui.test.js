@@ -76,6 +76,7 @@ async function stub(page, membership, userId) {
             starts_at: entry.start,
             ends_at: entry.end,
             presence: entry.presence,
+            invitees: Array.isArray(entry.invites) ? entry.invites.slice() : [],
             updated_at: new Date().toISOString()
           });
           return new Promise(function (resolve) { setTimeout(function () { resolve(true); }, 30); });
@@ -84,13 +85,6 @@ async function stub(page, membership, userId) {
           window.__calls = window.__calls || [];
           window.__calls.push('delete');
           window.__remotePrograms = remotePrograms().filter(function (row) { return row.local_id !== localId; });
-          return Promise.resolve(true);
-        };
-        api.saveCircuitInvites = function (entry) {
-          window.__calls = window.__calls || [];
-          window.__calls.push('invites');
-          window.__invites = (entry && entry.invites) || [];
-          if (window.__failInvites) return Promise.reject(new Error('invite failed'));
           return Promise.resolve(true);
         };
         api.circuitGuestPlacements = function (clientId) {
@@ -453,13 +447,18 @@ async function shot(page, name) {
   await page.waitForFunction(function () {
     var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
     var calls = window.__calls || [];
-    var sent = window.__invites || [];
+    var remote = window.__remotePrograms || [];
     var scheduled = rows.some(function (row) {
-      return row.workoutName === 'Saturday class' && row.items && row.items[0] && row.items[0].source === 'circuit';
+      return row.workoutName === 'Saturday class' && row.items && row.items[0] && row.items[0].source === 'circuit'
+        && row.invites && row.invites.indexOf('22222222-2222-4222-8222-222222222222') !== -1
+        && row.invites.indexOf('33333333-3333-4333-8333-333333333333') !== -1
+        && !row.pending && !row.invitesPending;
     });
-    return scheduled && calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites')
-      && sent.indexOf('22222222-2222-4222-8222-222222222222') !== -1
-      && sent.indexOf('33333333-3333-4333-8333-333333333333') !== -1;
+    var saved = remote.some(function (row) {
+      return row.invitees && row.invitees.indexOf('22222222-2222-4222-8222-222222222222') !== -1
+        && row.invitees.indexOf('33333333-3333-4333-8333-333333333333') !== -1;
+    });
+    return scheduled && saved && calls.join(',') === 'entry';
   });
   await page.evaluate(function () { window.__failEntry = true; window.__calls = []; });
   await page.evaluate(function (skip) {
@@ -494,7 +493,11 @@ async function shot(page, name) {
   await page.waitForFunction(function () {
     var calls = window.__calls || [];
     var text = document.getElementById('app').innerText;
-    return calls.join(',') === 'entry' && calls.indexOf('invites') === -1 && text.indexOf('Could not save that day.') !== -1;
+    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
+    return calls.join(',') === 'entry' && text.indexOf('Could not save that day.') !== -1
+      && rows.some(function (row) {
+        return row && row.pending && row.invites && row.invites.indexOf('22222222-2222-4222-8222-222222222222') !== -1;
+      });
   });
   await page.evaluate(function () { window.__failEntry = false; window.__calls = []; });
   await page.evaluate(function () { location.hash = '#/'; });
@@ -503,70 +506,15 @@ async function shot(page, name) {
   await page.waitForFunction(function () {
     var calls = window.__calls || [];
     var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
-    var pending = rows.filter(function (row) {
-      return row && row.pending && row.invites && row.invites.length;
+    var remote = window.__remotePrograms || [];
+    var pending = rows.filter(function (row) { return row && row.pending; });
+    var saved = remote.filter(function (row) {
+      return row.invitees && row.invitees.indexOf('22222222-2222-4222-8222-222222222222') !== -1;
     });
-    return calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites') && !pending.length;
-  });
-  await page.evaluate(function () { window.__failInvites = true; window.__calls = []; });
-  await page.evaluate(function (skip) {
-    var days = document.querySelectorAll('.pv-day');
-    var today = document.querySelector('.pv-day.today');
-    var n = 0;
-    for (var i = 0; i < days.length; i++) {
-      if (days[i] === today) continue;
-      if (n === skip) { days[i].querySelector('.pv-day-h').click(); return; }
-      n++;
-    }
-  }, 1);
-  await page.waitForSelector('[data-sheet=add-day]');
-  await page.click('[data-sheet=add-day]');
-  await page.waitForSelector('.pv-pick');
-  await page.evaluate(function () {
-    var picks = document.querySelectorAll('.pv-pick');
-    for (var i = 0; i < picks.length; i++) {
-      if (picks[i].textContent.indexOf('Saturday class') !== -1) { picks[i].click(); return; }
-    }
-  });
-  await page.waitForSelector('[data-invite="' + ADA + '"]');
-  await page.click('[data-invite="' + ADA + '"]');
-  await page.click('#pv-sheet .pv-presence input[value="solo"]');
-  await page.evaluate(function () {
-    document.getElementById('pv-start-h').value = '1';
-    document.getElementById('pv-start-m').value = '00';
-    document.getElementById('pv-end-h').value = '2';
-    document.getElementById('pv-end-m').value = '00';
-  });
-  await page.click('[data-sheet=save]');
-  await page.waitForFunction(function () {
-    var text = document.getElementById('app').innerText;
-    var calls = window.__calls || [];
-    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
-    return text.indexOf('This workout is scheduled. The invites did not save.') !== -1
-      && calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites')
-      && rows.some(function (row) { return row && row.invitesPending && row.invites && row.invites.length; });
-  });
-  await page.evaluate(function () { window.__calls = []; location.hash = '#/'; });
-  await page.waitForSelector('#calendar-open');
-  await page.evaluate(function () { location.hash = '#/programs'; });
-  await page.waitForFunction(function () {
-    var text = document.getElementById('app').innerText;
-    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
-    var calls = window.__calls || [];
-    return text.indexOf('This workout is scheduled. The invites did not save.') !== -1
-      && rows.some(function (row) { return row && row.invitesPending; })
-      && calls.indexOf('invites') !== -1;
-  });
-  await page.evaluate(function () { window.__failInvites = false; window.__calls = []; location.hash = '#/'; });
-  await page.waitForSelector('#calendar-open');
-  await page.evaluate(function () { location.hash = '#/programs'; });
-  await page.waitForFunction(function () {
-    var text = document.getElementById('app').innerText;
-    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
-    var calls = window.__calls || [];
-    return text.indexOf('This workout is scheduled. The invites did not save.') === -1
-      && !rows.some(function (row) { return row && row.invitesPending; })
-      && calls.indexOf('invites') !== -1;
+    return calls.join(',') === 'entry' && !pending.length && saved.length >= 2
+      && rows.some(function (row) {
+        return row && row.invites && row.invites.indexOf('22222222-2222-4222-8222-222222222222') !== -1 && !row.invitesPending;
+      });
   });
   await page.evaluate(function () { window.__calls = []; });
   await page.waitForSelector('.pv-day.today');

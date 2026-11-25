@@ -3618,7 +3618,6 @@
       loadClientWorkout: function (clientId, workoutId) { return loadLinkedWorkout(clientId, workoutId); },
       saveEntry: function (entry) { return WBAuth.saveProgramEntry ? WBAuth.saveProgramEntry(entry) : Promise.reject(new Error('programs')); },
       deleteEntry: function (entry) { return WBAuth.deleteProgramEntry ? WBAuth.deleteProgramEntry(entry.ownerId, entry.id) : Promise.reject(new Error('programs')); },
-      saveInvites: function (entry) { return WBAuth.saveCircuitInvites ? WBAuth.saveCircuitInvites(entry) : Promise.resolve(false); },
       loadCalendar: function (zone, token) { return WBAuth.calendarFeed ? WBAuth.calendarFeed(zone, token) : Promise.reject(Object.assign(new Error('local'), { local: true })); },
       loadCircuits: function () { return WBAuth.circuits ? WBAuth.circuits() : Promise.resolve([]); },
       loadGuestCircuits: function (clientId) {

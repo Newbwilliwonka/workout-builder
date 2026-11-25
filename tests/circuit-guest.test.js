@@ -48,11 +48,25 @@ assert.ok(dropped.includes("new.data := new.data - 'clients'"));
 assert.ok(dropped.includes('Name every station before saving.'));
 assert.ok(!dropped.includes("array['clients', 'clock', 'order', 'stations']"));
 
+const together = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261124233000_placement_invitees.sql'), 'utf8');
+assert.ok(together.includes('program_entries.invitees'));
+assert.ok(together.includes('add column if not exists invitees uuid[]'));
+assert.ok(together.includes('set search_path = public, pg_temp'));
+assert.ok(/security definer/i.test(together));
+assert.ok(together.indexOf('drop function if exists public.circuit_placement_invites_save(text, uuid[])') < together.indexOf('create or replace function public.circuit_placement_invites_save'));
+assert.ok(together.includes('set invitees = wanted'));
+assert.ok(together.includes('Invite only linked clients.'));
+assert.ok(together.includes('link.ended_at is null'));
+assert.ok(together.includes('program_entry_invitees_project'));
+assert.ok(!/\bbegin\s*;/i.test(together));
+assert.ok(!/\bcommit\s*;/i.test(together));
+
 const auth = fs.readFileSync(path.join(__dirname, '../auth.js'), 'utf8');
 assert.ok(auth.includes("rpc('circuit_guest_placements'"));
 assert.ok(auth.includes('if (!res || res.error) return [];'));
-assert.ok(auth.includes("rpc('circuit_placement_invites_save'"));
-assert.ok(auth.includes('Could not save who is invited.'));
+assert.ok(auth.includes('out.invitees = inviteIds'));
+assert.ok(auth.includes('Invites stay on this device until the circuit invite SQL is applied.'));
+assert.ok(!auth.includes("rpc('circuit_placement_invites_save'"));
 assert.ok(!auth.includes("from('circuit_placement_invites')"));
 
 console.log('circuit guest ok');
