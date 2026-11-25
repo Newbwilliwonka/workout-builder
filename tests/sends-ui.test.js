@@ -559,6 +559,26 @@ function armSlow() {
   });
   box.holds = [];
 
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const midHold = armHold();
+  const callsAtMid = box.calls.length;
+  box.holds = [{ promise: Promise.resolve(), fail: false }, midHold];
+  await trainer.click('#send-go');
+  const midDeadline = Date.now() + 4000;
+  while (box.calls.length < callsAtMid + 2 && Date.now() < midDeadline) await new Promise(function (r) { setTimeout(r, 30); });
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.click('[data-pick-client="' + E + '"]');
+  midHold.fail = true;
+  midHold.release();
+  await trainer.waitForFunction(function () {
+    var err = document.getElementById('send-fail');
+    return err && err.textContent === 'Sent 1 workout. Could not send Saturday easy.';
+  });
+  box.holds = [];
+
   const cleanItems = JSON.parse(JSON.stringify(box.copies[0].items));
   box.copies = [
     { id: COPY, ownerId: E, trainerId: T, name: 'Friday full body', items: cleanItems, sourceWorkoutId: 'wo_friday', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },

@@ -460,15 +460,23 @@
     drawSend();
     var index = 0;
     var failed = [];
-    var failedKeys = {};
+    var sentNames = [];
+    var sentKeys = {};
+    plan.forEach(function (item) {
+      if (partialKey === key && succeeded[item.key]) {
+        sentKeys[item.key] = 1;
+        sentNames.push(item.name);
+      }
+    });
+    function noteSent(item) {
+      succeeded[item.key] = 1;
+      if (sentKeys[item.key]) return;
+      sentKeys[item.key] = 1;
+      sentNames.push(item.name);
+    }
     function step() {
       if (index >= pending.length) {
-        var sentNames = [];
-        var failedNames = [];
-        plan.forEach(function (item) {
-          if (failedKeys[item.key]) failedNames.push(item.name);
-          else if (succeeded[item.key]) sentNames.push(item.name);
-        });
+        var failedNames = failed.map(function (item) { return item.name; });
         if (failedNames.length && sentNames.length) return finish(token, key, new Error(partialMessage(sentNames.length, failedNames)));
         if (failed.length) return finish(token, key, failed[0].err || new Error('Could not send'));
         return finish(token, key, null);
@@ -477,13 +485,11 @@
       Promise.resolve().then(function () {
         return auth.sendWorkout(item.deliveries, item.name, item.items, item.source);
       }).then(function () {
-        succeeded[item.key] = 1;
-        delete failedKeys[item.key];
+        noteSent(item);
         index += 1;
         step();
       }, function (err) {
         delete succeeded[item.key];
-        failedKeys[item.key] = 1;
         failed.push({ name: item.name, err: err || new Error('Could not send') });
         index += 1;
         step();
