@@ -212,3 +212,5 @@ begin
   end if;
 end
 $service$;
+
+notify pgrst, 'reload schema';

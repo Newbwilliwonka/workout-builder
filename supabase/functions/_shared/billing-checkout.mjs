@@ -1,4 +1,4 @@
-import { BillingError, assertStripeKeyAllowed } from './billing-guard.mjs'
+import { BillingError, assertStripeKeyAllowed, safeLog } from './billing-guard.mjs'
 import {
   CANCEL_URL,
   INTEGRATION_ID,
@@ -38,52 +38,92 @@ function keepsHold(err, session) {
   return false
 }
 
-function sessionFault(err) {
-  const message = String((err && err.message) || '').toLowerCase()
-  const code = String((err && (err.code || err.type)) || '').toLowerCase()
-  if (message.indexOf('expir') !== -1 || code.indexOf('expir') !== -1) return 'expired'
-  if (message.indexOf('complete') !== -1 || message.indexOf('paid') !== -1 || code.indexOf('complete') !== -1) return 'complete'
-  return ''
+const ALREADY_SUBSCRIBED = 'You already have a subscription. Use Manage billing to change it.'
+
+function httpStatus(err) {
+  if (!err || typeof err !== 'object') return 0
+  if (typeof err.statusCode === 'number') return err.statusCode
+  return 0
 }
 
-async function priorCheckouts(stripe, customerId, storedId) {
-  const found = {}
-  if (storedId && stripe.checkout.sessions.retrieve) {
-    try {
-      const one = await stripe.checkout.sessions.retrieve(storedId)
-      if (one && one.id) found[one.id] = one
-    } catch (err) {
-      if (sessionFault(err) !== 'expired') throw err
-    }
-  }
-  if (customerId && stripe.checkout.sessions.list) {
-    const listed = await stripe.checkout.sessions.list({ customer: customerId, limit: 20 })
-    const rows = (listed && listed.data) || []
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      if (!row || !row.id) continue
-      if (row.status === 'open' || row.status === 'complete') found[row.id] = row
-    }
-  }
-  return Object.keys(found).map(function (id) { return found[id] })
+function isMissing(err) {
+  if (httpStatus(err) === 404) return true
+  return String((err && err.code) || '') === 'resource_missing'
 }
 
-async function expirePrevious(stripe, priors, keepId) {
-  for (let i = 0; i < priors.length; i++) {
-    const prior = priors[i]
-    if (!prior || !prior.id || prior.id === keepId || prior.status === 'expired') continue
-    if (prior.status === 'complete') {
-      throw new BillingError('You already have a subscription. Use Manage billing to change it.', 409)
-    }
+async function readSession(stripe, id) {
+  try {
+    return await stripe.checkout.sessions.retrieve(id)
+  } catch (err) {
+    if (isMissing(err)) return null
+    throw err
+  }
+}
+
+async function blockIfLiveComplete(stripe, storedId) {
+  if (!storedId || !stripe.checkout.sessions.retrieve) return
+  let session
+  try {
+    session = await readSession(stripe, storedId)
+  } catch (_err) {
+    throw new BillingError('Checkout could not be started.', 502)
+  }
+  if (!session || session.status !== 'complete') return
+  const subId = idOf(session.subscription)
+  if (!subId || !stripe.subscriptions || !stripe.subscriptions.retrieve) return
+  let subscription
+  try {
+    subscription = await stripe.subscriptions.retrieve(subId)
+  } catch (err) {
+    if (isMissing(err)) return
+    throw new BillingError('Checkout could not be started.', 502)
+  }
+  if (subscription && OPEN_SUBSCRIPTION[subscription.status]) {
+    throw new BillingError(ALREADY_SUBSCRIBED, 409)
+  }
+}
+
+function logExpireMiss(log, customerId, sessionId) {
+  safeLog(log, {
+    customer_id: customerId,
+    result: 'expire_open_session_failed',
+    note: 'Open Checkout ' + (sessionId || '') + ' could not be expired. The new Checkout URL was still returned.'
+  })
+}
+
+async function expireOtherOpenSessions(stripe, customerId, keepId, log) {
+  if (!customerId || !stripe.checkout.sessions.list || !stripe.checkout.sessions.expire) return
+  let rows
+  try {
+    const listed = await stripe.checkout.sessions.list({
+      customer: customerId,
+      status: 'open',
+      limit: 100
+    })
+    rows = (listed && listed.data) || []
+  } catch (_err) {
+    logExpireMiss(log, customerId, null)
+    return
+  }
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row || !row.id || row.id === keepId) continue
     try {
-      await stripe.checkout.sessions.expire(prior.id)
-    } catch (err) {
-      const fault = sessionFault(err)
-      if (fault === 'expired') continue
-      if (fault === 'complete') {
-        throw new BillingError('You already have a subscription. Use Manage billing to change it.', 409)
+      await stripe.checkout.sessions.expire(row.id)
+    } catch (_err) {
+      let current = null
+      try {
+        current = await readSession(stripe, row.id)
+      } catch (_readErr) {
+        logExpireMiss(log, customerId, row.id)
+        continue
       }
-      throw err
+      if (!current || current.status === 'expired') continue
+      if (current.status === 'complete') {
+        try { await stripe.checkout.sessions.expire(keepId) } catch (_keepErr) {}
+        throw new BillingError(ALREADY_SUBSCRIBED, 409)
+      }
+      logExpireMiss(log, customerId, row.id)
     }
   }
 }
@@ -182,23 +222,18 @@ export async function createCheckoutSession(input) {
   const expiresAt = checkoutExpiresAt(now, holdExpiresAt)
 
   let session
-  let priors = []
+  let customerId = null
   try {
     const price = await priceFor(stripe, plan, tier)
-    const customer = await customerFor(stripe, db, profile, userId, input.email)
-    priors = await priorCheckouts(stripe, customer, priorSessionId)
-    for (let i = 0; i < priors.length; i++) {
-      if (priors[i] && priors[i].status === 'complete') {
-        throw new BillingError('You already have a subscription. Use Manage billing to change it.', 409)
-      }
-    }
+    customerId = await customerFor(stripe, db, profile, userId, input.email)
+    await blockIfLiveComplete(stripe, priorSessionId)
     const metadata = {
       user_id: userId,
       reservation_id: reservationId || ''
     }
     session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      customer: customer,
+      customer: customerId,
       client_reference_id: userId,
       line_items: [{ price: price, quantity: 1 }],
       success_url: SUCCESS_URL,
@@ -239,15 +274,7 @@ export async function createCheckoutSession(input) {
     })
   }
   if (session && session.id) {
-    try {
-      await expirePrevious(stripe, priors, session.id)
-    } catch (err) {
-      if (err instanceof BillingError && err.status === 409 && stripe.checkout.sessions.expire) {
-        try { await stripe.checkout.sessions.expire(session.id) } catch (_expireErr) {}
-      }
-      if (err instanceof BillingError) throw err
-      throw new BillingError('Checkout could not be started.', 502)
-    }
+    await expireOtherOpenSessions(stripe, customerId, session.id, input.log)
   }
 
   if (!session || !session.url) throw new BillingError('Checkout could not be started.', 502)

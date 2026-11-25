@@ -848,107 +848,215 @@ async function main() {
   assert.ok(holdSql.indexOf('security definer') !== -1);
   assert.ok(holdSql.indexOf("set search_path = ''") !== -1);
 
-  const prior = dbMock({
-    profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: {
-      cohort: 'beta',
-      reservation_id: RES,
-      expires_at: '2026-11-25T18:35:00.000Z',
-      checkout_session_id: 'cs_test_old'
-    }
-  });
-  const priorStripe = stripeMock();
-  const priorOrder = [];
-  priorStripe.checkout.sessions.retrieve = async function (id) {
-    priorOrder.push('retrieve');
-    return { id: id, status: 'open' };
-  };
-  priorStripe.checkout.sessions.expire = async function (id) {
-    priorOrder.push('expire:' + id);
-    return { id: id, status: 'expired' };
-  };
-  const priorCreate = priorStripe.checkout.sessions.create;
-  priorStripe.checkout.sessions.create = async function (params) {
-    priorOrder.push('create');
-    return priorCreate(params);
-  };
-  const priorRpc = prior.rpc;
-  prior.rpc = async function (name, args) {
-    if (name === 'beta_reservation_attach') priorOrder.push('attach');
-    return priorRpc(name, args);
-  };
-  const renewed = await checkout.createCheckoutSession({
-    stripe: priorStripe,
-    db: prior,
-    userId: USER,
-    plan: 'enthusiast',
-    secretKey: TEST_KEY,
-    testMode: 'true',
-    now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
-  });
-  assert.strictEqual(renewed.body.url.indexOf('https://checkout.stripe.com/') , 0);
-  assert.deepStrictEqual(priorOrder, ['retrieve', 'create', 'attach', 'expire:cs_test_old']);
-  assert.ok(names(prior.calls).indexOf('beta_reservation_release') === -1);
-
-  const paidAlready = dbMock({
-    profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: {
-      cohort: 'beta',
-      reservation_id: RES,
-      expires_at: '2026-11-25T18:35:00.000Z',
-      checkout_session_id: 'cs_test_done'
-    }
-  });
-  const paidStripe = stripeMock();
-  paidStripe.checkout.sessions.retrieve = async function () {
-    return { id: 'cs_test_done', status: 'complete' };
-  };
-  paidStripe.checkout.sessions.expire = async function () { throw new Error('should not expire'); };
-  await assert.rejects(function () {
+  function heldDb(sessionId, billingStatus) {
+    return dbMock({
+      profile: {
+        access_approved: true,
+        beta_locked: false,
+        stripe_customer_id: 'cus_Existing1',
+        billing_status: billingStatus || null
+      },
+      hold: {
+        cohort: 'beta',
+        reservation_id: RES,
+        expires_at: '2026-11-25T18:35:00.000Z',
+        checkout_session_id: sessionId || null
+      }
+    });
+  }
+  function startCheckout(stripe, db, log) {
     return checkout.createCheckoutSession({
-      stripe: paidStripe,
-      db: paidAlready,
+      stripe: stripe,
+      db: db,
       userId: USER,
       plan: 'enthusiast',
       secretKey: TEST_KEY,
       testMode: 'true',
+      log: log,
       now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
     });
+  }
+
+  const historyDb = heldDb('cs_test_history', 'canceled');
+  const historyStripe = stripeMock();
+  const historyTouched = [];
+  historyStripe.checkout.sessions.retrieve = async function (id) {
+    historyTouched.push('retrieve:' + id);
+    return { id: id, status: 'complete', subscription: 'sub_old' };
+  };
+  historyStripe.subscriptions.retrieve = async function (id) {
+    historyTouched.push('subscription:' + id);
+    return { id: id, status: 'canceled' };
+  };
+  historyStripe.checkout.sessions.list = async function (params) {
+    historyTouched.push('list:' + params.status);
+    if (params.status !== 'open') {
+      return { data: [{ id: 'cs_test_history', status: 'complete' }] };
+    }
+    return { data: [] };
+  };
+  historyStripe.checkout.sessions.expire = async function (id) {
+    historyTouched.push('expire:' + id);
+    return { id: id, status: 'expired' };
+  };
+  const history = await startCheckout(historyStripe, historyDb);
+  assert.ok(history.body.url);
+  assert.ok(historyTouched.indexOf('retrieve:cs_test_history') !== -1);
+  assert.ok(historyTouched.indexOf('subscription:sub_old') !== -1);
+  assert.ok(historyTouched.indexOf('list:open') !== -1);
+  assert.ok(historyTouched.filter(function (step) { return step.indexOf('expire:') === 0; }).length === 0);
+  assert.ok(names(historyDb.calls).indexOf('beta_reservation_release') === -1);
+
+  const liveStatuses = ['active', 'trialing', 'past_due'];
+  for (let s = 0; s < liveStatuses.length; s++) {
+    const liveDb = heldDb('cs_test_done', 'canceled');
+    const liveStripe = stripeMock();
+    const liveTouched = [];
+    liveStripe.checkout.sessions.retrieve = async function () {
+      return { id: 'cs_test_done', status: 'complete', subscription: 'sub_live' };
+    };
+    liveStripe.subscriptions.retrieve = async function () {
+      return { id: 'sub_live', status: liveStatuses[s] };
+    };
+    liveStripe.checkout.sessions.expire = async function (id) {
+      liveTouched.push(id);
+      throw new Error('should not expire');
+    };
+    await assert.rejects(function () {
+      return startCheckout(liveStripe, liveDb);
+    }, function (err) {
+      assert.strictEqual(err.status, 409);
+      assert.ok(/Manage billing/.test(err.message));
+      return true;
+    });
+    assert.ok(liveStripe.calls.filter(function (row) { return row[0] === 'sessions.create'; }).length === 0);
+    assert.deepStrictEqual(liveTouched, []);
+    assert.ok(names(liveDb.calls).indexOf('beta_reservation_release') === -1);
+  }
+
+  const raced = heldDb(null, 'canceled');
+  const racedStripe = stripeMock();
+  const racedOrder = [];
+  racedStripe.checkout.sessions.list = async function (params) {
+    racedOrder.push('list:' + params.status);
+    return {
+      data: [
+        { id: 'cs_test_session1', status: 'open' },
+        { id: 'cs_tab_b', status: 'open' },
+        { id: 'cs_click_c', status: 'open' }
+      ]
+    };
+  };
+  racedStripe.checkout.sessions.expire = async function (id) {
+    racedOrder.push('expire:' + id);
+    return { id: id, status: 'expired' };
+  };
+  const racedCreate = racedStripe.checkout.sessions.create;
+  racedStripe.checkout.sessions.create = async function (params) {
+    racedOrder.push('create');
+    return racedCreate(params);
+  };
+  const racedRpc = raced.rpc;
+  raced.rpc = async function (name, args) {
+    if (name === 'beta_reservation_attach') racedOrder.push('attach');
+    return racedRpc(name, args);
+  };
+  const racedResult = await startCheckout(racedStripe, raced);
+  assert.ok(racedResult.body.url);
+  assert.deepStrictEqual(racedOrder, ['create', 'attach', 'list:open', 'expire:cs_tab_b', 'expire:cs_click_c']);
+
+  const alreadyExpired = heldDb('cs_test_old', 'canceled');
+  const alreadyExpiredStripe = stripeMock();
+  const expiredReads = {};
+  alreadyExpiredStripe.checkout.sessions.retrieve = async function (id) {
+    expiredReads[id] = (expiredReads[id] || 0) + 1;
+    if (expiredReads[id] === 1) return { id: id, status: 'open' };
+    return { id: id, status: 'expired' };
+  };
+  alreadyExpiredStripe.checkout.sessions.list = async function (params) {
+    assert.strictEqual(params.status, 'open');
+    return { data: [{ id: 'cs_test_old', status: 'open' }] };
+  };
+  const expiredIds = [];
+  alreadyExpiredStripe.checkout.sessions.expire = async function (id) {
+    expiredIds.push(id);
+    const failure = new Error('request failed');
+    failure.statusCode = 400;
+    throw failure;
+  };
+  const expiredResult = await startCheckout(alreadyExpiredStripe, alreadyExpired);
+  assert.ok(expiredResult.body.url);
+  assert.deepStrictEqual(expiredIds, ['cs_test_old']);
+
+  const becamePaid = heldDb(null, 'canceled');
+  const becamePaidStripe = stripeMock();
+  const closedIds = [];
+  becamePaidStripe.checkout.sessions.list = async function () {
+    return { data: [{ id: 'cs_other', status: 'open' }] };
+  };
+  becamePaidStripe.checkout.sessions.retrieve = async function (id) {
+    return { id: id, status: 'complete', subscription: 'sub_paid' };
+  };
+  becamePaidStripe.checkout.sessions.expire = async function (id) {
+    closedIds.push(id);
+    if (id === 'cs_other') {
+      const failure = new Error('request failed');
+      failure.statusCode = 400;
+      throw failure;
+    }
+    return { id: id, status: 'expired' };
+  };
+  await assert.rejects(function () {
+    return startCheckout(becamePaidStripe, becamePaid);
   }, function (err) {
     assert.strictEqual(err.status, 409);
     assert.ok(/Manage billing/.test(err.message));
     return true;
   });
-  assert.ok(paidStripe.calls.filter(function (row) { return row[0] === 'sessions.create'; }).length === 0);
-  assert.ok(names(paidAlready.calls).indexOf('beta_reservation_release') === -1);
+  assert.deepStrictEqual(closedIds, ['cs_other', 'cs_test_session1']);
 
-  const stale = dbMock({
-    profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: {
-      cohort: 'beta',
-      reservation_id: RES,
-      expires_at: '2026-11-25T18:35:00.000Z',
-      checkout_session_id: 'cs_test_old'
-    }
-  });
-  const staleStripe = stripeMock();
-  staleStripe.checkout.sessions.retrieve = async function (id) {
+  const flakyLogs = [];
+  const flaky = heldDb(null, 'canceled');
+  const flakyStripe = stripeMock();
+  const flakyExpired = [];
+  flakyStripe.checkout.sessions.list = async function () {
+    return { data: [{ id: 'cs_other', status: 'open' }] };
+  };
+  flakyStripe.checkout.sessions.retrieve = async function () {
+    const failure = new Error('socket');
+    failure.type = 'StripeConnectionError';
+    throw failure;
+  };
+  flakyStripe.checkout.sessions.expire = async function (id) {
+    flakyExpired.push(id);
+    const failure = new Error('upstream');
+    failure.statusCode = 503;
+    failure.type = 'StripeAPIError';
+    throw failure;
+  };
+  const flakyResult = await startCheckout(flakyStripe, flaky, function (fields) { flakyLogs.push(fields); });
+  assert.ok(flakyResult.body.url);
+  assert.deepStrictEqual(flakyExpired, ['cs_other']);
+  assert.ok(JSON.stringify(flakyLogs).indexOf('expire_open_session_failed') !== -1);
+
+  const stillOpenLogs = [];
+  const stillOpen = heldDb(null, 'canceled');
+  const stillOpenStripe = stripeMock();
+  stillOpenStripe.checkout.sessions.list = async function () {
+    return { data: [{ id: 'cs_other', status: 'open' }] };
+  };
+  stillOpenStripe.checkout.sessions.retrieve = async function (id) {
     return { id: id, status: 'open' };
   };
-  staleStripe.checkout.sessions.expire = async function () {
-    throw new Error('This Checkout Session has already expired');
+  stillOpenStripe.checkout.sessions.expire = async function () {
+    const failure = new Error('request failed');
+    failure.statusCode = 500;
+    throw failure;
   };
-  const staleResult = await checkout.createCheckoutSession({
-    stripe: staleStripe,
-    db: stale,
-    userId: USER,
-    plan: 'enthusiast',
-    secretKey: TEST_KEY,
-    testMode: 'true',
-    now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
-  });
-  assert.ok(staleResult.body.url);
-  assert.ok(names(stale.calls).indexOf('beta_reservation_release') === -1);
+  const stillOpenResult = await startCheckout(stillOpenStripe, stillOpen, function (fields) { stillOpenLogs.push(fields); });
+  assert.ok(stillOpenResult.body.url);
+  assert.ok(JSON.stringify(stillOpenLogs).indexOf('expire_open_session_failed') !== -1);
+  assert.ok(JSON.stringify(stillOpenLogs).indexOf('cs_other') !== -1);
 
   const dupLogs = [];
   const dupStripe = stripeMock();
@@ -1059,6 +1167,7 @@ async function main() {
   assert.strictEqual(wrapped.headers.get('vary'), 'Origin');
 
   assert.ok(holdSql.indexOf("interval '35 minutes'") !== -1);
+  assert.ok(holdSql.indexOf("notify pgrst, 'reload schema'") !== -1);
   const checkoutSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/create-checkout-session/index.ts'), 'utf8');
   const portalSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/create-portal-session/index.ts'), 'utf8');
   const webhookSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/stripe-webhook/index.ts'), 'utf8');

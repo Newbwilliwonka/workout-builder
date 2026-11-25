@@ -4,7 +4,7 @@
 import { withSupabase } from 'npm:@supabase/server@1'
 import { bridgeServiceRole } from '../_shared/stripe-env.ts'
 import { readStripeEnv, stripeClient } from '../_shared/stripe-client.ts'
-import { BillingError, publicMessage } from '../_shared/billing-guard.mjs'
+import { BillingError, publicMessage, safeLog } from '../_shared/billing-guard.mjs'
 import { createCheckoutSession, planFromBody } from '../_shared/billing-checkout.mjs'
 import { applyCors, preflightResponse } from '../_shared/billing-cors.mjs'
 
@@ -45,6 +45,9 @@ const authed = withSupabase({ auth: 'user', cors: 'disabled' }, async (req, ctx)
         userId: userId,
         email: ctx.userClaims && ctx.userClaims.email,
         plan: planFromBody(body),
+        log: function (fields: Record<string, string>) {
+          safeLog(function (safe: Record<string, string>) { console.log(JSON.stringify(safe)) }, fields)
+        },
         db: {
           loadProfile: async function (id: string) {
             const { data, error } = await admin
