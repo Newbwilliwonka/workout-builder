@@ -49,7 +49,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await seed(signedOut);
   await denied(signedOut, '#/', '');
   await signedOut.waitForFunction(() => document.body.innerText.includes('Choose how you want to train') && document.getElementById('header-signin').hidden && document.querySelector('#landing a[href="#/signin"]'));
-  assert.strictEqual(await signedOut.$eval('#landing h2', e => e.textContent), 'Create team Drills with cones and events.');
+  assert.strictEqual(await signedOut.$eval('#landing h2', e => e.textContent), 'Build custom training sessions using reps, intervals, timed sets, and a built-in stopwatch to record laps with events for speed and skill.');
   assert.ok((await signedOut.$eval('#landing', el => el.innerText)).includes('Choose how you want to train'));
   assert.strictEqual(await signedOut.$('#redeem, #invite-code, [data-plan]'), null);
   assert.strictEqual(await signedOut.$eval('#nav-links', el => el.hidden), true);
