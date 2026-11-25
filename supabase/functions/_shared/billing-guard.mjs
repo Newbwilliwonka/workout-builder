@@ -36,6 +36,7 @@ const PUBLIC_MESSAGE = [
   'The billing page opens after an admin approves the account.',
   'This account keeps its current plan. Checkout is not used.',
   'You already have a subscription. Use Manage billing to change it.',
+  'Checkout is starting, try again in a moment.',
   'That account was not found.',
   'Checkout could not be started.',
   'Billing starts after you subscribe.',

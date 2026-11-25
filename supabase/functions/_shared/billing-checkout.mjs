@@ -11,6 +11,9 @@ const OPEN_SUBSCRIPTION = { active: true, trialing: true, past_due: true }
 const BETA_LIMIT = 100
 const RECENT_SECONDS = 30 * 60
 const ALREADY = 'You already have a subscription. Use Manage billing to change it.'
+const STARTING = 'Checkout is starting, try again in a moment.'
+const WAIT_STEP_MS = 400
+const WAIT_LIMIT_MS = 10000
 
 function idOf(value) {
   if (!value) return null
@@ -155,15 +158,44 @@ async function payingAlready(stripe, customerId, nowMs) {
   return false
 }
 
-async function waitForOffer(stripe, customerId, plan, tier) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+function waitTiming(input) {
+  const step = Number(input && input.waitMs)
+  const limit = Number(input && input.waitForMs)
+  return {
+    step: step >= 0 ? step : WAIT_STEP_MS,
+    limit: limit >= 0 ? limit : WAIT_LIMIT_MS
+  }
+}
+
+function sleep(ms) {
+  if (!ms) return Promise.resolve()
+  return new Promise(function (resolve) { setTimeout(resolve, ms) })
+}
+
+async function waitForOffer(stripe, customerId, plan, tier, step, limit) {
+  const started = Date.now()
+  do {
     const open = byCreated(await listOpen(stripe, customerId))
     for (let i = 0; i < open.length; i++) {
       if (sameOffer(open[i], plan, tier) && open[i].url) return open[i].url
     }
-    if (attempt < 2) await new Promise(function (resolve) { setTimeout(resolve, 20) })
-  }
+    if (Date.now() - started >= limit) return null
+    await sleep(step)
+  } while (Date.now() - started < limit)
   return null
+}
+
+async function pollClaim(db, userId, plan, step, limit) {
+  const started = Date.now()
+  let claim = null
+  do {
+    if (Date.now() - started >= limit && claim) return claim
+    claim = await db.rpc('checkout_claim', { p_profile: userId, p_plan: plan })
+    if (claim && claim.granted === true) return claim
+    if (Date.now() - started >= limit) return claim
+    await sleep(step)
+  } while (Date.now() - started < limit)
+  return claim
 }
 
 async function keepEarliest(stripe, rows) {
@@ -212,6 +244,8 @@ export async function createCheckoutSession(input) {
     tier = paid < BETA_LIMIT ? 'beta' : 'standard'
   }
 
+  const timing = waitTiming(input)
+  let ownClaim = false
   try {
     const price = await priceFor(stripe, plan, tier)
     const customer = await customerFor(stripe, db, profile, userId, input.email)
@@ -219,11 +253,20 @@ export async function createCheckoutSession(input) {
       throw new BillingError(ALREADY, 409)
     }
 
-    const claim = await db.rpc('checkout_claim', { p_profile: userId, p_plan: plan })
+    let claim = await db.rpc('checkout_claim', { p_profile: userId, p_plan: plan })
     if (!claim || claim.granted !== true) {
-      const waiting = await waitForOffer(stripe, customer, plan, tier)
-      if (waiting) return { status: 200, body: { url: waiting } }
-      throw new BillingError('Checkout could not be started.', 502)
+      const heldPlan = claim && claim.plan
+      if (heldPlan && heldPlan !== plan) {
+        claim = await pollClaim(db, userId, plan, timing.step, timing.limit)
+        if (!claim || claim.granted !== true) throw new BillingError(STARTING, 409)
+        ownClaim = true
+      } else {
+        const waiting = await waitForOffer(stripe, customer, plan, tier, timing.step, timing.limit)
+        if (waiting) return { status: 200, body: { url: waiting } }
+        throw new BillingError(STARTING, 409)
+      }
+    } else {
+      ownClaim = true
     }
 
     let open = await listOpen(stripe, customer)
@@ -278,5 +321,13 @@ export async function createCheckoutSession(input) {
   } catch (err) {
     if (err instanceof BillingError) throw err
     throw new BillingError('Checkout could not be started.', 502)
+  } finally {
+    if (ownClaim) {
+      try {
+        await db.rpc('checkout_claim_release', { p_profile: userId })
+      } catch (_releaseErr) {
+        // The claim expires on its own if this release does not land.
+      }
+    }
   }
 }

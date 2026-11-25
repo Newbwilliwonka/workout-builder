@@ -67,6 +67,7 @@ do $$
 declare
   n integer;
   locked boolean;
+  result jsonb;
 begin
   if has_function_privilege('authenticated', 'public.beta_paid_count()', 'execute')
      or has_function_privilege('anon', 'public.beta_paid_count()', 'execute')
@@ -97,17 +98,31 @@ begin
      or has_function_privilege('authenticated', 'public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone)', 'execute') then
     raise exception 'a signed-in person can claim Checkout or write billing';
   end if;
+  if not has_function_privilege('service_role', 'public.checkout_claim_release(uuid)', 'execute')
+     or has_function_privilege('authenticated', 'public.checkout_claim_release(uuid)', 'execute') then
+    raise exception 'Checkout claim release has the wrong grants';
+  end if;
   if not has_function_privilege('service_role', 'public.checkout_claim(uuid, text)', 'execute')
      or not has_function_privilege('service_role', 'public.billing_write(uuid, text, text, text, text, text, timestamp with time zone, boolean)', 'execute')
      or not has_function_privilege('service_role', 'public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone)', 'execute') then
     raise exception 'service role cannot claim Checkout or write billing';
   end if;
 
-  if (public.checkout_claim('${USER}'::uuid, 'enthusiast') ->> 'granted')::boolean is not true then
-    raise exception 'the first Checkout claim was refused';
+  result := public.checkout_claim('${USER}'::uuid, 'enthusiast');
+  if (result ->> 'granted')::boolean is not true
+     or result ->> 'plan' is distinct from 'enthusiast' then
+    raise exception 'the first Checkout claim was %', result;
   end if;
-  if (public.checkout_claim('${USER}'::uuid, 'trainer') ->> 'granted')::boolean then
-    raise exception 'a second Checkout claim was granted';
+  result := public.checkout_claim('${USER}'::uuid, 'trainer');
+  if (result ->> 'granted')::boolean
+     or result ->> 'plan' is distinct from 'enthusiast' then
+    raise exception 'a second Checkout claim was %', result;
+  end if;
+  perform public.checkout_claim_release('${USER}'::uuid);
+  result := public.checkout_claim('${USER}'::uuid, 'trainer');
+  if (result ->> 'granted')::boolean is not true
+     or result ->> 'plan' is distinct from 'trainer' then
+    raise exception 'release did not free the claim: %', result;
   end if;
 end $$;
 `);

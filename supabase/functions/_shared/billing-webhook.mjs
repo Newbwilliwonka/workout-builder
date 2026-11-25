@@ -123,36 +123,52 @@ async function parsedPrice(stripe, ref) {
   return planFromLookupKey(price && price.lookup_key)
 }
 
-function paymentIntentId(invoice) {
-  const direct = idOf(invoice && invoice.payment_intent)
-  if (direct) return direct
-  const payments = invoice && invoice.payments && (invoice.payments.data || invoice.payments)
-  if (!Array.isArray(payments)) return null
-  for (let i = 0; i < payments.length; i++) {
-    const payment = payments[i] && (payments[i].payment || payments[i])
-    const intent = idOf(payment && payment.payment_intent)
-    if (intent) return intent
-  }
+function paymentRefund(row) {
+  const payment = row && (row.payment || row)
+  if (!payment) return null
+  const intent = idOf(payment.payment_intent)
+  if (intent) return { payment_intent: intent }
+  const charge = idOf(payment.charge)
+  if (charge) return { charge: charge }
   return null
 }
 
+async function invoicePaymentRows(stripe, invoice) {
+  if (stripe.invoicePayments && stripe.invoicePayments.list && invoice && invoice.id) {
+    const listed = await stripe.invoicePayments.list({
+      invoice: invoice.id,
+      limit: 10,
+      expand: ['data.payment.payment_intent']
+    })
+    return (listed && listed.data) || []
+  }
+  const embedded = invoice && invoice.payments && (invoice.payments.data || invoice.payments)
+  if (Array.isArray(embedded)) return embedded
+  return []
+}
+
 async function refundFirstInvoice(stripe, subscriptionId) {
-  if (!stripe.invoices || !stripe.invoices.list || !stripe.refunds || !stripe.refunds.create) return
+  if (!stripe.invoices || !stripe.invoices.list || !stripe.refunds || !stripe.refunds.create) {
+    throw new BillingError('Checkout could not be started.', 502)
+  }
   const listed = await stripe.invoices.list({ subscription: subscriptionId, limit: 100 })
   const rows = (listed && listed.data) || []
   const paid = []
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i] && (rows[i].status === 'paid' || rows[i].paid === true)) paid.push(rows[i])
+    if (rows[i] && rows[i].status === 'paid' && rows[i].id) paid.push(rows[i])
   }
-  if (!paid.length) return
+  if (!paid.length) throw new BillingError('Checkout could not be started.', 502)
   paid.sort(function (a, b) { return Number(a.created || 0) - Number(b.created || 0) })
   const first = paid[0]
-  const intent = paymentIntentId(first)
-  const charge = idOf(first.charge)
-  if (!intent && !charge) return
+  const payments = await invoicePaymentRows(stripe, first)
+  let target = null
+  for (let i = 0; i < payments.length; i++) {
+    target = paymentRefund(payments[i])
+    if (target) break
+  }
+  if (!target) throw new BillingError('Checkout could not be started.', 502)
   try {
-    if (intent) await stripe.refunds.create({ payment_intent: intent })
-    else await stripe.refunds.create({ charge: charge })
+    await stripe.refunds.create(target, { idempotencyKey: 'refund-' + first.id })
   } catch (err) {
     if (err && err.code === 'charge_already_refunded') return
     throw err
@@ -246,10 +262,33 @@ async function settleDuplicate(stripe, db, log, profileId, signal, plan, custome
     }
   }
   await cancelAndRefund(stripe, log, newerId, customerId, eventType)
+  return olderId
 }
 
 async function billingWrite(db, args) {
   return db.rpc('billing_write', args)
+}
+
+const LIVE_SUBSCRIPTION = { active: true, trialing: true, past_due: true }
+
+async function sweepNewerSubscriptions(stripe, log, keptId, customerId, eventType) {
+  if (!keptId || !customerId || !stripe.subscriptions || !stripe.subscriptions.list) return
+  const listed = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 100 })
+  const data = (listed && listed.data) || []
+  let keptCreated = null
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i]
+    if (!row || !row.id || row.id === keptId) continue
+    if (!LIVE_SUBSCRIPTION[row.status]) continue
+    if (keptCreated == null) {
+      const kept = await stripe.subscriptions.retrieve(keptId)
+      keptCreated = Number(kept && kept.created) || 0
+    }
+    const created = Number(row.created) || 0
+    if (created >= keptCreated) {
+      await cancelAndRefund(stripe, log, row.id, customerId, eventType)
+    }
+  }
 }
 
 async function dispatch(stripe, db, event, log) {
@@ -398,9 +437,12 @@ async function dispatch(stripe, db, event, log) {
       p_period_end: period,
       p_beta: parsed.tier === 'beta'
     })
+    const payer = row.stripe_customer_id || customerId
+    let keptId = paidSubId
     if (written && written.duplicate === true) {
-      await settleDuplicate(stripe, db, log, profile, written, parsed.plan, row.stripe_customer_id || customerId, period, type)
+      keptId = await settleDuplicate(stripe, db, log, profile, written, parsed.plan, payer, period, type)
     }
+    await sweepNewerSubscriptions(stripe, log, keptId, payer, type)
     return
   }
 

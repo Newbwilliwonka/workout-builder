@@ -896,12 +896,17 @@ async function main() {
   };
   dupStripe.invoices = {
     list: async function () {
-      return { data: [{ id: 'in_first', status: 'paid', created: 10, payment_intent: 'pi_first' }] };
+      return { data: [{ id: 'in_first', status: 'paid', created: 10 }] };
+    }
+  };
+  dupStripe.invoicePayments = {
+    list: async function (params) {
+      return { data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_first' }, invoice: params.invoice }] };
     }
   };
   dupStripe.refunds = {
-    create: async function (params) {
-      refunds.push(params);
+    create: async function (params, opts) {
+      refunds.push([params, opts]);
       return { id: 're_first' };
     }
   };
@@ -949,7 +954,7 @@ async function main() {
   });
   assert.strictEqual(dupPaid.status, 200);
   assert.deepStrictEqual(canceled, ['sub_duplicate']);
-  assert.deepStrictEqual(refunds, [{ payment_intent: 'pi_first' }]);
+  assert.deepStrictEqual(refunds, [[{ payment_intent: 'pi_first' }, { idempotencyKey: 'refund-in_first' }]]);
   assert.ok(names(dupDb.calls).indexOf('apply_stripe_membership') === -1);
   assert.ok(names(dupDb.calls).indexOf('mark_beta_paid') === -1);
   assert.ok(JSON.stringify(dupLogs).indexOf('Refund the duplicate subscription') !== -1);
@@ -1309,8 +1314,13 @@ async function main() {
     staleCanceled.push(id);
     return { id: id, status: 'canceled' };
   };
-  staleStripe.invoices = { list: async function () { return { data: [{ id: 'in_new', status: 'paid', created: 1, payment_intent: 'pi_new' }] }; } };
-  staleStripe.refunds = { create: async function (params) { staleRefunds.push(params); return { id: 're_new' }; } };
+  staleStripe.invoices = { list: async function () { return { data: [{ id: 'in_new', status: 'paid', created: 1 }] }; } };
+  staleStripe.invoicePayments = {
+    list: async function () {
+      return { data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_new' } }] };
+    }
+  };
+  staleStripe.refunds = { create: async function (params, opts) { staleRefunds.push([params, opts]); return { id: 're_new' }; } };
   const stored = { id: null };
   const staleDb = eventDb({
     profiles: {
@@ -1380,8 +1390,222 @@ async function main() {
   });
   assert.deepStrictEqual(keptIds, ['sub_older']);
   assert.deepStrictEqual(staleCanceled, ['sub_newer']);
-  assert.deepStrictEqual(staleRefunds, [{ payment_intent: 'pi_new' }]);
+  assert.deepStrictEqual(staleRefunds, [[{ payment_intent: 'pi_new' }, { idempotencyKey: 'refund-in_new' }]]);
   assert.strictEqual(stored.id, 'sub_older');
+
+  const missingPay = stripeMock();
+  missingPay.subscriptions.retrieve = async function (id) {
+    return { id: id, status: 'active', created: id === 'sub_duplicate' ? 200 : 100 };
+  };
+  missingPay.subscriptions.cancel = async function (id) {
+    return { id: id, status: 'canceled' };
+  };
+  missingPay.invoices = { list: async function () { return { data: [{ id: 'in_empty', status: 'paid', created: 4 }] }; } };
+  missingPay.invoicePayments = { list: async function () { return { data: [] }; } };
+  missingPay.refunds = { create: async function () { throw new Error('should not refund'); } };
+  await assert.rejects(function () {
+    return webhook.handleWebhook({
+      stripe: missingPay,
+      secretKey: TEST_KEY,
+      testMode: 'true',
+      webhookSecret: 'whsec_' + 'example',
+      rawBody: '{}',
+      signature: 'good',
+      constructEvent: function () {
+        return {
+          id: 'evt_missing_pay',
+          type: 'invoice.paid',
+          data: {
+            object: {
+              customer: 'cus_Existing1',
+              parent: { subscription_details: { subscription: 'sub_duplicate', metadata: { supabase_user_id: USER } } },
+              lines: {
+                data: [{
+                  type: 'subscription',
+                  amount: 999,
+                  proration: false,
+                  pricing: { price_details: { price: { id: 'price_1', lookup_key: 'enthusiast_standard_monthly' } } }
+                }]
+              }
+            }
+          }
+        };
+      },
+      db: eventDb({
+        billingWrite: function (args) {
+          return {
+            duplicate: true,
+            kept_subscription_id: 'sub_payer001',
+            incoming_subscription_id: args.p_subscription_id
+          };
+        }
+      })
+    });
+  }, function (err) {
+    assert.ok(!err.status || err.status >= 400);
+    return true;
+  });
+
+  const retrySweep = stripeMock();
+  const sweepCanceled = [];
+  retrySweep.subscriptions.list = async function () {
+    return {
+      data: [
+        { id: 'sub_older', status: 'active', created: 100 },
+        { id: 'sub_newer', status: 'active', created: 400 }
+      ]
+    };
+  };
+  retrySweep.subscriptions.retrieve = async function (id) {
+    return { id: id, status: 'active', created: id === 'sub_newer' ? 400 : 100 };
+  };
+  retrySweep.subscriptions.cancel = async function (id) {
+    sweepCanceled.push(id);
+    return { id: id, status: 'canceled' };
+  };
+  retrySweep.invoices = { list: async function () { return { data: [{ id: 'in_retry', status: 'paid', created: 2 }] }; } };
+  retrySweep.invoicePayments = { list: async function () { return { data: [{ payment: { payment_intent: 'pi_retry' } }] }; } };
+  retrySweep.refunds = { create: async function () { return { id: 're_retry' }; } };
+  const retryPaid = await webhook.handleWebhook({
+    stripe: retrySweep,
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_retry_older',
+        type: 'invoice.paid',
+        data: {
+          object: {
+            customer: 'cus_Existing1',
+            parent: { subscription_details: { subscription: 'sub_older', metadata: { supabase_user_id: USER } } },
+            lines: {
+              data: [{
+                type: 'subscription',
+                amount: 999,
+                proration: false,
+                pricing: { price_details: { price: { id: 'price_1', lookup_key: 'enthusiast_beta_monthly' } } }
+              }]
+            }
+          }
+        }
+      };
+    },
+    db: eventDb({
+      profiles: {
+        cus_Existing1: {
+          id: USER,
+          complimentary: false,
+          billing_status: 'active',
+          stripe_subscription_id: 'sub_older',
+          stripe_customer_id: 'cus_Existing1'
+        }
+      },
+      billingWrite: function () {
+        return { applied: true, duplicate: false };
+      }
+    })
+  });
+  assert.strictEqual(retryPaid.status, 200);
+  assert.deepStrictEqual(sweepCanceled, ['sub_newer']);
+
+  const switchDb = dbMock({
+    profile: { access_approved: true, billing_status: null, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
+    betaCount: 4
+  });
+  let planClaims = 0;
+  switchDb.rpc = async function (name, args) {
+    switchDb.calls.push([name, args]);
+    if (name === 'beta_paid_count') return 4;
+    if (name === 'checkout_claim') {
+      planClaims += 1;
+      if (planClaims === 1) return { granted: false, plan: 'enthusiast' };
+      return { granted: true, plan: args.p_plan };
+    }
+    if (name === 'checkout_claim_release') return {};
+    return { applied: true };
+  };
+  const switchStripe = stripeMock();
+  const replaced = [];
+  switchStripe.checkout.sessions.list = async function (params) {
+    if (params.status !== 'open') return { data: [] };
+    if (replaced.indexOf('cs_old_plan') !== -1) return { data: [] };
+    return {
+      data: [{
+        id: 'cs_old_plan',
+        status: 'open',
+        created: 3,
+        url: 'https://checkout.stripe.com/c/pay/cs_old_plan',
+        metadata: { plan: 'enthusiast', tier: 'beta' }
+      }]
+    };
+  };
+  switchStripe.checkout.sessions.retrieve = async function (id) {
+    return { id: id, status: 'open' };
+  };
+  switchStripe.checkout.sessions.expire = async function (id) {
+    replaced.push(id);
+    return { id: id, status: 'expired' };
+  };
+  const switchedPlan = await checkout.createCheckoutSession({
+    stripe: switchStripe,
+    db: switchDb,
+    userId: USER,
+    plan: 'trainer',
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    now: function () { return nowMs; },
+    waitMs: 0,
+    waitForMs: 1000
+  });
+  assert.deepStrictEqual(replaced, ['cs_old_plan']);
+  assert.strictEqual(switchedPlan.body.url, 'https://checkout.stripe.com/c/pay/cs_test_session1');
+  assert.ok(names(switchDb.calls).indexOf('checkout_claim_release') !== -1);
+
+  const waitingDb = dbMock({
+    profile: { access_approved: true, billing_status: null, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
+    betaCount: 1,
+    claim: { granted: false, plan: 'enthusiast' }
+  });
+  await assert.rejects(function () {
+    return checkout.createCheckoutSession({
+      stripe: stripeMock(),
+      db: waitingDb,
+      userId: USER,
+      plan: 'enthusiast',
+      secretKey: TEST_KEY,
+      testMode: 'true',
+      waitMs: 0,
+      waitForMs: 0
+    });
+  }, function (err) {
+    assert.strictEqual(err.status, 409);
+    assert.strictEqual(err.message, 'Checkout is starting, try again in a moment.');
+    return true;
+  });
+
+  const failedCreate = dbMock({
+    profile: { access_approved: true, billing_status: null, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
+    betaCount: 1
+  });
+  const failedStripe = stripeMock();
+  failedStripe.checkout.sessions.create = async function () {
+    throw new Error('stripe unavailable');
+  };
+  await assert.rejects(function () {
+    return checkout.createCheckoutSession({
+      stripe: failedStripe,
+      db: failedCreate,
+      userId: USER,
+      plan: 'enthusiast',
+      secretKey: TEST_KEY,
+      testMode: 'true',
+      now: function () { return nowMs; }
+    });
+  }, /could not be started/);
+  assert.ok(names(failedCreate.calls).indexOf('checkout_claim_release') !== -1);
 
   const cors = await import(path.join(shared, 'billing-cors.mjs'));
   assert.strictEqual(cors.allowedOrigin('https://coachtrainerapp.com'), 'https://coachtrainerapp.com');

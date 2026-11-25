@@ -51,8 +51,14 @@ $fn$;
 alter table public.profiles
   add column if not exists checkout_claim_until timestamptz;
 
+alter table public.profiles
+  add column if not exists checkout_claim_plan text;
+
 comment on column public.profiles.checkout_claim_until is
   'Service role only. While this is in the future, another Checkout create for this profile should reuse the open session.';
+
+comment on column public.profiles.checkout_claim_plan is
+  'Service role only. The plan the in-flight Checkout create asked for.';
 
 create or replace function public.checkout_claim(p_profile uuid, p_plan text)
 returns jsonb
@@ -62,6 +68,7 @@ set search_path = ''
 as $fn$
 declare
   v_until timestamptz;
+  v_held text;
   v_plan text := lower(btrim(coalesce(p_plan, '')));
 begin
   perform private.billing_service_only();
@@ -75,8 +82,8 @@ begin
 
   perform pg_advisory_xact_lock(hashtextextended('checkout:' || p_profile::text, 0));
 
-  select p.checkout_claim_until
-    into v_until
+  select p.checkout_claim_until, p.checkout_claim_plan
+    into v_until, v_held
   from public.profiles p
   where p.id = p_profile
   for update;
@@ -86,14 +93,35 @@ begin
   end if;
 
   if v_until is not null and v_until > now() then
-    return jsonb_build_object('granted', false);
+    return jsonb_build_object('granted', false, 'plan', v_held);
   end if;
 
   update public.profiles
-    set checkout_claim_until = now() + interval '45 seconds'
+    set checkout_claim_until = now() + interval '45 seconds',
+        checkout_claim_plan = v_plan
   where id = p_profile;
 
-  return jsonb_build_object('granted', true);
+  return jsonb_build_object('granted', true, 'plan', v_plan);
+end;
+$fn$;
+
+create or replace function public.checkout_claim_release(p_profile uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+begin
+  perform private.billing_service_only();
+  perform set_config('request.jwt.claim.sub', '', true);
+  if p_profile is null then
+    raise exception 'That account was not found.';
+  end if;
+
+  update public.profiles
+    set checkout_claim_until = null,
+        checkout_claim_plan = null
+  where id = p_profile;
 end;
 $fn$;
 
@@ -230,6 +258,7 @@ $fn$;
 revoke all on function public.beta_paid_count() from public, anon, authenticated;
 revoke all on function public.mark_beta_paid(uuid) from public, anon, authenticated;
 revoke all on function public.checkout_claim(uuid, text) from public, anon, authenticated;
+revoke all on function public.checkout_claim_release(uuid) from public, anon, authenticated;
 revoke all on function public.billing_write(uuid, text, text, text, text, text, timestamp with time zone, boolean) from public, anon, authenticated;
 revoke all on function public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone) from public, anon, authenticated;
 
@@ -239,9 +268,10 @@ begin
     grant execute on function public.beta_paid_count() to service_role;
     grant execute on function public.mark_beta_paid(uuid) to service_role;
     grant execute on function public.checkout_claim(uuid, text) to service_role;
+    grant execute on function public.checkout_claim_release(uuid) to service_role;
     grant execute on function public.billing_write(uuid, text, text, text, text, text, timestamp with time zone, boolean) to service_role;
     grant execute on function public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone) to service_role;
-    grant update (checkout_claim_until) on table public.profiles to service_role;
+    grant update (checkout_claim_until, checkout_claim_plan) on table public.profiles to service_role;
   end if;
 end
 $service$;
