@@ -45,7 +45,7 @@ assert.strictEqual(C.initial(''), 'C');
 
 const six = build(6, 'Saturday class');
 assert.strictEqual(six.stations.length, 6);
-assert.deepStrictEqual(six.stations.map(function (s) { return s.col + ',' + s.row; }), ['0,0', '1,0', '2,0', '3,0', '0,1', '1,1']);
+assert.deepStrictEqual(six.stations.map(function (s) { return s.col + ',' + s.row; }), ['0,0', '1,0', '2,0', '2,1', '1,1', '0,1']);
 assert.strictEqual(C.visibleRows([]), 2);
 assert.strictEqual(C.visibleRows(six.stations), 3);
 assert.strictEqual(C.visibleRows([{ row: 5 }]), 6);
@@ -56,7 +56,7 @@ assert.strictEqual(C.visibleRows([{ row: 5 }]), 6);
     assert.strictEqual(added.ok, true);
     narrow = added.circuit;
   }
-  assert.deepStrictEqual(narrow.stations.map(function (s) { return s.col + ',' + s.row; }), ['0,0', '1,0', '2,0', '0,1']);
+  assert.deepStrictEqual(narrow.stations.map(function (s) { return s.col + ',' + s.row; }), ['0,0', '1,0', '2,0', '2,1']);
   assert.strictEqual(C.visibleRows(narrow.stations), 3);
 })();
 assert.strictEqual(C.loopComplete(six.stations, six.order), true);
@@ -110,13 +110,21 @@ assert.strictEqual(same.ok, true);
 
 let full = C.blank();
 for (let i = 0; i < C.STATION_MAX; i++) {
-  const added = C.addStation(full);
+  const added = C.addStation(full, C.COLS);
   assert.strictEqual(added.ok, true);
   full = added.circuit;
 }
-assert.strictEqual(C.nextCell(full.stations), null);
-assert.strictEqual(C.addStation(full).ok, false);
-assert.strictEqual(C.addStation(full).error, 'The grid is full.');
+assert.strictEqual(C.nextCell(full.stations, C.COLS), null);
+assert.strictEqual(C.addStation(full, C.COLS).ok, false);
+assert.strictEqual(C.addStation(full, C.COLS).error, 'The grid is full.');
+let phoneFull = C.blank();
+for (let i = 0; i < 18; i++) {
+  const added = C.addStation(phoneFull);
+  assert.strictEqual(added.ok, true, added.error);
+  phoneFull = added.circuit;
+  assert.ok(added.station.col <= 2);
+}
+assert.strictEqual(C.addStation(phoneFull).error, 'The grid is full.');
 
 const library = C.setExercise(one, one.stations[0].id, { source: 'library', name: 'Squat', libraryId: 'squat_1' });
 assert.strictEqual(library.ok, true);
@@ -151,6 +159,7 @@ assert.strictEqual(saved.data.clock.workSec, 45);
 assert.strictEqual(saved.data.clock.moveSec, 15);
 assert.strictEqual(saved.data.clock.rounds, 6);
 assert.strictEqual(saved.data.stations.length, 6);
+assert.ok(!saved.data.clients);
 assert.ok(!('reps' in saved.data));
 assert.ok(!('weight' in saved.data));
 saved.data.stations.forEach(function (station) {
@@ -162,7 +171,7 @@ assert.strictEqual(opened.ok, true);
 assert.strictEqual(opened.value.id, ROW);
 assert.deepStrictEqual(opened.value.stations, saved.data.stations);
 assert.deepStrictEqual(opened.value.order, saved.data.order);
-assert.deepStrictEqual(C.summary(opened.value), { name: 'Saturday class', stations: 6, clients: 2 });
+assert.deepStrictEqual(C.summary(opened.value), { name: 'Saturday class', stations: 6, clients: 0 });
 
 assert.strictEqual(C.guard(C.blank()).ok, false);
 assert.ok(C.guard(Object.assign({}, ready, { name: '' })).errors.indexOf('Name this circuit.') >= 0);
@@ -196,7 +205,8 @@ assert.ok(C.guard(badClock).errors.indexOf('Enter the move time.') >= 0);
 
 const mailed = build(1);
 mailed.clients = [{ source: 'manual', name: 'a@b.com' }];
-assert.ok(C.guard(mailed).errors.indexOf('Name every client.') >= 0);
+assert.strictEqual(C.guard(mailed).ok, true);
+assert.ok(!C.toPayload(mailed).data.clients);
 
 const huge = build(1);
 huge.blob = 'x'.repeat(C.DATA_MAX + 1);
@@ -204,7 +214,23 @@ assert.ok(C.guard(huge).errors.indexOf('This circuit is too large.') >= 0);
 
 const emptyExercise = build(1);
 emptyExercise.stations[0].exercise = null;
-assert.ok(C.guard(emptyExercise).errors.indexOf('Choose an exercise for every station.') >= 0);
+emptyExercise.order = [];
+const unnamedOnly = C.guard(emptyExercise);
+assert.deepStrictEqual(unnamedOnly.errors, ['Name every station before saving.']);
+
+const desktop = build(2);
+desktop.stations[1].col = 3;
+desktop.stations[1].row = 0;
+const fitted = C.fitLayout(desktop.stations, 3);
+assert.deepStrictEqual(fitted.map(function (s) { return s.col; }), [0, 1]);
+assert.ok(fitted.every(function (s) { return s.col >= 0 && s.col <= 2; }));
+const crowd = [];
+for (let i = 0; i < 20; i++) {
+  crowd.push({ id: 'st_crowd' + i, col: i % 4, row: Math.floor(i / 4), exercise: null });
+}
+const spread = C.fitLayout(crowd, 3);
+assert.strictEqual(spread.length, 20);
+assert.ok(spread.some(function (s) { return s.row >= 6; }));
 
 function cellGrid(cols, rows) {
   const size = 100;
@@ -260,8 +286,12 @@ function checkLoop(placed, cells, label) {
         return i < 2 ? Math.abs(tip[0] - edgePos) < 12 : Math.abs(tip[1] - edgePos) < 12;
       });
       assert.ok(near, label + ' closing arrow does not reach the first station');
-      if (label === 'six') {
-        assert.ok(points.some(function (p) { return p[0] < cells['0,0'].left - 2; }), 'closing arrow stays behind the first column');
+      if (label === 'snake') {
+        const boardLeft = cells['0,0'].left;
+        const boardRight = cells['2,0'].right;
+        points.forEach(function (p) {
+          assert.ok(p[0] >= boardLeft - 1 && p[0] <= boardRight + 1, 'closing arrow leaves the board');
+        });
       }
     }
   });
@@ -269,6 +299,8 @@ function checkLoop(placed, cells, label) {
 // The screenshot: six stations, Jacks dragged down under Squat, loop back to station 1.
 const shotCells = cellGrid(3, 4);
 checkLoop([[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [0, 2]], shotCells, 'six');
+const snakeCells = cellGrid(3, 2);
+checkLoop([[0, 0], [1, 0], [2, 0], [2, 1], [1, 1], [0, 1]], snakeCells, 'snake');
 // Eight stations packed on three columns. The closing edge skips a column and two rows.
 const packedCells = cellGrid(3, 4);
 checkLoop([[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2]], packedCells, 'eight');

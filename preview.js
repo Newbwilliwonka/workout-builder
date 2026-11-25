@@ -41,6 +41,7 @@
       remote: '',
       playerLive: false,
       circuits: [],
+      circuitGuests: [],
       sheet: null
     };
   }
@@ -117,7 +118,7 @@
     return canEdit();
   }
   function canEditRow(row) {
-    if (!row) return false;
+    if (!row || row.guestCircuit) return false;
     return canEditOwner(row.ownerId || ownerId());
   }
   function peopleShown() {
@@ -188,14 +189,14 @@
     return list;
   }
   function railChoices() {
-    if (!state || viewingAll()) return workouts();
-    return choicesFor(ownerId());
+    if (!state) return workouts();
+    if (viewingAll() || ownerIsSelf(ownerId())) return workouts().concat(circuitChoices());
+    return workouts();
   }
   function choiceMeta(w) {
     if (w && w.circuit) {
       var stations = Number(w.stations) || 0;
-      var clients = Number(w.clients) || 0;
-      return stations + ' station' + (stations === 1 ? '' : 's') + ' · ' + clients + ' client' + (clients === 1 ? '' : 's');
+      return stations + ' station' + (stations === 1 ? '' : 's');
     }
     var n = (w && w.items || []).length;
     return n + ' exercise' + (n === 1 ? '' : 's');
@@ -212,15 +213,31 @@
     if (!remote.length) return local;
     return local.concat(remote);
   }
+  function guestEntries() {
+    // All clients already shows the trainer's own placement. Guest copies
+    // would repeat that circuit once for every invited client.
+    if (viewingAll()) return [];
+    var rows = state && state.circuitGuests || [];
+    var owner = ownerId();
+    return rows.filter(function (row) { return row && row.guestCircuit && row.ownerId === owner; });
+  }
   function entries() {
     var rows = data() && data().programs;
-    if (!Array.isArray(rows)) return [];
-    if (!viewingAll()) return P.forOwner(rows, ownerId());
-    var allow = {};
-    peopleShown().forEach(function (id) { allow[id] = 1; });
-    return rows.filter(function (row) { return row && allow[row.ownerId]; });
+    if (!Array.isArray(rows)) rows = [];
+    var mine;
+    if (!viewingAll()) mine = P.forOwner(rows, ownerId());
+    else {
+      var allow = {};
+      peopleShown().forEach(function (id) { allow[id] = 1; });
+      mine = rows.filter(function (row) { return row && allow[row.ownerId]; });
+    }
+    return mine.concat(guestEntries());
+  }
+  function schedulable(items) {
+    return (items || []).filter(function (row) { return row && !row.guestCircuit; });
   }
   function workoutById(id) {
+    if (!id) return null;
     var found = null;
     workouts().forEach(function (row) { if (row && row.id === id) found = row; });
     if (found) return found;
@@ -247,6 +264,7 @@
     if ((err && err.timesLocal) || /program times SQL|starts_at|ends_at/i.test(msg)) {
       return 'Saved on this device. Start and end times will be shared after the new program times SQL is applied.';
     }
+    if (msg.indexOf('Invites stay on this device') === 0 || msg.indexOf('Invite only linked clients.') !== -1) return msg;
     return 'Saved on this device. The shared calendar waits until the programs SQL is applied.';
   }
   var pushEpoch = {};
@@ -256,16 +274,18 @@
     data().programDrops[id] = { at: Date.now(), ownerId: ownerId || '' };
   }
   function pushRemote(row) {
-    if (!row || !options || !options.saveEntry || !P.isUuid(row.ownerId)) return;
+    if (!row || !options || !options.saveEntry || !P.isUuid(row.ownerId)) return Promise.resolve({ ok: true, skipped: true });
     var epoch = pushEpoch[row.id] || 0;
     var saveEntry = options.saveEntry;
     var deleteEntry = options.deleteEntry;
     var persist = options.persist;
     var store = options.data;
-    Promise.resolve().then(function () { return saveEntry(row); }).then(function () {
+    return Promise.resolve().then(function () { return saveEntry(row); }).then(function () {
       afterPush(null);
+      return { ok: true };
     }, function (err) {
       afterPush(err);
+      return { ok: false, error: err };
     });
     function afterPush(err) {
       if (!store) return;
@@ -290,8 +310,12 @@
         render();
         return;
       }
-      if (!state || superseded) return;
-      state.remote = '';
+      if (superseded) return;
+      if (state) state.remote = '';
+      clearPlacementPending();
+    }
+    function clearPlacementPending() {
+      if (!store) return;
       var cleared = false;
       store.programs = (store.programs || []).map(function (item) {
         if (!item || item.id !== row.id || !item.pending) return item;
@@ -331,7 +355,8 @@
     data().programs = merged;
     data().programDrops = dropped;
     merged.forEach(function (row) {
-      if (row && owners.indexOf(row.ownerId) >= 0 && row.pending) pushRemote(row);
+      if (!row || owners.indexOf(row.ownerId) < 0) return;
+      if (row.pending) pushRemote(row);
     });
     if (timesPending) state.remote = remoteNote({ timesLocal: true });
     if (options.persist) options.persist();
@@ -542,7 +567,7 @@
       var extras = unscheduledFor(date);
       var today = date === todayIso();
       h += '<div class="pv-day' + (today ? ' today' : '') + '" data-date="' + date + '" data-day="' + date + '"><div class="pv-day-h"><div><div class="pv-dow">' + DOWS[i] + '</div><div class="pv-num">' + d.getDate() + (today ? '<span class="pv-today-label mute"> Today</span>' : '') + '</div></div>' +
-        (P.dayDone(items, tracked) ? check() : '') + '</div>';
+        (P.dayDone(schedulable(items), tracked) ? check() : '') + '</div>';
       if (viewingAll()) {
         items.forEach(function (row) { h += allWeekCard(row, false); });
         extras.forEach(function (row) { h += allWeekCard(row, true); });
@@ -582,7 +607,7 @@
           '<span class="pv-num">' + d.getDate() + '</span>' +
           (marks.html ? '<span class="pv-icons">' + marks.html + '</span>' : '') + '</button>';
       } else {
-      var done = P.dayDone(items, tracked);
+      var done = P.dayDone(schedulable(items), tracked);
       var kinds = {};
       var names = [];
       var seenName = {};
@@ -797,7 +822,7 @@
   function daySheetHtml() {
     if (state.sheet.loggedId) return loggedSheetHtml();
     var row = entryById(state.sheet.entryId);
-    var actions = row ? P.entryMenu(contextForOwner(row.ownerId)) : [];
+    var actions = row && row.guestCircuit ? [] : (row ? P.entryMenu(contextForOwner(row.ownerId)) : []);
     var h = '<div class="pv-sheet" id="pv-sheet"><div class="pv-sheet-card" id="pv-day-sheet" role="dialog" aria-label="This workout">' +
       '<div class="pv-grab" data-sheet-grab="1" role="button" aria-label="Close"></div>';
     if (!row) h += '<p class="mute">That workout is no longer on this day.</p>';
@@ -877,6 +902,28 @@
     });
     return list;
   }
+  function inviteName(client) {
+    var raw = String((client && (client.display_name || client.name)) || '').replace(/^\s+|\s+$/g, '');
+    if (!raw || raw.indexOf('@') !== -1) return 'Client';
+    return raw.length > 80 ? raw.slice(0, 80) : raw;
+  }
+  function inviteHtml(sheet, target) {
+    var workout = workoutById(sheet.workoutId);
+    if (!workout || !workout.circuit || !ownerIsSelf(target)) return '';
+    var picked = {};
+    (sheet.invites || []).forEach(function (id) { if (id) picked[id] = 1; });
+    var h = '<div class="pv-invites" id="pv-invites" role="group" aria-label="Invite clients">';
+    var any = false;
+    (state.clients || []).forEach(function (client) {
+      if (!client || !client.id) return;
+      var name = inviteName(client);
+      var on = !!picked[client.id];
+      any = true;
+      h += '<button type="button" class="pv-invite' + (on ? ' on' : '') + '" data-invite="' + esc(client.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + esc(name) + '</button>';
+    });
+    if (!any) return '';
+    return h + '</div>';
+  }
   function addSheetHtml() {
     var sheet = state.sheet;
     var target = viewingAll() ? (sheet.ownerId || selfId()) : ownerId();
@@ -903,6 +950,7 @@
       });
       h += '</div>';
     }
+    h += inviteHtml(sheet, target);
     h += presenceChoice('pv-presence', sheet.presence || '', '') +
       timeField('start', sheet.startH, sheet.startM, sheet.startAp) +
       timeField('end', sheet.endH, sheet.endM, sheet.endAp);
@@ -1194,6 +1242,7 @@
       error: '',
       bad: null,
       ownerId: viewingAll() ? (state.userId || 'self') : '',
+      invites: [],
       returnTo: fromList ? 'list' : ''
     };
     state.hint = '';
@@ -1262,6 +1311,8 @@
     }
     if (!canEditOwner(owner)) { sheet.error = 'You cannot add to that calendar.'; render(); return; }
     if (workout.circuit && !ownerIsSelf(owner)) { sheet.error = 'You cannot add to that calendar.'; render(); return; }
+    var invites = null;
+    if (workout.circuit && ownerIsSelf(owner)) invites = Array.isArray(sheet.invites) ? sheet.invites.slice() : [];
     var placed = P.place(data().programs, {
       id: window.WB.uid('pg'),
       ownerId: owner,
@@ -1271,7 +1322,8 @@
       date: sheet.date,
       start: times.start,
       end: times.end,
-      presence: sheet.presence
+      presence: sheet.presence,
+      invites: invites
     });
     if (placed.duplicate) { sheet.error = 'That workout is already on this day.'; render(); return; }
     if (!placed.created) { sheet.error = placed.error || 'Pick a workout.'; render(); return; }
@@ -1281,9 +1333,15 @@
     state.cursor = sheet.date;
     state.month = sheet.date.slice(0, 7);
     savePrograms(placed.programs, 'Saved on this device.');
-    pushRemote(placed.created);
     if (backTo) state.sheet = { type: 'list', date: backTo };
     render();
+    var created = placed.created;
+    pushRemote(created).then(function (result) {
+      if (!result || result.skipped || result.ok !== false) return;
+      if (!state) return;
+      state.remote = (result.error && result.error.message) || 'Could not save that day.';
+      render();
+    });
   }
   function saveEntryTimes(id) {
     readSheetTimes();
@@ -1667,7 +1725,7 @@
         return;
       }
       if (options && options.go) {
-        options.go('#/circuits/' + encodeURIComponent(circuit.id) + (mode === 'view' ? '/view' : '/run') + '?from=calendar');
+        options.go('#/circuits/' + encodeURIComponent(circuit.id) + (mode === 'view' ? '/view' : '/prepare') + '?from=calendar');
       }
       return;
     }
@@ -1987,6 +2045,17 @@
       return;
     }
     if (e.target.closest('#pv-gcal-reset-confirm')) return;
+    var invite = e.target.closest('[data-invite]');
+    if (invite && state.sheet && state.sheet.type === 'add') {
+      var inviteId = invite.getAttribute('data-invite');
+      var list = (state.sheet.invites || []).slice();
+      var at = list.indexOf(inviteId);
+      if (at >= 0) list.splice(at, 1);
+      else list.push(inviteId);
+      state.sheet.invites = list;
+      render();
+      return;
+    }
     var pick = e.target.closest('[data-pick]');
     if (pick && state.sheet && state.sheet.type === 'add') {
       readSheetTimes();
@@ -2083,12 +2152,67 @@
     var run = e.target.closest('[data-run]');
     if (run) playFrom(run, 'run');
   }
+  function guestClock(value) {
+    var match = /^(\d{2}):(\d{2})/.exec(String(value || ''));
+    return match ? match[1] + ':' + match[2] : '';
+  }
+  function shapeGuest(row, clientId) {
+    var day = String(row && (row.day || row.date) || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !clientId) return null;
+    var name = String(row.circuit_name || row.circuitName || '').replace(/^\s+|\s+$/g, '');
+    if (!name || name.indexOf('@') !== -1) name = 'Circuit';
+    var start = guestClock(row.starts_at || row.start || '');
+    var end = guestClock(row.ends_at || row.end || '');
+    var placement = String(row.placement_id || row.placementId || '').replace(/^\s+|\s+$/g, '');
+    var workoutId = placement
+      ? 'guest:' + placement + ':' + clientId
+      : 'guest:' + day + ':' + start + ':' + name;
+    return {
+      id: workoutId,
+      ownerId: clientId,
+      workoutId: workoutId,
+      workoutName: name,
+      items: [{ source: 'circuit', guest: true }],
+      date: day,
+      start: start,
+      end: end,
+      presence: 'trainer',
+      guestCircuit: true
+    };
+  }
+  function pullGuestCircuits() {
+    if (!options || !options.loadGuestCircuits || !state) return;
+    if (viewingAll()) {
+      if (state.circuitGuests.length) {
+        state.circuitGuests = [];
+        if (state.ready && state.screen === 'home' && !state.playerLive) render();
+      }
+      return;
+    }
+    var id = ownerId();
+    if (!id) return;
+    var token = loadToken;
+    Promise.resolve().then(function () { return options.loadGuestCircuits(id); }).then(function (rows) {
+      if (!state || token !== loadToken) return;
+      var out = [];
+      (Array.isArray(rows) ? rows : []).forEach(function (row) {
+        var shaped = shapeGuest(row, id);
+        if (shaped) out.push(shaped);
+      });
+      state.circuitGuests = out;
+      if (state.ready && state.screen === 'home' && !state.playerLive) render();
+    }, function () {
+      if (!state || token !== loadToken) return;
+      state.circuitGuests = [];
+    });
+  }
   function showCalendar() {
     if (!state) return;
     state.ready = true;
     render();
     pullRemote();
     pullSessions();
+    pullGuestCircuits();
   }
   function enthusiastClients() {
     return (state.clients || []).filter(isEnthusiastClient);
@@ -2130,14 +2254,14 @@
       rememberClientShare(status || { shared: false, enthusiast: false, linked: true });
       state.ready = true;
       render();
-      if (canSee()) { pullRemote(); pullSessions(); }
+      if (canSee()) { pullRemote(); pullSessions(); pullGuestCircuits(); }
     }, function () {
       if (!state || token !== loadToken || state.clientId !== requested) return;
       // Unknown share stays hidden. Do not read that person's sessions.
       rememberClientShare(null);
       state.ready = true;
       render();
-      if (canSee()) { pullRemote(); pullSessions(); }
+      if (canSee()) { pullRemote(); pullSessions(); pullGuestCircuits(); }
     });
   }
   function pullCircuits(token) {

@@ -112,6 +112,13 @@
       dateSetAt: stamp(entry.dateSetAt) || stamp(entry.updatedAt) || Date.now(),
       pending: true
     };
+    if (Array.isArray(entry.invites)) {
+      var invited = [];
+      entry.invites.forEach(function (id) {
+        if (id && invited.indexOf(id) < 0) invited.push(id);
+      });
+      row.invites = invited;
+    }
     list.push(row);
     return { programs: list, created: row, duplicate: false, error: '' };
   }
@@ -434,7 +441,7 @@
     var date = String(row.day || row.date || '').slice(0, 10);
     var id = row.local_id || row.localId;
     if (!id || !isDay(date)) return null;
-    return {
+    var out = {
       id: String(id),
       ownerId: row.owner_id || row.ownerId,
       workoutId: String(row.workout_local_id || row.workoutId || ''),
@@ -446,6 +453,15 @@
       presence: presence(row.presence),
       updatedAt: Date.parse(row.updated_at || row.updatedAt) || 0
     };
+    var rawInvites = row.invitees != null ? row.invitees : row.invites;
+    if (Array.isArray(rawInvites)) {
+      var invited = [];
+      rawInvites.forEach(function (cid) {
+        if (cid && invited.indexOf(String(cid)) < 0) invited.push(String(cid));
+      });
+      out.invites = invited;
+    }
+    return out;
   }
   // Keep the day-placement stamp across a sync. A new day on the incoming row
   // is a move. The same day keeps the stamp this device already recorded, so a
@@ -498,6 +514,10 @@
         return;
       }
       applyDateStamp(incoming, row);
+      // A snapshot that predates the invitees column has no list. Keep the
+      // list already stored with this placement. A snapshot that includes the
+      // column, even empty, is the saved list.
+      if (!Array.isArray(incoming.invites) && Array.isArray(row.invites)) incoming.invites = row.invites.slice();
       var timesMissing = (!!row.start && !incoming.start) || (!!row.end && !incoming.end);
       if (keepTimes || timesMissing) {
         if (row.start) incoming.start = row.start;

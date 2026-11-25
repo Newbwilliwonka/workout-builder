@@ -64,7 +64,10 @@ grant execute on function auth.uid() to authenticated, anon;
   'supabase/migrations/20261117120000_dashboard_holds_stopwatch.sql',
   'supabase/migrations/20261117180000_invite_only_access.sql',
   'supabase/migrations/20261123200000_circuits.sql',
-  'supabase/migrations/20261123200000_circuits.sql'
+  'supabase/migrations/20261123200000_circuits.sql',
+  'supabase/migrations/20261124220000_circuit_without_saved_clients.sql',
+  'supabase/migrations/20261124200000_circuit_guest_calendar.sql',
+  'supabase/migrations/20261124233000_placement_invitees.sql'
 ].forEach(function (file) { psql('wb_circuits_test', null, path.join(root, file)); });
 
 const good = JSON.stringify({
@@ -112,6 +115,9 @@ begin
   end if;
   if (select data->'clock'->>'moveSec' from public.circuits) is distinct from '15' then
     raise exception 'move time was not stored';
+  end if;
+  if (select data ? 'clients' from public.circuits) then
+    raise exception 'clients were stored on the circuit';
   end if;
   if (select updated_at from public.circuits) is null then
     raise exception 'updated_at was not set';
@@ -211,11 +217,11 @@ begin
     if SQLERRM not like '%reps and weight%' and SQLERRM not like '%could not be saved%' then raise; end if;
   end;
   begin
-    insert into public.circuits (name, data) values ('Mail', jsonb_set($json$${good}$json$::jsonb, '{clients,1,name}', '"ada@example.com"'::jsonb));
-    raise exception 'email saved';
+    insert into public.circuits (name, data) values ('Unnamed', jsonb_set($json$${good}$json$::jsonb, '{stations,0,exercise}', 'null'::jsonb));
+    raise exception 'unnamed saved';
   exception when others then
-    if SQLERRM like '%email saved%' then raise; end if;
-    if SQLERRM not like '%Name every client%' then raise; end if;
+    if SQLERRM like '%unnamed saved%' then raise; end if;
+    if SQLERRM not like '%Name every station before saving.%' then raise; end if;
   end;
 end $$;
 
@@ -225,6 +231,102 @@ do $$
 begin
   if (select count(*) from public.circuits where owner_id = '${T}') <> 0 then
     raise exception 'owner could not delete';
+  end if;
+end $$;
+
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+insert into public.circuits (id, owner_id, name, data)
+values ('88888888-8888-4888-8888-888888888888', '${T}', 'Saturday circuit', $json$${good}$json$::jsonb);
+insert into public.trainer_clients (trainer_id, client_id) values ('${T}', '${C}');
+insert into public.program_entries (owner_id, local_id, workout_local_id, workout_name, items, day, presence, starts_at, ends_at)
+values (
+  '${T}', 'pg-invite', '88888888-8888-4888-8888-888888888888', 'Saturday circuit',
+  '[{"source":"circuit","circuitId":"88888888-8888-4888-8888-888888888888"}]'::jsonb,
+  current_date, 'trainer', '09:00', '10:00'
+);
+insert into public.circuit_placement_invites (trainer_id, placement_id, client_id)
+values ('${T}', 'pg-invite', '${C}');
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${C}', false);
+do $$
+begin
+  if (select count(*) from public.circuit_guest_placements('${C}')) <> 1 then
+    raise exception 'invited client did not see the placement';
+  end if;
+  if (select trainer_name from public.circuit_guest_placements('${C}')) is distinct from 'Trainer' then
+    raise exception 'trainer name leaked an email or the wrong label';
+  end if;
+  if (select count(*) from public.circuit_placement_invites where client_id = '${C}') <> 1 then
+    raise exception 'invitee could not read their own invite';
+  end if;
+  if (select count(*) from public.circuit_placement_invites where client_id <> '${C}') <> 0 then
+    raise exception 'invitee read someone else';
+  end if;
+  begin
+    insert into public.circuit_placement_invites (trainer_id, placement_id, client_id)
+    values ('${C}', 'pg-invite', '${E}');
+    raise exception 'client inserted an invite';
+  exception when others then
+    if SQLERRM like '%client inserted%' then raise; end if;
+  end;
+end $$;
+
+select set_config('request.jwt.claim.sub', '${S}', false);
+do $$
+begin
+  if (select count(*) from public.circuit_guest_placements('${C}')) <> 0 then
+    raise exception 'another trainer saw the placement';
+  end if;
+  if (select count(*) from public.circuit_placement_invites) <> 0 then
+    raise exception 'another trainer read the invites';
+  end if;
+end $$;
+
+select set_config('request.jwt.claim.sub', '${T}', false);
+do $$
+begin
+  if (select count(*) from public.circuit_guest_placements('${C}')) <> 1 then
+    raise exception 'owning trainer did not see their invited placement';
+  end if;
+  perform public.circuit_placement_invites_save('pg-invite', array['${C}']::uuid[]);
+  if (select count(*) from public.circuit_placement_invites where placement_id = 'pg-invite' and client_id = '${C}') <> 1 then
+    raise exception 'atomic save dropped the linked invite';
+  end if;
+  if (select invitees from public.program_entries where local_id = 'pg-invite') is distinct from array['${C}']::uuid[] then
+    raise exception 'invites were not stored on the placement row';
+  end if;
+  begin
+    perform public.circuit_placement_invites_save('pg-invite', array['${E}']::uuid[]);
+    raise exception 'unlinked invite saved';
+  exception when others then
+    if SQLERRM like '%unlinked invite saved%' then raise; end if;
+    if SQLERRM not like '%Invite only linked clients%' then raise; end if;
+  end;
+  if (select count(*) from public.circuit_placement_invites where placement_id = 'pg-invite' and client_id = '${C}') <> 1 then
+    raise exception 'failed save removed the existing invite';
+  end if;
+  begin
+    insert into public.circuit_placement_invites (trainer_id, placement_id, client_id)
+    values ('${T}', 'pg-invite', '${E}');
+    raise exception 'unlinked row inserted';
+  exception when others then
+    if SQLERRM like '%unlinked row inserted%' then raise; end if;
+  end;
+  begin
+    update public.program_entries set invitees = array['${E}']::uuid[] where local_id = 'pg-invite';
+    raise exception 'unlinked column saved';
+  exception when others then
+    if SQLERRM like '%unlinked column saved%' then raise; end if;
+    if SQLERRM not like '%Invite only linked clients%' then raise; end if;
+  end;
+  if (select invitees from public.program_entries where local_id = 'pg-invite') is distinct from array['${C}']::uuid[] then
+    raise exception 'failed invite write changed the placement';
+  end if;
+  delete from public.program_entries where local_id = 'pg-invite';
+  if (select count(*) from public.circuit_placement_invites where placement_id = 'pg-invite') <> 0 then
+    raise exception 'deleting the placement left invites';
   end if;
 end $$;
 
@@ -244,6 +346,64 @@ begin
     raise exception 'anon read circuits';
   exception when insufficient_privilege then null;
   end;
+end $$;
+`);
+
+psql('wb_circuits_test', `
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+alter table public.program_entries disable trigger program_entries_guard;
+alter table public.program_entries disable trigger program_entry_invitees_guard;
+alter table public.program_entries disable trigger program_entry_invitees_project;
+insert into public.program_entries (
+  owner_id, local_id, workout_local_id, workout_name, items, day, presence, invitees, updated_at
+) values (
+  '${T}', 'pg-stamp', '88888888-8888-4888-8888-888888888888', 'Saturday circuit',
+  '[{"source":"circuit","circuitId":"88888888-8888-4888-8888-888888888888"}]'::jsonb,
+  current_date, 'trainer', '{}', '2020-01-01 00:00:00+00'
+);
+insert into public.circuit_placement_invites (trainer_id, placement_id, client_id)
+values ('${T}', 'pg-stamp', '${C}');
+alter table public.program_entries enable trigger program_entries_guard;
+alter table public.program_entries enable trigger program_entry_invitees_guard;
+alter table public.program_entries enable trigger program_entry_invitees_project;
+`);
+psql('wb_circuits_test', null, path.join(root, 'supabase/migrations/20261124233000_placement_invitees.sql'));
+psql('wb_circuits_test', null, path.join(root, 'supabase/migrations/20261124233000_placement_invitees.sql'));
+psql('wb_circuits_test', `
+do $$
+declare
+  kept timestamptz;
+begin
+  select updated_at into kept from public.program_entries where local_id = 'pg-stamp';
+  if kept is distinct from '2020-01-01 00:00:00+00'::timestamptz then
+    raise exception 'backfill moved updated_at to %', kept;
+  end if;
+  if (select invitees from public.program_entries where local_id = 'pg-stamp') is distinct from array['${C}']::uuid[] then
+    raise exception 'backfill did not keep the invitees on the row';
+  end if;
+  if (select proconfig::text from pg_proc where proname = 'circuit_guest_placements') like '%pg_temp%'
+     or (select proconfig::text from pg_proc where proname = 'program_entry_invitees_guard') like '%pg_temp%'
+     or (select proconfig::text from pg_proc where proname = 'program_entry_invitees_project') like '%pg_temp%'
+     or (select proconfig::text from pg_proc where proname = 'circuit_placement_invites_save') like '%pg_temp%' then
+    raise exception 'invite functions still search pg_temp';
+  end if;
+end $$;
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+alter table public.program_entries disable trigger program_entries_guard;
+alter table public.program_entries disable trigger program_entry_invitees_guard;
+alter table public.program_entries disable trigger program_entry_invitees_project;
+update public.program_entries set invitees = '{}', updated_at = '2020-01-01 00:00:00+00' where local_id = 'pg-stamp';
+alter table public.program_entries enable trigger program_entries_guard;
+alter table public.program_entries enable trigger program_entry_invitees_guard;
+alter table public.program_entries enable trigger program_entry_invitees_project;
+update public.program_entries set invitees = array['${C}']::uuid[] where local_id = 'pg-stamp';
+do $$
+begin
+  if (select invitees from public.program_entries where local_id = 'pg-stamp') is distinct from array['${C}']::uuid[] then
+    raise exception 'service role could not write invitees';
+  end if;
 end $$;
 `);
 

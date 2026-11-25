@@ -149,15 +149,52 @@
     (stations || []).forEach(function (s) {
       if (s && typeof s.col === 'number' && typeof s.row === 'number') used[s.col + ',' + s.row] = 1;
     });
+    var snake = width === 3;
     for (var r = 0; r < ROWS; r++) {
-      for (var c = 0; c < width; c++) {
+      for (var i = 0; i < width; i++) {
+        var c = (snake && r % 2 === 1) ? (width - 1 - i) : i;
         if (!used[c + ',' + r]) return { col: c, row: r };
       }
     }
     return null;
   }
+  // Keep a desktop circuit inside the 3-column loop. A column past the width
+  // moves to the next free snake cell, so two stations never share a square.
+  function fitLayout(stations, cols) {
+    var width = columnCount(cols == null ? 3 : cols);
+    var used = {};
+    var limit = ROWS;
+    var placed = [];
+    function free() {
+      var r, i, c, guard;
+      for (guard = 0; guard < 40; guard++) {
+        for (r = 0; r < limit; r++) {
+          for (i = 0; i < width; i++) {
+            c = (r % 2 === 1) ? (width - 1 - i) : i;
+            if (!used[c + ',' + r]) return { col: c, row: r };
+          }
+        }
+        limit += 1;
+      }
+      return { col: 0, row: limit };
+    }
+    (stations || []).forEach(function (station) {
+      if (!station) return;
+      var copy = clone(station);
+      var col = integer(station.col, 0, COLS - 1);
+      var row = integer(station.row, 0, 80);
+      var cell = null;
+      if (col != null && row != null && col < width && !used[col + ',' + row]) cell = { col: col, row: row };
+      if (!cell) cell = free();
+      used[cell.col + ',' + cell.row] = 1;
+      copy.col = cell.col;
+      copy.row = cell.row;
+      placed.push(copy);
+    });
+    return placed;
+  }
   function addStation(doc, cols) {
-    var cell = nextCell(doc && doc.stations, cols);
+    var cell = nextCell(doc && doc.stations, cols == null ? 3 : cols);
     if (!cell) return { ok: false, error: 'The grid is full.' };
     var next = clone(doc || blank());
     var station = { id: newId(), col: cell.col, row: cell.row, exercise: null };
@@ -315,7 +352,8 @@
     (Array.isArray(doc.stations) ? doc.stations : []).forEach(function (station) {
       if (!station || typeof station !== 'object') { errors.push('That circuit could not be saved.'); return; }
       if (!exactKeys(station, ['id', 'col', 'row', 'exercise'])) errors.push('That circuit could not be saved.');
-      if (!exerciseKeysOk(station.exercise)) errors.push('Choose an exercise for every station.');
+      if (station.exercise == null) errors.push('Name every station before saving.');
+      else if (!exerciseKeysOk(station.exercise)) errors.push('Choose an exercise for every station.');
       var id = String(station.id || '');
       if (!STATION_ID.test(id) || seenIds[id]) errors.push('That circuit could not be saved.');
       var col = integer(station.col, 0, COLS - 1);
@@ -323,8 +361,8 @@
       if (col == null || row == null) errors.push('Move that station onto the grid.');
       else if (positions[col + ',' + row]) errors.push('Two stations are on the same square.');
       else positions[col + ',' + row] = 1;
-      var exercise = normalizeExercise(station.exercise);
-      if (!exercise) errors.push('Choose an exercise for every station.');
+      var exercise = station.exercise == null ? null : normalizeExercise(station.exercise);
+      if (station.exercise != null && !exercise) errors.push('Choose an exercise for every station.');
       if (STATION_ID.test(id)) seenIds[id] = 1;
       if (exercise && col != null && row != null && STATION_ID.test(id) && !stations.some(function (s) { return s.id === id; })) {
         stations.push({ id: id, col: col, row: row, exercise: exercise });
@@ -333,40 +371,15 @@
     if (Array.isArray(doc.stations) && doc.stations.length < 1) errors.push('Add a station.');
     if (Array.isArray(doc.stations) && doc.stations.length > STATION_MAX) errors.push('The grid is full.');
     var order = [];
+    var unnamed = errors.indexOf('Name every station before saving.') >= 0;
     var orderStations = stations.length === (Array.isArray(doc.stations) ? doc.stations.length : -1) ? stations : (doc.stations || []);
-    if (!Array.isArray(doc.order) || !loopComplete(orderStations, doc.order)) {
+    if (unnamed) {
+      (Array.isArray(doc.order) ? doc.order : []).forEach(function (id) { order.push(String(id)); });
+    } else if (!Array.isArray(doc.order) || !loopComplete(orderStations, doc.order)) {
       errors.push('Tap every station to close the loop.');
     } else {
       doc.order.forEach(function (id) { order.push(String(id)); });
     }
-    if (!Array.isArray(doc.clients)) errors.push('That circuit could not be saved.');
-    var clients = [];
-    var linked = {};
-    var manuals = {};
-    (Array.isArray(doc.clients) ? doc.clients : []).forEach(function (client) {
-      if (!client || typeof client !== 'object') { errors.push('That circuit could not be saved.'); return; }
-      if (client.source === 'linked') {
-        if (!exactKeys(client, ['source', 'id', 'name'])) errors.push('That circuit could not be saved.');
-        var id = String(client.id || '');
-        var shown = clean(client.name);
-        if (!UUID.test(id) || !shown || shown.indexOf('@') !== -1 || shown.length > NAME_MAX) errors.push('Name every client.');
-        else if (linked[id]) errors.push('That client is already on this circuit.');
-        else {
-          linked[id] = 1;
-          clients.push({ source: 'linked', id: id, name: shown });
-        }
-      } else if (client.source === 'manual') {
-        if (!exactKeys(client, ['source', 'name'])) errors.push('That circuit could not be saved.');
-        var manual = clean(client.name);
-        if (!manual || manual.indexOf('@') !== -1 || manual.length > NAME_MAX) errors.push('Name every client.');
-        else if (manuals[manual.toLowerCase()]) errors.push('That client is already on this circuit.');
-        else {
-          manuals[manual.toLowerCase()] = 1;
-          clients.push({ source: 'manual', name: manual });
-        }
-      } else errors.push('That circuit could not be saved.');
-    });
-    if (clients.length > CLIENT_MAX) errors.push('Too many clients.');
     var clockIn = doc.clock;
     var clock = null;
     if (!clockIn || typeof clockIn !== 'object' || Array.isArray(clockIn)) errors.push('Enter the work time.');
@@ -381,9 +394,9 @@
       if (workSec != null && moveSec != null && rounds != null) clock = { workSec: workSec, moveSec: moveSec, rounds: rounds };
     }
     if (errors.length || !clock) return fail(errors);
-    var value = { name: name, stations: stations, order: order, clients: clients, clock: clock };
+    var value = { name: name, stations: stations, order: order, clock: clock };
     if (doc.id) value.id = String(doc.id);
-    if (bytesOf({ stations: stations, order: order, clients: clients, clock: clock }) > DATA_MAX) {
+    if (bytesOf({ stations: stations, order: order, clock: clock }) > DATA_MAX) {
       return fail(['This circuit is too large.']);
     }
     return { ok: true, errors: [], value: value };
@@ -461,11 +474,15 @@
     // not hidden behind the stations sitting between the last square and the first.
     if (close && a.col === b.col) {
       var onLeft = !cellAt(cells, a.col - 1, a.row);
-      var laneX = onLeft ? a.left - Math.max(6, (a.right - a.left) * 0.08) : (colGapX(cells, a.col) || a.right + 8);
+      // The return trip on the first column stays in the gutter beside the
+      // stations, inside the board, so the arrow is not clipped off the edge.
+      var laneX = onLeft
+        ? (colGapX(cells, a.col) || a.right + Math.max(8, (a.right - a.left) * 0.16))
+        : (colGapX(cells, a.col) || a.right + 8);
       var yA = clampNum(a.cy + shift, a.top + 8, a.bottom - 8);
       var yB = clampNum(b.cy - shift, b.top + 8, b.bottom - 8);
-      var edgeA = onLeft ? a.left : a.right;
-      var edgeB = onLeft ? b.left : b.right;
+      var edgeA = a.right;
+      var edgeB = b.right;
       return pullTip(dedupePoints([
         [edgeA, yA],
         [laneX, yA],
@@ -519,7 +536,6 @@
       data: {
         stations: checked.value.stations,
         order: checked.value.order,
-        clients: checked.value.clients,
         clock: checked.value.clock
       }
     };
@@ -532,7 +548,6 @@
       name: row.name,
       stations: data.stations,
       order: data.order,
-      clients: data.clients,
       clock: data.clock
     });
   }
@@ -836,6 +851,7 @@
     syncRounds: syncRounds,
     visibleRows: visibleRows,
     nextCell: nextCell,
+    fitLayout: fitLayout,
     addStation: addStation,
     normalizeExercise: normalizeExercise,
     setExercise: setExercise,

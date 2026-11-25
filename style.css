@@ -805,7 +805,16 @@ body.circuit-on button.circuit-sm.ghost{margin-left:auto;background:#eff6ff;colo
 body.circuit-on .circuit-board{position:relative;background-color:#fff;background-image:linear-gradient(to right,rgba(229,231,235,.9) 1px,transparent 1px),linear-gradient(to bottom,rgba(229,231,235,.9) 1px,transparent 1px);background-size:24px 24px;background-position:-1px -1px;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.06);padding:12px 10px 10px}
 body.circuit-on .circuit-board.is-busy{pointer-events:none}
 body.circuit-on .circuit-arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
-body.circuit-on .circuit-setup .wb-grid{column-gap:16px;row-gap:28px}
+body.circuit-on .circuit-setup .wb-grid,body.circuit-on .circuit-prepare .wb-grid{column-gap:28px;row-gap:40px}
+.pv-invites{display:flex;flex-wrap:wrap;gap:8px}
+.pv-invite.on{box-shadow:0 0 0 2px var(--pri)}
+body.circuit-on .circuit-prepare-bench{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:0;border:2px dashed #cbd5e1;border-radius:14px;background:#fff;padding:6px 10px}
+body.circuit-on .circuit-prepare-bench .circuit-bench-label{width:auto;margin:0}
+body.circuit-on .circuit-prepare-bench p{flex:1 1 140px;margin:0;font-size:13px;line-height:1.3;color:var(--ink)}
+body.circuit-on .circuit-prepare-bench .c-faces{min-height:0;margin:0;width:auto;flex:1 1 100%;justify-content:flex-start}
+body.circuit-on .circuit-prepare-bench .c-faces:empty{display:none}
+body.circuit-on .circuit-prepare .c-faces{display:flex;flex-wrap:wrap;gap:8px}
+body.circuit-on .c-person,body.circuit-on [data-person]{touch-action:none}
 body.circuit-on .circuit-live .wb-grid{column-gap:18px;row-gap:28px}
 body.circuit-on .wb-cell{min-height:14px;border:0;border-radius:0;background:transparent;box-shadow:none}
 body.circuit-on .wb-cell.wb-over{background:rgba(37,99,235,.08);border-radius:12px;box-shadow:none}

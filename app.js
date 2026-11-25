@@ -3620,6 +3620,9 @@
       deleteEntry: function (entry) { return WBAuth.deleteProgramEntry ? WBAuth.deleteProgramEntry(entry.ownerId, entry.id) : Promise.reject(new Error('programs')); },
       loadCalendar: function (zone, token) { return WBAuth.calendarFeed ? WBAuth.calendarFeed(zone, token) : Promise.reject(Object.assign(new Error('local'), { local: true })); },
       loadCircuits: function () { return WBAuth.circuits ? WBAuth.circuits() : Promise.resolve([]); },
+      loadGuestCircuits: function (clientId) {
+        return WBAuth.circuitGuestPlacements ? WBAuth.circuitGuestPlacements(clientId) : Promise.resolve([]);
+      },
       resetCalendar: function (zone) { return WBAuth.resetCalendarFeed ? WBAuth.resetCalendarFeed(zone) : Promise.reject(Object.assign(new Error('local'), { local: true })); },
       onTracked: function () { capturePlayedSession(); }
     });

@@ -24,6 +24,7 @@ async function stubAuth(page, opts) {
       if (hasProfile) api.profile = function () { return Promise.resolve(profile); };
       api.trainerRequestCount = function () { return Promise.resolve(0); };
       api.circuits = function () { return Promise.resolve([]); };
+      api.circuitGuestPlacements = function () { return Promise.resolve([]); };
       return api;
     }
     Object.defineProperty(window, 'WBAuth', {

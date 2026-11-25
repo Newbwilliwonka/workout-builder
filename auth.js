@@ -26,6 +26,7 @@
     return Promise.reject(new Error('Could not load sign-in'));
   }
   function db() {
+    if (root.__wbTestDb) return Promise.resolve(root.__wbTestDb);
     return loadLib().then(function (lib) {
       if (!client) {
         client = lib.createClient(URL, PUBLISHABLE_KEY, {
@@ -1122,6 +1123,15 @@
         return res.data || [];
       });
     },
+    circuitGuestPlacements: function (clientId) {
+      if (!isUuid(clientId)) return Promise.resolve([]);
+      return db().then(function (c) {
+        return c.rpc('circuit_guest_placements', { p_client: clientId });
+      }).then(function (res) {
+        if (!res || res.error) return [];
+        return Array.isArray(res.data) ? res.data : [];
+      }, function () { return []; });
+    },
     programEntries: function (ownerId) {
       var base = 'local_id,owner_id,workout_local_id,workout_name,items,day,presence,updated_at';
       function query(cols) {
@@ -1129,9 +1139,17 @@
           return c.from('program_entries').select(cols).eq('owner_id', ownerId);
         });
       }
-      return query(base + ',starts_at,ends_at').then(function (res) {
+      function read(cols) {
+        return query(cols).then(function (res) {
+          if (res.error && cols.indexOf('invitees') !== -1 && inviteColumnMissing(res.error)) {
+            return read(cols.replace(',invitees', ''));
+          }
+          return res;
+        });
+      }
+      return read(base + ',invitees,starts_at,ends_at').then(function (res) {
         if (res.error && timeColumnMissing(res.error)) {
-          return query(base).then(function (res2) {
+          return read(base + ',invitees').then(function (res2) {
             if (res2.error) throw programError(res2.error);
             var rows = Array.isArray(res2.data) ? res2.data : [];
             rows.timesPending = true;
@@ -1154,11 +1172,16 @@
           return pagedRows(c, 'program_entries', cols, function (q) {
             return q.in('owner_id', ids);
           });
+        }).then(function (page) {
+          if (page && page.error && cols.indexOf('invitees') !== -1 && inviteColumnMissing(page.error)) {
+            return load(cols.replace(',invitees', ''));
+          }
+          return page;
         });
       }
-      return load(base + ',starts_at,ends_at').then(function (page) {
+      return load(base + ',invitees,starts_at,ends_at').then(function (page) {
         if (page && page.error && timeColumnMissing(page.error)) {
-          return load(base).then(function (page2) {
+          return load(base + ',invitees').then(function (page2) {
             if (!page2 || page2.error) throw programError(page2 && page2.error);
             var rows = Array.isArray(page2.data) ? page2.data : [];
             rows.timesPending = true;
@@ -1190,7 +1213,12 @@
       });
     },
     saveProgramEntry: function (entry) {
-      function row(withTimes) {
+      var inviteIds = [];
+      (Array.isArray(entry && entry.invites) ? entry.invites : []).forEach(function (id) {
+        if (isUuid(id) && inviteIds.indexOf(id) < 0) inviteIds.push(id);
+      });
+      var sendInvites = !!(entry && Array.isArray(entry.invites));
+      function row(withTimes, withInvites) {
         var out = {
           owner_id: entry.ownerId,
           local_id: entry.id,
@@ -1204,26 +1232,49 @@
           out.starts_at = String(entry.start).slice(0, 5);
           out.ends_at = String(entry.end).slice(0, 5);
         }
+        if (withInvites) out.invitees = inviteIds;
         return out;
       }
-      function upsert(withTimes) {
+      function upsert(withTimes, withInvites) {
         return db().then(function (c) {
-          return c.from('program_entries').upsert(row(withTimes), { onConflict: 'owner_id,local_id' });
+          return c.from('program_entries').upsert(row(withTimes, withInvites), { onConflict: 'owner_id,local_id' });
         });
       }
-      var timed = !!(entry.start && entry.end);
-      return upsert(timed).then(function (res) {
-        if (res.error && timed && timeColumnMissing(res.error)) {
-          return upsert(false).then(function (res2) {
+      function withoutInvites(res, withTimes) {
+        if (!(res && res.error && inviteColumnMissing(res.error))) return null;
+        if (inviteIds.length) throw new Error('Invites stay on this device until the circuit invite SQL is applied.');
+        return upsert(withTimes, false);
+      }
+      var timed = !!(entry && entry.start && entry.end);
+      return upsert(timed, sendInvites).then(function (res) {
+        var dropped = withoutInvites(res, timed);
+        if (dropped) return dropped.then(function (res2) { return finish(res2, timed, false); });
+        return finish(res, timed, sendInvites);
+      });
+      function timesLocalError() {
+        var err = new Error('Start and end times are saved on this device until the program times SQL is applied.');
+        err.timesLocal = true;
+        return err;
+      }
+      function finish(res, withTimes, withInvites) {
+        if (res.error && withTimes && timeColumnMissing(res.error)) {
+          return upsert(false, withInvites).then(function (res2) {
+            var droppedTimes = withoutInvites(res2, false);
+            if (droppedTimes) {
+              return droppedTimes.then(function (res3) {
+                if (res3.error) return finish(res3, false, false);
+                throw timesLocalError();
+              });
+            }
             if (res2.error) throw programError(res2.error);
-            var err = new Error('Start and end times are saved on this device until the program times SQL is applied.');
-            err.timesLocal = true;
-            throw err;
+            throw timesLocalError();
           });
         }
+        var dropped = withoutInvites(res, withTimes);
+        if (dropped) return dropped.then(function (res2) { return finish(res2, withTimes, false); });
         if (res.error) throw programError(res.error);
         return true;
-      });
+      }
     },
     deleteProgramEntry: function (ownerId, localId) {
       return db().then(function (c) {
@@ -1318,6 +1369,10 @@
     var msg = (err && (err.message || err.details || err.hint)) || '';
     return /starts_at|ends_at/i.test(msg);
   }
+  function inviteColumnMissing(err) {
+    var msg = (err && (err.message || err.details || err.hint)) || '';
+    return /invitees/i.test(msg) && /schema cache|could not find|PGRST204|42703|does not exist/i.test(msg);
+  }
   function circuitError(err) {
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
     if (/schema cache|could not find|PGRST205|PGRST202|42P01/i.test(msg)) {
@@ -1334,6 +1389,7 @@
       'Add a station.',
       'The grid is full.',
       'Choose an exercise for every station.',
+      'Name every station before saving.',
       'Tap every station to close the loop.',
       'Two stations are on the same square.',
       'Move that station onto the grid.',
