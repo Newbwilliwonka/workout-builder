@@ -351,9 +351,13 @@
   function finish(token, key, err) {
     var mine = !!(inflight && inflight.token === token);
     if (mine) inflight = null;
-    if (mine && !err) forgetAttempts(key);
+    if (!err) forgetAttempts(key);
     // A newer send owns the screen. This result must not redraw it or clear its lock.
-    if (!mine) return;
+    // The older send still finishes every workout, and a failure is still reported.
+    if (!mine) {
+      if (err && ctx && ctx.toast) ctx.toast((err && err.message) || 'Could not send');
+      return;
+    }
     if (!ctx || pageName() !== 'send') return;
     if (!roster) return;
     if (currentKey() !== key) {
@@ -402,13 +406,11 @@
     drawSend();
     var index = 0;
     function step() {
-      if (!inflight || inflight.token !== token) return;
       if (index >= plan.length) return finish(token, key, null);
       var item = plan[index];
       Promise.resolve().then(function () {
         return auth.sendWorkout(item.deliveries, item.name, item.items, item.source);
       }).then(function () {
-        if (!inflight || inflight.token !== token) return;
         index += 1;
         step();
       }, function (err) {

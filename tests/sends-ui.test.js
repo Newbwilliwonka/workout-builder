@@ -353,6 +353,28 @@ function armSlow() {
   assert.strictEqual(box.copies.length, beforeMulti + 2);
   assert.strictEqual(await trainer.$('#sent-note'), null);
 
+  await trainer.click('[data-pick-client="' + E + '"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 2 clients' && !document.getElementById('send-go').disabled;
+  });
+  const releaseOverlap = armSlow();
+  const satBefore = box.copies.filter(function (c) { return c.name === 'Saturday easy'; }).length;
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').disabled; });
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 1 workout to 2 clients' && !document.getElementById('send-go').disabled;
+  });
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Sent'; });
+  releaseOverlap();
+  const overlapDeadline = Date.now() + 4000;
+  while (box.copies.filter(function (c) { return c.name === 'Saturday easy'; }).length < satBefore + 2 && Date.now() < overlapDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Saturday easy'; }).length, satBefore + 2);
+  assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Saturday easy' && c.ownerId === E; }).length, 1);
+
   await trainer.goto(URL + '#/send');
   await trainer.waitForSelector('#send-go');
 
