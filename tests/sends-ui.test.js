@@ -525,6 +525,40 @@ function armSlow() {
     return window.__wbVisit === 2 && btn && btn.textContent === 'Send 0 workouts to 0 clients' && !picked;
   });
 
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const countHold = armHold();
+  const callsAtCount = box.calls.length;
+  box.holds = [countHold];
+  await trainer.click('#send-go');
+  const countDeadline = Date.now() + 4000;
+  while (box.calls.length < callsAtCount + 1 && Date.now() < countDeadline) await new Promise(function (r) { setTimeout(r, 30); });
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 1 workout to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  box.failAfter = 1;
+  countHold.release();
+  const countDone = Date.now() + 4000;
+  while (box.calls.length < callsAtCount + 2 && Date.now() < countDone) await new Promise(function (r) { setTimeout(r, 30); });
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client';
+  });
+  box.mode = 'fail';
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () {
+    var err = document.getElementById('send-fail');
+    var btn = document.getElementById('send-go');
+    return err && err.textContent.indexOf('Failed to fetch') !== -1 && err.textContent.indexOf('Sent 1 workout') === -1 &&
+      btn && !btn.disabled && btn.textContent === 'Send 1 workout to 1 client';
+  });
+  box.holds = [];
+
   const cleanItems = JSON.parse(JSON.stringify(box.copies[0].items));
   box.copies = [
     { id: COPY, ownerId: E, trainerId: T, name: 'Friday full body', items: cleanItems, sourceWorkoutId: 'wo_friday', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },

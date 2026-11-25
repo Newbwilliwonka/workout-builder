@@ -459,12 +459,17 @@
     inflight = flight;
     drawSend();
     var index = 0;
-    var sentNames = [];
     var failed = [];
-    plan.forEach(function (item) { if (succeeded[item.key]) sentNames.push(item.name); });
+    var failedKeys = {};
     function step() {
       if (index >= pending.length) {
-        if (failed.length && sentNames.length) return finish(token, key, new Error(partialMessage(sentNames.length, failed.map(function (item) { return item.name; }))));
+        var sentNames = [];
+        var failedNames = [];
+        plan.forEach(function (item) {
+          if (failedKeys[item.key]) failedNames.push(item.name);
+          else if (succeeded[item.key]) sentNames.push(item.name);
+        });
+        if (failedNames.length && sentNames.length) return finish(token, key, new Error(partialMessage(sentNames.length, failedNames)));
         if (failed.length) return finish(token, key, failed[0].err || new Error('Could not send'));
         return finish(token, key, null);
       }
@@ -473,10 +478,12 @@
         return auth.sendWorkout(item.deliveries, item.name, item.items, item.source);
       }).then(function () {
         succeeded[item.key] = 1;
-        sentNames.push(item.name);
+        delete failedKeys[item.key];
         index += 1;
         step();
       }, function (err) {
+        delete succeeded[item.key];
+        failedKeys[item.key] = 1;
         failed.push({ name: item.name, err: err || new Error('Could not send') });
         index += 1;
         step();
