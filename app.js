@@ -86,6 +86,41 @@
   function go(h) { location.hash = h; }
   function hashBody() { return location.hash.replace(/^#\/?/, '').split('?')[0]; }
   function hashPage() { return hashBody().split('/')[0]; }
+  function hashParam(name) {
+    var hash = '';
+    try { hash = location.hash || ''; } catch (e) { return ''; }
+    var q = hash.indexOf('?');
+    if (q === -1) return '';
+    try { return new URLSearchParams(hash.slice(q + 1)).get(name) || ''; }
+    catch (e) { return ''; }
+  }
+  function clearHashParam(name) {
+    var hash = '';
+    try { hash = location.hash || ''; } catch (e) { return; }
+    var q = hash.indexOf('?');
+    if (q === -1) return;
+    var params;
+    try { params = new URLSearchParams(hash.slice(q + 1)); }
+    catch (e) { return; }
+    if (!params.has(name)) return;
+    params.delete(name);
+    var rest = params.toString();
+    var next = hash.slice(0, q) + (rest ? '?' + rest : '');
+    if (next === hash) return;
+    try {
+      var u = new URL(location.href);
+      history.replaceState(null, '', u.pathname + u.search + next);
+    } catch (e) {}
+  }
+  function checkoutNotice(page) {
+    var value = hashParam('checkout');
+    if (page === 'account' && value === 'success') return 'Your subscription is now active.';
+    if (page === 'subscriptions' && value === 'cancel') return "Checkout was canceled. You can subscribe whenever you're ready.";
+    return '';
+  }
+  function billingUrl(url) {
+    return window.WBBilling && WBBilling.httpsUrl ? WBBilling.httpsUrl(url) : '';
+  }
   backBtn.onclick = function () {
     var page = hashPage();
     if ((page === 'programs' || page === 'preview') && window.WBPreview && WBPreview.back()) return;
@@ -1112,7 +1147,7 @@
     app.oninput = null;
     app.onchange = null;
   }
-  var pendingSignNotice = null, authBusy = false, planBusy = false;
+  var pendingSignNotice = null, authBusy = false, planBusy = false, checkoutGen = 0;
   // recoveryPhase: '' | 'checking' | 'form' | 'invalid' | 'done'
   var recoveryPhase = '', recoverySettled = false, recoveryReady = false;
   var RECOVERY_LOCK = 'wb.recovery';
@@ -1675,14 +1710,15 @@
         accessWaitOn = false;
         var profile = cachedProfile || gate.profile;
         if (page === 'admin') return renderAdmin();
-        if (gate.known && !WBMembership.hasDesignated(profile)) return go('#/subscriptions');
+        var checkoutReturn = page === 'account' && hashParam('checkout') === 'success';
+        if (gate.known && !WBMembership.hasDesignated(profile) && !checkoutReturn) return go('#/subscriptions');
         if (clientNeedsName(profile)) {
           profileGateOn = false;
           closeProfileSheet(true);
           if (page !== 'account') return go('#/account');
           return renderSimpleAccount();
         }
-        if (window.WBProfile && WBProfile.needsName(profile)) return showProfileGate(profile);
+        if (window.WBProfile && WBProfile.needsName(profile) && !checkoutReturn) return showProfileGate(profile);
         profileGateOn = false;
         closeProfileSheet(true);
         syncHeaderSignOut();
@@ -2715,6 +2751,8 @@
     syncChrome();
   }
   function renderSubscriptions(message, isError) {
+    checkoutGen++;
+    planBusy = false;
     titleEl.textContent = 'Subscriptions';
     backBtn.hidden = true;
     showHeaderSignIn(false);
@@ -2758,9 +2796,12 @@
   }
   function drawSubscriptions(session, profile, message, isError, conn, locked) {
     var note = takeInviteNotice();
+    var returned = checkoutNotice('subscriptions');
+    var currentId = WBMembership.activePaidPlan(profile);
     var h = '<div class="sales">';
+    if (returned) h += '<div class="card" id="checkout-note">' + esc(returned) + '</div>';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
-    if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
+    if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '" id="plan-note">' + esc(message) + '</div>';
     if (locked) h += '<p class="mute" id="level-lock">Choose a level to continue.</p>';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
@@ -2769,8 +2810,11 @@
     WBMembership.TIERS.forEach(function (t) {
       h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
       h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>';
-      if (t.recommended) h += '<span class="pill solid">Recommended</span>';
-      if (t.beta) h += '<span class="pill amber">Beta</span>';
+      var pills = '';
+      if (t.recommended) pills += '<span class="pill solid">Recommended</span>';
+      if (currentId && t.id === currentId) pills += '<span class="pill blue" id="current-plan">Current plan</span>';
+      if (t.beta) pills += '<span class="pill amber">Beta</span>';
+      if (pills) h += '<span class="plan-pills">' + pills + '</span>';
       h += '</div>';
       h += '<div class="price">';
       if (t.oldPriceLabel) h += '<span class="was">' + esc(t.oldPriceLabel) + '</span>';
@@ -2791,13 +2835,18 @@
       }
       if (t.inviteOnly) {
         if (t.cta) h += '<p class="invite">' + esc(t.cta) + '</p>';
-      } else h += '<button class="pri" data-plan="' + t.id + '" style="width:100%;margin-top:16px">' + esc(t.cta) + '</button>';
+      } else if (currentId && t.id === currentId) {
+        h += '<button class="pri" data-billing="portal" style="width:100%;margin-top:16px">Manage billing</button>';
+      } else if (!currentId) {
+        h += '<button class="pri" data-plan="' + t.id + '" style="width:100%;margin-top:16px">Subscribe</button>';
+      }
       h += '</article>';
     });
-    h += '<p class="foot">Choosing a plan saves your selection.</p>';
+    h += "<p class=\"foot\">You'll finish payment on Stripe Checkout.</p>";
     if (locked) h += '<button class="linkish" type="button" id="level-signout">Sign out</button>';
     h += '</div>';
     app.innerHTML = h;
+    if (returned) clearHashParam('checkout');
     refreshRequestBadges();
     if (!session) backBtn.hidden = true;
     showHeaderSignIn(false);
@@ -2805,6 +2854,37 @@
     app.onchange = function (e) {
       if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
     };
+    function beginPaidStep() {
+      planBusy = checkoutGen;
+    }
+    function paidStepOpen() {
+      if (planBusy !== checkoutGen) return false;
+      if (hashPage() !== 'subscriptions') {
+        planBusy = false;
+        return false;
+      }
+      return true;
+    }
+    function openPortal(btn) {
+      if (planBusy) return;
+      beginPaidStep();
+      btn.disabled = true;
+      var run = WBAuth.openBilling ? WBAuth.openBilling() : Promise.reject(new Error('The billing page could not be opened.'));
+      Promise.resolve(run).then(function (url) {
+        if (!paidStepOpen()) return;
+        var safe = billingUrl(url);
+        if (!safe) {
+          planBusy = false;
+          drawSubscriptions(session, profile, 'The billing page could not be opened.', true, conn, !!locked);
+          return;
+        }
+        location.assign(safe);
+      }, function (err) {
+        if (!paidStepOpen()) return;
+        planBusy = false;
+        drawSubscriptions(session, profile, (err && err.message) || 'The billing page could not be opened.', true, conn, !!locked);
+      });
+    }
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
@@ -2821,24 +2901,37 @@
           goSignedOutHome();
         });
       }
-      if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
+      if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-billing]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (nav && nav.dataset.go === 'hub') return go('#/hub');
       if (nav && nav.dataset.go === 'received') return go('#/received');
       if (handleInvite(e, function () { renderSubscriptions(); })) return;
       if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
+      var portal = e.target.closest('[data-billing="portal"]');
+      if (portal) return openPortal(portal);
       var b = e.target.closest('[data-plan]'); if (!b) return;
-      if (planBusy || !WBMembership.canSelectIntended(b.dataset.plan)) return;
-      planBusy = true; b.disabled = true;
-      WBAuth.saveIntended(b.dataset.plan).then(function (saved) {
+      if (planBusy || currentId || !WBMembership.canSelectIntended(b.dataset.plan)) return;
+      beginPaidStep();
+      var plan = b.dataset.plan;
+      var buttons = app.querySelectorAll('button[data-plan]');
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].disabled = true;
+        if (buttons[i].getAttribute('data-plan') === plan) buttons[i].textContent = 'Starting checkout…';
+      }
+      var run = WBAuth.startCheckout ? WBAuth.startCheckout(plan) : Promise.reject(new Error('Checkout could not be started.'));
+      Promise.resolve(run).then(function (url) {
+        if (!paidStepOpen()) return;
+        var safe = billingUrl(url);
+        if (!safe) {
+          planBusy = false;
+          drawSubscriptions(session, profile, 'Checkout could not be started.', true, conn, !!locked);
+          return;
+        }
+        location.assign(safe);
+      }, function (err) {
+        if (!paidStepOpen()) return;
         planBusy = false;
-        if (saved && typeof saved === 'object') cachedProfile = saved;
-        if (hashPage() !== 'subscriptions') return;
-        go('#/');
-      }).catch(function () {
-        planBusy = false;
-        if (hashPage() !== 'subscriptions') return;
-        drawSubscriptions(session, profile, 'Could not save that plan. Please try again.', true, conn, !!locked);
+        drawSubscriptions(session, profile, (err && err.message) || 'Checkout could not be started.', true, conn, !!locked);
       });
     };
   }
@@ -2850,7 +2943,7 @@
       if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'account') return;
-        if (!WBMembership.hasDesignated(profile)) return go('#/subscriptions');
+        if (!WBMembership.hasDesignated(profile) && hashParam('checkout') !== 'success') return go('#/subscriptions');
         var rosterP = WBAuth.roster ? WBAuth.roster() : Promise.resolve({ role: null });
         var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null);
         Promise.all([
@@ -2866,7 +2959,14 @@
           noteProfile(profile);
           drawAccount(session, profile, roster, conn);
         });
-      }).catch(function () { if (hashPage() === 'account') go('#/subscriptions'); });
+      }).catch(function () {
+        if (hashPage() !== 'account') return;
+        if (hashParam('checkout') === 'success') {
+          drawAccount(session, { membership: 'none' }, { role: null }, null);
+          return;
+        }
+        go('#/subscriptions');
+      });
     }).catch(function () { if (hashPage() === 'account') go('#/signin'); });
   }
   var CLIENT_GOALS = [
@@ -3206,9 +3306,11 @@
       clientInfoLoadGen++;
     }
     var note = takeInviteNotice();
+    var returned = checkoutNotice('account');
     var ent = WBMembership.entitlements(profile);
-    var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
+    var plan = ent.active ? ent.tier : WBMembership.tier(profile && profile.intended_plan);
     var h = '<div class="account-page">';
+    if (returned) h += '<div class="card" id="checkout-note">' + esc(returned) + '</div>';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     var who = signedInLabel(profile, session);
     var verifiedName = window.WBProfile && WBProfile.isVerified(profile && profile.verified_until, WBProfile.todayISO());
@@ -3231,6 +3333,7 @@
     h += trainerSection(roster);
     h += '</div>';
     app.innerHTML = h;
+    if (returned) clearHashParam('checkout');
     watchClientInfo();
     paintAccountAvatar(profile);
     refreshRequestBadges();

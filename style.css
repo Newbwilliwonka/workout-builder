@@ -144,7 +144,8 @@ button.lib-still-x{align-self:flex-end;width:48px;height:48px;min-width:48px;min
 #client-readonly{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:12px;padding:8px 12px;font-size:13px;font-weight:700;text-align:left;margin:0 0 12px}
 .beta-note{font-weight:700;color:var(--pri);font-size:14px;margin:0 0 20px}
 .plan{position:relative;padding:16px 16px 14px;box-shadow:0 1px 3px rgba(17,24,39,.08)}
-.plan h3{font-size:18px;font-weight:700;margin:0;color:var(--ink)}
+.plan h3{font-size:18px;font-weight:700;margin:0;color:var(--ink);flex:1 0 auto;min-width:min-content}
+.plan-pills{display:inline-flex;align-items:center;gap:8px;flex:none;flex-wrap:nowrap}
 .plan .price{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;margin:2px 0 4px}
 .plan .price .was{color:var(--mute);font-size:13px;font-weight:400;text-decoration:line-through;text-decoration-thickness:1px}
 .plan .price .now{font-size:26px;font-weight:800;letter-spacing:0;color:var(--ink)}

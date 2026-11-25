@@ -358,7 +358,9 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await saveFail.reload();
   await saveFail.waitForSelector('#level-lock');
   await saveFail.evaluate(() => {
-    window.WBAuth.saveIntended = function () { return Promise.reject(new Error('duplicate key')); };
+    window.WBAuth.startCheckout = function () {
+      return Promise.reject(new Error('You already have a subscription. Use Manage billing to change it.'));
+    };
   });
   await saveFail.click('[data-plan=enthusiast]');
   await saveFail.waitForFunction(() => {
@@ -368,8 +370,8 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
       && document.getElementById('level-signout')
       && document.getElementById('back').hidden
       && document.getElementById('nav-links').hidden
-      && document.body.innerText.indexOf('Could not save that plan. Please try again.') !== -1
-      && plan && !plan.disabled;
+      && document.body.innerText.indexOf('You already have a subscription. Use Manage billing to change it.') !== -1
+      && plan && !plan.disabled && plan.textContent === 'Subscribe';
   });
 
   const consumed = await open(null);
