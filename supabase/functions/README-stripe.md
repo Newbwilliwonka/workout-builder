@@ -8,9 +8,17 @@ Nothing in this folder is a Stripe key. Keys live in Supabase function secrets.
 
 ## What each function does
 
-`create-checkout-session` starts a hosted subscription Checkout for Enthusiast, Trainer, or Master Trainer. The person must already be approved. The price is chosen with a Stripe lookup key: `enthusiast_beta_monthly`, `trainer_beta_monthly`, `master_trainer_beta_monthly`, or the matching `_standard_monthly` key. Beta is used when the profile is already Beta locked, or when `beta_reservation_hold` can hold one of the first 100 spots. Otherwise the standard key is used. Tax is not turned on.
+`create-checkout-session` starts a hosted subscription Checkout for Enthusiast, Trainer, or Master Trainer. The person must already be approved. A complimentary account is refused, and so is an account that already has an active, trialing, or past-due subscription. Those people use Manage billing.
 
-`stripe-webhook` verifies the raw body with `STRIPE_WEBHOOK_SECRET`, records the event once with `stripe_event_begin`, and updates membership through `apply_stripe_membership`. A paid invoice grants the plan and confirms a Beta hold. A failed payment marks the account past due and does not remove access. A deleted subscription ends access at the period end, which the database turns into Free Client or no plan.
+The price is chosen with a Stripe lookup key: `enthusiast_beta_monthly`, `trainer_beta_monthly`, `master_trainer_beta_monthly`, or the matching `_standard_monthly` key. Beta is used when the profile is already Beta locked, or when fewer than 100 profiles are Beta locked. Otherwise the standard key is used. Checkout does not hold a seat. A few extra people can still receive the Beta price. Tax is not turned on.
+
+If that customer already has an open Checkout, the same URL is returned. A second click does not open a second page and does not expire the first one.
+
+`stripe-webhook` verifies the raw body with `STRIPE_WEBHOOK_SECRET`, records the event once with `stripe_event_begin`, and updates membership through `apply_stripe_membership`. A paid invoice grants the plan and period from the subscription line. A Beta price also sets `beta_locked` with `mark_beta_paid`. A failed payment marks that same subscription past due and does not remove access. A deleted subscription ends access only when its id is the one stored on the profile. Cancelling a duplicate does not change the subscription that should be kept.
+
+If a second subscription is paid while another is already active, the newer one is canceled and its first invoice is refunded. The kept subscription is not changed. If that cancel does not leave the subscription canceled, the webhook answers with an error so Stripe tries again.
+
+`checkout.session.completed` only attaches the customer and subscription. If that work was already done, or the event arrives out of order, it still answers 200.
 
 `create-portal-session` opens the hosted Customer Portal for the signed-in person's own Stripe customer. A customer id sent by the browser is ignored.
 
@@ -29,7 +37,7 @@ In the Supabase dashboard, Project Settings → Edge Functions → Secrets, set:
 
 ## Deploy, when William says so
 
-The billing SQL from `supabase/migrations/20261125200000_stripe_billing.sql` is already applied. Also apply `supabase/migrations/20261125220000_beta_hold_35_minutes.sql`. It changes a new Beta hold from 30 minutes to 35 minutes so Checkout can expire at 31 minutes and still end before the hold. Confirmed seats are not changed.
+The billing SQL from `supabase/migrations/20261125200000_stripe_billing.sql` is already applied. Also apply `supabase/migrations/20261125230000_beta_paid_count.sql`. It adds `beta_paid_count` and `mark_beta_paid` for the service role only. It does not change the tables from the earlier billing migration.
 
 Checkout and the portal allow the browser only from https://coachtrainerapp.com, and from http://localhost or http://127.0.0.1 on any port for local work. The webhook sends no browser headers.
 

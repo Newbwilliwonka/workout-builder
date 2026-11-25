@@ -112,16 +112,51 @@ function invoiceSubscription(invoice) {
   return invoice && invoice.subscription ? invoice.subscription : null
 }
 
-async function planForPrice(stripe, ref) {
+async function parsedPrice(stripe, ref) {
   if (!ref) return null
   if (ref.lookup_key) {
     const parsed = planFromLookupKey(ref.lookup_key)
-    if (parsed) return parsed.plan
+    if (parsed) return parsed
   }
   if (!ref.id || !stripe || !stripe.prices || !stripe.prices.retrieve) return null
   const price = await stripe.prices.retrieve(ref.id)
-  const parsed = planFromLookupKey(price && price.lookup_key)
-  return parsed ? parsed.plan : null
+  return planFromLookupKey(price && price.lookup_key)
+}
+
+function paymentIntentId(invoice) {
+  const direct = idOf(invoice && invoice.payment_intent)
+  if (direct) return direct
+  const payments = invoice && invoice.payments && (invoice.payments.data || invoice.payments)
+  if (!Array.isArray(payments)) return null
+  for (let i = 0; i < payments.length; i++) {
+    const payment = payments[i] && (payments[i].payment || payments[i])
+    const intent = idOf(payment && payment.payment_intent)
+    if (intent) return intent
+  }
+  return null
+}
+
+async function refundFirstInvoice(stripe, subscriptionId) {
+  if (!stripe.invoices || !stripe.invoices.list || !stripe.refunds || !stripe.refunds.create) return
+  const listed = await stripe.invoices.list({ subscription: subscriptionId, limit: 100 })
+  const rows = (listed && listed.data) || []
+  const paid = []
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i] && (rows[i].status === 'paid' || rows[i].paid === true)) paid.push(rows[i])
+  }
+  if (!paid.length) return
+  paid.sort(function (a, b) { return Number(a.created || 0) - Number(b.created || 0) })
+  const first = paid[0]
+  const intent = paymentIntentId(first)
+  const charge = idOf(first.charge)
+  if (!intent && !charge) return
+  try {
+    if (intent) await stripe.refunds.create({ payment_intent: intent })
+    else await stripe.refunds.create({ charge: charge })
+  } catch (err) {
+    if (err && err.code === 'charge_already_refunded') return
+    throw err
+  }
 }
 
 function asRow(found) {
@@ -134,14 +169,6 @@ function asRow(found) {
 
 async function billingRow(db, customerId, userId) {
   return asRow(await db.findProfile(customerId, userId))
-}
-
-function hadPaidAccess(row) {
-  if (!row) return false
-  if (row.billing_status === 'active' || row.billing_status === 'past_due' || row.billing_status === 'unpaid' || row.billing_status === 'canceled') {
-    return true
-  }
-  return false
 }
 
 function sameActiveSubscription(row, subscriptionId) {
@@ -166,16 +193,31 @@ function isDifferentActive(row, newSubId) {
   )
 }
 
+async function subscriptionStatus(stripe, subscriptionId) {
+  const loaded = await stripe.subscriptions.retrieve(subscriptionId)
+  return loaded && loaded.status ? loaded.status : ''
+}
+
 async function cancelDuplicate(stripe, log, row, newSubId, eventType) {
   if (!isDifferentActive(row, newSubId)) return false
-  try {
-    if (stripe && stripe.subscriptions && stripe.subscriptions.cancel) {
-      await stripe.subscriptions.cancel(newSubId)
-    }
-  } catch (err) {
-    const message = String((err && err.message) || '').toLowerCase()
-    if (message.indexOf('cancel') === -1 && message.indexOf('already') === -1) throw err
+  if (!stripe || !stripe.subscriptions || !stripe.subscriptions.retrieve || !stripe.subscriptions.cancel) {
+    throw new BillingError('Checkout could not be started.', 502)
   }
+  let status = await subscriptionStatus(stripe, newSubId)
+  if (status !== 'canceled') {
+    try {
+      await stripe.subscriptions.cancel(newSubId)
+    } catch (err) {
+      let after = ''
+      try {
+        after = await subscriptionStatus(stripe, newSubId)
+      } catch (_readErr) {
+        throw err
+      }
+      if (after !== 'canceled') throw err
+    }
+  }
+  await refundFirstInvoice(stripe, newSubId)
   safeLog(log, {
     event_type: eventType,
     customer_id: row.stripe_customer_id || idOf(row.customer),
@@ -194,39 +236,39 @@ async function dispatch(stripe, db, event, log) {
     if (object.payment_status === 'unpaid') return
     const userId = metaUser(object.metadata) || (UUID.test(String(object.client_reference_id || '')) ? String(object.client_reference_id) : null)
     const row = await billingRow(db, idOf(object.customer), userId)
-    if (!row) throw new BillingError('That account was not found.', 500)
+    if (!row) {
+      safeLog(log, {
+        event_type: type,
+        customer_id: idOf(object.customer),
+        subscription_id: idOf(object.subscription),
+        result: 'checkout_already_applied',
+        note: 'Checkout completion did not change membership.'
+      })
+      return
+    }
     const profile = row.id
     const paidSub = idOf(object.subscription)
     if (await cancelDuplicate(stripe, log, row, paidSub, type)) return
-    const reservation = object.metadata && object.metadata.reservation_id
-    if (reservation && UUID.test(String(reservation)) && object.id) {
-      try {
-        await db.rpc('beta_reservation_attach', {
-          p_reservation: String(reservation),
-          p_checkout_session_id: object.id
-        })
-      } catch (err) {
-        if (!(err && /already has a checkout/i.test(err.message || ''))) throw err
-      }
+    try {
+      await db.rpc('apply_stripe_membership', {
+        p_profile: profile,
+        p_action: 'attach',
+        p_customer_id: idOf(object.customer),
+        p_subscription_id: paidSub
+      })
+    } catch (_err) {
+      safeLog(log, {
+        event_type: type,
+        customer_id: idOf(object.customer),
+        subscription_id: paidSub,
+        result: 'checkout_already_applied',
+        note: 'Checkout completion did not change membership.'
+      })
     }
-    await db.rpc('apply_stripe_membership', {
-      p_profile: profile,
-      p_action: 'attach',
-      p_customer_id: idOf(object.customer),
-      p_subscription_id: idOf(object.subscription)
-    })
     return
   }
 
   if (type === 'checkout.session.async_payment_failed' || type === 'checkout.session.expired') {
-    const reservation = object.metadata && object.metadata.reservation_id
-    const reservationId = reservation && UUID.test(String(reservation)) ? String(reservation) : null
-    if (object.id) {
-      await db.rpc('beta_reservation_release_current', {
-        p_reservation: reservationId,
-        p_checkout_session_id: object.id
-      })
-    }
     return
   }
 
@@ -237,15 +279,9 @@ async function dispatch(stripe, db, event, log) {
     const status = billingStatus(object.status)
     // An incomplete subscription has not been paid. Do not store its id,
     // or a later delete would remove a complimentary plan.
-    if (status === 'incomplete' || status === 'canceled') {
-      if (status === 'canceled') {
-        await db.rpc('beta_reservation_release', {
-          p_profile: row.id,
-          p_checkout_session_id: null,
-          p_reservation: null
-        })
-      }
-      return
+    if (status === 'incomplete' || status === 'canceled') return
+    if (status === 'active' || status === 'past_due') {
+      if (await cancelDuplicate(stripe, log, row, object.id, type)) return
     }
     await db.rpc('apply_stripe_membership', {
       p_profile: row.id,
@@ -263,17 +299,13 @@ async function dispatch(stripe, db, event, log) {
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
     const status = billingStatus(object.status)
-    if ((status === 'canceled' || status === 'unpaid') && !hadPaidAccess(row)) {
-      await db.rpc('beta_reservation_release', {
-        p_profile: row.id,
-        p_checkout_session_id: null,
-        p_reservation: null
-      })
+    if ((status === 'active' || status === 'past_due') && await cancelDuplicate(stripe, log, row, object.id, type)) {
       return
     }
-    const plan = status === 'active' || status === 'past_due'
-      ? await planForPrice(stripe, subscriptionPrice(object))
+    const parsed = status === 'active' || status === 'past_due'
+      ? await parsedPrice(stripe, subscriptionPrice(object))
       : null
+    const plan = parsed ? parsed.plan : null
     await db.rpc('apply_stripe_membership', {
       p_profile: row.id,
       p_action: 'sync',
@@ -290,12 +322,7 @@ async function dispatch(stripe, db, event, log) {
     const userId = metaUser(object.metadata)
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
-    await db.rpc('beta_reservation_release', {
-      p_profile: row.id,
-      p_checkout_session_id: null,
-      p_reservation: null
-    })
-    if (!hadPaidAccess(row)) return
+    if (!row.stripe_subscription_id || row.stripe_subscription_id !== object.id) return
     const endedAt = object.ended_at ? isoFromUnix(object.ended_at) : null
     await db.rpc('apply_stripe_membership', {
       p_profile: row.id,
@@ -329,23 +356,22 @@ async function dispatch(stripe, db, event, log) {
     }
     const paidSubId = typeof sub === 'string' ? sub : idOf(sub)
     if (await cancelDuplicate(stripe, log, row, paidSubId, type)) return
-    const plan = await planForPrice(stripe, choice.ref)
-    if (!plan) throw new BillingError('Checkout could not be started.', 500)
+    const parsed = await parsedPrice(stripe, choice.ref)
+    if (!parsed || !parsed.plan) throw new BillingError('Checkout could not be started.', 500)
     const period = linePeriodEnd(choice.line)
       || subscriptionPeriodEnd(periodSource)
       || isoFromUnix(object.period_end)
     await db.rpc('apply_stripe_membership', {
       p_profile: profile,
       p_action: 'grant',
-      p_plan: plan,
+      p_plan: parsed.plan,
       p_customer_id: idOf(object.customer),
       p_subscription_id: idOf(sub),
       p_period_end: period
     })
-    await db.rpc('beta_reservation_confirm', {
-      p_profile: profile,
-      p_checkout_session_id: null
-    })
+    if (parsed.tier === 'beta') {
+      await db.rpc('mark_beta_paid', { p_profile: profile })
+    }
     return
   }
 
@@ -366,11 +392,6 @@ async function dispatch(stripe, db, event, log) {
         p_subscription_id: subId
       })
     }
-    await db.rpc('beta_reservation_release', {
-      p_profile: profile,
-      p_checkout_session_id: null,
-      p_reservation: null
-    })
   }
 }
 

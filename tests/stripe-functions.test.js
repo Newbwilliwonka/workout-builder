@@ -5,7 +5,6 @@ const path = require('path');
 
 const shared = path.join(__dirname, '..', 'supabase/functions/_shared');
 const USER = '44444444-4444-4444-8444-444444444444';
-const RES = '55555555-5555-4555-8555-555555555555';
 const TEST_KEY = 'sk_' + 'test_example';
 const LIVE_KEY = 'sk_' + 'live_example';
 const LIVE_RAK = 'rk_' + 'live_example';
@@ -98,7 +97,7 @@ function dbMock(setup) {
     rpc: async function (name, args) {
       calls.push([name, args]);
       if (setup.failRpc === name) throw new Error(setup.failMessage || 'failed');
-      if (name === 'beta_reservation_hold') return setup.hold;
+      if (name === 'beta_paid_count') return setup.betaCount == null ? 0 : setup.betaCount;
       if (name === 'stripe_event_begin') return setup.begin === false ? false : true;
       return { applied: true };
     }
@@ -162,7 +161,7 @@ async function main() {
 
   const held = dbMock({
     profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: { cohort: 'beta', reservation_id: RES, beta_locked: false, expires_at: '2026-11-25T18:35:00.000Z' }
+    betaCount: 12
   });
   const heldStripe = stripeMock();
   const created = await checkout.createCheckoutSession({
@@ -187,18 +186,17 @@ async function main() {
   assert.strictEqual(params.cancel_url, 'https://coachtrainerapp.com/#/subscriptions?checkout=cancel');
   assert.strictEqual(params.integration_identifier, plans.INTEGRATION_ID);
   assert.strictEqual(params.metadata.user_id, USER);
-  assert.strictEqual(params.metadata.reservation_id, RES);
+  assert.strictEqual(params.metadata.plan, 'enthusiast');
+  assert.strictEqual(params.metadata.tier, 'beta');
   assert.strictEqual(params.subscription_data.metadata.supabase_user_id, USER);
   assert.strictEqual(params.subscription_data.metadata.plan, 'enthusiast');
   assert.strictEqual(params.subscription_data.metadata.tier, 'beta');
   assert.strictEqual(Object.prototype.hasOwnProperty.call(params, 'automatic_tax'), false);
   assert.strictEqual(Object.prototype.hasOwnProperty.call(params, 'payment_method_types'), false);
-  assert.ok(params.expires_at >= Date.parse('2026-11-25T18:00:00Z') / 1000 + 30 * 60);
-  assert.ok(params.expires_at < Date.parse('2026-11-25T18:35:00.000Z') / 1000);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(params, 'expires_at'), false);
   assert.strictEqual(sessionCall[2], undefined);
-  const attach = held.calls.filter(function (row) { return row[0] === 'beta_reservation_attach'; })[0];
-  assert.strictEqual(attach[1].p_reservation, RES);
-  assert.strictEqual(attach[1].p_checkout_session_id, 'cs_test_session1');
+  assert.ok(names(held.calls).indexOf('beta_paid_count') !== -1);
+  assert.ok(names(held.calls).indexOf('beta_reservation_hold') === -1);
   assert.ok(names(held.calls).indexOf('customers.create') === -1);
 
   const locked = dbMock({
@@ -214,6 +212,7 @@ async function main() {
     testMode: 'true',
     now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
   });
+  assert.ok(names(locked.calls).indexOf('beta_paid_count') === -1);
   assert.ok(names(locked.calls).indexOf('beta_reservation_hold') === -1);
   const lockedSession = lockedStripe.calls.filter(function (row) { return row[0] === 'sessions.create'; })[0][1];
   assert.strictEqual(lockedSession.line_items[0].price, 'price_from_trainer_beta_monthly');
@@ -222,7 +221,7 @@ async function main() {
 
   const standard = dbMock({
     profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: { cohort: 'standard', reservation_id: null, beta_locked: false }
+    betaCount: 100
   });
   const standardStripe = stripeMock();
   await checkout.createCheckoutSession({
@@ -236,11 +235,12 @@ async function main() {
   });
   const standardSession = standardStripe.calls.filter(function (row) { return row[0] === 'sessions.create'; })[0][1];
   assert.strictEqual(standardSession.line_items[0].price, 'price_from_master_trainer_standard_monthly');
+  assert.strictEqual(standardSession.metadata.tier, 'standard');
   assert.ok(names(standard.calls).indexOf('beta_reservation_attach') === -1);
 
   const failing = dbMock({
     profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: { cohort: 'beta', reservation_id: RES, expires_at: '2099-01-01T00:00:00.000Z' }
+    betaCount: 1
   });
   const failingStripe = stripeMock();
   failingStripe.checkout.sessions.create = async function () {
@@ -260,8 +260,7 @@ async function main() {
     assert.ok(err.message.indexOf('secret') === -1);
     return true;
   });
-  const release = failing.calls.filter(function (row) { return row[0] === 'beta_reservation_release'; })[0];
-  assert.strictEqual(release[1].p_reservation, RES);
+  assert.ok(names(failing.calls).indexOf('beta_reservation_release') === -1);
 
   function eventDb(extra) {
     return dbMock(Object.assign({
@@ -307,7 +306,8 @@ async function main() {
   assert.strictEqual(grant.p_plan, 'enthusiast');
   assert.strictEqual(grant.p_profile, USER);
   assert.strictEqual(grant.p_subscription_id, 'sub_payer001');
-  assert.ok(names(paidDb.calls).indexOf('beta_reservation_confirm') !== -1);
+  assert.ok(names(paidDb.calls).indexOf('mark_beta_paid') !== -1);
+  assert.ok(names(paidDb.calls).indexOf('beta_reservation_confirm') === -1);
   assert.ok(names(paidDb.calls).indexOf('stripe_event_begin') !== -1);
   assert.ok(JSON.stringify(logs).indexOf('card') === -1);
   assert.ok(JSON.stringify(logs).indexOf(TEST_KEY) === -1);
@@ -377,7 +377,7 @@ async function main() {
             customer: 'cus_Existing1',
             subscription: 'sub_payer001',
             client_reference_id: USER,
-            metadata: { user_id: USER, reservation_id: RES }
+            metadata: { user_id: USER }
           }
         }
       };
@@ -386,7 +386,7 @@ async function main() {
   });
   const completedApply = completed.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
   assert.strictEqual(completedApply.p_action, 'attach');
-  assert.ok(names(completed.calls).indexOf('beta_reservation_attach') !== -1);
+  assert.ok(names(completed.calls).indexOf('beta_reservation_attach') === -1);
   assert.ok(names(completed.calls).indexOf('beta_reservation_confirm') === -1);
 
   const updated = eventDb();
@@ -447,7 +447,7 @@ async function main() {
   });
   const pastDue = failed.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
   assert.strictEqual(pastDue.p_action, 'past_due');
-  assert.ok(names(failed.calls).indexOf('beta_reservation_release') !== -1);
+  assert.ok(names(failed.calls).indexOf('beta_reservation_release') === -1);
 
   const ended = eventDb();
   await webhook.handleWebhook({
@@ -530,7 +530,7 @@ async function main() {
     db: kept
   });
   assert.ok(names(kept.calls).indexOf('apply_stripe_membership') === -1);
-  assert.ok(names(kept.calls).indexOf('beta_reservation_release') !== -1);
+  assert.ok(names(kept.calls).indexOf('beta_reservation_release') === -1);
 
   const portalStripe = stripeMock();
   const opened = await portal.createPortalSession({
@@ -597,6 +597,7 @@ async function main() {
       testMode: 'true'
     });
   }, /keeps its current plan/);
+  assert.ok(names(comp.calls).indexOf('beta_paid_count') === -1);
   assert.ok(names(comp.calls).indexOf('beta_reservation_hold') === -1);
   assert.strictEqual(comp.calls[0][0], 'loadProfile');
 
@@ -613,6 +614,7 @@ async function main() {
       testMode: 'true'
     });
   }, /Manage billing/);
+  assert.ok(names(already.calls).indexOf('beta_paid_count') === -1);
   assert.ok(names(already.calls).indexOf('beta_reservation_hold') === -1);
 
   await assert.rejects(function () {
@@ -681,6 +683,7 @@ async function main() {
   assert.strictEqual(upgraded.p_action, 'grant');
   assert.strictEqual(upgraded.p_plan, 'trainer');
   assert.strictEqual(upgraded.p_period_end, new Date(lineEnd * 1000).toISOString());
+  assert.ok(names(upgrade.calls).indexOf('mark_beta_paid') !== -1);
 
   const endedAt = Date.parse('2026-12-01T12:00:00Z') / 1000;
   const closed = eventDb();
@@ -714,7 +717,7 @@ async function main() {
 
   const retry = dbMock({
     profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: { cohort: 'beta', reservation_id: RES, expires_at: '2099-01-01T00:00:00.000Z' }
+    betaCount: 3
   });
   const retryStripe = stripeMock();
   retryStripe.checkout.sessions.create = async function () {
@@ -758,7 +761,7 @@ async function main() {
     db: firstFail
   });
   assert.ok(names(firstFail.calls).indexOf('apply_stripe_membership') === -1);
-  assert.ok(names(firstFail.calls).indexOf('beta_reservation_release') !== -1);
+  assert.ok(names(firstFail.calls).indexOf('beta_reservation_release') === -1);
 
   const neverPaid = dbMock({ profiles: { cus_Existing1: { id: USER, complimentary: false, billing_status: null, stripe_subscription_id: null } } });
   await webhook.handleWebhook({
@@ -819,251 +822,73 @@ async function main() {
   const proratedGrant = prorated.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
   assert.strictEqual(proratedGrant.p_plan, 'master_trainer');
   assert.strictEqual(proratedGrant.p_period_end, new Date(currentEnd * 1000).toISOString());
+  assert.ok(names(prorated.calls).indexOf('mark_beta_paid') === -1);
 
-  const expiredOld = eventDb();
-  await webhook.handleWebhook({
-    stripe: stripeMock(),
-    secretKey: TEST_KEY,
-    testMode: 'true',
-    webhookSecret: 'whsec_' + 'example',
-    rawBody: '{}',
-    signature: 'good',
-    constructEvent: function () {
-      return {
-        id: 'evt_expired_old',
-        type: 'checkout.session.expired',
-        data: { object: { id: 'cs_test_old', metadata: { reservation_id: RES } } }
-      };
-    },
-    db: expiredOld
+  const reuse = dbMock({
+    profile: { access_approved: true, billing_status: 'canceled', beta_locked: false, stripe_customer_id: 'cus_Existing1' },
+    betaCount: 4
   });
-  const currentRelease = expiredOld.calls.filter(function (row) { return row[0] === 'beta_reservation_release_current'; })[0][1];
-  assert.strictEqual(currentRelease.p_reservation, RES);
-  assert.strictEqual(currentRelease.p_checkout_session_id, 'cs_test_old');
-  assert.ok(names(expiredOld.calls).indexOf('beta_reservation_release') === -1);
-
-  const holdSql = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20261125220000_beta_hold_35_minutes.sql'), 'utf8');
-  assert.ok(holdSql.indexOf('greatest(expires_at, now() + interval \'35 minutes\')') !== -1);
-  assert.ok(holdSql.indexOf('beta_reservation_release_current') !== -1);
-  assert.ok(holdSql.indexOf('security definer') !== -1);
-  assert.ok(holdSql.indexOf("set search_path = ''") !== -1);
-
-  function heldDb(sessionId, billingStatus) {
-    return dbMock({
-      profile: {
-        access_approved: true,
-        beta_locked: false,
-        stripe_customer_id: 'cus_Existing1',
-        billing_status: billingStatus || null
-      },
-      hold: {
-        cohort: 'beta',
-        reservation_id: RES,
-        expires_at: '2026-11-25T18:35:00.000Z',
-        checkout_session_id: sessionId || null
-      }
-    });
-  }
-  function startCheckout(stripe, db, log) {
-    return checkout.createCheckoutSession({
-      stripe: stripe,
-      db: db,
-      userId: USER,
-      plan: 'enthusiast',
-      secretKey: TEST_KEY,
-      testMode: 'true',
-      log: log,
-      now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
-    });
-  }
-
-  const historyDb = heldDb('cs_test_history', 'canceled');
-  const historyStripe = stripeMock();
-  const historyTouched = [];
-  historyStripe.checkout.sessions.retrieve = async function (id) {
-    historyTouched.push('retrieve:' + id);
-    return { id: id, status: 'complete', subscription: 'sub_old' };
+  const reuseStripe = stripeMock();
+  reuseStripe.checkout.sessions.list = async function (params) {
+    reuseStripe.calls.push(['sessions.list', params]);
+    return { data: [{ id: 'cs_open_1', status: 'open', url: 'https://checkout.stripe.com/c/pay/cs_open_1' }] };
   };
-  historyStripe.subscriptions.retrieve = async function (id) {
-    historyTouched.push('subscription:' + id);
-    return { id: id, status: 'canceled' };
+  reuseStripe.checkout.sessions.expire = async function () {
+    throw new Error('must not expire');
   };
-  historyStripe.checkout.sessions.list = async function (params) {
-    historyTouched.push('list:' + params.status);
-    if (params.status !== 'open') {
-      return { data: [{ id: 'cs_test_history', status: 'complete' }] };
-    }
+  const reused = await checkout.createCheckoutSession({
+    stripe: reuseStripe,
+    db: reuse,
+    userId: USER,
+    plan: 'trainer',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.strictEqual(reused.body.url, 'https://checkout.stripe.com/c/pay/cs_open_1');
+  assert.ok(reuseStripe.calls.filter(function (row) { return row[0] === 'sessions.create'; }).length === 0);
+  assert.strictEqual(reuseStripe.calls.filter(function (row) { return row[0] === 'sessions.list'; })[0][1].status, 'open');
+  assert.ok(names(reuse.calls).indexOf('beta_reservation_hold') === -1);
+
+  const again = dbMock({
+    profile: { access_approved: true, billing_status: 'canceled', beta_locked: true, stripe_customer_id: 'cus_Existing1' }
+  });
+  const againStripe = stripeMock();
+  againStripe.checkout.sessions.list = async function () {
+    againStripe.calls.push(['sessions.list', { status: 'open' }]);
     return { data: [] };
   };
-  historyStripe.checkout.sessions.expire = async function (id) {
-    historyTouched.push('expire:' + id);
-    return { id: id, status: 'expired' };
-  };
-  const history = await startCheckout(historyStripe, historyDb);
-  assert.ok(history.body.url);
-  assert.ok(historyTouched.indexOf('retrieve:cs_test_history') !== -1);
-  assert.ok(historyTouched.indexOf('subscription:sub_old') !== -1);
-  assert.ok(historyTouched.indexOf('list:open') !== -1);
-  assert.ok(historyTouched.filter(function (step) { return step.indexOf('expire:') === 0; }).length === 0);
-  assert.ok(names(historyDb.calls).indexOf('beta_reservation_release') === -1);
-
-  const liveStatuses = ['active', 'trialing', 'past_due'];
-  for (let s = 0; s < liveStatuses.length; s++) {
-    const liveDb = heldDb('cs_test_done', 'canceled');
-    const liveStripe = stripeMock();
-    const liveTouched = [];
-    liveStripe.checkout.sessions.retrieve = async function () {
-      return { id: 'cs_test_done', status: 'complete', subscription: 'sub_live' };
-    };
-    liveStripe.subscriptions.retrieve = async function () {
-      return { id: 'sub_live', status: liveStatuses[s] };
-    };
-    liveStripe.checkout.sessions.expire = async function (id) {
-      liveTouched.push(id);
-      throw new Error('should not expire');
-    };
-    await assert.rejects(function () {
-      return startCheckout(liveStripe, liveDb);
-    }, function (err) {
-      assert.strictEqual(err.status, 409);
-      assert.ok(/Manage billing/.test(err.message));
-      return true;
-    });
-    assert.ok(liveStripe.calls.filter(function (row) { return row[0] === 'sessions.create'; }).length === 0);
-    assert.deepStrictEqual(liveTouched, []);
-    assert.ok(names(liveDb.calls).indexOf('beta_reservation_release') === -1);
-  }
-
-  const raced = heldDb(null, 'canceled');
-  const racedStripe = stripeMock();
-  const racedOrder = [];
-  racedStripe.checkout.sessions.list = async function (params) {
-    racedOrder.push('list:' + params.status);
-    return {
-      data: [
-        { id: 'cs_test_session1', status: 'open' },
-        { id: 'cs_tab_b', status: 'open' },
-        { id: 'cs_click_c', status: 'open' }
-      ]
-    };
-  };
-  racedStripe.checkout.sessions.expire = async function (id) {
-    racedOrder.push('expire:' + id);
-    return { id: id, status: 'expired' };
-  };
-  const racedCreate = racedStripe.checkout.sessions.create;
-  racedStripe.checkout.sessions.create = async function (params) {
-    racedOrder.push('create');
-    return racedCreate(params);
-  };
-  const racedRpc = raced.rpc;
-  raced.rpc = async function (name, args) {
-    if (name === 'beta_reservation_attach') racedOrder.push('attach');
-    return racedRpc(name, args);
-  };
-  const racedResult = await startCheckout(racedStripe, raced);
-  assert.ok(racedResult.body.url);
-  assert.deepStrictEqual(racedOrder, ['create', 'attach', 'list:open', 'expire:cs_tab_b', 'expire:cs_click_c']);
-
-  const alreadyExpired = heldDb('cs_test_old', 'canceled');
-  const alreadyExpiredStripe = stripeMock();
-  const expiredReads = {};
-  alreadyExpiredStripe.checkout.sessions.retrieve = async function (id) {
-    expiredReads[id] = (expiredReads[id] || 0) + 1;
-    if (expiredReads[id] === 1) return { id: id, status: 'open' };
-    return { id: id, status: 'expired' };
-  };
-  alreadyExpiredStripe.checkout.sessions.list = async function (params) {
-    assert.strictEqual(params.status, 'open');
-    return { data: [{ id: 'cs_test_old', status: 'open' }] };
-  };
-  const expiredIds = [];
-  alreadyExpiredStripe.checkout.sessions.expire = async function (id) {
-    expiredIds.push(id);
-    const failure = new Error('request failed');
-    failure.statusCode = 400;
-    throw failure;
-  };
-  const expiredResult = await startCheckout(alreadyExpiredStripe, alreadyExpired);
-  assert.ok(expiredResult.body.url);
-  assert.deepStrictEqual(expiredIds, ['cs_test_old']);
-
-  const becamePaid = heldDb(null, 'canceled');
-  const becamePaidStripe = stripeMock();
-  const closedIds = [];
-  becamePaidStripe.checkout.sessions.list = async function () {
-    return { data: [{ id: 'cs_other', status: 'open' }] };
-  };
-  becamePaidStripe.checkout.sessions.retrieve = async function (id) {
-    return { id: id, status: 'complete', subscription: 'sub_paid' };
-  };
-  becamePaidStripe.checkout.sessions.expire = async function (id) {
-    closedIds.push(id);
-    if (id === 'cs_other') {
-      const failure = new Error('request failed');
-      failure.statusCode = 400;
-      throw failure;
-    }
-    return { id: id, status: 'expired' };
-  };
-  await assert.rejects(function () {
-    return startCheckout(becamePaidStripe, becamePaid);
-  }, function (err) {
-    assert.strictEqual(err.status, 409);
-    assert.ok(/Manage billing/.test(err.message));
-    return true;
+  const resub = await checkout.createCheckoutSession({
+    stripe: againStripe,
+    db: again,
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
   });
-  assert.deepStrictEqual(closedIds, ['cs_other', 'cs_test_session1']);
-
-  const flakyLogs = [];
-  const flaky = heldDb(null, 'canceled');
-  const flakyStripe = stripeMock();
-  const flakyExpired = [];
-  flakyStripe.checkout.sessions.list = async function () {
-    return { data: [{ id: 'cs_other', status: 'open' }] };
-  };
-  flakyStripe.checkout.sessions.retrieve = async function () {
-    const failure = new Error('socket');
-    failure.type = 'StripeConnectionError';
-    throw failure;
-  };
-  flakyStripe.checkout.sessions.expire = async function (id) {
-    flakyExpired.push(id);
-    const failure = new Error('upstream');
-    failure.statusCode = 503;
-    failure.type = 'StripeAPIError';
-    throw failure;
-  };
-  const flakyResult = await startCheckout(flakyStripe, flaky, function (fields) { flakyLogs.push(fields); });
-  assert.ok(flakyResult.body.url);
-  assert.deepStrictEqual(flakyExpired, ['cs_other']);
-  assert.ok(JSON.stringify(flakyLogs).indexOf('expire_open_session_failed') !== -1);
-
-  const stillOpenLogs = [];
-  const stillOpen = heldDb(null, 'canceled');
-  const stillOpenStripe = stripeMock();
-  stillOpenStripe.checkout.sessions.list = async function () {
-    return { data: [{ id: 'cs_other', status: 'open' }] };
-  };
-  stillOpenStripe.checkout.sessions.retrieve = async function (id) {
-    return { id: id, status: 'open' };
-  };
-  stillOpenStripe.checkout.sessions.expire = async function () {
-    const failure = new Error('request failed');
-    failure.statusCode = 500;
-    throw failure;
-  };
-  const stillOpenResult = await startCheckout(stillOpenStripe, stillOpen, function (fields) { stillOpenLogs.push(fields); });
-  assert.ok(stillOpenResult.body.url);
-  assert.ok(JSON.stringify(stillOpenLogs).indexOf('expire_open_session_failed') !== -1);
-  assert.ok(JSON.stringify(stillOpenLogs).indexOf('cs_other') !== -1);
+  assert.strictEqual(resub.body.url, 'https://checkout.stripe.com/c/pay/cs_test_session1');
+  assert.strictEqual(againStripe.calls.filter(function (row) { return row[0] === 'sessions.create'; })[0][1].line_items[0].price, 'price_from_enthusiast_beta_monthly');
 
   const dupLogs = [];
   const dupStripe = stripeMock();
   const canceled = [];
+  const refunds = [];
+  dupStripe.subscriptions.retrieve = async function (id) {
+    return { id: id, status: 'active' };
+  };
   dupStripe.subscriptions.cancel = async function (id) {
     canceled.push(id);
     return { id: id, status: 'canceled' };
+  };
+  dupStripe.invoices = {
+    list: async function () {
+      return { data: [{ id: 'in_first', status: 'paid', created: 10, payment_intent: 'pi_first' }] };
+    }
+  };
+  dupStripe.refunds = {
+    create: async function (params) {
+      refunds.push(params);
+      return { id: 're_first' };
+    }
   };
   const dupDb = eventDb();
   const dupPaid = await webhook.handleWebhook({
@@ -1100,44 +925,115 @@ async function main() {
   });
   assert.strictEqual(dupPaid.status, 200);
   assert.deepStrictEqual(canceled, ['sub_duplicate']);
+  assert.deepStrictEqual(refunds, [{ payment_intent: 'pi_first' }]);
   assert.ok(names(dupDb.calls).indexOf('apply_stripe_membership') === -1);
+  assert.ok(names(dupDb.calls).indexOf('mark_beta_paid') === -1);
   assert.ok(JSON.stringify(dupLogs).indexOf('Refund the duplicate subscription') !== -1);
 
-  const dupCheckout = eventDb();
-  const dupCheckoutStripe = stripeMock();
-  const canceledCheckout = [];
-  dupCheckoutStripe.subscriptions.cancel = async function (id) {
-    canceledCheckout.push(id);
-    return { id: id, status: 'canceled' };
-  };
+  const dupDelete = eventDb();
   await webhook.handleWebhook({
-    stripe: dupCheckoutStripe,
+    stripe: stripeMock(),
     secretKey: TEST_KEY,
     testMode: 'true',
     webhookSecret: 'whsec_' + 'example',
     rawBody: '{}',
     signature: 'good',
-    log: function () {},
     constructEvent: function () {
       return {
-        id: 'evt_dup_checkout',
+        id: 'evt_dup_delete',
+        type: 'customer.subscription.deleted',
+        data: {
+          object: {
+            id: 'sub_duplicate',
+            customer: 'cus_Existing1',
+            status: 'canceled',
+            metadata: { user_id: USER }
+          }
+        }
+      };
+    },
+    db: dupDelete
+  });
+  assert.ok(names(dupDelete.calls).indexOf('apply_stripe_membership') === -1);
+
+  const cancelFail = stripeMock();
+  cancelFail.subscriptions.retrieve = async function (id) {
+    return { id: id, status: 'active' };
+  };
+  cancelFail.subscriptions.cancel = async function () {
+    const err = new Error('This subscription could not be canceled');
+    err.statusCode = 500;
+    throw err;
+  };
+  await assert.rejects(function () {
+    return webhook.handleWebhook({
+      stripe: cancelFail,
+      secretKey: TEST_KEY,
+      testMode: 'true',
+      webhookSecret: 'whsec_' + 'example',
+      rawBody: '{}',
+      signature: 'good',
+      constructEvent: function () {
+        return {
+          id: 'evt_cancel_fail',
+          type: 'invoice.paid',
+          data: {
+            object: {
+              customer: 'cus_Existing1',
+              parent: { subscription_details: { subscription: 'sub_duplicate', metadata: { supabase_user_id: USER } } },
+              lines: {
+                data: [{
+                  type: 'subscription',
+                  amount: 999,
+                  proration: false,
+                  pricing: { price_details: { price: { id: 'price_1', lookup_key: 'enthusiast_standard_monthly' } } }
+                }]
+              }
+            }
+          }
+        };
+      },
+      db: eventDb()
+    });
+  }, function (err) {
+    assert.ok(err);
+    assert.ok(!err.status || err.status >= 400);
+    return true;
+  });
+
+  const lateDb = eventDb();
+  const lateRpc = lateDb.rpc;
+  lateDb.rpc = async function (name, args) {
+    if (name === 'apply_stripe_membership') throw new Error('already applied');
+    return lateRpc(name, args);
+  };
+  const late = await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_late_checkout',
         type: 'checkout.session.completed',
         data: {
           object: {
-            id: 'cs_test_dup',
+            id: 'cs_test_late',
             payment_status: 'paid',
             customer: 'cus_Existing1',
-            subscription: 'sub_second',
+            subscription: 'sub_payer001',
             client_reference_id: USER,
             metadata: { user_id: USER }
           }
         }
       };
     },
-    db: dupCheckout
+    db: lateDb
   });
-  assert.deepStrictEqual(canceledCheckout, ['sub_second']);
-  assert.ok(names(dupCheckout.calls).indexOf('apply_stripe_membership') === -1);
+  assert.strictEqual(late.status, 200);
+  assert.ok(names(lateDb.calls).indexOf('stripe_event_begin') !== -1);
 
   const cors = await import(path.join(shared, 'billing-cors.mjs'));
   assert.strictEqual(cors.allowedOrigin('https://coachtrainerapp.com'), 'https://coachtrainerapp.com');
@@ -1166,8 +1062,6 @@ async function main() {
   assert.strictEqual(wrapped.headers.get('access-control-allow-origin'), 'https://coachtrainerapp.com');
   assert.strictEqual(wrapped.headers.get('vary'), 'Origin');
 
-  assert.ok(holdSql.indexOf("interval '35 minutes'") !== -1);
-  assert.ok(holdSql.indexOf("notify pgrst, 'reload schema'") !== -1);
   const checkoutSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/create-checkout-session/index.ts'), 'utf8');
   const portalSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/create-portal-session/index.ts'), 'utf8');
   const webhookSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/stripe-webhook/index.ts'), 'utf8');
