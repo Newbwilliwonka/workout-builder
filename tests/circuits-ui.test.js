@@ -656,6 +656,10 @@ async function shot(page, name) {
     if (!title || title.textContent !== 'Prepare Class') return false;
     if (!hint || hint.textContent !== 'Drag your clients to their station.') return false;
     if (!bench || bench.textContent.indexOf('During class, drag a client to the Bench to pull them out of the rotation, or back onto a station to rejoin.') === -1) return false;
+    var benchCss = getComputedStyle(bench);
+    var benchBox = bench.getBoundingClientRect();
+    if (benchCss.borderTopStyle !== 'dashed' || benchCss.minHeight !== '0px') return false;
+    if (benchBox.height > 96) return false;
     if (document.querySelector('[data-act=add], #circuit-clear, .circuit-x, .circuit-change, input[type=checkbox]')) return false;
     var labels = Array.prototype.map.call(document.querySelectorAll('#circuit-prepare-clients [data-person]'), function (el) {
       return el.getAttribute('aria-label');

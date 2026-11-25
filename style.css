@@ -808,9 +808,11 @@ body.circuit-on .circuit-arrows{position:absolute;inset:0;width:100%;height:100%
 body.circuit-on .circuit-setup .wb-grid,body.circuit-on .circuit-prepare .wb-grid{column-gap:28px;row-gap:40px}
 .pv-invites{display:flex;flex-wrap:wrap;gap:8px}
 .pv-invite.on{box-shadow:0 0 0 2px var(--pri)}
-body.circuit-on .circuit-prepare-bench{border:2px dashed #cbd5e1;border-radius:14px;background:#fff;padding:10px 12px}
-body.circuit-on .circuit-prepare-bench .circuit-bench-label{display:block;width:auto;margin:0 0 6px}
-body.circuit-on .circuit-prepare-bench p{margin:0 0 8px;font-size:13px;line-height:1.35;color:var(--ink)}
+body.circuit-on .circuit-prepare-bench{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:0;border:2px dashed #cbd5e1;border-radius:14px;background:#fff;padding:6px 10px}
+body.circuit-on .circuit-prepare-bench .circuit-bench-label{width:auto;margin:0}
+body.circuit-on .circuit-prepare-bench p{flex:1 1 140px;margin:0;font-size:13px;line-height:1.3;color:var(--ink)}
+body.circuit-on .circuit-prepare-bench .c-faces{min-height:0;margin:0;width:auto;flex:1 1 100%;justify-content:flex-start}
+body.circuit-on .circuit-prepare-bench .c-faces:empty{display:none}
 body.circuit-on .circuit-prepare .c-faces{display:flex;flex-wrap:wrap;gap:8px}
 body.circuit-on .c-person,body.circuit-on [data-person]{touch-action:none}
 body.circuit-on .circuit-live .wb-grid{column-gap:18px;row-gap:28px}
