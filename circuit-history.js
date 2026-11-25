@@ -93,7 +93,7 @@
   }
   function permanentError(err) {
     var msg = String((err && err.message) || '');
-    return /only a trainer can save a circuit|choose a linked client|that circuit could not be saved/i.test(msg);
+    return /choose a linked client|that circuit could not be saved/i.test(msg);
   }
   function remember(userId, payload) {
     var id = String(userId || '');
@@ -111,6 +111,9 @@
   }
   function clearQueue() {
     writeQueue([]);
+  }
+  function pendingCount() {
+    return readQueue().length;
   }
   function savePayload(userId, payload) {
     var auth = root.WBAuth;
@@ -167,6 +170,7 @@
     remember: remember,
     forget: forget,
     clearQueue: clearQueue,
+    pendingCount: pendingCount,
     saveRecord: saveRecord,
     flush: flush
   };

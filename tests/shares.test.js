@@ -112,7 +112,7 @@ assert.ok(editing.indexOf('data-card-remove="plan"') >= 0);
 assert.ok(editing.indexOf('data-drag') < 0);
 assert.ok(editing.indexOf('>Drag<') < 0);
 assert.ok(/data-card-up="plan"[^>]*disabled/.test(editing));
-assert.ok(/data-card-down="circuit"[^>]*disabled/.test(editing));
+assert.ok(editing.indexOf('id="dashboard-circuit"') < 0);
 assert.ok(!/data-card-down="holds"[^>]*disabled/.test(editing));
 assert.ok(!/data-card-down="calendar"[^>]*disabled/.test(editing));
 assert.ok(!/data-card-up="volume"[^>]*disabled/.test(editing));

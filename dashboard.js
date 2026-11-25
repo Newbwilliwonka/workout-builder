@@ -1155,7 +1155,7 @@
     var total = 0;
     stations.forEach(function (row) { total += row.seconds; });
     if (!total) return '';
-    var colors = ['#2563eb', '#60a5fa', '#93c5fd', '#1d4ed8', '#bfdbfe'];
+    var colors = ['#2563eb', '#7c3aed', '#0f766e', '#d97706', '#dc2626'];
     var r = 28;
     var c = 2 * Math.PI * r;
     var offset = 0;
@@ -1169,7 +1169,7 @@
     return h + '</svg>';
   }
   function circuitLegend(stations) {
-    var colors = ['#2563eb', '#60a5fa', '#93c5fd', '#1d4ed8', '#bfdbfe'];
+    var colors = ['#2563eb', '#7c3aed', '#0f766e', '#d97706', '#dc2626'];
     if (!stations || !stations.length) return '';
     var h = '<ul class="db-circuit-legend" id="dashboard-circuit-legend">';
     stations.forEach(function (row, index) {
@@ -1178,9 +1178,7 @@
     return h + '</ul>';
   }
   function circuitHtml(block) {
-    if (!block || !block.sessions) {
-      return '<section class="db-sec" id="dashboard-circuit" aria-labelledby="dashboard-circuit-title"><h2 class="db-label" id="dashboard-circuit-title">Circuit</h2><p class="db-note" id="dashboard-circuit-empty">No group circuits yet.</p></section>';
-    }
+    if (!block || !block.sessions) return '';
     var noun = block.sessions === 1 ? 'group circuit' : 'group circuits';
     var h = '<section class="db-sec" id="dashboard-circuit" aria-labelledby="dashboard-circuit-title">';
     h += '<h2 class="db-label" id="dashboard-circuit-title">Circuit</h2>';

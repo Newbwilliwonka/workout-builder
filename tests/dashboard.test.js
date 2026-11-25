@@ -640,7 +640,12 @@ assert.ok(/drop constraint if exists dashboard_layouts_cards_array/.test(migrati
 assert.ok(/drop constraint if exists shared_dashboards_cards_array/.test(migration));
 assert.ok(!/create policy/i.test(migration));
 assert.ok(!/enable row level security/i.test(migration));
-assert.ok(/input\.cards\.length > 9/.test(authSrc));
+assert.ok(/input\.cards\.length > 10/.test(authSrc));
+const circuitMigration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261125130000_circuit_history.sql'), 'utf8');
+assert.ok(/jsonb_array_length\(cards\) <= 10/.test(circuitMigration));
+assert.ok(/jsonb_array_length\(cards\) between 1 and 10/.test(circuitMigration));
+assert.ok(/jsonb_array_length\(new\.cards\) > 10/.test(circuitMigration));
+assert.ok(/'pass', 'circuit'/.test(circuitMigration));
 assert.ok(!/cards\.length > 7/.test(authSrc));
 assert.strictEqual((appSrc.match(/workouts: dashboardWorkouts\(\)/g) || []).length, 2);
 assert.strictEqual((appSrc.match(/schemaVersion: data && data.version/g) || []).length, 2);

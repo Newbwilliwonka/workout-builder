@@ -268,6 +268,120 @@ begin
   end;
 end $$;
 
+insert into public.dashboard_layouts (user_id, cards)
+values ('${T}', '["plan","workouts","volume","strength","records","calendar","holds","stopwatch","pass","circuit"]'::jsonb);
+insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
+values ('${C}', '${T}', 'Coach', '2026-11-24', '[{"type":"circuit","circuit":{"sessions":1,"seconds":40}}]'::jsonb);
+do $$
+begin
+  if jsonb_array_length((select cards from public.dashboard_layouts where user_id = '${T}')) <> 10 then
+    raise exception 'layout did not keep circuit';
+  end if;
+  if (select cards->0->>'type' from public.shared_dashboards where client_id = '${C}') <> 'circuit' then
+    raise exception 'share did not keep circuit';
+  end if;
+  begin
+    update public.dashboard_layouts
+      set cards = '["plan","workouts","volume","strength","records","calendar","holds","stopwatch","pass","circuit","extra"]'::jsonb
+      where user_id = '${T}';
+    raise exception 'eleven cards were saved';
+  exception when others then
+    if SQLERRM not like '%Choose the cards on your dashboard%' then
+      if SQLERRM like '%eleven cards were saved%' then raise; end if;
+      raise exception 'layout limit error was %', SQLERRM;
+    end if;
+  end;
+  begin
+    insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
+    values (
+      '${C}', '${T}', 'Coach', '2026-11-24',
+      '[{"type":"plan"},{"type":"workouts"},{"type":"strength"},{"type":"volume"},{"type":"records"},{"type":"calendar"},{"type":"holds"},{"type":"stopwatch"},{"type":"pass"},{"type":"circuit"},{"type":"extra"}]'::jsonb
+    );
+    raise exception 'eleven shared cards were saved';
+  exception when others then
+    if SQLERRM not like '%Choose the cards to share%' then
+      if SQLERRM like '%eleven shared cards were saved%' then raise; end if;
+      raise exception 'share limit error was %', SQLERRM;
+    end if;
+  end;
+end $$;
+
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_bad_round',
+      name: 'Bad round',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-24T15:00:00Z',
+      endedAt: '2026-11-24T15:10:00Z',
+      timeZone: 'UTC',
+      workSec: 40,
+      moveSec: 15,
+      stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+      people: [{ clientId: C, name: 'Ada', rounds: [{ stationId: 'missing', workSec: 'nope' }] }]
+    })}$json$::jsonb);
+    raise exception 'malformed round was saved';
+  exception when others then
+    if SQLERRM not like '%could not be saved%' and SQLERRM not like '%malformed round was saved%' then
+      raise exception 'malformed round error was %', SQLERRM;
+    end if;
+    if SQLERRM like '%malformed round was saved%' then raise; end if;
+  end;
+  if exists (select 1 from public.workout_sessions where local_id = 'run_bad_round' and client_id = '${C}') then
+    raise exception 'unknown station still created a client session';
+  end if;
+end $$;
+
+select public.circuit_save_run($json$${JSON.stringify({
+  runId: 'run_unknown_station',
+  name: 'Unknown station',
+  circuitId: 'circ1',
+  status: 'completed',
+  startedAt: '2026-11-24T15:00:00Z',
+  endedAt: '2026-11-24T15:10:00Z',
+  timeZone: 'UTC',
+  workSec: 40,
+  moveSec: 15,
+  stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+  people: [{ clientId: C, name: 'Ada', rounds: [{ stationId: 'missing', workSec: 40 }] }]
+})}$json$::jsonb);
+do $$
+begin
+  if exists (select 1 from public.workout_sessions where local_id = 'run_unknown_station' and client_id = '${C}') then
+    raise exception 'a client with only an unknown station got a session';
+  end if;
+end $$;
+
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_old',
+      name: 'Too old',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-01T15:00:00Z',
+      endedAt: '2026-11-01T15:10:00Z',
+      timeZone: 'UTC',
+      workSec: 40,
+      moveSec: 15,
+      stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+      people: []
+    })}$json$::jsonb);
+    raise exception 'old circuit was saved';
+  exception when others then
+    if SQLERRM not like '%outside the save window%' then
+      if SQLERRM like '%old circuit was saved%' then raise; end if;
+      raise exception 'window error was %', SQLERRM;
+    end if;
+    if SQLERRM like '%could not be saved%' then
+      raise exception 'window shared the validation message';
+    end if;
+  end;
+end $$;
+
 select set_config('request.jwt.claim.sub', '${C}', false);
 do $$
 begin
@@ -275,7 +389,10 @@ begin
     perform public.circuit_save_run('{"runId":"run_client","name":"Nope","startedAt":"2026-11-20T16:00:00Z","endedAt":"2026-11-20T16:10:00Z","people":[]}'::jsonb);
     raise exception 'client saved a circuit';
   exception when others then
-    if SQLERRM like '%client saved a circuit%' then raise; end if;
+    if SQLERRM not like '%Only a trainer can save a circuit%' then
+      if SQLERRM like '%client saved a circuit%' then raise; end if;
+      raise exception 'role error was %', SQLERRM;
+    end if;
   end;
 end $$;
 

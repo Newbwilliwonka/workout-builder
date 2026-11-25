@@ -286,37 +286,37 @@ declare
   station_id text;
   work_actual numeric;
 begin
-  if uid is null then raise exception 'Sign in first.'; end if;
+  if uid is null then raise exception 'Sign in first.' using errcode = '28000'; end if;
   select * into me from public.profiles where id = uid;
-  if not found then raise exception 'Sign in first.'; end if;
+  if not found then raise exception 'Sign in first.' using errcode = '28000'; end if;
   if me.membership not in ('trainer', 'master_trainer') then
-    raise exception 'Only a trainer can save a circuit.';
+    raise exception 'Only a trainer can save a circuit.' using errcode = '42501';
   end if;
   if p_run is null or octet_length(p_run::text) > 200000 then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit could not be saved.' using errcode = '22023';
   end if;
   if jsonb_typeof(p_run) is distinct from 'object' then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit could not be saved.' using errcode = '22023';
   end if;
   run_key := btrim(coalesce(p_run->>'runId', ''));
   cname := btrim(coalesce(p_run->>'name', ''));
   cid := left(regexp_replace(btrim(coalesce(p_run->>'circuitId', 'circuit')), '[^A-Za-z0-9_-]', '', 'g'), 72);
   st := case when p_run->>'status' = 'ended_early' then 'ended_early' else 'completed' end;
   if run_key !~ '^[A-Za-z0-9_-]{1,80}$' or cname = '' or char_length(cname) > 120 or position('@' in cname) > 0 then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit could not be saved.' using errcode = '22023';
   end if;
   if cid = '' then cid := 'circuit'; end if;
   begin
     started := (p_run->>'startedAt')::timestamptz;
     ended := (p_run->>'endedAt')::timestamptz;
   exception when others then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit could not be saved.' using errcode = '22023';
   end;
   if started is null or ended is null or ended < started
      or started < now() - interval '7 days'
      or started > now() + interval '5 minutes'
      or ended > started + interval '6 hours' then
-    raise exception 'That circuit is outside the save window.';
+    raise exception 'That circuit is outside the save window.' using errcode = 'P0101';
   end if;
   zone := btrim(coalesce(p_run->>'timeZone', 'UTC'));
   if zone = '' or char_length(zone) > 64 then zone := 'UTC'; end if;
@@ -324,18 +324,18 @@ begin
     work_sec := coalesce((p_run->>'workSec')::numeric, 0);
     move_sec := coalesce((p_run->>'moveSec')::numeric, 0);
   exception when others then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit could not be saved.' using errcode = '22023';
   end;
   if work_sec is null or work_sec <> work_sec or work_sec < 0 or work_sec > 86400
      or move_sec is null or move_sec <> move_sec or move_sec < 0 or move_sec > 86400 then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit could not be saved.' using errcode = '22023';
   end if;
   if jsonb_typeof(p_run->'people') is distinct from 'array'
      or jsonb_typeof(p_run->'stations') is distinct from 'array' then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit could not be saved.' using errcode = '22023';
   end if;
   if jsonb_array_length(p_run->'stations') > 40 or jsonb_array_length(p_run->'people') > 60 then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit could not be saved.' using errcode = '22023';
   end if;
 
   for person in select value from jsonb_array_elements(p_run->'people')
@@ -345,7 +345,7 @@ begin
         continue;
       end if;
       if jsonb_typeof(person->'rounds') = 'array' and jsonb_array_length(person->'rounds') > 100 then
-        raise exception 'That circuit could not be saved.';
+        raise exception 'That circuit could not be saved.' using errcode = '22023';
       end if;
       declare
         guest_name text := left(btrim(coalesce(person->>'name', '')), 80);
@@ -362,16 +362,16 @@ begin
             begin
               guest_work := trunc((guest_round->>'workSec')::numeric);
             exception when others then
-              raise exception 'That circuit could not be saved.';
+              raise exception 'That circuit could not be saved.' using errcode = '22023';
             end;
             if guest_station = '' or guest_work is null or guest_work <> guest_work or guest_work < 1 or guest_work > 3600 then
-              raise exception 'That circuit could not be saved.';
+              raise exception 'That circuit could not be saved.' using errcode = '22023';
             end if;
             if not exists (
               select 1 from jsonb_array_elements(p_run->'stations') s
               where left(regexp_replace(btrim(coalesce(s->>'id', '')), '[^A-Za-z0-9_-]', '', 'g'), 40) = guest_station
             ) then
-              raise exception 'That circuit could not be saved.';
+              raise exception 'That circuit could not be saved.' using errcode = '22023';
             end if;
             guest_rounds := guest_rounds || jsonb_build_array(jsonb_build_object('stationId', guest_station, 'workSec', guest_work));
           end loop;
@@ -382,8 +382,17 @@ begin
       begin
         linked_id := (person->>'clientId')::uuid;
       exception when invalid_text_representation then
-        raise exception 'Choose a linked client.';
+        raise exception 'Choose a linked client.' using errcode = 'P0102';
       end;
+      if jsonb_typeof(person->'rounds') = 'array' then
+        for round in select value from jsonb_array_elements(person->'rounds')
+        loop
+          if coalesce(round->>'benched', '') = 'true' then continue; end if;
+          if round->>'workSec' is null or (round->>'workSec') !~ '^[0-9]+(\.[0-9]+)?$' then
+            raise exception 'That circuit could not be saved.' using errcode = '22023';
+          end if;
+        end loop;
+      end if;
       if linked_id = any (seen) then
         continue;
       end if;
@@ -392,7 +401,7 @@ begin
         select 1 from public.trainer_clients tc
         where tc.trainer_id = uid and tc.client_id = linked_id and tc.ended_at is null
       ) then
-        raise exception 'Choose a linked client.';
+        raise exception 'Choose a linked client.' using errcode = 'P0102';
       end if;
     end if;
   end loop;
@@ -455,7 +464,15 @@ begin
       select 1
       from jsonb_array_elements(person->'rounds') r
       where coalesce(r->>'benched', '') is distinct from 'true'
-        and coalesce((r->>'workSec')::numeric, 0) > 0
+        and (r->>'workSec') ~ '^[0-9]+(\.[0-9]+)?$'
+        and (r->>'workSec')::numeric between 1 and 3600
+        and exists (
+          select 1
+          from jsonb_array_elements(p_run->'stations') s
+          where left(regexp_replace(btrim(coalesce(s->>'id', '')), '[^A-Za-z0-9_-]', '', 'g'), 40)
+              = left(regexp_replace(btrim(coalesce(r->>'stationId', '')), '[^A-Za-z0-9_-]', '', 'g'), 40)
+            and left(regexp_replace(btrim(coalesce(s->>'id', '')), '[^A-Za-z0-9_-]', '', 'g'), 40) <> ''
+        )
     ) then
       continue;
     end if;
@@ -478,10 +495,10 @@ begin
       begin
         work_actual := trunc((round->>'workSec')::numeric);
       exception when others then
-        raise exception 'That circuit could not be saved.';
+        raise exception 'That circuit could not be saved.' using errcode = '22023';
       end;
       if work_actual is null or work_actual <> work_actual or work_actual < 1 or work_actual > 3600 then
-        raise exception 'That circuit could not be saved.';
+        raise exception 'That circuit could not be saved.' using errcode = '22023';
       end if;
       select value into station
       from jsonb_array_elements(coalesce(p_run->'stations', '[]'::jsonb)) value
@@ -502,7 +519,7 @@ begin
       end if;
       if library = '' and personal is null then continue; end if;
       if jsonb_array_length(person->'rounds') > 100 then
-        raise exception 'That circuit could not be saved.';
+        raise exception 'That circuit could not be saved.' using errcode = '22023';
       end if;
       select coalesce(max(ws.set_number), 0) + 1 into set_at
       from public.workout_sets ws
@@ -533,3 +550,194 @@ $$;
 
 revoke all on function public.circuit_save_run(jsonb) from public, anon, authenticated;
 grant execute on function public.circuit_save_run(jsonb) to authenticated;
+
+-- Ten dashboard cards. Circuit joins the nine already allowed.
+alter table public.dashboard_layouts drop constraint if exists dashboard_layouts_cards_array;
+alter table public.dashboard_layouts add constraint dashboard_layouts_cards_array check (
+  jsonb_typeof(cards) = 'array'
+  and jsonb_array_length(cards) <= 10
+);
+
+alter table public.shared_dashboards drop constraint if exists shared_dashboards_cards_array;
+alter table public.shared_dashboards add constraint shared_dashboards_cards_array check (
+  jsonb_typeof(cards) = 'array'
+  and jsonb_array_length(cards) between 1 and 10
+);
+
+create or replace function private.dashboard_layout_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  item jsonb;
+  seen text[] := '{}';
+  kind text;
+begin
+  if tg_op = 'DELETE' then
+    if auth.uid() is not null and old.user_id is distinct from auth.uid() then
+      raise exception 'You can only reset your own dashboard.';
+    end if;
+    if auth.uid() is not null and not exists (
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and membership in ('trainer', 'master_trainer')
+    ) then
+      raise exception 'Only a trainer can save a dashboard layout.';
+    end if;
+    return old;
+  end if;
+
+  if auth.uid() is not null then
+    if new.user_id is distinct from auth.uid() then
+      raise exception 'You can only save your own dashboard.';
+    end if;
+    if tg_op = 'UPDATE' and new.user_id is distinct from old.user_id then
+      raise exception 'A dashboard layout stays with the same account.';
+    end if;
+    if not exists (
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and membership in ('trainer', 'master_trainer')
+    ) then
+      raise exception 'Only a trainer can save a dashboard layout.';
+    end if;
+  end if;
+
+  if new.cards is null
+     or jsonb_typeof(new.cards) is distinct from 'array'
+     or jsonb_array_length(new.cards) > 10 then
+    raise exception 'Choose the cards on your dashboard.';
+  end if;
+  for item in select value from jsonb_array_elements(new.cards) loop
+    if jsonb_typeof(item) is distinct from 'string' then
+      raise exception 'Choose the cards on your dashboard.';
+    end if;
+    kind := item #>> '{}';
+    if kind is null or kind not in ('plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'holds', 'stopwatch', 'pass', 'circuit') then
+      raise exception 'Choose the cards on your dashboard.';
+    end if;
+    if kind = any (seen) then
+      raise exception 'Each card is listed once.';
+    end if;
+    seen := seen || kind;
+  end loop;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+revoke all on function private.dashboard_layout_guard() from public, anon, authenticated;
+
+create or replace function private.shared_dashboard_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  item jsonb;
+  seen text[] := '{}';
+  kind text;
+begin
+  if tg_op = 'INSERT' and position('@' in btrim(coalesce(new.trainer_name, ''))) > 0 then
+    select private.shown_name(p.display_name, 'Trainer')
+      into new.trainer_name
+    from public.profiles p
+    where p.id = new.trainer_id;
+    if new.trainer_name is null
+       or position('@' in new.trainer_name) > 0
+       or char_length(btrim(new.trainer_name)) < 1 then
+      new.trainer_name := 'Trainer';
+    end if;
+  end if;
+
+  if auth.uid() is null then
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' then
+    raise exception 'A shared dashboard is kept.';
+  end if;
+
+  if tg_op = 'INSERT' then
+    if new.trainer_id is distinct from auth.uid() then
+      raise exception 'You share a dashboard as yourself.';
+    end if;
+    if not private.tracking_trainer_of(new.client_id) then
+      raise exception 'You can share a dashboard only with a connected client.';
+    end if;
+    if not exists (
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and membership in ('trainer', 'master_trainer')
+    ) then
+      raise exception 'Only a trainer can share a dashboard.';
+    end if;
+    if not private.share_inbox(new.client_id) then
+      raise exception 'A shared dashboard goes to a free client.';
+    end if;
+    if new.viewed_at is not null then
+      raise exception 'A new dashboard has not been opened.';
+    end if;
+    new.trainer_name := btrim(coalesce(new.trainer_name, ''));
+    if char_length(new.trainer_name) < 1 or char_length(new.trainer_name) > 80 then
+      raise exception 'Enter the trainer name.';
+    end if;
+    if position('@' in new.trainer_name) > 0 then
+      new.trainer_name := 'Trainer';
+    end if;
+    if new.as_of is null then
+      raise exception 'A dashboard needs a date.';
+    end if;
+    if new.cards is null
+       or jsonb_typeof(new.cards) is distinct from 'array'
+       or jsonb_array_length(new.cards) < 1
+       or jsonb_array_length(new.cards) > 10
+       or octet_length(new.cards::text) > 200000 then
+      raise exception 'Choose the cards to share.';
+    end if;
+    for item in select value from jsonb_array_elements(new.cards) loop
+      kind := item->>'type';
+      if kind is null or kind not in ('plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'holds', 'stopwatch', 'pass', 'circuit') then
+        raise exception 'Choose the cards to share.';
+      end if;
+      if kind = any (seen) then
+        raise exception 'Each card is shared once.';
+      end if;
+      seen := seen || kind;
+    end loop;
+    new.created_at := now();
+    return new;
+  end if;
+
+  if auth.uid() is distinct from old.client_id then
+    raise exception 'Only the client can open this dashboard.';
+  end if;
+  if new.id is distinct from old.id
+     or new.client_id is distinct from old.client_id
+     or new.trainer_id is distinct from old.trainer_id
+     or new.trainer_name is distinct from old.trainer_name
+     or new.as_of is distinct from old.as_of
+     or new.cards is distinct from old.cards
+     or new.created_at is distinct from old.created_at then
+    raise exception 'A shared dashboard cannot be changed.';
+  end if;
+  if old.viewed_at is not null then
+    raise exception 'This dashboard was already opened.';
+  end if;
+  if new.viewed_at is null then
+    raise exception 'Opening a dashboard marks it viewed.';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function private.shared_dashboard_guard() from public, anon, authenticated;

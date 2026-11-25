@@ -499,7 +499,7 @@ async function openPage(browser, membership, payload) {
   await self.click('#dash-edit');
   await self.waitForSelector('[data-card-add="records"]');
   assert.strictEqual(await self.$eval('[data-card-up="plan"]', function (el) { return el.disabled; }), true);
-  assert.strictEqual(await self.$eval('[data-card-down="holds"]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await self.$eval('[data-card-down="holds"]', function (el) { return el.disabled; }), false);
   assert.strictEqual(await self.$eval('[data-card-add="records"]', function (el) { return el.textContent; }), 'Recent personal records');
   assert.strictEqual(await self.$eval('[data-card-add="stopwatch"]', function (el) { return el.textContent; }), 'Stopwatch');
   assert.strictEqual(await self.$eval('[data-card-add="pass"]', function (el) { return el.textContent; }), 'Stopwatch pass rate');

@@ -9,7 +9,7 @@
   function known() {
     var dash = root.WBDashboard;
     if (dash && Array.isArray(dash.CARDS) && dash.CARDS.length) return dash.CARDS;
-    return ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass'];
+    return ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass', 'circuit'];
   }
   function standard() {
     var dash = root.WBDashboard;

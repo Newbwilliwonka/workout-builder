@@ -1588,6 +1588,7 @@
       go('#/signin');
     }
     if (!mustSignOut || !WBAuth.signOut) return goSign();
+    if (!confirmCircuitSignOut()) return;
     // Sign out before dropping the lock. A failed read can leave the recovery
     // session in place, and clearing the lock first would open the app.
     recoveryPhase = 'checking';
@@ -2222,7 +2223,16 @@
     refreshRequestBadges();
     if (!noteNavSection()) refreshNavBadges();
   }
+  function confirmCircuitSignOut() {
+    var n = window.WBCircuitHistory && WBCircuitHistory.pendingCount ? WBCircuitHistory.pendingCount() : 0;
+    if (!n) return true;
+    var msg = n === 1
+      ? 'A group circuit is still on this phone and has not been sent. Sign out anyway?'
+      : n + ' group circuits are still on this phone and have not been sent. Sign out anyway?';
+    return confirm(msg);
+  }
   function signOutFromAccount() {
+    if (!confirmCircuitSignOut()) return;
     var from = hashPage();
     WBAuth.signOut().then(function () {
       if (window.WBCircuitHistory) WBCircuitHistory.clearQueue();
@@ -2788,6 +2798,7 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
+        if (!confirmCircuitSignOut()) return;
         return WBAuth.signOut().then(function () {
           if (window.WBCircuitHistory) WBCircuitHistory.clearQueue();
           forgetRequestBadges();

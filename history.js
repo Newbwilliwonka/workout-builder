@@ -219,9 +219,9 @@
   function effortLine(mode, work, rest, rounds, reps, min, max, weight, gapWord) {
     var parts = [];
     var gap = gapWord || 'rest';
-    if (mode === 'timer' && work != null && rest != null) parts.push(fmtTime(work) + ' work / ' + fmtTime(rest) + ' ' + gap);
+    if (mode === 'timer' && work != null && rest != null && Number(rest) !== 0) parts.push(fmtTime(work) + ' work / ' + fmtTime(rest) + ' ' + gap);
     else if (mode === 'timer' && work != null) parts.push(fmtTime(work) + ' work');
-    else if (mode === 'timer' && rest != null) parts.push(fmtTime(rest) + ' ' + gap);
+    else if (mode === 'timer' && rest != null && Number(rest) !== 0) parts.push(fmtTime(rest) + ' ' + gap);
     else if (mode === 'intervals' && work != null) parts.push(fmtTime(work) + ' work');
     if (rounds != null) parts.push(trim(rounds) + (Number(rounds) === 1 ? ' round' : ' rounds'));
     var r = repsPart(reps, min, max);
