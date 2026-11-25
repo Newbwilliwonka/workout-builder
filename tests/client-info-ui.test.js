@@ -129,15 +129,35 @@ function birthdayIso() {
   assert.strictEqual(await page.evaluate(function () { return window.__infoSaves || 0; }), 0);
 
   await page.$eval('#client-birthday', function (el, value) { el.value = value; }, born);
+  async function sexChecked() {
+    return page.$eval('#client-info input[value="female"]', function (el) { return el.checked; });
+  }
+  async function waitSex(checked) {
+    await page.waitForFunction(function (want) {
+      var el = document.querySelector('#client-info input[value="female"]');
+      return !!el && el.checked === want;
+    }, {}, checked);
+  }
   await page.click('#client-info input[value="female"]');
+  await waitSex(true);
   await page.click('#client-info input[value="female"]');
-  assert.strictEqual(await page.$eval('#client-info input[value="female"]', function (el) { return el.checked; }), false);
+  await waitSex(false);
+  await page.click('#client-info input[value="female"]');
+  await waitSex(true);
+  const femaleBox = await page.$eval('#client-info input[value="female"]', function (el) {
+    var rect = el.getBoundingClientRect();
+    return { x: rect.right + 14, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.click(femaleBox.x, femaleBox.y);
+  await waitSex(false);
   await page.focus('#client-info input[value="female"]');
   await page.keyboard.press('Space');
-  assert.strictEqual(await page.$eval('#client-info input[value="female"]', function (el) { return el.checked; }), true);
+  await waitSex(true);
   await page.keyboard.press('Space');
-  assert.strictEqual(await page.$eval('#client-info input[value="female"]', function (el) { return el.checked; }), false);
+  await waitSex(false);
   await page.click('#client-info input[value="female"]');
+  await waitSex(true);
+  assert.strictEqual(await sexChecked(), true);
   await page.$eval('#client-ft', function (el) { el.value = '5'; });
   await page.$eval('#client-in', function (el) { el.value = '8'; });
   await page.$eval('#client-lb', function (el) { el.value = '150'; });

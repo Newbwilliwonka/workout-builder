@@ -2879,25 +2879,35 @@
     function mark() { clientInfoDirty = true; }
     box.addEventListener('input', mark);
     box.addEventListener('change', mark);
-    var sexWas = null;
-    box.addEventListener('pointerdown', function (e) {
+    var sexCheckedBefore = null;
+    function armSex(e) {
       var radio = sexRadioFrom(e.target);
-      sexWas = radio && radio.checked ? radio : null;
-    });
-    box.addEventListener('click', function (e) {
-      var radio = sexRadioFrom(e.target);
-      if (!sexWas || radio !== sexWas) return;
-      radio.checked = false;
-      sexWas = null;
+      sexCheckedBefore = radio && radio.checked ? radio : null;
+    }
+    box.addEventListener('pointerdown', armSex);
+    box.addEventListener('mousedown', armSex);
+    function clearSex(radio) {
+      if (!radio || sexCheckedBefore !== radio) return;
+      sexCheckedBefore = null;
       clientInfoDirty = true;
-    });
+      setTimeout(function () { radio.checked = false; }, 0);
+    }
     box.addEventListener('keydown', function (e) {
       if (e.key !== ' ' && e.key !== 'Enter') return;
       var radio = e.target && e.target.name === 'client-sex' ? e.target : null;
-      if (!radio || !radio.checked) return;
+      if (!radio) return;
+      sexCheckedBefore = radio.checked ? radio : null;
+    });
+    box.addEventListener('click', function (e) {
+      var radio = e.target && e.target.name === 'client-sex' ? e.target : null;
+      if (!radio || sexCheckedBefore !== radio) return;
       e.preventDefault();
-      radio.checked = false;
-      clientInfoDirty = true;
+      clearSex(radio);
+    });
+    box.addEventListener('keyup', function (e) {
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      var radio = e.target && e.target.name === 'client-sex' ? e.target : null;
+      clearSex(radio);
     });
   }
   function cmFromFtIn(ft, inches) {
