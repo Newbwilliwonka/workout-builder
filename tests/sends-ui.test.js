@@ -432,6 +432,41 @@ function armSlow() {
   assert.strictEqual(box.copies.filter(function (c) { return c.name === 'Friday full body' && c.ownerId === C; }).length, fridayBefore + 1);
   box.holds = [];
 
+  await trainer.goto(URL + '?stale=1#/send');
+  await trainer.waitForSelector('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_friday"]');
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.click('[data-pick-client="' + C + '"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 2 workouts to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  const staleHold = armHold();
+  box.holds = [{ promise: Promise.resolve(), fail: false }, staleHold];
+  await trainer.click('#send-go');
+  const staleCalls = box.calls.filter(function (call) { return call.name === 'Saturday easy'; }).length;
+  const staleDeadline = Date.now() + 4000;
+  while (box.calls.filter(function (call) { return call.name === 'Saturday easy'; }).length < staleCalls + 1 && Date.now() < staleDeadline) {
+    await new Promise(function (r) { setTimeout(r, 30); });
+  }
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    return document.getElementById('send-go').textContent === 'Send 1 workout to 1 client' && !document.getElementById('send-go').disabled;
+  });
+  box.holds = [];
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () { return document.getElementById('send-go').textContent === 'Sent'; });
+  await trainer.click('[data-pick-workout="wo_sat"]');
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && btn.disabled && btn.textContent === 'Send 2 workouts to 1 client';
+  });
+  staleHold.release();
+  await trainer.waitForFunction(function () {
+    var btn = document.getElementById('send-go');
+    return btn && btn.disabled && btn.textContent === 'Sent' && btn.className.indexOf('pri') === -1;
+  });
+  box.holds = [];
+
   await trainer.goto(URL + '#/send');
   await trainer.waitForSelector('#send-go');
 

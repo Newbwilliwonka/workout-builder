@@ -363,7 +363,19 @@
     // A newer send owns the screen. This result must not redraw it or clear its lock.
     // The older send still finishes every workout, and a failure is still reported.
     if (!mine) {
-      if (err && ctx && ctx.toast) ctx.toast((err && err.message) || 'Could not send');
+      if (!ctx || pageName() !== 'send' || !roster || currentKey() !== key) {
+        if (err && ctx && ctx.toast) ctx.toast((err && err.message) || 'Could not send');
+        return;
+      }
+      if (err) {
+        sendError = (err && err.message) || 'Could not send';
+        if (ctx.toast) ctx.toast(sendError);
+      } else {
+        sendError = '';
+        sentKey = key;
+        if (ctx.toast) ctx.toast('Sent');
+      }
+      drawSend();
       return;
     }
     if (!ctx || pageName() !== 'send') return;
