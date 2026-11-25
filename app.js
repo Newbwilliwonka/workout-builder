@@ -3031,10 +3031,11 @@
     var pills = '';
     CLIENT_GOALS.forEach(function (goal) {
       if (!chosen[goal] || goal === 'Other') return;
-      pills += '<span class="client-pill">' + esc(goal) + '</span>';
+      pills += '<span class="goal-pill">' + esc(goal) + '</span>';
     });
-    if (row && row.goals_other) pills += '<span class="client-pill">' + esc(row.goals_other) + '</span>';
-    else if (chosen.Other) pills += '<span class="client-pill">Other</span>';
+    if (row && row.goals_other) pills += '<span class="goal-pill">' + esc(row.goals_other) + '</span>';
+    else if (chosen.Other) pills += '<span class="goal-pill">Other</span>';
+    if (!stats && !pills) return '';
     var h = '<div class="card" id="client-info">';
     if (stats) h += '<div class="name">About you</div><div class="client-stats">' + stats + '</div>';
     if (pills) {

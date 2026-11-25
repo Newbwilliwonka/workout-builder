@@ -194,21 +194,24 @@ function birthdayIso() {
       return { size: s.fontSize, weight: s.fontWeight, color: s.color, bg: s.backgroundColor, radius: s.borderRadius };
     }
     var tile = el.querySelector('.client-stat');
-    var pill = el.querySelector('.client-pill');
+    var pill = el.querySelector('.goal-pill');
     var title = el.querySelector('.name');
     return {
       titles: Array.prototype.map.call(el.querySelectorAll('.name'), function (n) { return n.textContent; }),
       tiles: Array.prototype.map.call(el.querySelectorAll('.client-stat'), function (n) {
         return n.querySelector('.client-stat-k').textContent + ':' + n.querySelector('.client-stat-v').textContent;
       }),
-      pills: Array.prototype.map.call(el.querySelectorAll('.client-pill'), function (n) { return n.textContent; }),
+      pills: Array.prototype.map.call(el.querySelectorAll('.goal-pill'), function (n) { return n.textContent; }),
       rule: !!el.querySelector('.client-rule'),
       edit: (el.querySelector('#client-info-edit') || {}).textContent || '',
       title: styleOf(title),
       tile: styleOf(tile),
       label: styleOf(tile.querySelector('.client-stat-k')),
       value: styleOf(tile.querySelector('.client-stat-v')),
-      pill: styleOf(pill)
+      pill: styleOf(pill),
+      before: getComputedStyle(pill, '::before').content,
+      border: getComputedStyle(pill).borderTopWidth + ' ' + getComputedStyle(pill).borderTopStyle,
+      editGap: getComputedStyle(el.querySelector('#client-info-edit')).marginTop
     };
   });
   assert.deepStrictEqual(saved.titles, ['About you', 'Goals']);
@@ -226,6 +229,9 @@ function birthdayIso() {
   assert.strictEqual(saved.pill.bg, 'rgb(239, 246, 255)');
   assert.strictEqual(saved.pill.color, 'rgb(37, 99, 235)');
   assert.strictEqual(saved.pill.weight, '600');
+  assert.strictEqual(saved.before, 'none');
+  assert.strictEqual(saved.border, '0px none');
+  assert.strictEqual(saved.editGap, '14px');
 
   await page.click('#client-info-edit');
   await page.waitForSelector('#client-birthday');
@@ -243,7 +249,7 @@ function birthdayIso() {
       titles: Array.prototype.map.call(el.querySelectorAll('.name'), function (n) { return n.textContent; }),
       tiles: el.querySelectorAll('.client-stat').length,
       rule: !!el.querySelector('.client-rule'),
-      pills: el.querySelectorAll('.client-pill').length
+      pills: el.querySelectorAll('.goal-pill').length
     };
   });
   assert.deepStrictEqual(goalsOnly.titles, ['Goals']);
@@ -456,6 +462,19 @@ function birthdayIso() {
     return err && err.textContent.indexOf('Could not load client info.') !== -1
       && box && box.textContent.indexOf('Age ') === -1 && box.textContent.indexOf('Track a 10k') === -1;
   });
+
+  await page.evaluate(function () {
+    window.__infoFail = false;
+    window.__infoHold = false;
+    window.__infoDelay = false;
+    var id = window.__userId;
+    window.__infoByUser[id] = { birthday: null, sex: null, height_cm: null, weight_kg: null, goals: [], goals_other: null };
+    location.hash = '#/';
+  });
+  await page.waitForFunction(function () { return location.hash === '#/' || location.hash === ''; });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForSelector('#account-card');
+  await page.waitForFunction(function () { return !document.getElementById('client-info'); });
 
   for (var i = 0; i < ['enthusiast', 'trainer', 'master_trainer'].length; i++) {
     var plan = ['enthusiast', 'trainer', 'master_trainer'][i];
