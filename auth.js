@@ -296,7 +296,7 @@
       };
     }
     return Promise.all([
-      pages(page('workout_sessions', 'id,local_date,started_at,ended_at,workout_name,status,workout_id,program_id', 'client_id'), pageSize),
+      pages(page('workout_sessions', 'id,local_date,started_at,ended_at,workout_name,status,workout_id,program_id,origin', 'client_id'), pageSize),
       pages(page('workout_sets', TRACK_SET_COLS, 'client_id'), pageSize),
       pages(page('personal_exercises', 'id,stable_key', 'user_id'), pageSize)
     ]).then(function (pair) {
@@ -980,6 +980,7 @@
     trainerRequestCount: function () { return findRpc('trainer_request_count'); },
     endTemporary: function (personId) { return findRpc('trainer_temp_end', { p_person: personId }); },
     workoutCopies: function () { return workoutRpc('workout_mine'); },
+    circuitSaveRun: function (run) { return workoutRpc('circuit_save_run', { p_run: run || {} }); },
     sendWorkout: function (deliveries, name, items, sourceId) {
       return workoutRpc('workout_send', {
         p_deliveries: deliveries || [],

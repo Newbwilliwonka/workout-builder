@@ -16,6 +16,7 @@
   var anchorElapsed = 0;
   var startedAt = null;
   var record = null;
+  var summaryStatus = 'completed';
   var tracking = true;
   var sched = null;
   var toneMark = -1;
@@ -392,6 +393,8 @@
     mode = 'summary';
     clearStore();
     paint();
+    saveCircuit(record, summaryStatus || 'completed');
+    summaryStatus = 'completed';
   }
   function catchUp(sound) {
     if (mode !== 'live' || !state || !running) return;
@@ -522,11 +525,31 @@
     paint();
     kick();
   }
+  function saveCircuit(done, status) {
+    if (!root.WBCircuitHistory || !done) return;
+    var stations = (doc && doc.stations || []).map(function (station) {
+      var exercise = station && station.exercise || {};
+      return { id: station.id, name: exercise.name || 'Station', libraryId: exercise.libraryId || exercise.library_id || '' };
+    });
+    var started = done.startedAt ? new Date(done.startedAt).toISOString() : new Date().toISOString();
+    var ended = done.endedAt ? new Date(done.endedAt).toISOString() : new Date().toISOString();
+    WBCircuitHistory.saveRecord({
+      name: doc && doc.name,
+      circuitId: doc && doc.id,
+      startedAt: started,
+      endedAt: ended,
+      clock: done.clock,
+      stations: stations,
+      people: done.people
+    }, status).then(function () {}, function () {});
+  }
   function onEnd() {
     if (mode !== 'live' || !state) return;
     if (!confirm('End session?')) return;
+    var early = state.phase !== 'done';
     var nowMs = running ? liveElapsed() : state.elapsedMs;
     state = model().finishSession(state, nowMs);
+    summaryStatus = early ? 'ended_early' : 'completed';
     showSummary();
   }
   function placeKey(key, stationId) {
@@ -813,6 +836,7 @@
     var parts = hashParts();
     if (parts[0] !== 'circuits' || !parts[1] || (parts[2] !== 'run' && parts[2] !== 'view')) return showError('That circuit was not found.');
     tracking = parts[2] !== 'view';
+    if (root.WBCircuitHistory) WBCircuitHistory.flush();
     load(parts[1]);
   }
   function stop() {
