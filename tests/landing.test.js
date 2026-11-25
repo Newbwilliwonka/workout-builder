@@ -12,21 +12,17 @@ const Mem = require('../membership.js');
 const TITLE = 'Coach Trainer App | Build, Run, and Track Client Training';
 const DESCRIPTION = 'Coach Trainer App helps trainers create team drills, run gym circuits, build personal training sessions, schedule programs, and track client progress live.';
 const FEATURES = [
-  'Create team Drills with cones and events.',
-  'Run and track Group Circuit Training.',
-  'Customize your Personal Training sessions with Reps, Intervals, Timed sets, and Stopwatch.',
-  'Schedule your programs in the calendar and track your clients\' progress in real time.',
-  'Design personalized Tracking Dashboards for your clients.',
-  'Get new Clients online and in person through our Trainer Hub with online and area trainer searches.',
-  'All of your clients have free access to the Workout player, Calendar, History, Messaging system, and the Trainer Hub.'
+  'Build custom training sessions using reps, intervals, timed sets, and a built-in stopwatch to record laps with events for speed and skill.',
+  'Free client access to the Workout Player, Calendar, History, Messaging, and Trainer Hub.',
+  'Run group circuits, manage your calendar, and track client progress in real time.',
+  'Keep clients engaged with custom tracking dashboards while attracting new leads via our local and online Trainer Hub.'
 ];
 const SHOTS = [
   'assets/landing/team-drills.jpg',
-  'assets/landing/team-gym.jpg',
-  'assets/landing/feature-3.jpg'
+  'assets/landing/team-gym.jpg'
 ];
-// Features after the photos are text-only cards.
-const TEXT_ONLY = FEATURES.slice(SHOTS.length);
+// Text-only cards, in page order. Photo cards sit between them.
+const TEXT_ONLY = [FEATURES[1], FEATURES[3]];
 
 assert.ok(html.indexOf('<title>' + TITLE + '</title>') !== -1);
 assert.ok(html.indexOf('<meta name="description" content="' + DESCRIPTION + '">') !== -1);
