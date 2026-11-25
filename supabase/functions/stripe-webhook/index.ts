@@ -25,7 +25,7 @@ function messageOf(err: unknown): string {
 }
 
 export default {
-  fetch: withSupabase({ auth: 'none' }, async (req, ctx) => {
+  fetch: withSupabase({ auth: 'none', cors: 'disabled' }, async (req, ctx) => {
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed.' })
     const env = readStripeEnv()
     const rawBody = await req.text()

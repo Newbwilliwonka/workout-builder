@@ -49,16 +49,61 @@ function subscriptionPrice(subscription) {
   return priceRef(item && item.price)
 }
 
-function invoicePrice(invoice) {
-  const lines = invoice && invoice.lines && invoice.lines.data
-  if (!lines) return null
+function linePrice(line) {
+  if (!line) return null
+  const nested = line.pricing && line.pricing.price_details && line.pricing.price_details.price
+  return priceRef(nested || line.price)
+}
+
+function isProration(line) {
+  if (!line) return false
+  if (line.proration === true) return true
+  const parent = line.parent || null
+  const details = parent && (parent.subscription_item_details || parent.invoice_item_details)
+  if (details && details.proration === true) return true
+  if (typeof line.amount === 'number' && line.amount < 0) return true
+  return false
+}
+
+function isCurrentSubscriptionLine(line) {
+  if (!line || isProration(line)) return false
+  const parent = line.parent || null
+  const parentType = parent && parent.type
+  if (line.type === 'subscription' || parentType === 'subscription_item_details') return true
+  if (parent && parent.subscription_item_details && parent.subscription_item_details.proration !== true) return true
+  return false
+}
+
+function invoiceChoice(invoice, subscription) {
+  const lines = (invoice && invoice.lines && invoice.lines.data) || []
+  const current = subscriptionPrice(subscription)
+  const usable = []
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const nested = line && line.pricing && line.pricing.price_details && line.pricing.price_details.price
-    const ref = priceRef(nested || (line && line.price))
-    if (ref) return ref
+    if (isCurrentSubscriptionLine(lines[i])) usable.push(lines[i])
   }
-  return null
+  if (current && current.id) {
+    for (let i = 0; i < usable.length; i++) {
+      const ref = linePrice(usable[i])
+      if (ref && ref.id === current.id) return { ref: ref, line: usable[i] }
+    }
+  }
+  if (usable.length) {
+    const ref = linePrice(usable[usable.length - 1])
+    return { ref: ref, line: usable[usable.length - 1] }
+  }
+  if (current) return { ref: current, line: null }
+  return { ref: null, line: null }
+}
+
+function linePeriodEnd(line) {
+  const end = line && line.period && line.period.end
+  return isoFromUnix(end)
+}
+
+function subscriptionPeriodEnd(subscription) {
+  if (!subscription) return null
+  if (subscription.current_period_end) return isoFromUnix(subscription.current_period_end)
+  return periodEndOf(subscription)
 }
 
 function invoiceSubscription(invoice) {
@@ -97,6 +142,16 @@ function hadPaidAccess(row) {
     return true
   }
   return false
+}
+
+function sameActiveSubscription(row, subscriptionId) {
+  return !!(
+    row
+    && subscriptionId
+    && row.billing_status === 'active'
+    && row.stripe_subscription_id
+    && row.stripe_subscription_id === subscriptionId
+  )
 }
 
 async function dispatch(stripe, db, event) {
@@ -180,7 +235,7 @@ async function dispatch(stripe, db, event) {
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
     const status = billingStatus(object.status)
-    if ((status === 'canceled' || status === 'unpaid') && row.complimentary === true && !hadPaidAccess(row)) {
+    if ((status === 'canceled' || status === 'unpaid') && !hadPaidAccess(row)) {
       await db.rpc('beta_reservation_release', {
         p_profile: row.id,
         p_checkout_session_id: null,
@@ -212,14 +267,15 @@ async function dispatch(stripe, db, event) {
       p_checkout_session_id: null,
       p_reservation: null
     })
-    if (row.complimentary === true && !hadPaidAccess(row)) return
+    if (!hadPaidAccess(row)) return
+    const endedAt = object.ended_at ? isoFromUnix(object.ended_at) : null
     await db.rpc('apply_stripe_membership', {
       p_profile: row.id,
       p_action: 'end',
       p_customer_id: idOf(object.customer),
       p_subscription_id: object.id,
       p_billing_status: 'canceled',
-      p_period_end: periodEndOf(object)
+      p_period_end: endedAt || periodEndOf(object)
     })
     return
   }
@@ -232,9 +288,12 @@ async function dispatch(stripe, db, event) {
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
     const profile = row.id
-    const plan = await planForPrice(stripe, invoicePrice(object))
+    const choice = invoiceChoice(object, subObject)
+    const plan = await planForPrice(stripe, choice.ref)
     if (!plan) throw new BillingError('Checkout could not be started.', 500)
-    const period = isoFromUnix(object.period_end) || (subObject ? periodEndOf(subObject) : null)
+    const period = linePeriodEnd(choice.line)
+      || subscriptionPeriodEnd(subObject)
+      || isoFromUnix(object.period_end)
     await db.rpc('apply_stripe_membership', {
       p_profile: profile,
       p_action: 'grant',
@@ -258,12 +317,15 @@ async function dispatch(stripe, db, event) {
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
     const profile = row.id
-    await db.rpc('apply_stripe_membership', {
-      p_profile: profile,
-      p_action: 'past_due',
-      p_customer_id: idOf(object.customer),
-      p_subscription_id: idOf(sub)
-    })
+    const subId = idOf(sub)
+    if (sameActiveSubscription(row, subId)) {
+      await db.rpc('apply_stripe_membership', {
+        p_profile: profile,
+        p_action: 'past_due',
+        p_customer_id: idOf(object.customer),
+        p_subscription_id: subId
+      })
+    }
     await db.rpc('beta_reservation_release', {
       p_profile: profile,
       p_checkout_session_id: null,

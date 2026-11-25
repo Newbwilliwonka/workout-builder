@@ -6,6 +6,7 @@ import { bridgeServiceRole } from '../_shared/stripe-env.ts'
 import { readStripeEnv, stripeClient } from '../_shared/stripe-client.ts'
 import { BillingError, publicMessage } from '../_shared/billing-guard.mjs'
 import { createCheckoutSession, planFromBody } from '../_shared/billing-checkout.mjs'
+import { applyCors, preflightResponse } from '../_shared/billing-cors.mjs'
 
 bridgeServiceRole()
 
@@ -24,8 +25,7 @@ function messageOf(err: unknown): string {
   return ''
 }
 
-export default {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+const authed = withSupabase({ auth: 'user', cors: 'disabled' }, async (req, ctx) => {
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed.' })
     const userId = ctx.userClaims && ctx.userClaims.id
     const env = readStripeEnv()
@@ -47,9 +47,9 @@ export default {
         plan: planFromBody(body),
         db: {
           loadProfile: async function (id: string) {
-            const { data, error } = await ctx.supabase
+            const { data, error } = await admin
               .from('profiles')
-              .select('id, access_approved, beta_locked, stripe_customer_id')
+              .select('id, access_approved, beta_locked, stripe_customer_id, complimentary, stripe_subscription_id, billing_status')
               .eq('id', id)
               .maybeSingle()
             if (error) throw new BillingError('Checkout could not be started.', 500)
@@ -68,4 +68,11 @@ export default {
       return json(status || 500, { error: publicMessage(err, 'Checkout could not be started.') })
     }
   })
+
+export default {
+  fetch: async (req: Request, ctx?: unknown) => {
+    if (req.method === 'OPTIONS') return preflightResponse(req.headers.get('origin'))
+    const response = await authed(req, ctx)
+    return applyCors(req, response)
+  }
 }

@@ -69,7 +69,15 @@ function dbMock(setup) {
     },
     findProfile: async function (customerId) {
       calls.push(['findProfile', customerId]);
-      return setup.profiles && setup.profiles[customerId] ? setup.profiles[customerId] : null;
+      const found = setup.profiles && setup.profiles[customerId];
+      if (!found) return null;
+      if (typeof found === 'object') return found;
+      return {
+        id: found,
+        complimentary: false,
+        billing_status: 'active',
+        stripe_subscription_id: 'sub_payer001'
+      };
     },
     rpc: async function (name, args) {
       calls.push([name, args]);
@@ -138,7 +146,7 @@ async function main() {
 
   const held = dbMock({
     profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: { cohort: 'beta', reservation_id: RES, beta_locked: false }
+    hold: { cohort: 'beta', reservation_id: RES, beta_locked: false, expires_at: '2026-11-25T18:35:00.000Z' }
   });
   const heldStripe = stripeMock();
   const created = await checkout.createCheckoutSession({
@@ -169,7 +177,9 @@ async function main() {
   assert.strictEqual(params.subscription_data.metadata.tier, 'beta');
   assert.strictEqual(Object.prototype.hasOwnProperty.call(params, 'automatic_tax'), false);
   assert.strictEqual(Object.prototype.hasOwnProperty.call(params, 'payment_method_types'), false);
-  assert.ok(params.expires_at > Date.parse('2026-11-25T18:00:00Z') / 1000);
+  assert.ok(params.expires_at >= Date.parse('2026-11-25T18:00:00Z') / 1000 + 30 * 60);
+  assert.ok(params.expires_at < Date.parse('2026-11-25T18:35:00.000Z') / 1000);
+  assert.strictEqual(sessionCall[2], undefined);
   const attach = held.calls.filter(function (row) { return row[0] === 'beta_reservation_attach'; })[0];
   assert.strictEqual(attach[1].p_reservation, RES);
   assert.strictEqual(attach[1].p_checkout_session_id, 'cs_test_session1');
@@ -214,7 +224,7 @@ async function main() {
 
   const failing = dbMock({
     profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
-    hold: { cohort: 'beta', reservation_id: RES }
+    hold: { cohort: 'beta', reservation_id: RES, expires_at: '2099-01-01T00:00:00.000Z' }
   });
   const failingStripe = stripeMock();
   failingStripe.checkout.sessions.create = async function () {
@@ -253,7 +263,7 @@ async function main() {
           customer: 'cus_Existing1',
           period_end: Date.parse('2026-12-25T00:00:00Z') / 1000,
           parent: { subscription_details: { subscription: 'sub_payer001', metadata: { supabase_user_id: USER } } },
-          lines: { data: [{ pricing: { price_details: { price: { id: 'price_1', lookup_key: 'enthusiast_beta_monthly' } } } }] }
+          lines: { data: [{ type: 'subscription', amount: 999, proration: false, period: { end: Date.parse('2026-12-25T00:00:00Z') / 1000 }, pricing: { price_details: { price: { id: 'price_1', lookup_key: 'enthusiast_beta_monthly' } } } }] }
         }
       }
     };
@@ -514,7 +524,7 @@ async function main() {
     userId: USER,
     portalBeta: 'bpc_beta',
     portalStandard: 'bpc_standard',
-    db: dbMock({ profile: { stripe_customer_id: 'cus_Existing1', beta_locked: true } })
+    db: dbMock({ profile: { stripe_customer_id: 'cus_Existing1', beta_locked: true, access_approved: true } })
   });
   assert.strictEqual(opened.body.url, 'https://billing.stripe.com/p/session/test_portal');
   assert.strictEqual(portalStripe.calls[0][1].customer, 'cus_Existing1');
@@ -529,7 +539,7 @@ async function main() {
     userId: USER,
     portalBeta: 'bpc_beta',
     portalStandard: 'bpc_standard',
-    db: dbMock({ profile: { stripe_customer_id: 'cus_Existing1', beta_locked: false } })
+    db: dbMock({ profile: { stripe_customer_id: 'cus_Existing1', beta_locked: false, access_approved: true } })
   });
   assert.strictEqual(standardPortal.calls[0][1].configuration, 'bpc_standard');
 
@@ -539,7 +549,7 @@ async function main() {
       secretKey: TEST_KEY,
       testMode: 'true',
       userId: USER,
-      db: dbMock({ profile: { stripe_customer_id: null, beta_locked: false } })
+      db: dbMock({ profile: { stripe_customer_id: null, beta_locked: false, access_approved: true } })
     });
   }, /subscribe/);
 
@@ -557,6 +567,243 @@ async function main() {
     });
   }, /database down/);
   assert.ok(names(broken.calls).indexOf('stripe_event_begin') === -1);
+
+  const comp = dbMock({
+    profile: { access_approved: true, complimentary: true, beta_locked: false, billing_status: null, stripe_subscription_id: null }
+  });
+  await assert.rejects(function () {
+    return checkout.createCheckoutSession({
+      stripe: stripeMock(),
+      db: comp,
+      userId: USER,
+      plan: 'trainer',
+      secretKey: TEST_KEY,
+      testMode: 'true'
+    });
+  }, /keeps its current plan/);
+  assert.ok(names(comp.calls).indexOf('beta_reservation_hold') === -1);
+  assert.strictEqual(comp.calls[0][0], 'loadProfile');
+
+  const already = dbMock({
+    profile: { access_approved: true, complimentary: false, billing_status: 'active', stripe_subscription_id: 'sub_payer001', beta_locked: true }
+  });
+  await assert.rejects(function () {
+    return checkout.createCheckoutSession({
+      stripe: stripeMock(),
+      db: already,
+      userId: USER,
+      plan: 'enthusiast',
+      secretKey: TEST_KEY,
+      testMode: 'true'
+    });
+  }, /Manage billing/);
+  assert.ok(names(already.calls).indexOf('beta_reservation_hold') === -1);
+
+  await assert.rejects(function () {
+    return portal.createPortalSession({
+      stripe: stripeMock(),
+      secretKey: TEST_KEY,
+      testMode: 'true',
+      userId: USER,
+      db: dbMock({ profile: { access_approved: false, stripe_customer_id: 'cus_Existing1', beta_locked: false } })
+    });
+  }, /approves the account/);
+
+  const upgrade = eventDb();
+  const lineEnd = Date.parse('2027-02-01T00:00:00Z') / 1000;
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_upgrade1',
+        type: 'invoice.paid',
+        data: {
+          object: {
+            customer: 'cus_Existing1',
+            period_end: Date.parse('2026-01-01T00:00:00Z') / 1000,
+            parent: {
+              subscription_details: {
+                subscription: {
+                  id: 'sub_payer001',
+                  current_period_end: Date.parse('2027-01-15T00:00:00Z') / 1000,
+                  items: { data: [{ price: { id: 'price_new', lookup_key: 'trainer_beta_monthly' }, current_period_end: lineEnd }] },
+                  metadata: { supabase_user_id: USER }
+                },
+                metadata: { supabase_user_id: USER }
+              }
+            },
+            lines: {
+              data: [
+                {
+                  amount: -999,
+                  proration: true,
+                  type: 'invoiceitem',
+                  period: { end: Date.parse('2026-06-01T00:00:00Z') / 1000 },
+                  pricing: { price_details: { price: { id: 'price_old', lookup_key: 'enthusiast_beta_monthly' } } }
+                },
+                {
+                  amount: 1999,
+                  proration: false,
+                  type: 'subscription',
+                  period: { end: lineEnd },
+                  pricing: { price_details: { price: { id: 'price_new', lookup_key: 'trainer_beta_monthly' } } }
+                }
+              ]
+            }
+          }
+        }
+      };
+    },
+    db: upgrade
+  });
+  const upgraded = upgrade.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
+  assert.strictEqual(upgraded.p_action, 'grant');
+  assert.strictEqual(upgraded.p_plan, 'trainer');
+  assert.strictEqual(upgraded.p_period_end, new Date(lineEnd * 1000).toISOString());
+
+  const endedAt = Date.parse('2026-12-01T12:00:00Z') / 1000;
+  const closed = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_endedat',
+        type: 'customer.subscription.deleted',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'canceled',
+            ended_at: endedAt,
+            metadata: { user_id: USER },
+            items: { data: [{ current_period_end: Date.parse('2027-06-01T00:00:00Z') / 1000 }] }
+          }
+        }
+      };
+    },
+    db: closed
+  });
+  const closedCall = closed.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
+  assert.strictEqual(closedCall.p_period_end, new Date(endedAt * 1000).toISOString());
+
+  const retry = dbMock({
+    profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
+    hold: { cohort: 'beta', reservation_id: RES, expires_at: '2099-01-01T00:00:00.000Z' }
+  });
+  const retryStripe = stripeMock();
+  retryStripe.checkout.sessions.create = async function () {
+    const err = new Error('Keys for idempotent requests must match');
+    err.code = 'idempotency_error';
+    throw err;
+  };
+  await assert.rejects(function () {
+    return checkout.createCheckoutSession({
+      stripe: retryStripe,
+      db: retry,
+      userId: USER,
+      plan: 'enthusiast',
+      secretKey: TEST_KEY,
+      testMode: 'true',
+      now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
+    });
+  }, /could not be started/);
+  assert.ok(names(retry.calls).indexOf('beta_reservation_release') === -1);
+
+  const firstFail = dbMock({ profiles: { cus_Existing1: { id: USER, complimentary: true, billing_status: null, stripe_subscription_id: null } } });
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_firstfail',
+        type: 'invoice.payment_failed',
+        data: {
+          object: {
+            customer: 'cus_Existing1',
+            parent: { subscription_details: { subscription: 'sub_new001', metadata: { user_id: USER } } }
+          }
+        }
+      };
+    },
+    db: firstFail
+  });
+  assert.ok(names(firstFail.calls).indexOf('apply_stripe_membership') === -1);
+  assert.ok(names(firstFail.calls).indexOf('beta_reservation_release') !== -1);
+
+  const neverPaid = dbMock({ profiles: { cus_Existing1: { id: USER, complimentary: false, billing_status: null, stripe_subscription_id: null } } });
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_never',
+        type: 'customer.subscription.deleted',
+        data: { object: { id: 'sub_new001', customer: 'cus_Existing1', status: 'canceled', metadata: { user_id: USER }, ended_at: endedAt } }
+      };
+    },
+    db: neverPaid
+  });
+  assert.ok(names(neverPaid.calls).indexOf('apply_stripe_membership') === -1);
+
+  const cors = await import(path.join(shared, 'billing-cors.mjs'));
+  assert.strictEqual(cors.allowedOrigin('https://coachtrainerapp.com'), 'https://coachtrainerapp.com');
+  assert.strictEqual(cors.allowedOrigin('http://localhost:8787'), 'http://localhost:8787');
+  assert.strictEqual(cors.allowedOrigin('http://127.0.0.1:3000'), 'http://127.0.0.1:3000');
+  assert.strictEqual(cors.allowedOrigin('https://evil.example'), null);
+  assert.strictEqual(cors.allowedOrigin('http://localhost.evil'), null);
+  const okHeaders = cors.corsHeaders('http://localhost:8787');
+  assert.strictEqual(okHeaders.vary, 'Origin');
+  assert.strictEqual(okHeaders['access-control-allow-origin'], 'http://localhost:8787');
+  const blocked = cors.corsHeaders('https://evil.example');
+  assert.strictEqual(blocked.vary, 'Origin');
+  assert.strictEqual(blocked['access-control-allow-origin'], undefined);
+  const preflight = cors.preflightResponse('https://coachtrainerapp.com');
+  assert.strictEqual(preflight.status, 204);
+  assert.strictEqual(preflight.headers.get('access-control-allow-origin'), 'https://coachtrainerapp.com');
+  assert.strictEqual(preflight.headers.get('vary'), 'Origin');
+  const denied = cors.preflightResponse('https://evil.example');
+  assert.strictEqual(denied.status, 403);
+  assert.strictEqual(denied.headers.get('access-control-allow-origin'), null);
+  const wrapped = cors.applyCors(
+    new Request('https://coachtrainerapp.com/fn', { headers: { origin: 'https://coachtrainerapp.com' } }),
+    new Response(JSON.stringify({ error: 'Nope' }), { status: 403, headers: { 'content-type': 'application/json' } })
+  );
+  assert.strictEqual(wrapped.status, 403);
+  assert.strictEqual(wrapped.headers.get('access-control-allow-origin'), 'https://coachtrainerapp.com');
+  assert.strictEqual(wrapped.headers.get('vary'), 'Origin');
+
+  const holdSql = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20261125220000_beta_hold_35_minutes.sql'), 'utf8');
+  assert.ok(holdSql.indexOf("interval '35 minutes'") !== -1);
+  const checkoutSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/create-checkout-session/index.ts'), 'utf8');
+  const portalSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/create-portal-session/index.ts'), 'utf8');
+  const webhookSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/stripe-webhook/index.ts'), 'utf8');
+  const envSrc = fs.readFileSync(path.join(shared, 'stripe-env.ts'), 'utf8');
+  assert.ok(checkoutSrc.indexOf("cors: 'disabled'") !== -1);
+  assert.ok(portalSrc.indexOf("cors: 'disabled'") !== -1);
+  assert.ok(webhookSrc.indexOf("cors: 'disabled'") !== -1);
+  assert.ok(checkoutSrc.indexOf('billing-cors.mjs') !== -1);
+  assert.ok(portalSrc.indexOf('billing-cors.mjs') !== -1);
+  assert.ok(webhookSrc.indexOf('billing-cors.mjs') === -1);
+  assert.ok(envSrc.indexOf('SUPABASE_ANON_KEY') !== -1);
+  assert.ok(envSrc.indexOf('SUPABASE_PUBLISHABLE_KEY') !== -1);
 
   const tree = path.join(__dirname, '..', 'supabase/functions');
   const files = [];

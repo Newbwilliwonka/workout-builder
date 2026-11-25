@@ -5,6 +5,7 @@ import { bridgeServiceRole } from '../_shared/stripe-env.ts'
 import { readStripeEnv, stripeClient } from '../_shared/stripe-client.ts'
 import { BillingError, publicMessage } from '../_shared/billing-guard.mjs'
 import { createPortalSession } from '../_shared/billing-portal.mjs'
+import { applyCors, preflightResponse } from '../_shared/billing-cors.mjs'
 
 bridgeServiceRole()
 
@@ -18,8 +19,7 @@ function json(status: number, body: Record<string, unknown>): Response {
   })
 }
 
-export default {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+const authed = withSupabase({ auth: 'user', cors: 'disabled' }, async (req, ctx) => {
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed.' })
     const env = readStripeEnv()
     const userId = ctx.userClaims && ctx.userClaims.id
@@ -34,9 +34,9 @@ export default {
         portalStandard: Deno.env.get('STRIPE_PORTAL_STANDARD_CONFIGURATION') || '',
         db: {
           loadProfile: async function (id: string) {
-            const { data, error } = await ctx.supabase
+            const { data, error } = await ctx.supabaseAdmin
               .from('profiles')
-              .select('stripe_customer_id, beta_locked')
+              .select('stripe_customer_id, beta_locked, access_approved')
               .eq('id', id)
               .maybeSingle()
             if (error) throw new BillingError('The billing page could not be opened.', 500)
@@ -50,4 +50,11 @@ export default {
       return json(status || 500, { error: publicMessage(err, 'The billing page could not be opened.') })
     }
   })
+
+export default {
+  fetch: async (req: Request, ctx?: unknown) => {
+    if (req.method === 'OPTIONS') return preflightResponse(req.headers.get('origin'))
+    const response = await authed(req, ctx)
+    return applyCors(req, response)
+  }
 }

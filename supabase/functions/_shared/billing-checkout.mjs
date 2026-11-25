@@ -7,7 +7,35 @@ import {
   lookupKey
 } from './billing-plans.mjs'
 
-const HOLD_MS = 31 * 60 * 1000
+const STRIPE_MIN_SECONDS = 30 * 60
+const CHECKOUT_SECONDS = 31 * 60
+const HOLD_MARGIN_SECONDS = 60
+
+const OPEN_SUBSCRIPTION = { active: true, trialing: true, past_due: true }
+
+export function checkoutExpiresAt(nowMs, holdExpiresAt) {
+  const nowSec = Math.floor(Number(nowMs) / 1000)
+  const earliest = nowSec + STRIPE_MIN_SECONDS
+  let target = nowSec + CHECKOUT_SECONDS
+  if (holdExpiresAt) {
+    const holdSec = Math.floor(new Date(holdExpiresAt).getTime() / 1000)
+    if (!holdSec) throw new BillingError('Checkout could not be started.', 502)
+    const latest = holdSec - HOLD_MARGIN_SECONDS
+    if (target > latest) target = latest
+    if (target < earliest) throw new BillingError('Checkout could not be started.', 502)
+  }
+  if (target < earliest) target = earliest
+  return target
+}
+
+function keepsHold(err, session) {
+  if (session && session.id) return true
+  const message = String((err && err.message) || '')
+  const code = String((err && (err.code || err.type)) || '')
+  if (/idempotenc/i.test(message) || /idempotenc/i.test(code)) return true
+  if (/duplicate/i.test(message)) return true
+  return false
+}
 
 function idOf(value) {
   if (!value) return null
@@ -74,9 +102,16 @@ export async function createCheckoutSession(input) {
   if (profile.access_approved !== true) {
     throw new BillingError('Checkout opens after an admin approves the account.', 403)
   }
+  if (profile.complimentary === true) {
+    throw new BillingError('This account keeps its current plan. Checkout is not used.', 403)
+  }
+  if (OPEN_SUBSCRIPTION[profile.billing_status]) {
+    throw new BillingError('You already have a subscription. Use Manage billing to change it.', 409)
+  }
 
   let tier = 'standard'
   let reservationId = null
+  let holdExpiresAt = null
   if (profile.beta_locked === true) {
     tier = 'beta'
   } else {
@@ -86,7 +121,12 @@ export async function createCheckoutSession(input) {
     })
     tier = hold && hold.cohort === 'beta' ? 'beta' : 'standard'
     reservationId = hold && hold.reservation_id ? String(hold.reservation_id) : null
+    if (tier === 'beta' && reservationId) {
+      if (!hold.expires_at) throw new BillingError('Checkout could not be started.', 502)
+      holdExpiresAt = hold.expires_at
+    }
   }
+  const expiresAt = checkoutExpiresAt(now, holdExpiresAt)
 
   let session
   try {
@@ -103,7 +143,7 @@ export async function createCheckoutSession(input) {
       line_items: [{ price: price, quantity: 1 }],
       success_url: SUCCESS_URL,
       cancel_url: CANCEL_URL,
-      expires_at: Math.floor(now / 1000) + Math.floor(HOLD_MS / 1000),
+      expires_at: expiresAt,
       integration_identifier: INTEGRATION_ID,
       metadata: metadata,
       subscription_data: {
@@ -115,13 +155,9 @@ export async function createCheckoutSession(input) {
           tier: tier
         }
       }
-    }, {
-      idempotencyKey: reservationId
-        ? 'checkout-' + reservationId
-        : 'checkout-' + userId + '-' + plan + '-' + tier + '-' + Math.floor(now / HOLD_MS)
     })
   } catch (err) {
-    if (reservationId) {
+    if (reservationId && !keepsHold(err, session)) {
       try {
         await db.rpc('beta_reservation_release', {
           p_profile: null,

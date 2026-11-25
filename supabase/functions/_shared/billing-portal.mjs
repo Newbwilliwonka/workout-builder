@@ -6,6 +6,9 @@ export async function createPortalSession(input) {
   if (!input.userId) throw new BillingError('That account was not found.', 401)
   const profile = await input.db.loadProfile(input.userId)
   if (!profile) throw new BillingError('That account was not found.', 404)
+  if (profile.access_approved !== true) {
+    throw new BillingError('The billing page opens after an admin approves the account.', 403)
+  }
   const customer = profile.stripe_customer_id
   if (!customer) throw new BillingError('Billing starts after you subscribe.', 400)
 

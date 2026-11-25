@@ -20,7 +20,8 @@ In the Supabase dashboard, Project Settings → Edge Functions → Secrets, set:
 
 - `STRIPE_SECRET_KEY` — a test secret or restricted key from the existing sandbox. Not a live key.
 - `STRIPE_WEBHOOK_SECRET` — the signing secret from the test webhook endpoint.
-- `SUPABASE_SERVICE_ROLE_KEY` — the service role key. The functions use it only to call the billing SQL.
+- `SUPABASE_SERVICE_ROLE_KEY` — the service role key. The functions use it only to call the billing SQL and to read the signed-in person's own profile row.
+- `SUPABASE_ANON_KEY` — the anon key already on the project. The function copies it to `SUPABASE_PUBLISHABLE_KEY` when that name is not set, which is what the Supabase server helper expects.
 - `TEST_MODE` — `true` while this project is on the test sandbox. A live key is refused while this is set.
 - `STRIPE_PORTAL_BETA_CONFIGURATION` and `STRIPE_PORTAL_STANDARD_CONFIGURATION` — optional, after the two Customer Portal configurations exist in the Dashboard. Beta-locked people must get the Beta configuration so a later price raise does not apply to them.
 
@@ -28,7 +29,9 @@ In the Supabase dashboard, Project Settings → Edge Functions → Secrets, set:
 
 ## Deploy, when William says so
 
-The billing SQL from `supabase/migrations/20261125200000_stripe_billing.sql` is already applied.
+The billing SQL from `supabase/migrations/20261125200000_stripe_billing.sql` is already applied. Also apply `supabase/migrations/20261125220000_beta_hold_35_minutes.sql`. It changes a new Beta hold from 30 minutes to 35 minutes so Checkout can expire at 31 minutes and still end before the hold. Confirmed seats are not changed.
+
+Checkout and the portal allow the browser only from https://coachtrainerapp.com, and from http://localhost or http://127.0.0.1 on any port for local work. The webhook sends no browser headers.
 
 ```
 supabase functions deploy create-checkout-session
