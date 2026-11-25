@@ -106,6 +106,24 @@ function birthdayIso() {
   await page.goto(URL + '?plan=free_client#/account');
   await page.waitForSelector('#client-birthday');
   const labels = await page.$eval('#client-info', function (el) { return el.innerText; });
+  const privacy = await page.$eval('#client-info-private', function (el) {
+    var text = el.querySelector('span');
+    var birthday = document.querySelector('label[for="client-birthday"]');
+    var s = getComputedStyle(el);
+    var icon = getComputedStyle(el.querySelector('svg'));
+    return {
+      text: text ? text.textContent : '',
+      above: !!(birthday && (el.compareDocumentPosition(birthday) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      color: s.color,
+      size: s.fontSize,
+      icon: icon.color
+    };
+  });
+  assert.strictEqual(privacy.text, 'Private. Only you and your linked trainer can see this information.');
+  assert.strictEqual(privacy.above, true);
+  assert.strictEqual(privacy.color, 'rgb(107, 114, 128)');
+  assert.strictEqual(privacy.size, '13px');
+  assert.strictEqual(privacy.icon, 'rgb(107, 114, 128)');
   assert.ok(labels.indexOf('Birthday') !== -1);
   assert.strictEqual(labels.indexOf('BIRTHDAY'), -1);
   assert.ok(labels.indexOf('Weight or fat loss') !== -1);
@@ -187,6 +205,7 @@ function birthdayIso() {
   assert.strictEqual(read.indexOf('Building strength and muscle'), -1);
   assert.strictEqual(read.indexOf(born), -1);
   assert.strictEqual(read.indexOf('@'), -1);
+  assert.strictEqual(read.indexOf('Private. Only you and your linked trainer can see this information.'), -1);
   assert.strictEqual(await page.$('#client-birthday'), null);
   const saved = await page.$eval('#client-info', function (el) {
     function styleOf(node) {

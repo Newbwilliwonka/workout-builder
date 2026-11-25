@@ -321,6 +321,8 @@ button.avatar{border:0;cursor:pointer}
 #invites .card.flat .actions{margin-top:8px;gap:6px}
 #profile-edit{display:inline;width:auto;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--pri);font-size:13px;font-weight:700;line-height:inherit;text-decoration:none;vertical-align:baseline;cursor:pointer}
 #client-info .client-k{display:block;margin:10px 0 4px;font-size:13px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--mute)}
+#client-info #client-info-private{display:flex;align-items:flex-start;gap:6px;margin:0 0 2px;line-height:1.35}
+#client-info #client-info-private svg{flex:none;margin-top:1px;color:var(--mute)}
 #client-info label{display:block;margin:10px 0 4px;font-size:13px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--mute)}
 #client-info .client-sex{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:10px}
 #client-info .client-sex .client-k{margin:0}

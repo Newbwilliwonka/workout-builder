@@ -3053,6 +3053,7 @@
     var chosen = {};
     (row.goals || []).forEach(function (goal) { chosen[goal] = 1; });
     var h = '<div class="card" id="client-info">';
+    h += '<p class="mute" id="client-info-private"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Private. Only you and your linked trainer can see this information.</span></p>';
     h += '<label for="client-birthday">Birthday</label>';
     h += '<input id="client-birthday" type="date" value="' + esc(row.birthday || '') + '">';
     h += '<div class="client-sex" role="group" aria-label="Sex"><span class="client-k">Sex</span>';
