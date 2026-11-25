@@ -919,6 +919,26 @@
     },
     endConnection: function (clientId) { return rpc('invite_end', { p_client: clientId && clientId !== 'self' ? clientId : null }); },
     threads: function () { return messageRpc('message_threads'); },
+    navBadges: function () {
+      return db().then(function (c) { return c.rpc('nav_badges'); }).then(function (res) {
+        if (!res || res.error) return { messages: 0, hub: 0, tracking: 0 };
+        var data = res.data || {};
+        return {
+          messages: Math.max(0, Number(data.messages) || 0),
+          hub: Math.max(0, Number(data.hub) || 0),
+          tracking: Math.max(0, Number(data.tracking) || 0)
+        };
+      }, function () {
+        return { messages: 0, hub: 0, tracking: 0 };
+      });
+    },
+    navMarkSeen: function (section) {
+      if (section !== 'messages' && section !== 'hub' && section !== 'tracking') return Promise.resolve(null);
+      return db().then(function (c) { return c.rpc('nav_mark_seen', { p_section: section }); }).then(function (res) {
+        if (!res || res.error) return null;
+        return res.data || null;
+      }, function () { return null; });
+    },
     messages: function (personId) { return messageRpc('message_open', { p_person: personId }); },
     sendMessage: function (personId, messageId, body) {
       return messageRpc('message_send', { p_person: personId, p_id: messageId, p_body: body });

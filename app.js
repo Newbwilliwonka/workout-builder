@@ -510,6 +510,7 @@
         if (token !== pullToken || route !== routeToken) return;
         var before = listSig(data.workouts);
         applyCopies(incoming);
+        refreshNavBadges();
         if (listSig(data.workouts) !== before && hashPage() === '') renderList();
       });
     }, function () {});
@@ -1594,6 +1595,7 @@
     renderReset();
     Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
       forgetRequestBadges();
+      clearNavBadges();
       clearClientInfo();
       goSign();
     }, function () {
@@ -1679,6 +1681,7 @@
         closeProfileSheet(true);
         syncHeaderSignOut();
         levelNoteOn = false;
+        noteNavSection();
         if (programsRequested()) return openPrograms();
         if (page === 'tracking') return renderTracking(token);
         if (page === 'history') return renderHistory(token);
@@ -2213,11 +2216,14 @@
     syncHeaderSignOut();
     paintReceivedDot();
     refreshRequestBadges();
+    noteNavSection();
+    refreshNavBadges();
   }
   function signOutFromAccount() {
     var from = hashPage();
     WBAuth.signOut().then(function () {
       forgetRequestBadges();
+      clearNavBadges();
       cachedProfile = null;
       clearClientInfo();
       copyStamp = {};
@@ -2777,6 +2783,7 @@
       if (e.target.closest('#level-signout')) {
         return WBAuth.signOut().then(function () {
           forgetRequestBadges();
+          clearNavBadges();
           cachedProfile = null;
           clearClientInfo();
           signedInNow = false;
@@ -3202,25 +3209,94 @@
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
     };
   }
-  function paintRequestBadges(n) {
-    var count = Math.max(0, Number(n) || 0);
-    ['messages-nav'].forEach(function (id) {
-      var btn = document.getElementById(id);
-      if (!btn) return;
-      var badge = btn.querySelector('.request-count');
-      if (!count) {
-        if (badge) badge.remove();
-        return;
+  function paintRequestBadges() {
+    // Trainer message requests stay on the Hub Requests button.
+    // The Messages link count is unread messages, painted with the other nav badges.
+  }
+  var navBadgeGen = 0;
+  var navWriteGen = 0;
+  var navSection = '';
+  var navBadgeUser = '';
+  var navCounts = { messages: 0, hub: 0, tracking: 0 };
+  function navSectionOf(page) {
+    if (page === 'messages') return 'messages';
+    if (page === 'hub') return 'hub';
+    if (page === 'tracking' || page === 'history') return 'tracking';
+    return '';
+  }
+  function paintNavBadges(counts) {
+    navCounts = {
+      messages: Math.max(0, Number(counts && counts.messages) || 0),
+      hub: Math.max(0, Number(counts && counts.hub) || 0),
+      tracking: Math.max(0, Number(counts && counts.tracking) || 0)
+    };
+    paintNavCount('messages-nav', navCounts.messages, 'unread message', 'unread messages');
+    paintNavCount('hub-nav', navCounts.hub, 'new reply', 'new replies');
+    paintNavCount('tracking-open', navCounts.tracking, 'new tracking item', 'new tracking items');
+  }
+  function paintNavCount(id, count, one, many) {
+    var link = document.getElementById(id);
+    if (!link) return;
+    var badge = link.querySelector('.request-count');
+    if (!count) {
+      if (badge) badge.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'request-count';
+      link.appendChild(badge);
+    }
+    badge.hidden = false;
+    badge.textContent = String(count);
+    badge.setAttribute('aria-label', count === 1 ? ('1 ' + one) : (count + ' ' + many));
+  }
+  function clearNavBadges() {
+    navWriteGen++;
+    navBadgeGen++;
+    navSection = '';
+    navBadgeUser = '';
+    paintNavBadges({ messages: 0, hub: 0, tracking: 0 });
+  }
+  function refreshNavBadges() {
+    var user = (cachedProfile && cachedProfile.id) || '';
+    if (user !== navBadgeUser) {
+      var switched = !!navBadgeUser && user !== navBadgeUser;
+      navBadgeUser = user;
+      if (switched) {
+        navSection = '';
+        paintNavBadges({ messages: 0, hub: 0, tracking: 0 });
       }
-      if (!badge) {
-        badge = document.createElement('span');
-        badge.className = 'request-count';
-        btn.appendChild(badge);
-      }
-      badge.hidden = false;
-      badge.textContent = String(count);
-      badge.setAttribute('aria-label', count === 1 ? '1 request' : (count + ' requests'));
-    });
+    }
+    var write = navWriteGen;
+    var gen = ++navBadgeGen;
+    if (!signedInNow || !window.WBAuth || !WBAuth.navBadges) return;
+    Promise.resolve().then(function () { return WBAuth.navBadges(); }).then(function (counts) {
+      if (gen !== navBadgeGen || write !== navWriteGen) return;
+      paintNavBadges(counts);
+    }, function () {});
+  }
+  function markNavSeen(section) {
+    if (!signedInNow) return;
+    if (section !== 'messages' && section !== 'hub' && section !== 'tracking') return;
+    var write = ++navWriteGen;
+    navBadgeGen++;
+    navCounts[section] = 0;
+    paintNavBadges(navCounts);
+    if (!window.WBAuth || !WBAuth.navMarkSeen) return;
+    Promise.resolve().then(function () { return WBAuth.navMarkSeen(section); }).then(function () {
+      if (write !== navWriteGen) return;
+      refreshNavBadges();
+    }, function () {});
+  }
+  function noteNavSection() {
+    if (!signedInNow) {
+      navSection = '';
+      return;
+    }
+    var section = navSectionOf(hashPage());
+    if (section && section !== navSection) markNavSeen(section);
+    navSection = section;
   }
   var badgeGen = 0;
   function forgetRequestBadges() {
@@ -3622,7 +3698,7 @@
       if (!window.WBMessages) return;
       WBMessages.mount({
         app: app, titleEl: titleEl, backBtn: backBtn, go: go, toast: toast,
-        onBadges: function () { refreshRequestBadges(); }
+        onBadges: function () { refreshRequestBadges(); refreshNavBadges(); }
       });
     }).catch(function () {
       if (token !== routeToken || location.hash !== requested) return;
@@ -4051,6 +4127,18 @@
     var ids = [];
     (data.workouts || []).forEach(function (w) { if (w && w.sourceTrainerId) ids.push(w.id); });
     if (ids.length) markReceivedSeen(ids);
+  });
+  [
+    ['messages-nav', 'messages'],
+    ['hub-nav', 'hub'],
+    ['tracking-open', 'tracking']
+  ].forEach(function (pair) {
+    var link = document.getElementById(pair[0]);
+    if (!link) return;
+    link.addEventListener('click', function () {
+      navSection = pair[1];
+      markNavSeen(pair[1]);
+    });
   });
   window.addEventListener('hashchange', function () {
     closeLibStill();
