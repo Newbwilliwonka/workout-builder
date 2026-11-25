@@ -96,4 +96,32 @@ assert.strictEqual(H2.readQueue().length, 1);
 H2.clearQueue();
 assert.strictEqual(H2.readQueue().length, 0);
 
-console.log('CIRCUIT HISTORY UNIT OK');
+const sent = [];
+global.WBAuth = {
+  circuitSaveRun: function (row) {
+    sent.push(row.runId);
+    return Promise.resolve({ ok: true });
+  }
+};
+H.saveRecord({
+  runId: 'run-held',
+  name: 'Friday circuit',
+  stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+  people: []
+}, 'completed', '').then(function () {
+  throw new Error('a run with no user id should stay on the phone');
+}, function (err) {
+  assert.ok(!err.permanent);
+  assert.strictEqual(err.unsigned, undefined);
+  assert.strictEqual(H.readQueue().length, 1);
+  assert.strictEqual(H.readQueue()[0].userId, '');
+  assert.strictEqual(H.readQueue()[0].payload.runId, 'run-held');
+  return H.flush('trainer-1');
+}).then(function () {
+  assert.deepStrictEqual(sent, ['run-held']);
+  assert.strictEqual(H.readQueue().length, 0);
+  console.log('CIRCUIT HISTORY UNIT OK');
+}).catch(function (err) {
+  console.error(err);
+  process.exit(1);
+});

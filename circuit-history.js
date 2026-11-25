@@ -118,9 +118,8 @@
   function savePayload(userId, payload) {
     var auth = root.WBAuth;
     if (!userId) {
-      var unsigned = new Error('Sign in to save this circuit.');
-      unsigned.unsigned = true;
-      return Promise.reject(unsigned);
+      remember('', payload);
+      return Promise.reject(new Error('Saved on this phone. It will send when you have a signal.'));
     }
     if (!auth || !auth.circuitSaveRun) {
       remember(userId, payload);
