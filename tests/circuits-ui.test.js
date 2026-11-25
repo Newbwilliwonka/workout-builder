@@ -541,10 +541,35 @@ async function shot(page, name) {
   await page.waitForFunction(function () {
     var text = document.getElementById('app').innerText;
     var calls = window.__calls || [];
+    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
     return text.indexOf('This workout is scheduled. The invites did not save.') !== -1
-      && calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites');
+      && calls.indexOf('entry') !== -1 && calls.indexOf('entry') < calls.indexOf('invites')
+      && rows.some(function (row) { return row && row.invitesPending && row.invites && row.invites.length; });
   });
-  await page.evaluate(function () { window.__failInvites = false; window.__calls = []; });
+  await page.evaluate(function () { window.__calls = []; location.hash = '#/'; });
+  await page.waitForSelector('#calendar-open');
+  await page.evaluate(function () { location.hash = '#/programs'; });
+  await page.waitForFunction(function () {
+    var text = document.getElementById('app').innerText;
+    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
+    var calls = window.__calls || [];
+    return text.indexOf('This workout is scheduled. The invites did not save.') !== -1
+      && rows.some(function (row) { return row && row.invitesPending; })
+      && calls.indexOf('invites') !== -1;
+  });
+  await page.evaluate(function () { window.__failInvites = false; window.__calls = []; location.hash = '#/'; });
+  await page.waitForSelector('#calendar-open');
+  await page.evaluate(function () { location.hash = '#/programs'; });
+  await page.waitForFunction(function () {
+    var text = document.getElementById('app').innerText;
+    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
+    var calls = window.__calls || [];
+    return text.indexOf('This workout is scheduled. The invites did not save.') === -1
+      && !rows.some(function (row) { return row && row.invitesPending; })
+      && calls.indexOf('invites') !== -1;
+  });
+  await page.evaluate(function () { window.__calls = []; });
+  await page.waitForSelector('.pv-day.today');
   await page.evaluate(function (skip) {
     var days = document.querySelectorAll('.pv-day');
     var today = document.querySelector('.pv-day.today');
@@ -556,9 +581,9 @@ async function shot(page, name) {
     }
   }, 0);
   await page.waitForSelector('#pv-day-sheet .pv-day-row');
-  await page.click('#pv-day-sheet .pv-day-row');
+  await page.evaluate(function () { document.querySelector('#pv-day-sheet .pv-day-row').click(); });
   await page.waitForSelector('[data-sheet=remove]');
-  await page.click('[data-sheet=remove]');
+  await page.evaluate(function () { document.querySelector('[data-sheet=remove]').click(); });
   await page.waitForFunction(function () {
     var calls = window.__calls || [];
     var text = document.getElementById('app').innerText;

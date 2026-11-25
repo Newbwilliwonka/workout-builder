@@ -311,42 +311,75 @@
       }
       if (superseded) return;
       if (state) state.remote = '';
-      var invites = row && Array.isArray(row.invites) ? row.invites : [];
-      if (markerCircuitId(row && row.items) && invites.length) {
-        syncInvites(row).then(function (ok) {
-          if (ok) clearPending(true);
-        });
-        return;
-      }
-      clearPending(false);
+      clearPlacementPending();
+      retryInviteFlags();
     }
-    function clearPending(alsoInvites) {
+    function clearPlacementPending() {
       if (!store) return;
       var cleared = false;
       store.programs = (store.programs || []).map(function (item) {
-        if (!item || item.id !== row.id) return item;
-        if (item.pending && (item.updatedAt || 0) !== (row.updatedAt || 0)) return item;
-        if (!item.pending && !(alsoInvites && item.invites)) return item;
+        if (!item || item.id !== row.id || !item.pending) return item;
+        if ((item.updatedAt || 0) !== (row.updatedAt || 0)) return item;
         cleared = true;
         var next = Object.assign({}, item, { synced: true });
         delete next.pending;
-        if (alsoInvites) delete next.invites;
         return next;
       });
       if (cleared && persist) persist();
     }
   }
+  var INVITE_NOTE = 'This workout is scheduled. The invites did not save.';
+  function inviteRows() {
+    var rows = data() && data().programs || [];
+    return rows.filter(function (item) { return item && item.invitesPending && !item.pending; });
+  }
+  function showInviteNote() {
+    if (!state || !inviteRows().length) return;
+    state.remote = INVITE_NOTE;
+  }
+  function clearInviteFlag(id) {
+    if (!data()) return;
+    var cleared = false;
+    data().programs = (data().programs || []).map(function (item) {
+      if (!item || item.id !== id || !item.invitesPending) return item;
+      cleared = true;
+      var next = Object.assign({}, item);
+      delete next.invitesPending;
+      delete next.invites;
+      return next;
+    });
+    if (cleared && options && options.persist) options.persist();
+    if (state && state.remote === INVITE_NOTE && !inviteRows().length) state.remote = '';
+  }
+  function keepInviteFlag(row) {
+    if (!data() || !row) return;
+    data().programs = (data().programs || []).map(function (item) {
+      if (!item || item.id !== row.id) return item;
+      var next = Object.assign({}, item, { invitesPending: true });
+      if (Array.isArray(row.invites)) next.invites = row.invites.slice();
+      return next;
+    });
+    if (options && options.persist) options.persist();
+    showInviteNote();
+  }
   function syncInvites(row) {
     if (!row || !options || !options.saveInvites || !markerCircuitId(row.items)) return Promise.resolve(true);
-    var copy = Object.assign({}, row, { invites: Array.isArray(row.invites) ? row.invites : [] });
+    var invites = Array.isArray(row.invites) ? row.invites : [];
+    if (!invites.length && !row.invitesPending) return Promise.resolve(true);
+    var copy = Object.assign({}, row, { invites: invites });
     return Promise.resolve().then(function () { return options.saveInvites(copy); }).then(function () {
+      clearInviteFlag(row.id);
+      if (state) render();
       return true;
-    }, function (err) {
-      if (!state) return false;
-      state.remote = 'This workout is scheduled. The invites did not save.';
-      render();
+    }, function () {
+      keepInviteFlag(row);
+      if (state) render();
       return false;
     });
+  }
+  function retryInviteFlags() {
+    inviteRows().forEach(function (item) { syncInvites(item); });
+    showInviteNote();
   }
   function dropRemote(row) {
     if (!row || !options.deleteEntry || !P.isUuid(row.ownerId)) return;
@@ -375,9 +408,12 @@
     data().programs = merged;
     data().programDrops = dropped;
     merged.forEach(function (row) {
-      if (row && owners.indexOf(row.ownerId) >= 0 && row.pending) pushRemote(row);
+      if (!row || owners.indexOf(row.ownerId) < 0) return;
+      if (row.pending) pushRemote(row);
+      else if (row.invitesPending) syncInvites(row);
     });
     if (timesPending) state.remote = remoteNote({ timesLocal: true });
+    showInviteNote();
     if (options.persist) options.persist();
     render();
   }

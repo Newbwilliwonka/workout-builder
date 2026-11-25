@@ -112,7 +112,10 @@
       dateSetAt: stamp(entry.dateSetAt) || stamp(entry.updatedAt) || Date.now(),
       pending: true
     };
-    if (Array.isArray(entry.invites)) row.invites = entry.invites.slice();
+    if (Array.isArray(entry.invites) && entry.invites.length) {
+      row.invites = entry.invites.slice();
+      row.invitesPending = true;
+    }
     list.push(row);
     return { programs: list, created: row, duplicate: false, error: '' };
   }
@@ -500,6 +503,7 @@
       }
       applyDateStamp(incoming, row);
       if (Array.isArray(row.invites)) incoming.invites = row.invites.slice();
+      if (row.invitesPending) incoming.invitesPending = true;
       var timesMissing = (!!row.start && !incoming.start) || (!!row.end && !incoming.end);
       if (keepTimes || timesMissing) {
         if (row.start) incoming.start = row.start;
