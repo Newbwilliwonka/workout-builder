@@ -1,0 +1,32 @@
+import { BillingError, assertStripeKeyAllowed } from './billing-guard.mjs'
+import { PORTAL_RETURN_URL } from './billing-plans.mjs'
+
+export async function createPortalSession(input) {
+  assertStripeKeyAllowed(input.secretKey, input.testMode)
+  if (!input.userId) throw new BillingError('That account was not found.', 401)
+  const profile = await input.db.loadProfile(input.userId)
+  if (!profile) throw new BillingError('That account was not found.', 404)
+  const customer = profile.stripe_customer_id
+  if (!customer) throw new BillingError('Billing starts after you subscribe.', 400)
+
+  const params = {
+    customer: customer,
+    return_url: PORTAL_RETURN_URL
+  }
+  const betaConfig = input.portalBeta || ''
+  const standardConfig = input.portalStandard || ''
+  if (profile.beta_locked === true && betaConfig) {
+    params.configuration = betaConfig
+  } else if (profile.beta_locked !== true && standardConfig) {
+    params.configuration = standardConfig
+  }
+
+  let session
+  try {
+    session = await input.stripe.billingPortal.sessions.create(params)
+  } catch (_err) {
+    throw new BillingError('The billing page could not be opened.', 502)
+  }
+  if (!session || !session.url) throw new BillingError('The billing page could not be opened.', 502)
+  return { status: 200, body: { url: session.url } }
+}
