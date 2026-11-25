@@ -57,7 +57,7 @@ function birthdayIso() {
         }
         return Promise.resolve(saved || null);
       };
-      api.saveClientInfo = function (fields) {
+      function storeInfo(fields) {
         window.__infoSaves = (window.__infoSaves || 0) + 1;
         var id = window.__userId || userId;
         window.__infoByUser = window.__infoByUser || {};
@@ -70,7 +70,21 @@ function birthdayIso() {
           goals_other: fields.goalsOther
         };
         window.__infoByUser[id] = row;
-        return Promise.resolve(row);
+        return row;
+      }
+      api.saveClientInfo = function (fields) {
+        if (window.__saveDelay) {
+          return new Promise(function (resolve) {
+            setTimeout(function () { resolve(storeInfo(fields)); }, 300);
+          });
+        }
+        return Promise.resolve(storeInfo(fields));
+      };
+      api.deleteClientInfo = function () {
+        window.__infoDeletes = (window.__infoDeletes || 0) + 1;
+        var id = window.__userId || userId;
+        if (window.__infoByUser) delete window.__infoByUser[id];
+        return Promise.resolve(null);
       };
       return api;
     }
@@ -104,6 +118,9 @@ function birthdayIso() {
   assert.ok(labels.indexOf('Other') !== -1);
   assert.strictEqual(labels.indexOf('@'), -1);
   assert.strictEqual(await page.$eval('#client-info', function (el) { return el.querySelector('[aria-label="Sex"]') != null; }), true);
+  await page.click('#client-info-save');
+  await page.waitForSelector('#client-birthday');
+  assert.strictEqual(await page.evaluate(function () { return window.__infoSaves || 0; }), 0);
 
   await page.$eval('#client-birthday', function (el, value) { el.value = value; }, born);
   await page.click('#client-info input[value="female"]');
@@ -138,6 +155,40 @@ function birthdayIso() {
   assert.strictEqual(read.indexOf('@'), -1);
   assert.strictEqual(await page.$('#client-birthday'), null);
 
+  await page.evaluate(function () { window.__infoFail = true; location.hash = '#/'; });
+  await page.waitForFunction(function () { return location.hash === '#/' || location.hash === ''; });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForSelector('#client-info-edit');
+  const kept = await page.$eval('#client-info', function (el) { return el.textContent; });
+  assert.ok(kept.indexOf('Age 30') !== -1);
+  assert.ok(kept.indexOf('Track a 10k') !== -1);
+  assert.strictEqual(await page.$('#client-info-err'), null);
+  await page.evaluate(function () { window.__infoFail = false; });
+
+  await page.click('#client-info-edit');
+  await page.waitForSelector('#client-birthday');
+  await page.evaluate(function () { location.hash = '#/'; });
+  await page.waitForFunction(function () { return location.hash === '#/' || location.hash === ''; });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForSelector('#client-info-edit');
+  assert.strictEqual(await page.$('#client-info-save'), null);
+
+  await page.click('#client-info-edit');
+  await page.waitForSelector('#client-lb');
+  await page.$eval('#client-lb', function (el) { el.value = '160'; });
+  var beforeDelay = await page.evaluate(function () { window.__saveDelay = true; return window.__infoSaves || 0; });
+  await page.click('#client-info-save');
+  await page.evaluate(function () { location.hash = '#/'; });
+  await page.waitForFunction(function (min) {
+    return location.hash !== '#/account' && (window.__infoSaves || 0) > min;
+  }, {}, beforeDelay);
+  await page.evaluate(function () { window.__saveDelay = false; window.__infoHold = true; location.hash = '#/account'; });
+  await page.waitForFunction(function () {
+    var box = document.getElementById('client-info');
+    return box && box.textContent.indexOf('160 lb') !== -1 && !document.getElementById('client-info-save');
+  });
+  await page.evaluate(function () { window.__infoHold = false; });
+
   await page.click('#client-info-edit');
   await page.waitForSelector('#client-birthday');
   assert.strictEqual(await page.$eval('#client-birthday', function (el) { return el.value; }), born);
@@ -156,9 +207,26 @@ function birthdayIso() {
     });
   });
   var saves = await page.evaluate(function () { return window.__infoSaves || 0; });
+  var deletes = await page.evaluate(function () { return window.__infoDeletes || 0; });
   await page.click('#client-info-save');
-  await page.waitForSelector('#client-info-save');
+  await page.waitForFunction(function () {
+    var box = document.getElementById('client-info');
+    return box && document.getElementById('client-birthday') && box.textContent.indexOf('Age ') === -1;
+  });
   assert.strictEqual(await page.evaluate(function () { return window.__infoSaves || 0; }), saves);
+  assert.strictEqual(await page.evaluate(function () { return window.__infoDeletes || 0; }), deletes + 1);
+  await page.$eval('#client-ft', function (el) { el.value = '-1'; });
+  await page.click('#client-info-save');
+  await page.waitForFunction(function () {
+    var err = document.getElementById('client-info-err');
+    return err && !err.hidden && err.textContent === 'Enter feet from 0 to 9 and inches from 0 to 11.9.';
+  });
+  await page.$eval('#client-ft', function (el) { el.value = '1.5'; });
+  await page.click('#client-info-save');
+  await page.waitForFunction(function () {
+    var err = document.getElementById('client-info-err');
+    return err && !err.hidden && err.textContent === 'Enter feet from 0 to 9 and inches from 0 to 11.9.';
+  });
   await page.$eval('#client-ft', function (el) { el.value = '0'; });
   await page.$eval('#client-in', function (el) { el.value = '6'; });
   await page.click('#client-info-save');

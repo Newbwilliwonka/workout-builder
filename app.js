@@ -2934,8 +2934,15 @@
     if (sex && sex !== 'male' && sex !== 'female') return { error: 'Choose Male or Female.' };
     if (other.length > 120) return { error: 'Other goals can be at most 120 characters.' };
     if (other.indexOf('@') !== -1) return { error: 'Other goals cannot include an email.' };
-    var totalIn = (ft !== '' || inches !== '') ? ((Number(ft) || 0) * 12 + (Number(inches) || 0)) : 0;
-    if ((ft !== '' || inches !== '') && (!isFinite(totalIn) || totalIn < 12 || totalIn > 110)) {
+    if (ft !== '' && !/^\d+$/.test(String(ft))) return { error: 'Enter feet from 0 to 9 and inches from 0 to 11.9.' };
+    if (inches !== '' && !/^\d+(\.\d)?$/.test(String(inches))) return { error: 'Enter feet from 0 to 9 and inches from 0 to 11.9.' };
+    var feetN = ft === '' ? 0 : Number(ft);
+    var inchN = inches === '' ? 0 : Number(inches);
+    if ((ft !== '' || inches !== '') && (feetN < 0 || feetN > 9 || inchN < 0 || inchN > 11.9)) {
+      return { error: 'Enter feet from 0 to 9 and inches from 0 to 11.9.' };
+    }
+    var totalIn = (ft !== '' || inches !== '') ? (feetN * 12 + inchN) : 0;
+    if ((ft !== '' || inches !== '') && totalIn > 0 && (totalIn < 12 || totalIn > 110)) {
       return { error: 'Height must be between 1 ft and 9 ft 2 in.' };
     }
     var pounds = lb === '' ? null : Number(lb);
@@ -3021,17 +3028,36 @@
     err.hidden = false;
     err.textContent = message;
   }
+  function finishClientInfoWrite(saveGen, uid, row) {
+    if (saveGen !== clientInfoSaveGen || uid !== clientInfoUser) return;
+    clientInfoRow = row;
+    clientInfoEditing = false;
+    clientInfoDirty = false;
+    if (hashPage() !== 'account') return;
+    paintClientInfo(true);
+  }
   function saveClientInfoFromForm() {
     var parsed = clientInfoPayload();
     if (parsed.error) return showClientInfoError(parsed.error);
-    if (clientInfoBlank(parsed.fields)) return;
+    if (clientInfoBlank(parsed.fields)) {
+      if (!clientInfoRow) return;
+      if (!window.WBAuth || !WBAuth.deleteClientInfo) return showClientInfoError('Could not save client info.');
+      var dropGen = ++clientInfoSaveGen;
+      var dropUid = clientInfoUser;
+      WBAuth.deleteClientInfo().then(function () {
+        finishClientInfoWrite(dropGen, dropUid, null);
+      }, function (err) {
+        if (dropGen !== clientInfoSaveGen || dropUid !== clientInfoUser || hashPage() !== 'account') return;
+        showClientInfoError((err && err.message) || 'Could not save client info.');
+      });
+      return;
+    }
     if (!window.WBAuth || !WBAuth.saveClientInfo) return showClientInfoError('Could not save client info.');
     var saveGen = ++clientInfoSaveGen;
     var uid = clientInfoUser;
     WBAuth.saveClientInfo(parsed.fields).then(function (row) {
-      if (saveGen !== clientInfoSaveGen || uid !== clientInfoUser || hashPage() !== 'account') return;
       var saved = row || {};
-      clientInfoRow = {
+      finishClientInfoWrite(saveGen, uid, {
         userId: uid,
         birthday: saved.birthday != null ? saved.birthday : parsed.fields.birthday,
         sex: saved.sex != null ? saved.sex : parsed.fields.sex,
@@ -3039,12 +3065,9 @@
         weight_kg: saved.weight_kg != null ? saved.weight_kg : parsed.fields.weightKg,
         goals: saved.goals || parsed.fields.goals,
         goals_other: saved.goals_other != null ? saved.goals_other : parsed.fields.goalsOther
-      };
-      clientInfoEditing = false;
-      clientInfoDirty = false;
-      paintClientInfo(true);
+      });
     }, function (err) {
-      if (saveGen !== clientInfoSaveGen || hashPage() !== 'account') return;
+      if (saveGen !== clientInfoSaveGen || uid !== clientInfoUser || hashPage() !== 'account') return;
       showClientInfoError((err && err.message) || 'Could not save client info.');
     });
   }
@@ -3056,25 +3079,34 @@
     var saveAt = clientInfoSaveGen;
     Promise.resolve().then(function () { return WBAuth.clientInfo(); }).then(function (row) {
       if (gen !== clientInfoLoadGen || saveAt !== clientInfoSaveGen || token !== routeToken || uid !== clientInfoUser) return;
-      if (hashPage() !== 'account' || clientInfoBusy()) return;
+      if (hashPage() === 'account' && clientInfoBusy()) return;
       clientInfoRow = row ? Object.assign({ userId: uid }, row) : null;
+      clientInfoEditing = false;
+      clientInfoDirty = false;
+      if (hashPage() !== 'account') return;
       paintClientInfo(true);
     }, function () {
       if (gen !== clientInfoLoadGen || saveAt !== clientInfoSaveGen || token !== routeToken || uid !== clientInfoUser) return;
-      if (hashPage() !== 'account' || clientInfoBusy()) return;
+      if (hashPage() === 'account' && clientInfoBusy()) return;
+      if (clientInfoRow && (!clientInfoRow.userId || clientInfoRow.userId === uid)) {
+        clientInfoEditing = false;
+        clientInfoDirty = false;
+        if (hashPage() === 'account') paintClientInfo(true);
+        return;
+      }
+      if (hashPage() !== 'account') return;
       clientInfoRow = null;
-      clientInfoEditing = false;
       paintClientInfo(true);
       showClientInfoError('Could not load client info.');
     });
   }
   function drawAccount(session, profile, roster, conn) {
     var uid = (session && session.user && session.user.id) || '';
+    clientInfoEditing = false;
+    clientInfoDirty = false;
     if (uid !== clientInfoUser) {
       clientInfoUser = uid;
       clientInfoRow = null;
-      clientInfoEditing = false;
-      clientInfoDirty = false;
       clientInfoLoadGen++;
     }
     var note = takeInviteNotice();
@@ -3880,6 +3912,10 @@
     });
   }
   function route() {
+    if (hashPage() !== 'account') {
+      clientInfoEditing = false;
+      clientInfoDirty = false;
+    }
     accessWaitOn = false;
     capturePlayedSession();
     var token = ++routeToken;

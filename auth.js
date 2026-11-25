@@ -604,6 +604,19 @@
         return rows.length ? rows[0] : null;
       });
     },
+    deleteClientInfo: function () {
+      return db().then(function (c) {
+        return c.auth.getSession().then(function (res) {
+          if (res.error) throw res.error;
+          var user = userOf(res.data.session);
+          if (!user) throw new Error('Sign in first.');
+          return c.from('client_info').delete().eq('user_id', user.id);
+        });
+      }).then(function (res) {
+        if (res && res.error) throw clientInfoError(res.error);
+        return null;
+      });
+    },
     avatarUrl: function (path) {
       path = String(path || '');
       if (!path) return Promise.resolve('');
