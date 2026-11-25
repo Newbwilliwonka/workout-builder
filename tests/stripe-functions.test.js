@@ -848,6 +848,189 @@ async function main() {
   assert.ok(holdSql.indexOf('security definer') !== -1);
   assert.ok(holdSql.indexOf("set search_path = ''") !== -1);
 
+  const prior = dbMock({
+    profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
+    hold: {
+      cohort: 'beta',
+      reservation_id: RES,
+      expires_at: '2026-11-25T18:35:00.000Z',
+      checkout_session_id: 'cs_test_old'
+    }
+  });
+  const priorStripe = stripeMock();
+  const priorOrder = [];
+  priorStripe.checkout.sessions.retrieve = async function (id) {
+    priorOrder.push('retrieve');
+    return { id: id, status: 'open' };
+  };
+  priorStripe.checkout.sessions.expire = async function (id) {
+    priorOrder.push('expire:' + id);
+    return { id: id, status: 'expired' };
+  };
+  const priorCreate = priorStripe.checkout.sessions.create;
+  priorStripe.checkout.sessions.create = async function (params) {
+    priorOrder.push('create');
+    return priorCreate(params);
+  };
+  const priorRpc = prior.rpc;
+  prior.rpc = async function (name, args) {
+    if (name === 'beta_reservation_attach') priorOrder.push('attach');
+    return priorRpc(name, args);
+  };
+  const renewed = await checkout.createCheckoutSession({
+    stripe: priorStripe,
+    db: prior,
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
+  });
+  assert.strictEqual(renewed.body.url.indexOf('https://checkout.stripe.com/') , 0);
+  assert.deepStrictEqual(priorOrder, ['retrieve', 'create', 'attach', 'expire:cs_test_old']);
+  assert.ok(names(prior.calls).indexOf('beta_reservation_release') === -1);
+
+  const paidAlready = dbMock({
+    profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
+    hold: {
+      cohort: 'beta',
+      reservation_id: RES,
+      expires_at: '2026-11-25T18:35:00.000Z',
+      checkout_session_id: 'cs_test_done'
+    }
+  });
+  const paidStripe = stripeMock();
+  paidStripe.checkout.sessions.retrieve = async function () {
+    return { id: 'cs_test_done', status: 'complete' };
+  };
+  paidStripe.checkout.sessions.expire = async function () { throw new Error('should not expire'); };
+  await assert.rejects(function () {
+    return checkout.createCheckoutSession({
+      stripe: paidStripe,
+      db: paidAlready,
+      userId: USER,
+      plan: 'enthusiast',
+      secretKey: TEST_KEY,
+      testMode: 'true',
+      now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
+    });
+  }, function (err) {
+    assert.strictEqual(err.status, 409);
+    assert.ok(/Manage billing/.test(err.message));
+    return true;
+  });
+  assert.ok(paidStripe.calls.filter(function (row) { return row[0] === 'sessions.create'; }).length === 0);
+  assert.ok(names(paidAlready.calls).indexOf('beta_reservation_release') === -1);
+
+  const stale = dbMock({
+    profile: { access_approved: true, beta_locked: false, stripe_customer_id: 'cus_Existing1' },
+    hold: {
+      cohort: 'beta',
+      reservation_id: RES,
+      expires_at: '2026-11-25T18:35:00.000Z',
+      checkout_session_id: 'cs_test_old'
+    }
+  });
+  const staleStripe = stripeMock();
+  staleStripe.checkout.sessions.retrieve = async function (id) {
+    return { id: id, status: 'open' };
+  };
+  staleStripe.checkout.sessions.expire = async function () {
+    throw new Error('This Checkout Session has already expired');
+  };
+  const staleResult = await checkout.createCheckoutSession({
+    stripe: staleStripe,
+    db: stale,
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    now: function () { return Date.parse('2026-11-25T18:00:00Z'); }
+  });
+  assert.ok(staleResult.body.url);
+  assert.ok(names(stale.calls).indexOf('beta_reservation_release') === -1);
+
+  const dupLogs = [];
+  const dupStripe = stripeMock();
+  const canceled = [];
+  dupStripe.subscriptions.cancel = async function (id) {
+    canceled.push(id);
+    return { id: id, status: 'canceled' };
+  };
+  const dupDb = eventDb();
+  const dupPaid = await webhook.handleWebhook({
+    stripe: dupStripe,
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    log: function (fields) { dupLogs.push(fields); },
+    constructEvent: function () {
+      return {
+        id: 'evt_dup_invoice',
+        type: 'invoice.paid',
+        data: {
+          object: {
+            customer: 'cus_Existing1',
+            period_end: Date.parse('2027-04-01T00:00:00.000Z') / 1000,
+            parent: { subscription_details: { subscription: 'sub_duplicate', metadata: { supabase_user_id: USER } } },
+            lines: {
+              data: [{
+                type: 'subscription',
+                amount: 999,
+                proration: false,
+                period: { end: Date.parse('2027-04-01T00:00:00.000Z') / 1000 },
+                pricing: { price_details: { price: { id: 'price_1', lookup_key: 'enthusiast_beta_monthly' } } }
+              }]
+            }
+          }
+        }
+      };
+    },
+    db: dupDb
+  });
+  assert.strictEqual(dupPaid.status, 200);
+  assert.deepStrictEqual(canceled, ['sub_duplicate']);
+  assert.ok(names(dupDb.calls).indexOf('apply_stripe_membership') === -1);
+  assert.ok(JSON.stringify(dupLogs).indexOf('Refund the duplicate subscription') !== -1);
+
+  const dupCheckout = eventDb();
+  const dupCheckoutStripe = stripeMock();
+  const canceledCheckout = [];
+  dupCheckoutStripe.subscriptions.cancel = async function (id) {
+    canceledCheckout.push(id);
+    return { id: id, status: 'canceled' };
+  };
+  await webhook.handleWebhook({
+    stripe: dupCheckoutStripe,
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    log: function () {},
+    constructEvent: function () {
+      return {
+        id: 'evt_dup_checkout',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_test_dup',
+            payment_status: 'paid',
+            customer: 'cus_Existing1',
+            subscription: 'sub_second',
+            client_reference_id: USER,
+            metadata: { user_id: USER }
+          }
+        }
+      };
+    },
+    db: dupCheckout
+  });
+  assert.deepStrictEqual(canceledCheckout, ['sub_second']);
+  assert.ok(names(dupCheckout.calls).indexOf('apply_stripe_membership') === -1);
+
   const cors = await import(path.join(shared, 'billing-cors.mjs'));
   assert.strictEqual(cors.allowedOrigin('https://coachtrainerapp.com'), 'https://coachtrainerapp.com');
   assert.strictEqual(cors.allowedOrigin('http://localhost:8787'), 'http://localhost:8787');

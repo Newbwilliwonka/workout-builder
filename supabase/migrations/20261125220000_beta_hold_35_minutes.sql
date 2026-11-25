@@ -29,6 +29,7 @@ declare
   v_id uuid;
   v_expires timestamptz;
   v_existing_plan text;
+  v_session text;
 begin
   perform private.billing_service_only();
   if p_profile is null then
@@ -68,8 +69,8 @@ begin
     );
   end if;
 
-  select r.id, r.expires_at, r.plan
-    into v_id, v_expires, v_existing_plan
+  select r.id, r.expires_at, r.plan, r.checkout_session_id
+    into v_id, v_expires, v_existing_plan, v_session
   from public.beta_reservations r
   where r.profile_id = p_profile
     and r.status = 'held'
@@ -86,7 +87,8 @@ begin
       'cohort', 'beta',
       'reservation_id', v_id,
       'beta_locked', false,
-      'expires_at', v_expires
+      'expires_at', v_expires,
+      'checkout_session_id', v_session
     );
   end if;
 

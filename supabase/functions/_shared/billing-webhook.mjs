@@ -154,7 +154,39 @@ function sameActiveSubscription(row, subscriptionId) {
   )
 }
 
-async function dispatch(stripe, db, event) {
+const DUPLICATE_NOTE = 'Refund the duplicate subscription. This account already has an active one.'
+
+function isDifferentActive(row, newSubId) {
+  return !!(
+    row
+    && newSubId
+    && row.billing_status === 'active'
+    && row.stripe_subscription_id
+    && row.stripe_subscription_id !== newSubId
+  )
+}
+
+async function cancelDuplicate(stripe, log, row, newSubId, eventType) {
+  if (!isDifferentActive(row, newSubId)) return false
+  try {
+    if (stripe && stripe.subscriptions && stripe.subscriptions.cancel) {
+      await stripe.subscriptions.cancel(newSubId)
+    }
+  } catch (err) {
+    const message = String((err && err.message) || '').toLowerCase()
+    if (message.indexOf('cancel') === -1 && message.indexOf('already') === -1) throw err
+  }
+  safeLog(log, {
+    event_type: eventType,
+    customer_id: row.stripe_customer_id || idOf(row.customer),
+    subscription_id: newSubId,
+    result: 'canceled_duplicate_refund',
+    note: DUPLICATE_NOTE
+  })
+  return true
+}
+
+async function dispatch(stripe, db, event, log) {
   const type = event.type
   const object = event.data && event.data.object ? event.data.object : {}
 
@@ -164,6 +196,8 @@ async function dispatch(stripe, db, event) {
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
     const profile = row.id
+    const paidSub = idOf(object.subscription)
+    if (await cancelDuplicate(stripe, log, row, paidSub, type)) return
     const reservation = object.metadata && object.metadata.reservation_id
     if (reservation && UUID.test(String(reservation)) && object.id) {
       try {
@@ -293,6 +327,8 @@ async function dispatch(stripe, db, event) {
         if (!choice.ref) choice = { ref: subscriptionPrice(loaded), line: null }
       }
     }
+    const paidSubId = typeof sub === 'string' ? sub : idOf(sub)
+    if (await cancelDuplicate(stripe, log, row, paidSubId, type)) return
     const plan = await planForPrice(stripe, choice.ref)
     if (!plan) throw new BillingError('Checkout could not be started.', 500)
     const period = linePeriodEnd(choice.line)
@@ -359,7 +395,7 @@ export async function handleWebhook(input) {
     return { status: 200, body: { received: true } }
   }
 
-  await dispatch(input.stripe, input.db, event)
+  await dispatch(input.stripe, input.db, event, input.log)
   const recorded = await input.db.rpc('stripe_event_begin', {
     p_event_id: event.id,
     p_event_type: event.type

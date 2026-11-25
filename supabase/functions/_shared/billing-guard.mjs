@@ -55,7 +55,7 @@ export function publicMessage(err, fallback) {
 export function safeLog(logger, fields) {
   if (typeof logger !== 'function') return
   const keep = {}
-  ;['event_id', 'event_type', 'customer_id', 'subscription_id', 'result'].forEach(function (key) {
+  ;['event_id', 'event_type', 'customer_id', 'subscription_id', 'result', 'note'].forEach(function (key) {
     if (fields && fields[key] != null && fields[key] !== '') keep[key] = String(fields[key])
   })
   logger(keep)
