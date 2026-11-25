@@ -147,6 +147,19 @@
     if (/150 characters/i.test(msg)) return new Error('Bio can be at most 150 characters.');
     return new Error(msg || 'Could not save your profile.');
   }
+  function clientInfoError(err) {
+    var msg = String((err && (err.message || err.details || err.hint)) || '');
+    if (/schema cache|could not find|does not exist|PGRST205|PGRST202|42P01|client_info/i.test(msg)) {
+      return new Error('Client info is not available yet. Apply the client info SQL in the Supabase SQL editor.');
+    }
+    if (/Other goals cannot include an email/i.test(msg)) return new Error('Other goals cannot include an email.');
+    if (/at most 120/i.test(msg)) return new Error('Other goals can be at most 120 characters.');
+    if (/Birthday cannot be in the future/i.test(msg)) return new Error('Birthday cannot be in the future.');
+    if (/Choose Male or Female/i.test(msg)) return new Error('Choose Male or Female.');
+    if (/Choose a goal from the list/i.test(msg)) return new Error('Choose a goal from the list.');
+    if (/Only you can change your client info/i.test(msg)) return new Error('Only you can change your client info.');
+    return new Error(msg || 'Could not save client info.');
+  }
 
   function decodePart(s) {
     try { return decodeURIComponent(String(s || '').replace(/\+/g, ' ')); }
@@ -546,6 +559,46 @@
           });
         });
       }).then(function (path) { return path; }, function (err) { throw profileSaveError(err); });
+    },
+    clientInfo: function () {
+      var cols = 'birthday,sex,height_cm,weight_kg,goals,goals_other';
+      return db().then(function (c) {
+        return c.auth.getSession().then(function (res) {
+          if (res.error) throw res.error;
+          var user = userOf(res.data.session);
+          if (!user) return null;
+          return c.from('client_info').select(cols).eq('user_id', user.id).limit(1);
+        });
+      }).then(function (res) {
+        if (!res) return null;
+        if (res.error) throw clientInfoError(res.error);
+        var rows = res.data || [];
+        return rows.length ? rows[0] : null;
+      });
+    },
+    saveClientInfo: function (fields) {
+      fields = fields || {};
+      return db().then(function (c) {
+        return c.auth.getSession().then(function (res) {
+          if (res.error) throw res.error;
+          var user = userOf(res.data.session);
+          if (!user) throw new Error('Sign in first.');
+          var row = {
+            user_id: user.id,
+            birthday: fields.birthday || null,
+            sex: fields.sex || null,
+            height_cm: fields.heightCm == null || fields.heightCm === '' ? null : fields.heightCm,
+            weight_kg: fields.weightKg == null || fields.weightKg === '' ? null : fields.weightKg,
+            goals: Array.isArray(fields.goals) ? fields.goals : [],
+            goals_other: fields.goalsOther || null
+          };
+          return c.from('client_info').upsert(row, { onConflict: 'user_id' }).select('birthday,sex,height_cm,weight_kg,goals,goals_other');
+        });
+      }).then(function (res) {
+        if (res.error) throw clientInfoError(res.error);
+        var rows = res.data || [];
+        return rows.length ? rows[0] : null;
+      });
     },
     avatarUrl: function (path) {
       path = String(path || '');

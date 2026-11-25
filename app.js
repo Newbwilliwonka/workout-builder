@@ -2829,7 +2829,183 @@
       }).catch(function () { if (hashPage() === 'account') go('#/subscriptions'); });
     }).catch(function () { if (hashPage() === 'account') go('#/signin'); });
   }
+  var CLIENT_GOALS = [
+    'Weight or fat loss',
+    'Building strength and muscle',
+    'General health and fitness',
+    'Mobility or pain relief',
+    'Athletic performance',
+    'Other'
+  ];
+  var clientInfoRow = null;
+  var clientInfoEditing = false;
+  function cmFromFtIn(ft, inches) {
+    var total = (Number(ft) || 0) * 12 + (Number(inches) || 0);
+    if (!total) return null;
+    return Math.round(total * 2.54 * 10) / 10;
+  }
+  function ftInFromCm(cm) {
+    var inches = Math.round(Number(cm) / 2.54);
+    if (!isFinite(inches) || inches <= 0) return { ft: '', inches: '' };
+    return { ft: String(Math.floor(inches / 12)), inches: String(inches % 12) };
+  }
+  function kgFromLb(lb) {
+    var n = Number(lb);
+    if (!isFinite(n) || n <= 0) return null;
+    return Math.round(n * 0.45359237 * 1000) / 1000;
+  }
+  function lbFromKg(kg) {
+    var n = Number(kg);
+    if (!isFinite(n) || n <= 0) return '';
+    return String(Math.round(n / 0.45359237));
+  }
+  function ageFromBirthday(iso) {
+    var parts = String(iso || '').split('-');
+    if (parts.length < 3) return null;
+    var y = Number(parts[0]), m = Number(parts[1]), d = Number(parts[2]);
+    if (!y || !m || !d) return null;
+    var now = new Date();
+    var age = now.getFullYear() - y;
+    if ((now.getMonth() + 1) * 100 + now.getDate() < m * 100 + d) age -= 1;
+    if (age < 0 || age > 120) return null;
+    return age;
+  }
+  function heightText(cm) {
+    var bits = ftInFromCm(cm);
+    if (bits.ft === '') return '';
+    var h = '';
+    if (Number(bits.ft)) h += bits.ft + ' ft';
+    if (Number(bits.inches)) h += (h ? ' ' : '') + bits.inches + ' in';
+    return h;
+  }
+  function clientInfoPayload() {
+    var box = document.getElementById('client-info');
+    if (!box) return { error: 'Could not save client info.' };
+    var birthday = (document.getElementById('client-birthday') || {}).value || '';
+    var sexEl = box.querySelector('input[name="client-sex"]:checked');
+    var sex = sexEl ? sexEl.value : '';
+    var ft = (document.getElementById('client-ft') || {}).value || '';
+    var inches = (document.getElementById('client-in') || {}).value || '';
+    var lb = (document.getElementById('client-lb') || {}).value || '';
+    var goals = [];
+    var goalBoxes = box.querySelectorAll('input[name="client-goal"]:checked');
+    for (var gi = 0; gi < goalBoxes.length; gi++) goals.push(goalBoxes[gi].value);
+    var otherOn = goals.indexOf('Other') !== -1;
+    var other = otherOn ? String((document.getElementById('client-other') || {}).value || '').replace(/^\s+|\s+$/g, '') : '';
+    if (birthday) {
+      var today = new Date();
+      var day = today.getFullYear() + '-' + (today.getMonth() < 9 ? '0' : '') + (today.getMonth() + 1) + '-' + (today.getDate() < 10 ? '0' : '') + today.getDate();
+      if (birthday > day) return { error: 'Birthday cannot be in the future.' };
+    }
+    if (sex && sex !== 'male' && sex !== 'female') return { error: 'Choose Male or Female.' };
+    if (other.length > 120) return { error: 'Other goals can be at most 120 characters.' };
+    if (other.indexOf('@') !== -1) return { error: 'Other goals cannot include an email.' };
+    var heightCm = (ft !== '' || inches !== '') ? cmFromFtIn(ft, inches) : null;
+    var weightKg = lb !== '' ? kgFromLb(lb) : null;
+    if ((ft !== '' || inches !== '') && heightCm == null) return { error: 'Enter a height in feet and inches.' };
+    if (lb !== '' && weightKg == null) return { error: 'Enter a weight in lb.' };
+    return {
+      error: '',
+      fields: {
+        birthday: birthday || null,
+        sex: sex || null,
+        heightCm: heightCm,
+        weightKg: weightKg,
+        goals: goals,
+        goalsOther: other || null
+      }
+    };
+  }
+  function clientInfoReadHtml(row) {
+    var h = '<div class="card" id="client-info"><div class="client-read">';
+    var age = row && ageFromBirthday(row.birthday);
+    if (age != null) h += '<p>Age ' + esc(age) + '</p>';
+    if (row && row.sex === 'male') h += '<p>Male</p>';
+    if (row && row.sex === 'female') h += '<p>Female</p>';
+    var tall = row && heightText(row.height_cm);
+    if (tall) h += '<p>' + esc(tall) + '</p>';
+    var pounds = row && lbFromKg(row.weight_kg);
+    if (pounds) h += '<p>' + esc(pounds) + ' lb</p>';
+    var chosen = {};
+    (row && row.goals || []).forEach(function (goal) { chosen[goal] = 1; });
+    CLIENT_GOALS.forEach(function (goal) {
+      if (chosen[goal]) h += '<p>' + esc(goal) + '</p>';
+    });
+    if (row && row.goals_other) h += '<p>' + esc(row.goals_other) + '</p>';
+    h += '</div><button type="button" id="client-info-edit">Edit</button></div>';
+    return h;
+  }
+  function clientInfoFormHtml(row) {
+    row = row || {};
+    var bits = ftInFromCm(row.height_cm);
+    var pounds = lbFromKg(row.weight_kg);
+    var chosen = {};
+    (row.goals || []).forEach(function (goal) { chosen[goal] = 1; });
+    var h = '<div class="card" id="client-info">';
+    h += '<label for="client-birthday">Birthday</label>';
+    h += '<input id="client-birthday" type="date" value="' + esc(row.birthday || '') + '">';
+    h += '<div class="client-sex" role="group" aria-label="Sex"><span class="client-k">Sex</span>';
+    h += '<label><input type="radio" name="client-sex" value="male"' + (row.sex === 'male' ? ' checked' : '') + '> Male</label>';
+    h += '<label><input type="radio" name="client-sex" value="female"' + (row.sex === 'female' ? ' checked' : '') + '> Female</label></div>';
+    h += '<span class="client-k">Height</span><div class="client-measures">';
+    h += '<input id="client-ft" inputmode="numeric" aria-label="Feet" value="' + esc(bits.ft) + '"><span>ft</span>';
+    h += '<input id="client-in" inputmode="numeric" aria-label="Inches" value="' + esc(bits.inches) + '"><span>in</span></div>';
+    h += '<label for="client-lb">Weight</label><div class="client-measures">';
+    h += '<input id="client-lb" inputmode="decimal" value="' + esc(pounds) + '"><span>lb</span></div>';
+    h += '<span class="client-k">Goals</span>';
+    CLIENT_GOALS.forEach(function (goal) {
+      h += '<label class="client-goal"><input type="checkbox" name="client-goal" value="' + esc(goal) + '"' + (chosen[goal] ? ' checked' : '') + '> ' + esc(goal) + '</label>';
+    });
+    h += '<input id="client-other" maxlength="120" aria-label="Other goal" value="' + esc(row.goals_other || '') + '">';
+    h += '<p class="errs" id="client-info-err" hidden></p>';
+    h += '<button type="button" class="pri" id="client-info-save">Save</button></div>';
+    return h;
+  }
+  function paintClientInfo() {
+    var host = document.getElementById('client-info');
+    if (!host) return;
+    var html = (!clientInfoRow || clientInfoEditing) ? clientInfoFormHtml(clientInfoRow) : clientInfoReadHtml(clientInfoRow);
+    host.outerHTML = html;
+  }
+  function showClientInfoError(message) {
+    var err = document.getElementById('client-info-err');
+    if (!err) return;
+    err.hidden = false;
+    err.textContent = message;
+  }
+  function saveClientInfoFromForm() {
+    var parsed = clientInfoPayload();
+    if (parsed.error) return showClientInfoError(parsed.error);
+    if (!window.WBAuth || !WBAuth.saveClientInfo) return showClientInfoError('Could not save client info.');
+    WBAuth.saveClientInfo(parsed.fields).then(function (row) {
+      if (hashPage() !== 'account') return;
+      var saved = row || {};
+      clientInfoRow = {
+        birthday: saved.birthday != null ? saved.birthday : parsed.fields.birthday,
+        sex: saved.sex != null ? saved.sex : parsed.fields.sex,
+        height_cm: saved.height_cm != null ? saved.height_cm : parsed.fields.heightCm,
+        weight_kg: saved.weight_kg != null ? saved.weight_kg : parsed.fields.weightKg,
+        goals: saved.goals || parsed.fields.goals,
+        goals_other: saved.goals_other != null ? saved.goals_other : parsed.fields.goalsOther
+      };
+      clientInfoEditing = false;
+      paintClientInfo();
+    }, function (err) {
+      if (hashPage() !== 'account') return;
+      showClientInfoError((err && err.message) || 'Could not save client info.');
+    });
+  }
+  function loadClientInfo() {
+    if (!window.WBAuth || !WBAuth.clientInfo) return;
+    var token = routeToken;
+    Promise.resolve().then(function () { return WBAuth.clientInfo(); }).then(function (row) {
+      if (token !== routeToken || hashPage() !== 'account') return;
+      clientInfoRow = row;
+      if (!clientInfoEditing) paintClientInfo();
+    }, function () {});
+  }
   function drawAccount(session, profile, roster, conn) {
+    clientInfoEditing = false;
     var note = takeInviteNotice();
     var ent = WBMembership.entitlements(profile);
     var plan = ent.active ? ent.tier : WBMembership.tier(profile.intended_plan);
@@ -2842,6 +3018,7 @@
       '<button type="button" class="avatar av-lg" id="profile-open" aria-label="Profile">' + esc(initialsOf(who)) + '</button>' +
       '<div class="grow"><div class="name" id="account-label">' + whoHtml + '</div>' +
       '<p class="mute">' + esc(plan ? plan.name : 'Membership') + ' · <button type="button" id="profile-edit">Edit profile</button></p></div></div></div>';
+    h += clientInfoEditing || !clientInfoRow ? clientInfoFormHtml(clientInfoRow) : clientInfoReadHtml(clientInfoRow);
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) {
       h += '<button type="button" class="link-row" id="admin-open" data-go="admin"><span class="grow"><span class="name">Admin</span><div class="mute">Access, verifications, Hub reports</div></span><span class="admin-count" id="admin-count" hidden></span><span class="chev" aria-hidden="true">›</span></button>';
     }
@@ -2860,7 +3037,10 @@
     syncChrome();
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) loadPendingCount();
     if (shareHere) loadShare();
+    loadClientInfo();
     app.onclick = function (e) {
+      if (e.target.closest('#client-info-save')) return saveClientInfoFromForm();
+      if (e.target.closest('#client-info-edit')) { clientInfoEditing = true; paintClientInfo(); return; }
       var nav = e.target.closest('[data-go]');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (nav && nav.dataset.go === 'hub') return go('#/hub');

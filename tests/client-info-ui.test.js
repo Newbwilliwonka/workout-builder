@@ -1,0 +1,147 @@
+// Client info on the signed-in Account page. No network and no live database.
+// node tests/client-info-ui.test.js [url]
+const assert = require('assert');
+const pp = require('puppeteer-core');
+
+const URL = process.argv[2] || 'http://127.0.0.1:8787/';
+const USER = '22222222-2222-4222-8222-222222222222';
+
+function birthdayIso() {
+  var now = new Date();
+  var y = now.getFullYear() - 30;
+  var m = String(now.getMonth() + 1);
+  var d = String(now.getDate());
+  if (m.length < 2) m = '0' + m;
+  if (d.length < 2) d = '0' + d;
+  return y + '-' + m + '-' + d;
+}
+
+(async () => {
+  const browser = await pp.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', function (err) { errors.push(String(err)); });
+  await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+  await page.evaluateOnNewDocument(function (userId) {
+    var current;
+    function patch(api) {
+      if (!api || api.__infoStub) return api;
+      api.__infoStub = true;
+      api.session = function () { return Promise.resolve({ user: { id: userId, email: 'ada@example.com' } }); };
+      api.profile = function () {
+        var plan = 'free_client';
+        try { plan = new URLSearchParams(location.search).get('plan') || 'free_client'; } catch (e) {}
+        return Promise.resolve({
+          id: userId,
+          membership: plan,
+          intended_plan: plan === 'free_client' ? null : plan,
+          display_name: 'Ada Client'
+        });
+      };
+      api.roster = function () { return Promise.resolve({ role: null, clients: [], invites: [] }); };
+      api.myConnection = function () { return Promise.resolve(null); };
+      api.trainerRequestCount = function () { return Promise.resolve(0); };
+      api.clientInfo = function () {
+        var saved = window.__clientInfo;
+        if (!saved) return Promise.resolve(null);
+        return Promise.resolve({
+          birthday: saved.birthday,
+          sex: saved.sex,
+          height_cm: saved.heightCm,
+          weight_kg: saved.weightKg,
+          goals: saved.goals,
+          goals_other: saved.goalsOther
+        });
+      };
+      api.saveClientInfo = function (fields) {
+        window.__clientInfo = fields;
+        return Promise.resolve({
+          birthday: fields.birthday,
+          sex: fields.sex,
+          height_cm: fields.heightCm,
+          weight_kg: fields.weightKg,
+          goals: fields.goals,
+          goals_other: fields.goalsOther
+        });
+      };
+      return api;
+    }
+    Object.defineProperty(window, 'WBAuth', {
+      configurable: true,
+      enumerable: true,
+      get: function () { return current; },
+      set: function (v) { current = patch(v); }
+    });
+  }, USER);
+
+  const born = birthdayIso();
+  await page.goto(URL + '?plan=free_client#/account');
+  await page.waitForSelector('#client-birthday');
+  const labels = await page.$eval('#client-info', function (el) { return el.textContent; });
+  assert.ok(labels.indexOf('Birthday') !== -1);
+  assert.ok(labels.indexOf('Sex') !== -1);
+  assert.ok(labels.indexOf('Male') !== -1);
+  assert.ok(labels.indexOf('Female') !== -1);
+  assert.ok(labels.indexOf('Height') !== -1);
+  assert.ok(labels.indexOf('Weight') !== -1);
+  assert.ok(labels.indexOf('Weight or fat loss') !== -1);
+  assert.ok(labels.indexOf('Building strength and muscle') !== -1);
+  assert.ok(labels.indexOf('General health and fitness') !== -1);
+  assert.ok(labels.indexOf('Mobility or pain relief') !== -1);
+  assert.ok(labels.indexOf('Athletic performance') !== -1);
+  assert.ok(labels.indexOf('Other') !== -1);
+  assert.strictEqual(labels.indexOf('@'), -1);
+  assert.strictEqual(await page.$eval('#client-info', function (el) { return el.querySelector('[aria-label="Sex"]') != null; }), true);
+
+  await page.$eval('#client-birthday', function (el, value) { el.value = value; }, born);
+  await page.click('#client-info input[value="female"]');
+  await page.$eval('#client-ft', function (el) { el.value = '5'; });
+  await page.$eval('#client-in', function (el) { el.value = '8'; });
+  await page.$eval('#client-lb', function (el) { el.value = '150'; });
+  await page.click('#client-info input[value="Weight or fat loss"]');
+  await page.click('#client-info input[value="Athletic performance"]');
+  await page.click('#client-info input[value="Other"]');
+  await page.type('#client-other', 'ada@example.com');
+  await page.click('#client-info-save');
+  await page.waitForFunction(function () {
+    var err = document.getElementById('client-info-err');
+    return err && !err.hidden && err.textContent.indexOf('Other goals cannot include an email.') !== -1;
+  });
+  assert.strictEqual(await page.evaluate(function () { return window.__clientInfo || null; }), null);
+
+  await page.$eval('#client-other', function (el) { el.value = 'Track a 10k'; });
+  await page.click('#client-info-save');
+  await page.waitForSelector('#client-info-edit');
+  const read = await page.$eval('#client-info', function (el) { return el.textContent; });
+  assert.ok(read.indexOf('Age 30') !== -1);
+  assert.ok(read.indexOf('Female') !== -1);
+  assert.ok(read.indexOf('5 ft 8 in') !== -1);
+  assert.ok(read.indexOf('150 lb') !== -1);
+  assert.ok(read.indexOf('Weight or fat loss') !== -1);
+  assert.ok(read.indexOf('Athletic performance') !== -1);
+  assert.ok(read.indexOf('Track a 10k') !== -1);
+  assert.strictEqual(read.indexOf('Building strength and muscle'), -1);
+  assert.strictEqual(read.indexOf(born), -1);
+  assert.strictEqual(read.indexOf('@'), -1);
+  assert.strictEqual(await page.$('#client-birthday'), null);
+
+  await page.click('#client-info-edit');
+  await page.waitForSelector('#client-birthday');
+  assert.strictEqual(await page.$eval('#client-birthday', function (el) { return el.value; }), born);
+
+  for (var i = 0; i < ['enthusiast', 'trainer', 'master_trainer'].length; i++) {
+    var plan = ['enthusiast', 'trainer', 'master_trainer'][i];
+    await page.goto(URL + '?plan=' + plan + '#/account');
+    await page.waitForSelector('#client-info');
+    const text = await page.$eval('#client-info', function (el) { return el.textContent; });
+    assert.ok(text.indexOf('Birthday') !== -1 || text.indexOf('Age ') !== -1, plan);
+    assert.strictEqual(await page.$('#client-info [data-client]'), null, plan);
+  }
+
+  assert.deepStrictEqual(errors, []);
+  await browser.close();
+  console.log('CLIENT INFO UI OK');
+})().catch(function (err) {
+  console.error(err);
+  process.exit(1);
+});
