@@ -4742,9 +4742,7 @@
   }
   function visibleOrder() {
     var source = dashboardEditing && Array.isArray(editDraft) ? editDraft : (trainerOrder || []);
-    var order = window.WBShares ? WBShares.orderOf(source) : source.slice();
-    if (order.indexOf('circuit') < 0) order.push('circuit');
-    return order;
+    return window.WBShares ? WBShares.orderOf(source) : source.slice();
   }
   function beginEdit() {
     if (dashboardEditing || !trainerModel) return;

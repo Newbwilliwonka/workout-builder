@@ -93,7 +93,7 @@
   }
   function permanentError(err) {
     var msg = String((err && err.message) || '');
-    return /only a trainer|choose a linked client|could not be saved|sign in first|not available yet/i.test(msg);
+    return /only a trainer can save a circuit|choose a linked client|that circuit could not be saved/i.test(msg);
   }
   function remember(userId, payload) {
     var id = String(userId || '');
@@ -114,11 +114,14 @@
   }
   function savePayload(userId, payload) {
     var auth = root.WBAuth;
+    if (!userId) {
+      var unsigned = new Error('Sign in to save this circuit.');
+      unsigned.unsigned = true;
+      return Promise.reject(unsigned);
+    }
     if (!auth || !auth.circuitSaveRun) {
-      var missing = new Error('Saving a circuit is not available yet.');
-      missing.permanent = true;
-      forget(userId, payload.runId);
-      return Promise.reject(missing);
+      remember(userId, payload);
+      return Promise.reject(new Error('Saving a circuit is not available yet.'));
     }
     return Promise.resolve().then(function () { return auth.circuitSaveRun(payload); }).then(function () {
       forget(userId, payload.runId);
@@ -141,7 +144,13 @@
   }
   function flush(userId) {
     var id = String(userId || '');
-    var pending = readQueue().filter(function (row) { return row && row.userId === id && row.payload; });
+    if (!id) return Promise.resolve(readQueue());
+    var list = readQueue().map(function (row) {
+      if (row && row.payload && !row.userId) return { userId: id, payload: row.payload };
+      return row;
+    });
+    writeQueue(list);
+    var pending = list.filter(function (row) { return row && row.userId === id && row.payload; });
     if (!pending.length) return Promise.resolve([]);
     function step(i) {
       if (i >= pending.length) return Promise.resolve(readQueue());

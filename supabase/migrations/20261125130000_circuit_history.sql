@@ -316,7 +316,7 @@ begin
      or started < now() - interval '7 days'
      or started > now() + interval '5 minutes'
      or ended > started + interval '6 hours' then
-    raise exception 'That circuit could not be saved.';
+    raise exception 'That circuit is outside the save window.';
   end if;
   zone := btrim(coalesce(p_run->>'timeZone', 'UTC'));
   if zone = '' or char_length(zone) > 64 then zone := 'UTC'; end if;

@@ -545,12 +545,20 @@
     var who = root.WBAuth && root.WBAuth.session ? Promise.resolve().then(function () { return WBAuth.session(); }) : Promise.resolve(null);
     who.then(function (session) {
       var id = session && session.user && session.user.id || '';
+      if (!id) {
+        var unsigned = new Error('Sign in to save this circuit.');
+        unsigned.unsigned = true;
+        return Promise.reject(unsigned);
+      }
       return WBCircuitHistory.saveRecord(body, status, id);
     }, function () {
-      return WBCircuitHistory.saveRecord(body, status, '');
+      var unsigned = new Error('Sign in to save this circuit.');
+      unsigned.unsigned = true;
+      return Promise.reject(unsigned);
     }).then(function () {}, function (err) {
       if (!ctx || !ctx.toast) return;
       if (err && err.permanent) ctx.toast((err && err.message) || 'That circuit could not be saved.');
+      else if (err && err.unsigned) ctx.toast('Sign in to save this circuit.');
       else ctx.toast('Saved on this phone. It will send when you have a signal.');
     });
   }
