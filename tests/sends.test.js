@@ -110,6 +110,11 @@ assert.ok(namedFrom.indexOf('From Sam') === -1);
 assert.ok(namedFrom.indexOf('Sam') === -1);
 assert.ok(namedFrom.indexOf('@') === -1);
 
+assert.strictEqual(S.sendLabel(1, 1), 'Send 1 workout to 1 client');
+assert.strictEqual(S.sendLabel(3, 2), 'Send 3 workouts to 2 clients');
+assert.strictEqual(S.sendLabel(0, 0), 'Send 0 workouts to 0 clients');
+assert.strictEqual(S.selectionKey(['b', 'a'], ['d', 'c']), S.selectionKey(['a', 'b'], ['c', 'd']));
+
 assert.strictEqual(S.isUnavailable(new Error('Sending workouts is not available yet.')), true);
 assert.strictEqual(S.isUnavailable(new Error('Failed to fetch')), false);
 

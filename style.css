@@ -484,8 +484,6 @@ button.pick .grow{display:flex;flex-direction:column;gap:2px;min-width:0}
 button.pick .preview{color:var(--mute);font-size:13px;font-weight:400}
 .mark{width:22px;height:22px;border-radius:6px;border:2px solid #d1d5db;flex:none;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:transparent;background:#fff}
 button.pick.on .mark{background:var(--pri);border-color:var(--pri);color:transparent}
-.pick-list button.pick[data-pick-workout] .mark{border-radius:50%}
-.pick-list button.pick.on[data-pick-workout] .mark{background:var(--pri);box-shadow:inset 0 0 0 5px #dbeafe}
 .av.has-photo{padding:0;overflow:hidden}
 .av.has-photo img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
 label.checkline{display:flex;gap:12px;align-items:flex-start;font-weight:400;margin:14px 0 0}

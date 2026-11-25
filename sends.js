@@ -18,8 +18,14 @@
   function serverId(id) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ''));
   }
-  function selectionKey(workoutId, clientIds) {
-    return String(workoutId || '') + '\n' + (clientIds || []).map(function (id) { return String(id); }).sort().join(',');
+  function selectionKey(workoutIds, clientIds) {
+    var list = Array.isArray(workoutIds) ? workoutIds : [workoutIds];
+    return list.map(function (id) { return String(id || ''); }).filter(Boolean).sort().join(',') +
+      '\n' + (clientIds || []).map(function (id) { return String(id); }).sort().join(',');
+  }
+  function sendLabel(workoutCount, clientCount) {
+    function word(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+    return 'Send ' + word(workoutCount || 0, 'workout', 'workouts') + ' to ' + word(clientCount || 0, 'client', 'clients');
   }
   function snapshot(workout) {
     var items = [];
@@ -206,7 +212,7 @@
     return h;
   }
 
-  var ctx = null, gen = 0, roster = null, pickedWorkout = '', picked = {}, attempts = {}, notes = {}, inflight = null, sendToken = 0;
+  var ctx = null, gen = 0, roster = null, pickedWorkouts = {}, picked = {}, attempts = {}, inflight = null, sendToken = 0, sentKey = '', sendError = '', presetDone = false;
 
   function stop() {
     gen += 1;
@@ -220,13 +226,38 @@
     var clients = (roster && roster.clients) || [];
     return clients.filter(function (c) { return c && picked[c.id]; });
   }
-  function currentKey() {
-    return selectionKey(pickedWorkout, chosenClients().map(function (c) { return c.id; }));
+  function chosenWorkouts() {
+    return ownWorkouts().filter(function (w) { return pickedWorkouts[String(w.id)]; });
   }
-  function selectedWorkout() {
-    var list = ownWorkouts();
-    for (var i = 0; i < list.length; i++) if (String(list[i].id) === String(pickedWorkout)) return list[i];
-    return null;
+  function currentKey() {
+    return selectionKey(chosenWorkouts().map(function (w) { return w.id; }), chosenClients().map(function (c) { return c.id; }));
+  }
+  function hashWorkoutId() {
+    var raw = (typeof location !== 'undefined' && location.hash) ? location.hash : '';
+    var parts = raw.replace(/^#\/?/, '').split('?')[0].split('/');
+    if (parts[0] !== 'send' || !parts[1]) return '';
+    try { return decodeURIComponent(parts[1]); } catch (e) { return parts[1]; }
+  }
+  function ensurePreset() {
+    if (presetDone) return;
+    presetDone = true;
+    var id = hashWorkoutId();
+    if (id) pickedWorkouts[String(id)] = true;
+  }
+  function sendLabelNow() {
+    return sendLabel(chosenWorkouts().length, chosenClients().length);
+  }
+  function buttonState() {
+    var key = currentKey();
+    var sameFlight = !!(inflight && inflight.key === key);
+    if (sentKey && sentKey === key && !sameFlight) return { label: 'Sent', disabled: true, sent: true };
+    var workouts = chosenWorkouts().length;
+    var clients = chosenClients().length;
+    return { label: sendLabelNow(), disabled: !!(sameFlight || !workouts || !clients), sent: false };
+  }
+  function clearSent() {
+    sentKey = '';
+    sendError = '';
   }
   function profileNow() {
     return ctx && ctx.profile ? ctx.profile() : null;
@@ -251,24 +282,26 @@
     if (!ctx || pageName() !== 'send' || typeof document === 'undefined') return;
     var btn = document.getElementById('send-go');
     if (!btn) return;
-    var n = chosenClients().length;
-    var blocked = sendBlocked(inflight, currentKey());
-    btn.disabled = !!(blocked || !n || !pickedWorkout);
+    var state = buttonState();
+    btn.disabled = state.disabled;
+    btn.textContent = state.label;
+    btn.classList.toggle('pri', !state.sent);
   }
   function drawSend() {
     if (!ctx) return;
+    ensurePreset();
     var workouts = ownWorkouts();
     var clients = (roster && roster.clients) || [];
-    if (!pickedWorkout || !workouts.some(function (w) { return String(w.id) === String(pickedWorkout); })) {
-      pickedWorkout = workouts[0] ? workouts[0].id : '';
-    }
+    Object.keys(pickedWorkouts).forEach(function (id) {
+      if (!workouts.some(function (w) { return String(w.id) === String(id); })) delete pickedWorkouts[id];
+    });
     ctx.titleEl.textContent = 'Send workout';
     ctx.backBtn.hidden = false;
-    var h = '<p class="mute">Pick one of your workouts and the clients who should get a copy. A linked Enthusiast counts as a client.</p>';
+    var h = '<p class="mute">Pick one or more of your workouts and the clients who should get a copy. A linked Enthusiast counts as a client.</p>';
     h += '<div class="sec">Workout</div><div class="list pick-list">';
     if (!workouts.length) h += '<div class="empty">No workouts yet. Build one, then send it.</div>';
     workouts.forEach(function (w) {
-      var on = String(w.id) === String(pickedWorkout);
+      var on = !!pickedWorkouts[String(w.id)];
       var n = (w.items || []).length;
       h += '<button type="button" class="pick' + (on ? ' on' : '') + '" data-pick-workout="' + esc(w.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
         '<span class="grow"><span class="name">' + esc(w.name) + '</span><span class="preview">' + n + ' exercise' + (n === 1 ? '' : 's') + '</span></span>' +
@@ -286,13 +319,10 @@
         '<span class="mark" aria-hidden="true">' + (on ? '✓' : '') + '</span></button>';
     });
     h += '</div>';
-    var key = currentKey();
-    if (notes[key]) h += '<div class="card" id="sent-note"><div class="name">Copies for their workouts</div><p>' + esc(notes[key]) + '</p></div>';
-    var n = chosenClients().length;
-    var blocked = sendBlocked(inflight, key);
-    h += '<button type="button" class="pri" id="send-go" data-send-workout style="width:100%;margin-top:8px"' +
-      ((blocked || !n || !pickedWorkout) ? ' disabled' : '') + '>' +
-      (n ? ('Send to ' + n + (n === 1 ? ' client' : ' clients')) : 'Send workout') + '</button>';
+    if (sendError) h += '<p class="errs" id="send-fail">' + esc(sendError) + '</p>';
+    var state = buttonState();
+    h += '<button type="button"' + (state.sent ? '' : ' class="pri"') + ' id="send-go" data-send-workout style="width:100%;margin-top:8px"' +
+      (state.disabled ? ' disabled' : '') + '>' + esc(state.label) + '</button>';
     ctx.app.innerHTML = h;
     ctx.app.onclick = onSendClick;
     if (root.WBProfile) WBProfile.fillAvatars(ctx.app);
@@ -300,17 +330,28 @@
   function onSendClick(e) {
     var t = e.target && e.target.closest ? e.target.closest('[data-pick-workout], [data-pick-client], [data-send-workout]') : null;
     if (!t || t.disabled) return;
-    if (t.dataset.pickWorkout) { pickedWorkout = t.dataset.pickWorkout; return drawSend(); }
-    if (t.dataset.pickClient) { picked[t.dataset.pickClient] = !picked[t.dataset.pickClient]; return drawSend(); }
+    if (t.dataset.pickWorkout) {
+      pickedWorkouts[t.dataset.pickWorkout] = !pickedWorkouts[t.dataset.pickWorkout];
+      clearSent();
+      return drawSend();
+    }
+    if (t.dataset.pickClient) {
+      picked[t.dataset.pickClient] = !picked[t.dataset.pickClient];
+      clearSent();
+      return drawSend();
+    }
     if (t.dataset.sendWorkout != null) return sendCopies();
   }
-  function finish(token, key, err, note) {
+  function forgetAttempts(key) {
+    var parts = String(key || '').split('\n');
+    var workouts = (parts[0] || '').split(',').filter(Boolean);
+    var clients = parts[1] || '';
+    workouts.forEach(function (id) { delete attempts[id + '\n' + clients]; });
+  }
+  function finish(token, key, err) {
     var mine = !!(inflight && inflight.token === token);
     if (mine) inflight = null;
-    if (!err) {
-      delete attempts[key];
-      if (note) notes[key] = note;
-    }
+    if (mine && !err) forgetAttempts(key);
     // A newer send owns the screen. This result must not redraw it or clear its lock.
     if (!mine) return;
     if (!ctx || pageName() !== 'send') return;
@@ -320,23 +361,25 @@
       syncButton();
       return;
     }
-    if (err) ctx.toast((err && err.message) || 'Could not send');
-    else if (ctx.toast) ctx.toast('Sent');
+    if (err) {
+      sendError = (err && err.message) || 'Could not send';
+      if (ctx.toast) ctx.toast(sendError);
+    } else {
+      sendError = '';
+      sentKey = key;
+      if (ctx.toast) ctx.toast('Sent');
+    }
     drawSend();
   }
   function sendCopies() {
-    var workout = selectedWorkout();
+    var workouts = chosenWorkouts();
     var clients = chosenClients();
-    if (!workout || !clients.length) {
-      if (ctx && ctx.toast) ctx.toast('Choose a workout and at least one client.');
-      return;
-    }
+    if (!workouts.length || !clients.length) return;
     var ids = clients.map(function (c) { return String(c.id); });
-    var key = selectionKey(workout.id, ids);
+    var key = currentKey();
+    if (sentKey === key) return;
     if (sendBlocked(inflight, key)) return;
-    var delivery = prepareDeliveries(attempts[key], workout, ids, newId);
-    attempts[key] = delivery;
-    delete notes[key];
+    sendError = '';
     var token = ++sendToken;
     inflight = { token: token, key: key };
     var auth = root.WBAuth;
@@ -344,25 +387,40 @@
       inflight = null;
       return showUnavailable();
     }
-    var deliveries = ids.map(function (id) { return { id: delivery.ids[id], clientId: id }; });
-    var payload = { deliveries: deliveries, name: delivery.name, items: delivery.items, source: delivery.sourceWorkoutId };
-    var people = clients.map(function (c) {
-      return { id: c.id, name: c.name, display_name: c.display_name, plan: c.plan, membership: c.membership };
+    var plan = workouts.map(function (workout) {
+      var oneKey = selectionKey(workout.id, ids);
+      var delivery = prepareDeliveries(attempts[oneKey], workout, ids, newId);
+      attempts[oneKey] = delivery;
+      return {
+        key: oneKey,
+        deliveries: ids.map(function (id) { return { id: delivery.ids[id], clientId: id }; }),
+        name: delivery.name,
+        items: delivery.items,
+        source: delivery.sourceWorkoutId
+      };
     });
     drawSend();
-    // The request belongs to this workout and these people. Settling it is what
-    // turns the button back on. A timer must not call a slow success a failure.
-    Promise.resolve().then(function () {
-      return auth.sendWorkout(payload.deliveries, payload.name, payload.items, payload.source);
-    }).then(function () {
-      finish(token, key, null, confirmation(people, payload.name));
-    }, function (err) {
-      finish(token, key, err || new Error('Could not send'));
-    });
+    var index = 0;
+    function step() {
+      if (!inflight || inflight.token !== token) return;
+      if (index >= plan.length) return finish(token, key, null);
+      var item = plan[index];
+      Promise.resolve().then(function () {
+        return auth.sendWorkout(item.deliveries, item.name, item.items, item.source);
+      }).then(function () {
+        if (!inflight || inflight.token !== token) return;
+        index += 1;
+        step();
+      }, function (err) {
+        finish(token, key, err || new Error('Could not send'));
+      });
+    }
+    step();
   }
   function loadSend() {
     var myGen = gen;
     roster = null;
+    presetDone = false;
     if (!ctx) return;
     ctx.titleEl.textContent = 'Send workout';
     ctx.backBtn.hidden = false;
@@ -485,6 +543,7 @@
     stamp: stamp,
     serverId: serverId,
     selectionKey: selectionKey,
+    sendLabel: sendLabel,
     snapshot: snapshot,
     prepareDeliveries: prepareDeliveries,
     sendBlocked: sendBlocked,
