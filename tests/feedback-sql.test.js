@@ -169,7 +169,55 @@ begin
   if n <> 1 then
     raise exception 'reply did not open a conversation';
   end if;
+end $$;
 
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+update public.trainer_temp_links
+  set expires_at = now() - interval '1 minute'
+where trainer_id = '${A}' and client_id = '${C}' and ended_at is null;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${A}', false);
+
+do $$
+declare
+  msg text;
+  n int;
+begin
+  begin
+    perform public.message_send('${C}', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc9', 'This should be read only');
+    raise exception 'expired conversation still accepted a direct send';
+  exception when others then
+    msg := sqlerrm;
+    if msg not like '%read-only%' then
+      raise exception 'expected read-only, got %', msg;
+    end if;
+  end;
+  perform public.feedback_reply(
+    (select id from public.feedback where user_id = '${C}' and page = 'Workouts'),
+    'Following up after it expired.'
+  );
+  select count(*) into n from public.messages
+  where sender_id = '${A}' and body = 'Following up after it expired.';
+  if n <> 1 then
+    raise exception 'expired reply did not write a message';
+  end if;
+  select count(*) into n from public.trainer_temp_links
+  where trainer_id = '${A}' and client_id = '${C}' and ended_at is null and expires_at > now();
+  if n <> 1 then
+    raise exception 'expired reply did not open a fresh conversation';
+  end if;
+  select count(*) into n from public.trainer_temp_links
+  where trainer_id = '${A}' and client_id = '${C}' and ended_at is not null;
+  if n <> 1 then
+    raise exception 'expired conversation was not closed';
+  end if;
+end $$;
+
+do $$
+declare linked uuid;
+begin
   select id into linked from public.feedback where user_id = '${LINKED}';
   if linked is not null then
     raise exception 'unexpected linked feedback';
@@ -208,6 +256,7 @@ select set_config('request.jwt.claim.sub', '${C}', false);
 select body from public.messages where sender_id = '${A}';
 `);
 assert.ok(seen.indexOf('Thanks, we saw this.') !== -1);
+assert.ok(seen.indexOf('Following up after it expired.') !== -1);
 
 psql('wb_feedback_test', `
 set role authenticated;

@@ -8,6 +8,7 @@
   var sheet = null;
   var openHash = '';
   var openReply = '';
+  var replyDraft = '';
   var rows = [];
   var signedIn = false;
 
@@ -83,7 +84,7 @@
   }
   function formHtml(page) {
     return '<h2 id="fb-title">Send feedback</h2>' +
-      '<div class="fb-page"><span>Page</span><b id="fb-page">' + esc(page) + '</b></div>' +
+      '<p class="fb-page">Page · <span id="fb-page">' + esc(page) + '</span></p>' +
       '<label id="fb-type-label">TYPE</label>' +
       '<div class="seg" role="radiogroup" aria-labelledby="fb-type-label">' +
       '<button type="button" role="radio" aria-checked="false" data-fb-type="bug">Bug</button>' +
@@ -95,7 +96,9 @@
       '<button type="button" class="pri" id="fb-send" disabled>Send</button>';
   }
   function thanksHtml() {
-    return '<div class="fb-thanks"><h2 id="fb-title">Thank you</h2>' +
+    return '<div class="fb-thanks">' +
+      '<div class="fb-check" aria-hidden="true"><svg viewBox="0 0 48 48" width="48" height="48" focusable="false"><circle cx="24" cy="24" r="24" fill="#16a34a"/><path d="M14 25 21 32 34 17" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+      '<h2 id="fb-title">Thank you</h2>' +
       '<p>We’ve got your message.</p>' +
       '<button type="button" class="pri" id="fb-done">Done</button></div>';
   }
@@ -191,12 +194,18 @@
     if (!sheet) return;
     if (e.key === 'Escape') closeSheet();
   }
-  function dayLabel(value) {
-    if (root.WBProfile && root.WBProfile.formatDay) {
-      var formatted = root.WBProfile.formatDay(value);
-      if (formatted) return formatted;
-    }
-    return '';
+  function dayLabel(value, now) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+    if (!m) return '';
+    var y = Number(m[1]);
+    var mo = Number(m[2]);
+    var d = Number(m[3]);
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var label = months[mo - 1] + ' ' + d;
+    var year = now ? new Date(now).getFullYear() : new Date().getFullYear();
+    if (y !== year) label += ', ' + y;
+    return label;
   }
   function statusLabel(status) {
     if (status === 'replied') return 'REPLIED';
@@ -231,29 +240,28 @@
   }
   function replyHtml(row) {
     if (openReply !== row.id) return '';
+    var ready = clean(replyDraft).length > 0;
     return '<div class="fb-reply" id="fb-reply">' +
       '<div class="fb-reply-h">REPLY IN MESSAGES</div>' +
       '<p class="fb-to">To ' + esc(row.name) + '</p>' +
-      '<textarea id="fb-reply-text" maxlength="2000" placeholder="Message"></textarea>' +
+      '<textarea id="fb-reply-text" maxlength="2000" placeholder="Message">' + esc(replyDraft) + '</textarea>' +
       '<p class="fb-note">This is sent as a message in the app.</p>' +
-      '<button type="button" class="pri" id="fb-reply-send" disabled>Send</button>' +
+      '<button type="button" class="pri" id="fb-reply-send"' + (ready ? '' : ' disabled') + '>Send</button>' +
       '</div>';
   }
   function cardHtml(row) {
     var meta = [row.page, typeLabel(row.type), dayLabel(row.createdAt)].filter(Boolean).join(' · ');
-    var pill = statusLabel(row.status);
-    return '<article class="card" data-feedback="' + esc(row.id) + '">' +
+    return '<article class="card fb-entry" data-feedback="' + esc(row.id) + '">' +
+      '<div class="fb-head">' +
       '<div class="name">' + esc(row.name) + '</div>' +
-      '<p class="mute fb-meta">' + esc(meta) + '</p>' +
-      '<p class="fb-text">' + esc(row.message) + '</p>' +
-      '<div class="fb-tools">' +
       '<select class="fb-pill is-' + esc(row.status) + '" data-fb-status="' + esc(row.id) + '" aria-label="Status">' +
       '<option value="new"' + (row.status === 'new' ? ' selected' : '') + '>NEW</option>' +
       '<option value="replied"' + (row.status === 'replied' ? ' selected' : '') + '>REPLIED</option>' +
       '<option value="fixed"' + (row.status === 'fixed' ? ' selected' : '') + '>FIXED</option>' +
-      '</select>' +
+      '</select></div>' +
+      '<p class="mute fb-meta">' + esc(meta) + '</p>' +
+      '<p class="fb-text">' + esc(row.message) + '</p>' +
       '<button type="button" class="sm" data-fb-reply="' + esc(row.id) + '">Reply</button>' +
-      '</div>' +
       replyHtml(row) +
       '</article>';
   }
@@ -261,14 +269,17 @@
     var body = typeof document !== 'undefined' ? document.getElementById('feedback-body') : null;
     if (body) body.innerHTML = html;
   }
-  function renderRows() {
+  function renderRows(opts) {
+    opts = opts || {};
+    var current = typeof document !== 'undefined' ? document.getElementById('fb-reply-text') : null;
+    if (current && openReply) replyDraft = current.value;
     if (!rows.length) {
       paintBody('');
       return;
     }
     paintBody(rows.map(cardHtml).join(''));
     var box = typeof document !== 'undefined' ? document.getElementById('fb-reply-text') : null;
-    if (box) {
+    if (box && opts.focus) {
       try { box.focus(); } catch (e) {}
     }
   }
@@ -315,8 +326,14 @@
     var reply = e.target.closest && e.target.closest('[data-fb-reply]');
     if (reply) {
       var id = reply.getAttribute('data-fb-reply');
-      openReply = openReply === id ? '' : id;
-      renderRows();
+      if (openReply === id) {
+        openReply = '';
+        replyDraft = '';
+      } else {
+        openReply = id;
+        replyDraft = '';
+      }
+      renderRows({ focus: !!openReply });
       return true;
     }
     var send = e.target.closest && e.target.closest('#fb-reply-send');
@@ -399,6 +416,7 @@
     canSend: canSend,
     typeLabel: typeLabel,
     safeName: safeName,
+    dayLabel: dayLabel,
     pageName: pageName,
     coversControls: coversControls,
     sync: sync,

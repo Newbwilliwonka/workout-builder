@@ -972,17 +972,10 @@
         return res.data;
       }, function (err) { throw feedbackError(err); });
     },
-    // A normal Messages send when a connection already exists. Otherwise the
-    // admin-only function opens the minimum conversation and sends it there.
+    // Always the admin function. A direct Messages send is read-only once a
+    // temporary conversation expires, and this function renews that path.
     replyFeedback: function (personId, feedbackId, body) {
-      var messageId = newFeedbackId();
-      return api.sendMessage(personId, messageId, body).then(function () {
-        return api.setFeedbackStatus(feedbackId, 'replied');
-      }, function (err) {
-        var msg = String((err && err.message) || '');
-        if (!/no connection/i.test(msg)) throw err;
-        return feedbackRpc('feedback_reply', { p_id: feedbackId, p_body: body });
-      });
+      return feedbackRpc('feedback_reply', { p_id: feedbackId, p_body: body });
     },
     markRead: function (personId) { return messageRpc('message_read', { p_person: personId }); },
     trainerSearch: function (mode, lat, lng) {
@@ -1678,13 +1671,6 @@
       if (res.error) throw findError(res.error, name);
       return res.data;
     });
-  }
-  function newFeedbackId() {
-    var c = (root && root.crypto) || (typeof crypto !== 'undefined' ? crypto : null);
-    if (c && c.randomUUID) return c.randomUUID();
-    var hex = '';
-    for (var i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
-    return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-4' + hex.slice(13, 16) + '-a' + hex.slice(17, 20) + '-' + hex.slice(20, 32);
   }
   function feedbackRow(row) {
     row = row || {};

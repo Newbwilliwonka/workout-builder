@@ -25,6 +25,8 @@ assert.strictEqual(FB.canSend('bug', 'The timer skipped.'), true);
 assert.strictEqual(FB.canSend('idea', 'x'.repeat(2001)), false);
 assert.strictEqual(FB.safeName({ name: 'ada@example.com' }), 'Member');
 assert.strictEqual(FB.safeName({ display_name: 'Ada Client' }), 'Ada Client');
+assert.strictEqual(FB.dayLabel('2026-11-24T18:00:00.000Z', '2026-11-25T00:00:00.000Z'), 'Nov 24');
+assert.strictEqual(FB.dayLabel('2025-11-24T18:00:00.000Z', '2026-11-25T00:00:00.000Z'), 'Nov 24, 2025');
 assert.ok(css.indexOf('button#feedback-open') !== -1);
 assert.ok(css.indexOf('width:48px;height:48px') !== -1);
 assert.ok(css.indexOf('background:#2563eb') !== -1);
@@ -45,6 +47,7 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
     localStorage.setItem('wb.data.v1', stored);
     window.__mode = 'out';
     window.__sent = [];
+    window.__replies = [];
     window.__status = null;
     window.__submitted = null;
     window.__rows = [
@@ -123,6 +126,10 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
         window.__sent.push({ personId: personId, messageId: messageId, body: body });
         return Promise.resolve({ id: messageId, body: body });
       };
+      api.replyFeedback = function (personId, feedbackId, body) {
+        window.__replies.push({ personId: personId, feedbackId: feedbackId, body: body });
+        return Promise.resolve({ feedbackId: feedbackId, status: 'replied', body: body });
+      };
       return api;
     }
     Object.defineProperty(window, 'WBAuth', {
@@ -187,7 +194,7 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
     var card = document.getElementById('fb-card');
     return {
       title: document.getElementById('fb-title').textContent,
-      pageLabel: card.querySelector('.fb-page span').textContent,
+      pageLine: card.querySelector('.fb-page').textContent,
       page: document.getElementById('fb-page').textContent,
       type: document.getElementById('fb-type-label').textContent,
       choices: Array.prototype.map.call(card.querySelectorAll('[data-fb-type]'), function (el) { return el.textContent; }),
@@ -199,7 +206,7 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
     };
   });
   assert.strictEqual(form.title, 'Send feedback');
-  assert.strictEqual(form.pageLabel, 'Page');
+  assert.strictEqual(form.pageLine, 'Page · Workouts');
   assert.strictEqual(form.page, 'Workouts');
   assert.strictEqual(form.type, 'TYPE');
   assert.deepStrictEqual(form.choices, ['Bug', 'Idea', 'Other']);
@@ -231,11 +238,13 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
       title: document.getElementById('fb-title').textContent,
       body: document.querySelector('.fb-thanks p').textContent,
       done: document.getElementById('fb-done').textContent,
+      check: document.querySelector('.fb-check circle') && document.querySelector('.fb-check circle').getAttribute('fill'),
       sent: window.__submitted
     };
   });
   assert.strictEqual(thanks.title, 'Thank you');
   assert.strictEqual(thanks.body, 'We’ve got your message.');
+  assert.strictEqual(thanks.check, '#16a34a');
   assert.strictEqual(thanks.done, 'Done');
   assert.deepStrictEqual(thanks.sent, { page: 'Workouts', type: 'bug', message: 'The rest timer skips ahead.' });
   await p.screenshot({ path: ART + '/feedback-thanks.png' });
@@ -261,6 +270,8 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
       text: card.innerText,
       section: section.innerText,
       status: card.querySelector('select').value,
+      pillInHead: !!card.querySelector('.fb-head select.fb-pill'),
+      pillBg: getComputedStyle(card.querySelector('select')).backgroundColor,
       reply: card.querySelector('[data-fb-reply]').textContent
     };
   });
@@ -269,7 +280,10 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
   assert.ok(list.text.indexOf('Ada Client') !== -1);
   assert.ok(list.text.indexOf('Workouts') !== -1);
   assert.ok(list.text.indexOf('Bug') !== -1);
-  assert.ok(list.text.indexOf('Nov 25, 2026') !== -1);
+  assert.ok(list.text.indexOf('Nov 25') !== -1);
+  assert.strictEqual(list.text.indexOf('Nov 25,'), -1);
+  assert.strictEqual(list.pillInHead, true);
+  assert.strictEqual(list.pillBg, 'rgb(254, 243, 199)');
   assert.ok(list.text.indexOf('The rest timer skips ahead.') !== -1);
   assert.strictEqual(list.status, 'new');
   assert.strictEqual(list.reply, 'Reply');
@@ -282,6 +296,18 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
 
   await p.click('[data-feedback="fb-new"] [data-fb-reply]');
   await p.waitForSelector('#fb-reply');
+  await p.type('#fb-reply-text', 'Keep this draft');
+  await p.select('[data-feedback="fb-new"] select.fb-pill', 'fixed');
+  await p.waitForFunction(function () {
+    var box = document.getElementById('fb-reply-text');
+    var pill = document.querySelector('[data-feedback="fb-new"] select');
+    return box && box.value === 'Keep this draft' && document.getElementById('fb-reply') && pill && pill.value === 'fixed';
+  });
+  await p.evaluate(function () {
+    var box = document.getElementById('fb-reply-text');
+    box.value = '';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   const reply = await p.evaluate(function () {
     var box = document.getElementById('fb-reply');
     return {
@@ -305,12 +331,12 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
   await p.click('#fb-reply-send');
   await p.waitForFunction(function () {
     var pill = document.querySelector('[data-feedback="fb-new"] select');
-    return window.__sent.length === 1 && window.__status && window.__status.id === 'fb-new' && pill && pill.value === 'replied';
+    return window.__replies.length === 1 && window.__sent.length === 0 && pill && pill.value === 'replied';
   });
-  const sent = await p.evaluate(function () { return window.__sent[0]; });
+  const sent = await p.evaluate(function () { return window.__replies[0]; });
   assert.strictEqual(sent.personId, USER);
+  assert.strictEqual(sent.feedbackId, 'fb-new');
   assert.strictEqual(sent.body, 'Thanks, we saw this.');
-  assert.ok(sent.messageId);
   assert.strictEqual(await p.$('#fb-reply'), null);
 
   await p.evaluate(function () {
