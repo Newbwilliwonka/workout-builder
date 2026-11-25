@@ -8,7 +8,7 @@
   var sheet = null;
   var openHash = '';
   var openReply = '';
-  var replyDraft = '';
+  var replyDraft = null;
   var rows = [];
   var signedIn = false;
 
@@ -238,13 +238,27 @@
   function sectionShell() {
     return '<section id="feedback-section"><div class="sec">Feedback</div><div id="feedback-body"></div></section>';
   }
+  function draftText() {
+    if (!replyDraft || replyDraft.id !== openReply) return '';
+    return replyDraft.text || '';
+  }
+  function rememberDraft() {
+    if (!replyDraft || replyDraft.id !== openReply || typeof document === 'undefined') return;
+    var current = document.getElementById('fb-reply-text');
+    if (!current) return;
+    var card = current.closest && current.closest('[data-feedback]');
+    var cardId = card ? card.getAttribute('data-feedback') : '';
+    if (cardId !== replyDraft.id) return;
+    replyDraft = { id: cardId, text: current.value };
+  }
   function replyHtml(row) {
     if (openReply !== row.id) return '';
-    var ready = clean(replyDraft).length > 0;
+    var text = draftText();
+    var ready = clean(text).length > 0;
     return '<div class="fb-reply" id="fb-reply">' +
       '<div class="fb-reply-h">REPLY IN MESSAGES</div>' +
       '<p class="fb-to">To ' + esc(row.name) + '</p>' +
-      '<textarea id="fb-reply-text" maxlength="2000" placeholder="Message">' + esc(replyDraft) + '</textarea>' +
+      '<textarea id="fb-reply-text" maxlength="2000" placeholder="Message">' + esc(text) + '</textarea>' +
       '<p class="fb-note">This is sent as a message in the app.</p>' +
       '<button type="button" class="pri" id="fb-reply-send"' + (ready ? '' : ' disabled') + '>Send</button>' +
       '</div>';
@@ -271,8 +285,7 @@
   }
   function renderRows(opts) {
     opts = opts || {};
-    var current = typeof document !== 'undefined' ? document.getElementById('fb-reply-text') : null;
-    if (current && openReply) replyDraft = current.value;
+    rememberDraft();
     if (!rows.length) {
       paintBody('');
       return;
@@ -328,10 +341,10 @@
       var id = reply.getAttribute('data-fb-reply');
       if (openReply === id) {
         openReply = '';
-        replyDraft = '';
+        replyDraft = null;
       } else {
         openReply = id;
-        replyDraft = '';
+        replyDraft = { id: id, text: '' };
       }
       renderRows({ focus: !!openReply });
       return true;
@@ -388,6 +401,7 @@
     auth.replyFeedback(row.userId, row.id, text).then(function () {
       row.status = 'replied';
       openReply = '';
+      replyDraft = null;
       renderRows();
     }, function (err) {
       if (send) send.disabled = !text;

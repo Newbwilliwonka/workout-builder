@@ -303,6 +303,18 @@ assert.ok(html.indexOf('id="feedback-open" hidden') !== -1);
     var pill = document.querySelector('[data-feedback="fb-new"] select');
     return box && box.value === 'Keep this draft' && document.getElementById('fb-reply') && pill && pill.value === 'fixed';
   });
+  await p.click('[data-feedback="fb-old"] [data-fb-reply]');
+  await p.waitForFunction(function () {
+    var box = document.getElementById('fb-reply-text');
+    var card = document.querySelector('[data-feedback="fb-old"]');
+    return box && box.value === '' && card && card.contains(box) && document.querySelector('.fb-to').textContent === 'To Sam Ortiz';
+  });
+  await p.click('[data-feedback="fb-new"] [data-fb-reply]');
+  await p.waitForFunction(function () {
+    var box = document.getElementById('fb-reply-text');
+    var card = document.querySelector('[data-feedback="fb-new"]');
+    return box && box.value === '' && card && card.contains(box);
+  });
   await p.evaluate(function () {
     var box = document.getElementById('fb-reply-text');
     box.value = '';
