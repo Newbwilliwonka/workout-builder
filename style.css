@@ -319,6 +319,21 @@ button.avatar{border:0;cursor:pointer}
 #invites .card.flat .mute{margin:2px 0 0}
 #invites .card.flat .actions{margin-top:8px;gap:6px}
 #profile-edit{display:inline;width:auto;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--pri);font-size:13px;font-weight:700;line-height:inherit;text-decoration:none;vertical-align:baseline;cursor:pointer}
+#client-info .client-k{display:block;margin:10px 0 4px;font-size:13px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--mute)}
+#client-info label{display:block;margin:10px 0 4px;font-size:13px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--mute)}
+#client-info .client-sex{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:10px}
+#client-info .client-sex .client-k{margin:0}
+#client-info .client-sex label{display:flex;align-items:center;gap:6px;margin:0;color:var(--ink);font-weight:600}
+#client-info .client-sex input{width:18px;height:18px;min-height:18px;flex:none}
+.client-measures{display:flex;align-items:center;gap:6px}
+.client-measures input{width:72px;flex:none}
+.client-measures span{color:var(--mute);font-size:13px;font-weight:700}
+#client-info .client-goal{display:flex;align-items:center;gap:8px;margin:6px 0;color:var(--ink);font-weight:600}
+.client-goal input{width:18px;height:18px;min-height:18px;flex:none}
+#client-info .client-read p{margin:0 0 2px;color:var(--ink);font-weight:600}
+#client-info-edit{display:inline;width:auto;min-height:0;margin:6px 0 0;padding:0;border:0;border-radius:0;background:transparent;color:var(--pri);font-size:13px;font-weight:700;line-height:inherit;cursor:pointer}
+#client-info-save{width:100%;margin-top:12px}
+#client-info .errs[hidden]{display:none}
 #account-signout,#header-signin{color:#d1d5db;font-size:14px;font-weight:600;text-decoration:none;padding:6px 0 6px 8px;white-space:nowrap;background:none;border:0;height:auto;min-height:0}
 #account-signout[hidden],#header-signin[hidden]{display:none !important}
 body:has(#profile-sheet) .bar{z-index:50}
