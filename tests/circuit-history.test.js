@@ -98,9 +98,8 @@ assert.strictEqual(H2.readQueue().length, 0);
 
 const sent = [];
 global.WBAuth = {
-  circuitSaveRun: function (row) {
-    sent.push(row.runId);
-    return Promise.resolve({ ok: true });
+  circuitSaveRun: function () {
+    return Promise.reject(new Error('Only a trainer can save a circuit.'));
   }
 };
 H.saveRecord({
@@ -116,6 +115,15 @@ H.saveRecord({
   assert.strictEqual(H.readQueue().length, 1);
   assert.strictEqual(H.readQueue()[0].userId, '');
   assert.strictEqual(H.readQueue()[0].payload.runId, 'run-held');
+  return H.flush('client-1');
+}).then(function () {
+  assert.strictEqual(H.readQueue().length, 1);
+  assert.strictEqual(H.readQueue()[0].userId, '');
+  assert.strictEqual(H.readQueue()[0].payload.runId, 'run-held');
+  global.WBAuth.circuitSaveRun = function (row) {
+    sent.push(row.runId);
+    return Promise.resolve({ ok: true });
+  };
   return H.flush('trainer-1');
 }).then(function () {
   assert.deepStrictEqual(sent, ['run-held']);

@@ -115,27 +115,31 @@
   function pendingCount() {
     return readQueue().length;
   }
-  function savePayload(userId, payload) {
+  function savePayload(userId, payload, opts) {
+    opts = opts || {};
     var auth = root.WBAuth;
+    var storedAs = opts.unowned ? '' : String(userId || '');
     if (!userId) {
       remember('', payload);
       return Promise.reject(new Error('Saved on this phone. It will send when you have a signal.'));
     }
     if (!auth || !auth.circuitSaveRun) {
-      remember(userId, payload);
+      remember(storedAs, payload);
       return Promise.reject(new Error('Saving a circuit is not available yet.'));
     }
     return Promise.resolve().then(function () { return auth.circuitSaveRun(payload); }).then(function () {
-      forget(userId, payload.runId);
+      forget(storedAs, payload.runId);
+      if (storedAs !== userId) forget(userId, payload.runId);
       return { ok: true };
     }, function (err) {
       err = err || new Error('Could not save the circuit.');
       if (permanentError(err)) {
         err.permanent = true;
-        forget(userId, payload.runId);
+        forget(storedAs, payload.runId);
+        if (storedAs !== userId) forget(userId, payload.runId);
         return Promise.reject(err);
       }
-      remember(userId, payload);
+      remember(storedAs, payload);
       return Promise.reject(err);
     });
   }
@@ -147,16 +151,16 @@
   function flush(userId) {
     var id = String(userId || '');
     if (!id) return Promise.resolve(readQueue());
-    var list = readQueue().map(function (row) {
-      if (row && row.payload && !row.userId) return { userId: id, payload: row.payload };
-      return row;
+    var pending = readQueue().filter(function (row) {
+      return row && row.payload && (row.userId === id || !row.userId);
     });
-    writeQueue(list);
-    var pending = list.filter(function (row) { return row && row.userId === id && row.payload; });
     if (!pending.length) return Promise.resolve([]);
     function step(i) {
       if (i >= pending.length) return Promise.resolve(readQueue());
-      return savePayload(id, pending[i].payload).then(function () { return step(i + 1); }, function () { return step(i + 1); });
+      var row = pending[i];
+      return savePayload(id, row.payload, { unowned: !row.userId }).then(function () {
+        return step(i + 1);
+      }, function () { return step(i + 1); });
     }
     return step(0);
   }
