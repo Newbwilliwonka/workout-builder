@@ -17,7 +17,10 @@ function badge(page, id) {
       label: el.getAttribute('aria-label'),
       color: style.color,
       background: style.backgroundColor,
-      fontSize: style.fontSize
+      fontSize: style.fontSize,
+      width: style.width,
+      height: style.height,
+      radius: style.borderRadius
     };
   }, id);
 }
@@ -106,9 +109,12 @@ function badge(page, id) {
   assert.strictEqual(hub.label, '1 new reply');
   assert.strictEqual(tracking.label, '3 new tracking items');
   [messages, hub, tracking].forEach(function (item) {
-    assert.strictEqual(item.color, 'rgb(255, 255, 255)');
-    assert.strictEqual(item.background, 'rgb(220, 38, 38)');
-    assert.notStrictEqual(item.fontSize, '0px');
+    assert.strictEqual(item.background, 'rgb(59, 130, 246)');
+    assert.strictEqual(item.color, 'rgba(0, 0, 0, 0)');
+    assert.strictEqual(item.fontSize, '0px');
+    assert.strictEqual(item.width, '8px');
+    assert.strictEqual(item.height, '8px');
+    assert.strictEqual(item.radius, '4px');
     assert.strictEqual(item.label.indexOf('@'), -1);
   });
 
