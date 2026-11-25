@@ -223,6 +223,16 @@ function birthdayIso() {
       pills: Array.prototype.map.call(el.querySelectorAll('.goal-pill'), function (n) { return n.textContent; }),
       rule: !!el.querySelector('.client-rule'),
       edit: (el.querySelector('#client-info-edit') || {}).textContent || '',
+      edits: el.querySelectorAll('#client-info-edit').length,
+      editInHead: !!(el.querySelector('.client-head') && el.querySelector('.client-head').contains(el.querySelector('#client-info-edit'))),
+      editBeside: (function () {
+        var link = el.querySelector('#client-info-edit');
+        var title = el.querySelector('.client-head .name');
+        if (!link || !title) return false;
+        var lr = link.getBoundingClientRect();
+        var tr = title.getBoundingClientRect();
+        return lr.left > tr.right && Math.abs(((lr.top + lr.bottom) / 2) - ((tr.top + tr.bottom) / 2)) < 6;
+      })(),
       title: styleOf(title),
       tile: styleOf(tile),
       label: styleOf(tile.querySelector('.client-stat-k')),
@@ -230,7 +240,9 @@ function birthdayIso() {
       pill: styleOf(pill),
       before: getComputedStyle(pill, '::before').content,
       border: getComputedStyle(pill).borderTopWidth + ' ' + getComputedStyle(pill).borderTopStyle,
-      editGap: getComputedStyle(el.querySelector('#client-info-edit')).marginTop
+      editGap: getComputedStyle(el.querySelector('#client-info-edit')).marginTop,
+      editColor: getComputedStyle(el.querySelector('#client-info-edit')).color,
+      editSize: getComputedStyle(el.querySelector('#client-info-edit')).fontSize
     };
   });
   assert.deepStrictEqual(saved.titles, ['About you', 'Goals']);
@@ -238,6 +250,11 @@ function birthdayIso() {
   assert.deepStrictEqual(saved.pills, ['Weight or fat loss', 'Athletic performance', 'Track a 10k']);
   assert.strictEqual(saved.rule, true);
   assert.strictEqual(saved.edit, 'Edit');
+  assert.strictEqual(saved.edits, 1);
+  assert.strictEqual(saved.editInHead, true);
+  assert.strictEqual(saved.editBeside, true);
+  assert.strictEqual(saved.editColor, 'rgb(37, 99, 235)');
+  assert.strictEqual(saved.editSize, '13px');
   assert.strictEqual(saved.title.size, '16px');
   assert.strictEqual(saved.title.weight, '700');
   assert.strictEqual(saved.tile.bg, 'rgb(243, 244, 246)');
@@ -250,7 +267,7 @@ function birthdayIso() {
   assert.strictEqual(saved.pill.weight, '600');
   assert.strictEqual(saved.before, 'none');
   assert.strictEqual(saved.border, '0px none');
-  assert.strictEqual(saved.editGap, '14px');
+  assert.strictEqual(saved.editGap, '0px');
 
   await page.click('#client-info-edit');
   await page.waitForSelector('#client-birthday');
@@ -268,10 +285,12 @@ function birthdayIso() {
       titles: Array.prototype.map.call(el.querySelectorAll('.name'), function (n) { return n.textContent; }),
       tiles: el.querySelectorAll('.client-stat').length,
       rule: !!el.querySelector('.client-rule'),
-      pills: el.querySelectorAll('.goal-pill').length
+      pills: el.querySelectorAll('.goal-pill').length,
+      editInHead: !!(el.querySelector('.client-head') && el.querySelector('.client-head .name') && el.querySelector('.client-head .name').textContent === 'Goals' && el.querySelector('.client-head').contains(el.querySelector('#client-info-edit')))
     };
   });
   assert.deepStrictEqual(goalsOnly.titles, ['Goals']);
+  assert.strictEqual(goalsOnly.editInHead, true);
   assert.strictEqual(goalsOnly.tiles, 0);
   assert.strictEqual(goalsOnly.rule, false);
   assert.strictEqual(goalsOnly.pills, 3);

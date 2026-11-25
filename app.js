@@ -3036,13 +3036,14 @@
     if (row && row.goals_other) pills += '<span class="goal-pill">' + esc(row.goals_other) + '</span>';
     else if (chosen.Other) pills += '<span class="goal-pill">Other</span>';
     if (!stats && !pills) return '';
+    var edit = showEdit ? '<button type="button" id="client-info-edit">Edit</button>' : '';
+    function head(title) { return '<div class="client-head"><div class="name">' + title + '</div>' + edit + '</div>'; }
     var h = '<div class="card" id="client-info">';
-    if (stats) h += '<div class="name">About you</div><div class="client-stats">' + stats + '</div>';
+    if (stats) h += head('About you') + '<div class="client-stats">' + stats + '</div>';
     if (pills) {
       if (stats) h += '<div class="client-rule" role="separator"></div>';
-      h += '<div class="name">Goals</div><div class="client-pills">' + pills + '</div>';
+      h += (stats ? '<div class="name">Goals</div>' : head('Goals')) + '<div class="client-pills">' + pills + '</div>';
     }
-    if (showEdit) h += '<button type="button" id="client-info-edit">Edit</button>';
     h += '</div>';
     return h;
   }
