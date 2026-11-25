@@ -142,6 +142,8 @@ async function openPage(browser, cfg) {
         };
         value.watchMessages = function () { return Promise.resolve(function () {}); };
         value.markRead = function () { return Promise.resolve(null); };
+        value.navBadges = function () { return Promise.resolve({ messages: 0, hub: 0, tracking: 0 }); };
+        value.navMarkSeen = function () { return Promise.resolve(null); };
         ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'shareSetting', 'programEntries', 'myDashboardLayout', 'saveDashboardLayout', 'resetDashboardLayout'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });

@@ -52,6 +52,7 @@ function badge(page, id) {
       api.trainerRequestCount = function () { return Promise.resolve(7); };
       api.signOut = function () { window.__signedIn = false; return Promise.resolve(); };
       api.navBadges = function () {
+        if (window.__badgeFail) return Promise.resolve(null);
         var snap = {
           messages: window.__counts.messages,
           hub: window.__counts.hub,
@@ -66,8 +67,16 @@ function badge(page, id) {
       };
       api.navMarkSeen = function (section) {
         window.__marks.push(section);
-        window.__counts[section] = 0;
-        return Promise.resolve('2026-11-25T04:00:00.000Z');
+        function done() {
+          window.__counts[section] = 0;
+          return '2026-11-25T04:00:00.000Z';
+        }
+        if (window.__markDelay) {
+          return new Promise(function (resolve) {
+            window.__releaseMark = function () { resolve(done()); };
+          });
+        }
+        return Promise.resolve(done());
       };
       api.threads = function () { return Promise.resolve({ role: 'client', threads: [], requests: [] }); };
       api.hubPosts = function () { return Promise.resolve([]); };
@@ -152,7 +161,57 @@ function badge(page, id) {
       && window.__marks.filter(function (item) { return item === 'tracking'; }).length >= 2;
   });
 
-  await page.evaluate(function () { window.__badgeDelay = true; window.__counts.messages = 9; location.hash = '#/account'; });
+  await page.evaluate(function () {
+    window.__badgeDelay = false;
+    window.__markDelay = false;
+    window.__badgeFail = false;
+    window.__counts = { messages: 5, hub: 0, tracking: 0 };
+    location.hash = '#/';
+  });
+  await page.waitForFunction(function () {
+    var el = document.querySelector('#messages-nav .request-count');
+    var home = location.hash === '' || location.hash === '#' || location.hash === '#/';
+    return home && el && el.textContent === '5';
+  });
+  await page.evaluate(function () {
+    window.__badgeDelay = true;
+    window.__markDelay = true;
+  });
+  await page.click('#messages-nav');
+  await page.waitForFunction(function () {
+    return location.hash.indexOf('#/messages') === 0 && !document.querySelector('#messages-nav .request-count');
+  });
+  await new Promise(function (r) { setTimeout(r, 400); });
+  assert.strictEqual(await page.$('#messages-nav .request-count'), null);
+  await page.evaluate(function () { if (window.__releaseMark) window.__releaseMark(); });
+  await new Promise(function (r) { setTimeout(r, 80); });
+  assert.strictEqual(await page.$('#messages-nav .request-count'), null);
+
+  await page.evaluate(function () {
+    window.__badgeDelay = false;
+    window.__markDelay = false;
+    window.__badgeFail = false;
+    window.__counts = { messages: 3, hub: 0, tracking: 0 };
+    location.hash = '#/';
+  });
+  await page.waitForFunction(function () {
+    var el = document.querySelector('#messages-nav .request-count');
+    return (location.hash === '' || location.hash === '#' || location.hash === '#/') && el && el.textContent === '3';
+  });
+  await page.evaluate(function () {
+    window.__badgeFail = true;
+    location.hash = '#/account';
+  });
+  await page.waitForFunction(function () { return location.hash.indexOf('#/account') === 0; });
+  await new Promise(function (r) { setTimeout(r, 80); });
+  assert.strictEqual(await page.$eval('#messages-nav .request-count', function (el) { return el.textContent; }), '3');
+
+  await page.evaluate(function () {
+    window.__badgeFail = false;
+    window.__badgeDelay = true;
+    window.__counts.messages = 9;
+    location.hash = '#/account';
+  });
   await page.waitForFunction(function () { return location.hash.indexOf('#/account') === 0; });
   await page.evaluate(function () { window.__signedIn = false; });
   await page.click('#account-signout');

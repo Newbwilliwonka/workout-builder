@@ -921,16 +921,14 @@
     threads: function () { return messageRpc('message_threads'); },
     navBadges: function () {
       return db().then(function (c) { return c.rpc('nav_badges'); }).then(function (res) {
-        if (!res || res.error) return { messages: 0, hub: 0, tracking: 0 };
-        var data = res.data || {};
+        if (!res || res.error || res.data == null || typeof res.data !== 'object') return null;
+        var data = res.data;
         return {
           messages: Math.max(0, Number(data.messages) || 0),
           hub: Math.max(0, Number(data.hub) || 0),
           tracking: Math.max(0, Number(data.tracking) || 0)
         };
-      }, function () {
-        return { messages: 0, hub: 0, tracking: 0 };
-      });
+      }, function () { return null; });
     },
     navMarkSeen: function (section) {
       if (section !== 'messages' && section !== 'hub' && section !== 'tracking') return Promise.resolve(null);

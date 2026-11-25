@@ -138,6 +138,8 @@ async function shot(page, name) {
         ['workoutCopies', 'accountPull', 'accountPush', 'accountImport', 'saveWorkoutCopy', 'deleteWorkoutCopy', 'freshSession', 'myConnection', 'shareSetting', 'myShares'].forEach(function (name) {
           value[name] = function () { return Promise.resolve(null); };
         });
+        value.navBadges = function () { return Promise.resolve({ messages: 0, hub: 0, tracking: 0 }); };
+        value.navMarkSeen = function () { return Promise.resolve(null); };
       }
     });
   }, {
@@ -448,6 +450,8 @@ async function shot(page, name) {
         value.myShares = function () { return Promise.resolve({ shares: [] }); };
         value.roster = function () { return Promise.resolve({ role: null, clients: [] }); };
         value.clientTracking = function () { return Promise.resolve({ sets: [], sessions: [], exercises: [] }); };
+        value.navBadges = function () { return Promise.resolve({ messages: 0, hub: 0, tracking: 0 }); };
+        value.navMarkSeen = function () { return Promise.resolve(null); };
       }
     });
   });

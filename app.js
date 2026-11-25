@@ -1596,6 +1596,7 @@
     Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
       forgetRequestBadges();
       clearNavBadges();
+      cachedProfile = null;
       clearClientInfo();
       goSign();
     }, function () {
@@ -1664,6 +1665,7 @@
     }).then(function (session) {
       return loadGateProfile().then(function (gate) {
         if (token !== routeToken || location.hash !== requested) return;
+        navGateReady = true;
         // Approval still blocks the app. Linking already ran above.
         if (!accessApproved(gate.profile, session)) return renderAccessWait();
         accessWaitOn = false;
@@ -2216,8 +2218,7 @@
     syncHeaderSignOut();
     paintReceivedDot();
     refreshRequestBadges();
-    noteNavSection();
-    refreshNavBadges();
+    if (!noteNavSection()) refreshNavBadges();
   }
   function signOutFromAccount() {
     var from = hashPage();
@@ -2700,7 +2701,10 @@
           if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'subscriptions') return;
-        if (profile) cachedProfile = profile;
+        if (profile) {
+          cachedProfile = profile;
+          navGateReady = true;
+        }
         if (!accessApproved(profile, session)) return renderAccessWait();
         var shown = profile || cachedProfile;
         if (clientNeedsName(shown)) return go('#/account');
@@ -3215,9 +3219,12 @@
   }
   var navBadgeGen = 0;
   var navWriteGen = 0;
+  var navSeenSeq = 0;
+  var navGateReady = false;
   var navSection = '';
   var navBadgeUser = '';
   var navCounts = { messages: 0, hub: 0, tracking: 0 };
+  var navSeenFlight = { messages: 0, hub: 0, tracking: 0 };
   function navSectionOf(page) {
     if (page === 'messages') return 'messages';
     if (page === 'hub') return 'hub';
@@ -3254,26 +3261,49 @@
   function clearNavBadges() {
     navWriteGen++;
     navBadgeGen++;
+    navSeenSeq++;
+    navGateReady = false;
     navSection = '';
     navBadgeUser = '';
+    navSeenFlight = { messages: 0, hub: 0, tracking: 0 };
     paintNavBadges({ messages: 0, hub: 0, tracking: 0 });
   }
+  function countsWithHold(counts, started) {
+    var out = {
+      messages: Math.max(0, Number(counts && counts.messages) || 0),
+      hub: Math.max(0, Number(counts && counts.hub) || 0),
+      tracking: Math.max(0, Number(counts && counts.tracking) || 0)
+    };
+    if (started.messages || navSeenFlight.messages) out.messages = 0;
+    if (started.hub || navSeenFlight.hub) out.hub = 0;
+    if (started.tracking || navSeenFlight.tracking) out.tracking = 0;
+    return out;
+  }
   function refreshNavBadges() {
+    if (!navGateReady || !signedInNow) return;
     var user = (cachedProfile && cachedProfile.id) || '';
     if (user !== navBadgeUser) {
       var switched = !!navBadgeUser && user !== navBadgeUser;
       navBadgeUser = user;
       if (switched) {
         navSection = '';
+        navSeenFlight = { messages: 0, hub: 0, tracking: 0 };
         paintNavBadges({ messages: 0, hub: 0, tracking: 0 });
       }
     }
     var write = navWriteGen;
+    var seq = navSeenSeq;
+    var started = {
+      messages: navSeenFlight.messages,
+      hub: navSeenFlight.hub,
+      tracking: navSeenFlight.tracking
+    };
     var gen = ++navBadgeGen;
-    if (!signedInNow || !window.WBAuth || !WBAuth.navBadges) return;
+    if (!window.WBAuth || !WBAuth.navBadges) return;
     Promise.resolve().then(function () { return WBAuth.navBadges(); }).then(function (counts) {
-      if (gen !== navBadgeGen || write !== navWriteGen) return;
-      paintNavBadges(counts);
+      if (gen !== navBadgeGen || write !== navWriteGen || seq !== navSeenSeq) return;
+      if (counts == null) return;
+      paintNavBadges(countsWithHold(counts, started));
     }, function () {});
   }
   function markNavSeen(section) {
@@ -3281,22 +3311,31 @@
     if (section !== 'messages' && section !== 'hub' && section !== 'tracking') return;
     var write = ++navWriteGen;
     navBadgeGen++;
+    navSeenFlight[section] += 1;
     navCounts[section] = 0;
     paintNavBadges(navCounts);
-    if (!window.WBAuth || !WBAuth.navMarkSeen) return;
-    Promise.resolve().then(function () { return WBAuth.navMarkSeen(section); }).then(function () {
+    function finishMark() {
+      navSeenFlight[section] = Math.max(0, navSeenFlight[section] - 1);
+      navSeenSeq++;
       if (write !== navWriteGen) return;
       refreshNavBadges();
-    }, function () {});
+    }
+    if (!window.WBAuth || !WBAuth.navMarkSeen) return finishMark();
+    Promise.resolve().then(function () { return WBAuth.navMarkSeen(section); }).then(finishMark, finishMark);
   }
   function noteNavSection() {
     if (!signedInNow) {
       navSection = '';
-      return;
+      return false;
     }
     var section = navSectionOf(hashPage());
-    if (section && section !== navSection) markNavSeen(section);
+    if (section && section !== navSection) {
+      navSection = section;
+      markNavSeen(section);
+      return true;
+    }
     navSection = section;
+    return false;
   }
   var badgeGen = 0;
   function forgetRequestBadges() {
@@ -4032,6 +4071,7 @@
     });
   }
   function route() {
+    navGateReady = false;
     if (hashPage() !== 'account') {
       clientInfoEditing = false;
       clientInfoDirty = false;
