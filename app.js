@@ -1594,6 +1594,7 @@
     recoverySettled = false;
     renderReset();
     Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
+      if (window.WBCircuitHistory) WBCircuitHistory.clearQueue();
       forgetRequestBadges();
       clearNavBadges();
       cachedProfile = null;
@@ -1684,6 +1685,7 @@
         syncHeaderSignOut();
         levelNoteOn = false;
         noteNavSection();
+        if (window.WBCircuitHistory && session && session.user) WBCircuitHistory.flush(session.user.id);
         if (programsRequested()) return openPrograms();
         if (page === 'tracking') return renderTracking(token);
         if (page === 'history') return renderHistory(token);
@@ -2223,6 +2225,7 @@
   function signOutFromAccount() {
     var from = hashPage();
     WBAuth.signOut().then(function () {
+      if (window.WBCircuitHistory) WBCircuitHistory.clearQueue();
       forgetRequestBadges();
       clearNavBadges();
       cachedProfile = null;
@@ -2786,6 +2789,7 @@
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
         return WBAuth.signOut().then(function () {
+          if (window.WBCircuitHistory) WBCircuitHistory.clearQueue();
           forgetRequestBadges();
           clearNavBadges();
           cachedProfile = null;
@@ -4676,7 +4680,7 @@
   function paintClientEditor() {
     if (!window.WBDashboard || !trainerModel) return;
     var self = !editorClient;
-    var order = dashboardEditing && Array.isArray(editDraft) ? editDraft : trainerOrder;
+    var order = visibleOrder();
     var editor = WBDashboard.editorHtml(trainerModel, order, {
       self: self,
       share: !self && receivesShares(clientRecord(editorClient)),
@@ -4738,7 +4742,9 @@
   }
   function visibleOrder() {
     var source = dashboardEditing && Array.isArray(editDraft) ? editDraft : (trainerOrder || []);
-    return window.WBShares ? WBShares.orderOf(source) : source.slice();
+    var order = window.WBShares ? WBShares.orderOf(source) : source.slice();
+    if (order.indexOf('circuit') < 0) order.push('circuit');
+    return order;
   }
   function beginEdit() {
     if (dashboardEditing || !trainerModel) return;
@@ -6475,7 +6481,15 @@
     if (e.key !== M.STORAGE_KEY && e.key !== WBLibrary.DROP_KEY) return;
     adoptSiblingSave();
   });
-  window.addEventListener('online', function () { ensureShare(); libraryOff = false; scheduleAccountSync(); });
+  window.addEventListener('online', function () {
+    ensureShare();
+    libraryOff = false;
+    scheduleAccountSync();
+    if (!window.WBCircuitHistory || !WBAuth.session) return;
+    WBAuth.session().then(function (session) {
+      if (session && session.user) WBCircuitHistory.flush(session.user.id);
+    }, function () {});
+  });
   window.addEventListener('offline', function () {
     if ((!libraryUserId && !libraryOwner()) || libraryOff) return;
     setLibraryStatus('offline', '');

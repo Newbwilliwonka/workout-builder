@@ -30,14 +30,6 @@ begin
   if tg_op = 'DELETE' then
     raise exception 'Exercise history is kept.';
   end if;
-  if private.tracking_circuit_write()
-     and (new.user_id = auth.uid() or private.tracking_trainer_of(new.user_id)) then
-    if tg_op = 'UPDATE' then new.updated_at := now(); end if;
-    return new;
-  end if;
-  if new.user_id is distinct from auth.uid() then
-    raise exception 'That exercise belongs to someone else.';
-  end if;
   if tg_op = 'UPDATE' then
     if new.id is distinct from old.id
        or new.user_id is distinct from old.user_id
@@ -45,6 +37,13 @@ begin
       raise exception 'That exercise cannot be reassigned.';
     end if;
     new.updated_at := now();
+  end if;
+  if private.tracking_circuit_write()
+     and (new.user_id = auth.uid() or private.tracking_trainer_of(new.user_id)) then
+    return new;
+  end if;
+  if new.user_id is distinct from auth.uid() then
+    raise exception 'That exercise belongs to someone else.';
   end if;
   return new;
 end;
@@ -278,10 +277,11 @@ declare
   seen uuid[] := '{}';
   manual jsonb := '[]'::jsonb;
   inserted uuid;
-  session_id uuid;
+  saved_id uuid;
   library text;
   personal uuid;
   step_no int;
+  set_at int;
   station_name text;
   station_id text;
   work_actual numeric;
@@ -289,9 +289,11 @@ begin
   if uid is null then raise exception 'Sign in first.'; end if;
   select * into me from public.profiles where id = uid;
   if not found then raise exception 'Sign in first.'; end if;
-  if me.membership not in ('trainer', 'master_trainer')
-     and coalesce(me.intended_plan, '') not in ('trainer', 'master_trainer') then
+  if me.membership not in ('trainer', 'master_trainer') then
     raise exception 'Only a trainer can save a circuit.';
+  end if;
+  if p_run is null or octet_length(p_run::text) > 200000 then
+    raise exception 'That circuit could not be saved.';
   end if;
   if jsonb_typeof(p_run) is distinct from 'object' then
     raise exception 'That circuit could not be saved.';
@@ -310,24 +312,72 @@ begin
   exception when others then
     raise exception 'That circuit could not be saved.';
   end;
-  if started is null or ended is null or ended < started then
+  if started is null or ended is null or ended < started
+     or started < now() - interval '7 days'
+     or started > now() + interval '5 minutes'
+     or ended > started + interval '6 hours' then
     raise exception 'That circuit could not be saved.';
   end if;
   zone := btrim(coalesce(p_run->>'timeZone', 'UTC'));
   if zone = '' or char_length(zone) > 64 then zone := 'UTC'; end if;
-  work_sec := greatest(0, coalesce((p_run->>'workSec')::numeric, 0));
-  move_sec := greatest(0, coalesce((p_run->>'moveSec')::numeric, 0));
-  if jsonb_typeof(p_run->'people') is distinct from 'array' then
+  begin
+    work_sec := coalesce((p_run->>'workSec')::numeric, 0);
+    move_sec := coalesce((p_run->>'moveSec')::numeric, 0);
+  exception when others then
+    raise exception 'That circuit could not be saved.';
+  end;
+  if work_sec is null or work_sec <> work_sec or work_sec < 0 or work_sec > 86400
+     or move_sec is null or move_sec <> move_sec or move_sec < 0 or move_sec > 86400 then
+    raise exception 'That circuit could not be saved.';
+  end if;
+  if jsonb_typeof(p_run->'people') is distinct from 'array'
+     or jsonb_typeof(p_run->'stations') is distinct from 'array' then
+    raise exception 'That circuit could not be saved.';
+  end if;
+  if jsonb_array_length(p_run->'stations') > 40 or jsonb_array_length(p_run->'people') > 60 then
     raise exception 'That circuit could not be saved.';
   end if;
 
   for person in select value from jsonb_array_elements(p_run->'people')
   loop
     if btrim(coalesce(person->>'clientId', '')) = '' then
-      manual := manual || jsonb_build_array(jsonb_build_object(
-        'name', case when position('@' in coalesce(person->>'name', '')) > 0 or btrim(coalesce(person->>'name', '')) = '' then 'Client' else left(person->>'name', 80) end,
-        'rounds', coalesce(person->'rounds', '[]'::jsonb)
-      ));
+      if position('@' in coalesce(person->>'name', '')) > 0 then
+        continue;
+      end if;
+      if jsonb_typeof(person->'rounds') = 'array' and jsonb_array_length(person->'rounds') > 100 then
+        raise exception 'That circuit could not be saved.';
+      end if;
+      declare
+        guest_name text := left(btrim(coalesce(person->>'name', '')), 80);
+        guest_rounds jsonb := '[]'::jsonb;
+        guest_round jsonb;
+        guest_work numeric;
+        guest_station text;
+      begin
+        if guest_name = '' then guest_name := 'Client'; end if;
+        if jsonb_typeof(person->'rounds') = 'array' then
+          for guest_round in select value from jsonb_array_elements(person->'rounds')
+          loop
+            guest_station := left(regexp_replace(btrim(coalesce(guest_round->>'stationId', '')), '[^A-Za-z0-9_-]', '', 'g'), 40);
+            begin
+              guest_work := trunc((guest_round->>'workSec')::numeric);
+            exception when others then
+              raise exception 'That circuit could not be saved.';
+            end;
+            if guest_station = '' or guest_work is null or guest_work <> guest_work or guest_work < 1 or guest_work > 3600 then
+              raise exception 'That circuit could not be saved.';
+            end if;
+            if not exists (
+              select 1 from jsonb_array_elements(p_run->'stations') s
+              where left(regexp_replace(btrim(coalesce(s->>'id', '')), '[^A-Za-z0-9_-]', '', 'g'), 40) = guest_station
+            ) then
+              raise exception 'That circuit could not be saved.';
+            end if;
+            guest_rounds := guest_rounds || jsonb_build_array(jsonb_build_object('stationId', guest_station, 'workSec', guest_work));
+          end loop;
+        end if;
+        manual := manual || jsonb_build_array(jsonb_build_object('name', guest_name, 'rounds', guest_rounds));
+      end;
     else
       begin
         linked_id := (person->>'clientId')::uuid;
@@ -364,9 +414,9 @@ begin
     (started at time zone zone)::date, st
   )
   on conflict (client_id, local_id) do nothing
-  returning id into session_id;
+  returning id into saved_id;
 
-  if session_id is not null and jsonb_typeof(p_run->'stations') = 'array' then
+  if saved_id is not null and jsonb_typeof(p_run->'stations') = 'array' then
     step_no := 0;
     for station in select value from jsonb_array_elements(p_run->'stations')
     loop
@@ -379,18 +429,19 @@ begin
       personal := null;
       if library = '' and station_id <> '' then
         insert into public.personal_exercises (user_id, stable_key, name)
-        values (uid, left('c' || station_id, 80), left(station_name, 200))
-        on conflict (user_id, stable_key) do update set name = excluded.name
-        returning id into personal;
+        values (uid, left('circuit-' || station_id, 80), left(station_name, 200))
+        on conflict (user_id, stable_key) do nothing;
+        select p.id into personal from public.personal_exercises p
+        where p.user_id = uid and p.stable_key = left('circuit-' || station_id, 80);
       end if;
       if library = '' and personal is null then continue; end if;
       insert into public.workout_sets (
-        session_id, client_id, step, library_exercise_id, personal_exercise_id, exercise_name,
+        session_id, client_id, step, library_exercise_id, personal_exercise_id, exercise_name, group_tag,
         mode, set_number, status, logged_by, logged_by_role, display_unit,
         planned_work_sec, actual_work_sec, planned_rest_sec, actual_rest_sec
       ) values (
-        session_id, uid, step_no, nullif(library, ''), personal, left(station_name, 200),
-        'timer', step_no, 'completed', uid, 'trainer', 'bodyweight',
+        saved_id, uid, step_no, nullif(library, ''), personal, left(station_name, 200), nullif(station_id, ''),
+        'timer', 1, 'completed', uid, 'trainer', 'bodyweight',
         work_sec, work_sec, move_sec, move_sec
       );
     end loop;
@@ -399,8 +450,17 @@ begin
   for person in select value from jsonb_array_elements(p_run->'people')
   loop
     if btrim(coalesce(person->>'clientId', '')) = '' then continue; end if;
+    if jsonb_typeof(person->'rounds') is distinct from 'array' then continue; end if;
+    if not exists (
+      select 1
+      from jsonb_array_elements(person->'rounds') r
+      where coalesce(r->>'benched', '') is distinct from 'true'
+        and coalesce((r->>'workSec')::numeric, 0) > 0
+    ) then
+      continue;
+    end if;
     linked_id := (person->>'clientId')::uuid;
-    session_id := null;
+    saved_id := null;
     insert into public.workout_sessions (
       client_id, local_id, workout_id, workout_name, origin, started_at, ended_at, time_zone, local_date, status
     ) values (
@@ -408,14 +468,21 @@ begin
       (started at time zone zone)::date, st
     )
     on conflict (client_id, local_id) do nothing
-    returning id into session_id;
-    if session_id is null or jsonb_typeof(person->'rounds') is distinct from 'array' then continue; end if;
+    returning id into saved_id;
+    if saved_id is null or jsonb_typeof(person->'rounds') is distinct from 'array' then continue; end if;
     step_no := 0;
     for round in select value from jsonb_array_elements(person->'rounds')
     loop
       if coalesce(round->>'benched', '') = 'true' then continue; end if;
       station_id := left(regexp_replace(btrim(coalesce(round->>'stationId', '')), '[^A-Za-z0-9_-]', '', 'g'), 40);
-      work_actual := greatest(0, coalesce((round->>'workSec')::numeric, work_sec));
+      begin
+        work_actual := trunc((round->>'workSec')::numeric);
+      exception when others then
+        raise exception 'That circuit could not be saved.';
+      end;
+      if work_actual is null or work_actual <> work_actual or work_actual < 1 or work_actual > 3600 then
+        raise exception 'That circuit could not be saved.';
+      end if;
       select value into station
       from jsonb_array_elements(coalesce(p_run->'stations', '[]'::jsonb)) value
       where left(regexp_replace(btrim(coalesce(value->>'id', '')), '[^A-Za-z0-9_-]', '', 'g'), 40) = station_id
@@ -428,20 +495,29 @@ begin
       personal := null;
       if library = '' and station_id <> '' then
         insert into public.personal_exercises (user_id, stable_key, name)
-        values (linked_id, left('c' || station_id, 80), left(station_name, 200))
-        on conflict (user_id, stable_key) do update set name = excluded.name
-        returning id into personal;
+        values (linked_id, left('circuit-' || station_id, 80), left(station_name, 200))
+        on conflict (user_id, stable_key) do nothing;
+        select p.id into personal from public.personal_exercises p
+        where p.user_id = linked_id and p.stable_key = left('circuit-' || station_id, 80);
       end if;
       if library = '' and personal is null then continue; end if;
+      if jsonb_array_length(person->'rounds') > 100 then
+        raise exception 'That circuit could not be saved.';
+      end if;
+      select coalesce(max(ws.set_number), 0) + 1 into set_at
+      from public.workout_sets ws
+      where ws.session_id = saved_id and ws.group_tag = station_id;
       step_no := step_no + 1;
       insert into public.workout_sets (
-        session_id, client_id, step, library_exercise_id, personal_exercise_id, exercise_name,
+        session_id, client_id, step, library_exercise_id, personal_exercise_id, exercise_name, group_tag,
         mode, set_number, status, logged_by, logged_by_role, display_unit,
         planned_work_sec, actual_work_sec, planned_rest_sec, actual_rest_sec
       ) values (
-        session_id, linked_id, step_no, nullif(library, ''), personal, left(station_name, 200),
-        'timer', step_no, 'completed', uid, 'trainer', 'bodyweight',
-        work_sec, work_actual, move_sec, move_sec
+        saved_id, linked_id, step_no, nullif(library, ''), personal, left(station_name, 200), nullif(station_id, ''),
+        'timer', set_at, 'completed', uid, 'trainer', 'bodyweight',
+        work_actual, work_actual,
+        case when work_actual >= work_sec then move_sec else 0 end,
+        case when work_actual >= work_sec then move_sec else 0 end
       );
     end loop;
   end loop;

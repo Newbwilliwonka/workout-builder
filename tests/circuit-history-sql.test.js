@@ -140,6 +140,26 @@ begin
   end if;
 end $$;
 
+select public.circuit_save_run($json$${JSON.stringify({
+  runId: 'run_idle_01',
+  name: 'Idle class',
+  circuitId: 'circ1',
+  status: 'completed',
+  startedAt: '2026-11-21T15:00:00Z',
+  endedAt: '2026-11-21T15:20:00Z',
+  timeZone: 'UTC',
+  workSec: 40,
+  moveSec: 15,
+  stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+  people: [{ clientId: C, name: 'Ada', rounds: [] }]
+})}$json$::jsonb);
+do $$
+begin
+  if exists (select 1 from public.workout_sessions where client_id = '${C}' and local_id = 'run_idle_01') then
+    raise exception 'a client with no rounds got a session';
+  end if;
+end $$;
+
 do $$
 begin
   begin
@@ -163,6 +183,89 @@ begin
   if exists (select 1 from public.circuit_runs where run_id = 'run_unlinked') then
     raise exception 'unlinked run was stored';
   end if;
+end $$;
+
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+update public.profiles set membership = 'none', intended_plan = 'trainer' where id = '${T}';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${T}', false);
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_intended',
+      name: 'Nope',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-24T15:00:00Z',
+      endedAt: '2026-11-24T15:10:00Z',
+      timeZone: 'UTC',
+      workSec: 40,
+      moveSec: 15,
+      stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+      people: []
+    })}$json$::jsonb);
+    raise exception 'intended plan saved a circuit';
+  exception when others then
+    if SQLERRM like '%intended plan saved%' then raise; end if;
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+update public.profiles set membership = 'trainer', intended_plan = null where id = '${T}';
+update public.personal_exercises set name = 'Original row'
+where user_id = '${C}' and stable_key = 'circuit-st_row';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${T}', false);
+select public.circuit_save_run($json$${JSON.stringify({
+  runId: 'run_name_01',
+  name: 'Name lock',
+  circuitId: 'circ1',
+  status: 'completed',
+  startedAt: '2026-11-24T15:00:00Z',
+  endedAt: '2026-11-24T15:12:00Z',
+  timeZone: 'UTC',
+  workSec: 40,
+  moveSec: 15,
+  stations: [{ id: 'st_row', name: 'Renamed row', libraryId: '' }],
+  people: [{ clientId: C, name: 'Ada', rounds: [{ stationId: 'st_row', workSec: 20 }, { stationId: 'st_row', workSec: 20 }] }]
+})}$json$::jsonb);
+do $$
+begin
+  if (select name from public.personal_exercises where user_id = '${C}' and stable_key = 'circuit-st_row') <> 'Original row' then
+    raise exception 'circuit save renamed a custom exercise';
+  end if;
+  if (select count(*) from public.workout_sets ws
+      join public.workout_sessions s on s.id = ws.session_id
+      where s.client_id = '${C}' and s.local_id = 'run_name_01' and ws.group_tag = 'st_row' and ws.set_number = 1) <> 1
+     or (select count(*) from public.workout_sets ws
+      join public.workout_sessions s on s.id = ws.session_id
+      where s.client_id = '${C}' and s.local_id = 'run_name_01' and ws.group_tag = 'st_row' and ws.set_number = 2) <> 1 then
+    raise exception 'sets were not numbered per station';
+  end if;
+end $$;
+
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_bad_num',
+      name: 'Bad',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-24T15:00:00Z',
+      endedAt: '2026-11-24T15:10:00Z',
+      timeZone: 'UTC',
+      workSec: 'NaN',
+      moveSec: 15,
+      stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+      people: []
+    })}$json$::jsonb);
+    raise exception 'bad number was saved';
+  exception when others then
+    if SQLERRM like '%bad number was saved%' then raise; end if;
+  end;
 end $$;
 
 select set_config('request.jwt.claim.sub', '${C}', false);

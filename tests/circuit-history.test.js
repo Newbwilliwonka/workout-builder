@@ -60,12 +60,34 @@ const model = Dash.build({
 });
 assert.ok(model.circuit);
 assert.strictEqual(model.circuit.sessions, 1);
-assert.strictEqual(model.circuit.minutes, 18);
+assert.strictEqual(model.circuit.seconds, 40);
 const card = Dash.html(model);
 assert.ok(card.indexOf('id="dashboard-circuit"') !== -1);
-assert.ok(card.indexOf('18 min') !== -1);
+assert.ok(card.indexOf('0:40') !== -1);
+assert.ok(card.indexOf('Latest session') !== -1);
+assert.ok(card.indexOf('dashboard-circuit-legend') !== -1);
 assert.ok(card.indexOf('Squat') !== -1);
 assert.ok(card.indexOf('Strength and Capacity') !== -1);
+const frozen = Dash.freeze(model, Dash.STANDARD, { asOf: '2026-11-25', trainerName: 'Coach Lee' });
+assert.ok(frozen.cards.some(function (item) { return item.type === 'circuit' && item.circuit.seconds === 40; }));
+const trainer = Dash.editorHtml(model, Dash.STANDARD, { self: true });
+assert.ok(trainer.indexOf('id="dashboard-circuit"') !== -1);
 assert.strictEqual(Dash.build({ now: new Date('2026-11-25T12:00:00Z'), sessions: [], sets: [] }).empty, true);
+
+const store = {};
+global.localStorage = {
+  getItem: function (key) { return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null; },
+  setItem: function (key, value) { store[key] = String(value); }
+};
+const H2 = require('../circuit-history.js');
+H2.remember('trainer-1', { runId: 'run-a', name: 'Friday circuit' });
+H2.remember('trainer-2', { runId: 'run-b', name: 'Other' });
+assert.strictEqual(H2.readQueue().length, 2);
+assert.strictEqual(H2.permanentError(new Error('Choose a linked client.')), true);
+assert.strictEqual(H2.permanentError(new Error('Failed to fetch')), false);
+H2.forget('trainer-1', 'run-a');
+assert.strictEqual(H2.readQueue().length, 1);
+H2.clearQueue();
+assert.strictEqual(H2.readQueue().length, 0);
 
 console.log('CIRCUIT HISTORY UNIT OK');

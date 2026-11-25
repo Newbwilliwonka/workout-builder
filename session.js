@@ -533,7 +533,7 @@
     });
     var started = done.startedAt ? new Date(done.startedAt).toISOString() : new Date().toISOString();
     var ended = done.endedAt ? new Date(done.endedAt).toISOString() : new Date().toISOString();
-    WBCircuitHistory.saveRecord({
+    var body = {
       name: doc && doc.name,
       circuitId: doc && doc.id,
       startedAt: started,
@@ -541,7 +541,18 @@
       clock: done.clock,
       stations: stations,
       people: done.people
-    }, status).then(function () {}, function () {});
+    };
+    var who = root.WBAuth && root.WBAuth.session ? Promise.resolve().then(function () { return WBAuth.session(); }) : Promise.resolve(null);
+    who.then(function (session) {
+      var id = session && session.user && session.user.id || '';
+      return WBCircuitHistory.saveRecord(body, status, id);
+    }, function () {
+      return WBCircuitHistory.saveRecord(body, status, '');
+    }).then(function () {}, function (err) {
+      if (!ctx || !ctx.toast) return;
+      if (err && err.permanent) ctx.toast((err && err.message) || 'That circuit could not be saved.');
+      else ctx.toast('Saved on this phone. It will send when you have a signal.');
+    });
   }
   function onEnd() {
     if (mode !== 'live' || !state) return;
@@ -836,7 +847,11 @@
     var parts = hashParts();
     if (parts[0] !== 'circuits' || !parts[1] || (parts[2] !== 'run' && parts[2] !== 'view')) return showError('That circuit was not found.');
     tracking = parts[2] !== 'view';
-    if (root.WBCircuitHistory) WBCircuitHistory.flush();
+    if (root.WBCircuitHistory && root.WBAuth && root.WBAuth.session) {
+      Promise.resolve().then(function () { return WBAuth.session(); }).then(function (session) {
+        if (session && session.user) WBCircuitHistory.flush(session.user.id);
+      }, function () {});
+    }
     load(parts[1]);
   }
   function stop() {

@@ -537,9 +537,10 @@ const editorHtml = D.editorHtml({ strength: stored.cards[0].strength, workouts: 
 assert.deepStrictEqual(fillWidths(editorHtml), ['50', '100', '100']);
 assert.ok(editorHtml.indexOf('>15% · Alien<') >= 0);
 
-assert.deepStrictEqual(D.STANDARD, ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds']);
-assert.deepStrictEqual(D.CARDS, ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass']);
-assert.strictEqual(D.CARDS.length, 9);
+assert.deepStrictEqual(D.STANDARD, ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds', 'circuit']);
+assert.deepStrictEqual(D.CARDS, ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass', 'circuit']);
+assert.strictEqual(D.CARDS.length, 10);
+assert.strictEqual(D.CARD_LABEL.circuit, 'Circuit');
 ['records', 'stopwatch', 'pass'].forEach(function (id) {
   assert.ok(D.CARDS.indexOf(id) >= 0);
   assert.ok(D.STANDARD.indexOf(id) < 0);

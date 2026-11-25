@@ -91,37 +91,61 @@
   function writeQueue(list) {
     try { root.localStorage.setItem(QUEUE, JSON.stringify(list || [])); } catch (e) {}
   }
-  function remember(payload) {
-    var list = readQueue().filter(function (row) { return row && row.runId !== payload.runId; });
-    list.push(payload);
+  function permanentError(err) {
+    var msg = String((err && err.message) || '');
+    return /only a trainer|choose a linked client|could not be saved|sign in first|not available yet/i.test(msg);
+  }
+  function remember(userId, payload) {
+    var id = String(userId || '');
+    var list = readQueue().filter(function (row) {
+      return !(row && row.userId === id && row.payload && row.payload.runId === payload.runId);
+    });
+    list.push({ userId: id, payload: payload });
     writeQueue(list);
   }
-  function forget(runId) {
-    writeQueue(readQueue().filter(function (row) { return row && row.runId !== runId; }));
+  function forget(userId, runId) {
+    var id = String(userId || '');
+    writeQueue(readQueue().filter(function (row) {
+      return !(row && row.userId === id && row.payload && row.payload.runId === runId);
+    }));
   }
-  function savePayload(payload) {
+  function clearQueue() {
+    writeQueue([]);
+  }
+  function savePayload(userId, payload) {
     var auth = root.WBAuth;
-    if (!auth || !auth.circuitSaveRun) return Promise.reject(new Error('Saving a circuit is not available yet.'));
+    if (!auth || !auth.circuitSaveRun) {
+      var missing = new Error('Saving a circuit is not available yet.');
+      missing.permanent = true;
+      forget(userId, payload.runId);
+      return Promise.reject(missing);
+    }
     return Promise.resolve().then(function () { return auth.circuitSaveRun(payload); }).then(function () {
-      forget(payload.runId);
+      forget(userId, payload.runId);
       return { ok: true };
     }, function (err) {
-      remember(payload);
-      return Promise.reject(err || new Error('Could not save the circuit.'));
+      err = err || new Error('Could not save the circuit.');
+      if (permanentError(err)) {
+        err.permanent = true;
+        forget(userId, payload.runId);
+        return Promise.reject(err);
+      }
+      remember(userId, payload);
+      return Promise.reject(err);
     });
   }
-  function saveRecord(record, status) {
+  function saveRecord(record, status, userId) {
     var payload = payloadFromRecord(record, status);
     if (record && record.runId) payload.runId = safeId(record.runId) || payload.runId;
-    return savePayload(payload);
+    return savePayload(userId || '', payload);
   }
-  function flush() {
-    var list = readQueue();
-    if (!list.length) return Promise.resolve([]);
-    var pending = list.slice();
+  function flush(userId) {
+    var id = String(userId || '');
+    var pending = readQueue().filter(function (row) { return row && row.userId === id && row.payload; });
+    if (!pending.length) return Promise.resolve([]);
     function step(i) {
       if (i >= pending.length) return Promise.resolve(readQueue());
-      return savePayload(pending[i]).then(function () { return step(i + 1); }, function () { return step(i + 1); });
+      return savePayload(id, pending[i].payload).then(function () { return step(i + 1); }, function () { return step(i + 1); });
     }
     return step(0);
   }
@@ -130,8 +154,10 @@
     payloadFromRecord: payloadFromRecord,
     safeName: safeName,
     readQueue: readQueue,
+    permanentError: permanentError,
     remember: remember,
     forget: forget,
+    clearQueue: clearQueue,
     saveRecord: saveRecord,
     flush: flush
   };

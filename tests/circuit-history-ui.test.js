@@ -42,7 +42,7 @@ const CHROME = process.env.CHROME || (fs.existsSync('/usr/bin/google-chrome') ? 
     app.style.display = 'block';
     app.innerHTML =
       '<div id="history-shot">' + WBHistory.sessionHtml(view) + '</div>' +
-      '<div id="dash-shot">' + WBDashboard.html(model) + '</div>';
+      '<div id="dash-shot">' + WBDashboard.editorHtml(model, WBDashboard.STANDARD, { self: true }) + '</div>';
   });
   const text = await page.$eval('#history-shot', function (el) { return el.innerText; });
   assert.ok(text.indexOf('Group circuit') !== -1);
@@ -50,7 +50,8 @@ const CHROME = process.env.CHROME || (fs.existsSync('/usr/bin/google-chrome') ? 
   assert.ok(text.indexOf(' rest') === -1);
   const dashText = await page.$eval('#dashboard-circuit', function (el) { return el.innerText; });
   assert.ok(/circuit/i.test(dashText));
-  assert.ok(dashText.indexOf('min') !== -1);
+  assert.ok(dashText.indexOf('0:40') !== -1);
+  assert.ok(dashText.indexOf('Latest session') !== -1);
   await (await page.$('#history-shot')).screenshot({ path: path.join(OUT, 'history-circuit-card.png') });
   await (await page.$('#dashboard-circuit')).screenshot({ path: path.join(OUT, 'dashboard-circuit-card.png') });
   await browser.close();
