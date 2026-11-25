@@ -2626,8 +2626,8 @@
       showErr((err && err.message) || 'Could not save your profile.');
     });
   }
-  // One path per feature photo, in page order. Text cards between them have
-  // no image. A missing file keeps the neutral 16:9 frame.
+  // One path per feature photo, in page order. A missing file keeps the
+  // neutral 16:9 frame.
   var LANDING_SHOTS = [
     'assets/landing/team-drills.jpg',
     'assets/landing/team-gym.jpg'

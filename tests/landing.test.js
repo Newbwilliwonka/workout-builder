@@ -11,18 +11,18 @@ const Mem = require('../membership.js');
 
 const TITLE = 'Coach Trainer App | Build, Run, and Track Client Training';
 const DESCRIPTION = 'Coach Trainer App helps trainers create team drills, run gym circuits, build personal training sessions, schedule programs, and track client progress live.';
-const FEATURES = [
+const HEADINGS = [
   'Build custom training sessions using reps, intervals, timed sets, and a built-in stopwatch to record laps with events for speed and skill.',
+  'Run group circuits, manage your calendar, and track client progress in real time.'
+];
+const VALUES = [
   'Free client access to the Workout Player, Calendar, History, Messaging, and Trainer Hub.',
-  'Run group circuits, manage your calendar, and track client progress in real time.',
   'Keep clients engaged with custom tracking dashboards while attracting new leads via our local and online Trainer Hub.'
 ];
 const SHOTS = [
   'assets/landing/team-drills.jpg',
   'assets/landing/team-gym.jpg'
 ];
-// Text-only cards, in page order. Photo cards sit between them.
-const TEXT_ONLY = [FEATURES[1], FEATURES[3]];
 
 assert.ok(html.indexOf('<title>' + TITLE + '</title>') !== -1);
 assert.ok(html.indexOf('<meta name="description" content="' + DESCRIPTION + '">') !== -1);
@@ -36,14 +36,31 @@ assert.ok(landingStart > 0 && landingEnd > landingStart);
 const landing = html.slice(landingStart, landingEnd);
 const headings = [];
 landing.replace(/<h2>([^<]*)<\/h2>/g, function (_, text) { headings.push(text); return _; });
-assert.deepStrictEqual(headings, FEATURES);
+assert.deepStrictEqual(headings, HEADINGS);
 const srcs = [];
 landing.replace(/<img src="([^"]+)"/g, function (_, src) { srcs.push(src); return _; });
 assert.deepStrictEqual(srcs, SHOTS);
 assert.strictEqual(landing.split('loading="lazy"').length - 1, SHOTS.length);
 assert.strictEqual(landing.split('class="landing-frame"').length - 1, SHOTS.length);
-TEXT_ONLY.forEach(function (text) {
-  assert.ok(landing.indexOf('<section class="landing-feature is-text"><h2>' + text + '</h2></section>') !== -1, text);
+assert.strictEqual(landing.indexOf('is-text'), -1);
+const sections = [];
+landing.replace(/<section class="landing-feature">([\s\S]*?)<\/section>/g, function (_, inner) {
+  sections.push(inner);
+  return _;
+});
+assert.strictEqual(sections.length, HEADINGS.length);
+sections.forEach(function (inner, i) {
+  var headingAt = inner.indexOf('<h2>' + HEADINGS[i] + '</h2>');
+  var frameAt = inner.indexOf('<div class="landing-frame">');
+  var shotAt = inner.indexOf(SHOTS[i]);
+  var valueAt = inner.indexOf('<p class="landing-value">' + VALUES[i] + '</p>');
+  assert.strictEqual(headingAt, 0, HEADINGS[i]);
+  assert.ok(frameAt > headingAt, SHOTS[i]);
+  assert.ok(shotAt > frameAt && shotAt < valueAt, SHOTS[i]);
+  assert.ok(valueAt > frameAt, VALUES[i]);
+});
+VALUES.forEach(function (text) {
+  assert.strictEqual(landing.split(text).length - 1, 1, text);
 });
 assert.ok(landing.indexOf('feature-4') === -1 && landing.indexOf('feature-7') === -1);
 assert.strictEqual(landing.split('>Sign up / Sign in</a>').length - 1, 2);
@@ -73,6 +90,22 @@ Mem.TIERS.forEach(function (tier) {
     assert.strictEqual(landing.indexOf(line), -1, 'plan copy stays in the shared tier list: ' + line);
   });
 });
+
+function assertValueLine(card, i, size) {
+  assert.strictEqual(card.kids, 3);
+  assert.strictEqual(card.h2Margin, '12px');
+  assert.strictEqual(card.h2Weight, '800');
+  assert.ok(card.h2Align === 'left' || card.h2Align === 'start', card.h2Align);
+  assert.strictEqual(card.radius, '14px');
+  assert.strictEqual(card.bg, 'rgb(255, 255, 255)');
+  assert.strictEqual(card.valueText, VALUES[i]);
+  assert.strictEqual(card.valueWeight, '400');
+  assert.strictEqual(card.valueSize, size);
+  assert.ok(parseFloat(card.valueSize) < parseFloat(card.h2Size), card.valueSize + ' vs ' + card.h2Size);
+  assert.strictEqual(card.valueColor, 'rgb(55, 65, 81)');
+  assert.strictEqual(card.valueAlign, 'left');
+  assert.strictEqual(card.valueGap, 12);
+}
 
 (async function () {
   let pp;
@@ -132,9 +165,34 @@ Mem.TIERS.forEach(function (tier) {
         feats: edges(document.querySelector('.landing-features')),
         plans: edges(document.getElementById('landing-plans')),
         end: edges(document.querySelector('.landing-end')),
-        cards: Array.prototype.map.call(document.querySelectorAll('.landing-feature.is-text'), function (el) {
+        cards: Array.prototype.map.call(document.querySelectorAll('.landing-feature'), function (el) {
           var h = el.querySelector('h2');
-          return { edges: edges(el), kids: el.children.length, h2Margin: getComputedStyle(h).marginBottom, radius: getComputedStyle(el).borderRadius, bg: getComputedStyle(el).backgroundColor };
+          var frame = el.querySelector('.landing-frame');
+          var value = el.querySelector('.landing-value');
+          var hs = getComputedStyle(h);
+          var vs = getComputedStyle(value);
+          var fr = frame.getBoundingClientRect();
+          var vr = value.getBoundingClientRect();
+          var cr = el.getBoundingClientRect();
+          return {
+            edges: edges(el),
+            top: Math.round(cr.top),
+            height: Math.round(cr.height),
+            kids: el.children.length,
+            h2Margin: hs.marginBottom,
+            h2Size: hs.fontSize,
+            h2Weight: hs.fontWeight,
+            h2Align: hs.textAlign,
+            radius: getComputedStyle(el).borderRadius,
+            bg: getComputedStyle(el).backgroundColor,
+            valueText: value.textContent,
+            valueSize: vs.fontSize,
+            valueWeight: vs.fontWeight,
+            valueColor: vs.color,
+            valueAlign: vs.textAlign,
+            valueGap: Math.round(vr.top - fr.bottom),
+            frameMax: getComputedStyle(frame).maxWidth
+          };
         })
       };
     }
@@ -142,10 +200,12 @@ Mem.TIERS.forEach(function (tier) {
     await page.waitForFunction(function (first) {
       var h = document.querySelector('#landing h2');
       return h && h.textContent === first && document.getElementById('landing-plans') && document.querySelector('#landing-plans h3');
-    }, {}, FEATURES[0]);
+    }, {}, HEADINGS[0]);
     const seen = await page.evaluate(function () {
       var landing = document.getElementById('landing');
       var heads = Array.prototype.map.call(landing.querySelectorAll('.landing-feature h2'), function (el) { return el.textContent; });
+      var values = Array.prototype.map.call(landing.querySelectorAll('.landing-feature .landing-value'), function (el) { return el.textContent; });
+      var textCards = landing.querySelectorAll('.landing-feature.is-text').length;
       var links = Array.prototype.map.call(landing.querySelectorAll('a[href="#/signin"]'), function (el) { return el.textContent; });
       var frames = Array.prototype.map.call(landing.querySelectorAll('.landing-frame'), function (el) {
         var img = el.querySelector('img');
@@ -162,6 +222,8 @@ Mem.TIERS.forEach(function (tier) {
       return {
         hash: location.hash,
         heads: heads,
+        values: values,
+        textCards: textCards,
         links: links,
         frames: frames,
         names: names,
@@ -186,7 +248,9 @@ Mem.TIERS.forEach(function (tier) {
       };
     });
     assert.strictEqual(seen.hash, '');
-    assert.deepStrictEqual(seen.heads, FEATURES);
+    assert.deepStrictEqual(seen.heads, HEADINGS);
+    assert.deepStrictEqual(seen.values, VALUES);
+    assert.strictEqual(seen.textCards, 0);
     assert.deepStrictEqual(seen.links, ['Sign up / Sign in', 'Sign up / Sign in']);
     assert.deepStrictEqual(seen.names, Mem.TIERS.map(function (t) { return t.name; }));
     assert.strictEqual(seen.plans, 0);
@@ -204,14 +268,15 @@ Mem.TIERS.forEach(function (tier) {
     assert.ok(phoneInset.feats.left >= 16 && phoneInset.feats.left <= 24, 'phone feature inset ' + phoneInset.feats.left);
     assert.deepStrictEqual(phoneInset.plans, phoneInset.feats);
     assert.deepStrictEqual(phoneInset.end, phoneInset.feats);
-    assert.strictEqual(phoneInset.cards.length, TEXT_ONLY.length);
-    phoneInset.cards.forEach(function (card) {
+    assert.strictEqual(phoneInset.cards.length, HEADINGS.length);
+    phoneInset.cards.forEach(function (card, i) {
       assert.deepStrictEqual(card.edges, phoneInset.feats);
-      assert.strictEqual(card.kids, 1);
-      assert.strictEqual(card.h2Margin, '0px');
-      assert.strictEqual(card.radius, '14px');
-      assert.strictEqual(card.bg, 'rgb(255, 255, 255)');
+      assert.strictEqual(card.h2Size, '18px');
+      assert.strictEqual(card.frameMax, 'none');
+      assertValueLine(card, i, '16px');
     });
+    assert.ok(phoneInset.cards[1].top >= phoneInset.cards[0].top + phoneInset.cards[0].height);
+    assert.strictEqual(phoneInset.cards[1].top - (phoneInset.cards[0].top + phoneInset.cards[0].height), 16);
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     const deskInset = await page.evaluate(landingInset);
     assert.strictEqual(deskInset.max, '1100px');
@@ -220,25 +285,43 @@ Mem.TIERS.forEach(function (tier) {
     assert.deepStrictEqual(deskInset.plans, deskInset.feats);
     assert.deepStrictEqual(deskInset.end, deskInset.feats);
     assert.ok(deskInset.feats.left >= deskInset.shell.left);
-    assert.strictEqual(deskInset.cards.length, TEXT_ONLY.length);
-    deskInset.cards.forEach(function (card) { assert.deepStrictEqual(card.edges, deskInset.feats); });
+    assert.strictEqual(deskInset.cards.length, HEADINGS.length);
+    deskInset.cards.forEach(function (card, i) {
+      assert.strictEqual(card.h2Size, '22px');
+      assert.strictEqual(card.frameMax, '720px');
+      assertValueLine(card, i, '18px');
+    });
     const deskFeatures = await page.evaluate(function () {
       var vw = document.documentElement.clientWidth;
-      function edges(el) {
+      function box(el) {
         var r = el.getBoundingClientRect();
-        return { left: Math.round(r.left), right: Math.round(vw - r.right), width: Math.round(r.width) };
+        return { left: Math.round(r.left), right: Math.round(vw - r.right), top: Math.round(r.top), width: Math.round(r.width) };
       }
-      var feats = edges(document.querySelector('.landing-features'));
+      var feats = box(document.querySelector('.landing-features'));
       return {
         feats: feats,
-        cards: Array.prototype.map.call(document.querySelectorAll('.landing-feature'), function (el) { return edges(el); })
+        cards: Array.prototype.map.call(document.querySelectorAll('.landing-feature'), function (el) {
+          return { box: box(el), frame: box(el.querySelector('.landing-frame')) };
+        })
       };
     });
-    assert.strictEqual(deskFeatures.cards.length, FEATURES.length);
+    assert.strictEqual(deskFeatures.cards.length, HEADINGS.length);
+    var sprint = deskFeatures.cards[0];
+    var group = deskFeatures.cards[1];
+    assert.strictEqual(sprint.box.top, group.box.top);
+    assert.strictEqual(sprint.box.left, deskFeatures.feats.left);
+    assert.strictEqual(group.box.right, deskFeatures.feats.right);
+    assert.strictEqual(sprint.box.width, group.box.width);
+    assert.ok(sprint.box.width < deskFeatures.feats.width, 'a photo card still spans the row');
+    var colGap = group.box.left - (sprint.box.left + sprint.box.width);
+    assert.strictEqual(colGap, 16);
+    assert.strictEqual(sprint.box.width + colGap + group.box.width, deskFeatures.feats.width);
     deskFeatures.cards.forEach(function (card, i) {
-      assert.strictEqual(card.width, deskFeatures.feats.width, 'feature ' + i + ' width');
-      assert.strictEqual(card.left, deskFeatures.feats.left, 'feature ' + i + ' left');
-      assert.strictEqual(card.right, deskFeatures.feats.right, 'feature ' + i + ' right');
+      assert.ok(card.frame.width <= 720, 'feature ' + i + ' photo ' + card.frame.width);
+      assert.ok(card.frame.width <= card.box.width);
+      var insetLeft = card.frame.left - card.box.left;
+      var insetRight = (card.box.left + card.box.width) - (card.frame.left + card.frame.width);
+      assert.ok(Math.abs(insetLeft - insetRight) <= 1, 'feature ' + i + ' photo inset');
     });
     await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
     assert.strictEqual(seen.frames.length, SHOTS.length);
