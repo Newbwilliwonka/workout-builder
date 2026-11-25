@@ -54,7 +54,7 @@ export default {
             return true
           },
           findProfile: async function (customerId: string | null, userId: string | null) {
-            const columns = 'id, complimentary, billing_status, stripe_subscription_id'
+            const columns = 'id, complimentary, billing_status, stripe_subscription_id, stripe_customer_id'
             if (customerId) {
               const byCustomer = await admin.from('profiles').select(columns).eq('stripe_customer_id', customerId).maybeSingle()
               if (!byCustomer.error && byCustomer.data) return byCustomer.data

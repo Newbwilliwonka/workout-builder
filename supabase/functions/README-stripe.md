@@ -12,13 +12,13 @@ Nothing in this folder is a Stripe key. Keys live in Supabase function secrets.
 
 The price is chosen with a Stripe lookup key: `enthusiast_beta_monthly`, `trainer_beta_monthly`, `master_trainer_beta_monthly`, or the matching `_standard_monthly` key. Beta is used when the profile is already Beta locked, or when fewer than 100 profiles are Beta locked. Otherwise the standard key is used. Checkout does not hold a seat. A few extra people can still receive the Beta price. Tax is not turned on.
 
-If that customer already has an open Checkout, the same URL is returned. A second click does not open a second page and does not expire the first one.
+If that customer already has an open Checkout for the same plan, the same URL is returned. Two clicks at once share one page: a short service-role claim lets only one request create a session, and any later open page is expired so the earliest one remains. A click for a different plan expires the open page, only while it is still open, and starts the new plan. Checkout is refused when Stripe already shows an active, trialing, or past-due subscription, an incomplete subscription from the last 30 minutes, or a Checkout completed in the last 30 minutes. Those people use Manage billing.
 
 `stripe-webhook` verifies the raw body with `STRIPE_WEBHOOK_SECRET`, records the event once with `stripe_event_begin`, and updates membership through `apply_stripe_membership`. A paid invoice grants the plan and period from the subscription line. A Beta price also sets `beta_locked` with `mark_beta_paid`. A failed payment marks that same subscription past due and does not remove access. A deleted subscription ends access only when its id is the one stored on the profile. Cancelling a duplicate does not change the subscription that should be kept.
 
-If a second subscription is paid while another is already active, the newer one is canceled and its first invoice is refunded. The kept subscription is not changed. If that cancel does not leave the subscription canceled, the webhook answers with an error so Stripe tries again.
+A paid invoice is written under a row lock. If that profile already has a different active subscription, the row is not overwritten. The newer subscription, by its Stripe created time, is canceled and its first invoice is refunded. The older one keeps access. If that cancel does not leave the subscription canceled, the webhook answers with an error so Stripe tries again. `checkout.session.completed` ignores only an "already applied" repeat. Any other attach error is returned to Stripe.
 
-`checkout.session.completed` only attaches the customer and subscription. If that work was already done, or the event arrives out of order, it still answers 200.
+`checkout.session.completed` attaches the customer and subscription when that does not replace an active one. A repeat that is already applied answers 200. Any other attach failure answers with an error so Stripe tries again.
 
 `create-portal-session` opens the hosted Customer Portal for the signed-in person's own Stripe customer. A customer id sent by the browser is ignored.
 
@@ -37,7 +37,7 @@ In the Supabase dashboard, Project Settings → Edge Functions → Secrets, set:
 
 ## Deploy, when William says so
 
-The billing SQL from `supabase/migrations/20261125200000_stripe_billing.sql` is already applied. Also apply `supabase/migrations/20261125230000_beta_paid_count.sql`. It adds `beta_paid_count` and `mark_beta_paid` for the service role only. It does not change the tables from the earlier billing migration.
+The billing SQL from `supabase/migrations/20261125200000_stripe_billing.sql` is already applied. Also apply `supabase/migrations/20261125230000_beta_paid_count.sql`. It adds the service-role Beta count, the paid-Beta lock, a short per-person Checkout claim, and the locked membership write. It adds `checkout_claim_until` on profiles and does not replace the billing functions from the earlier migration.
 
 Checkout and the portal allow the browser only from https://coachtrainerapp.com, and from http://localhost or http://127.0.0.1 on any port for local work. The webhook sends no browser headers.
 

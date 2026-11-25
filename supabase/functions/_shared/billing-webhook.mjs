@@ -183,49 +183,73 @@ function sameActiveSubscription(row, subscriptionId) {
 
 const DUPLICATE_NOTE = 'Refund the duplicate subscription. This account already has an active one.'
 
-function isDifferentActive(row, newSubId) {
-  return !!(
-    row
-    && newSubId
-    && row.billing_status === 'active'
-    && row.stripe_subscription_id
-    && row.stripe_subscription_id !== newSubId
-  )
-}
-
 async function subscriptionStatus(stripe, subscriptionId) {
   const loaded = await stripe.subscriptions.retrieve(subscriptionId)
   return loaded && loaded.status ? loaded.status : ''
 }
 
-async function cancelDuplicate(stripe, log, row, newSubId, eventType) {
-  if (!isDifferentActive(row, newSubId)) return false
+function alreadyApplied(err) {
+  return String((err && err.message) || '').toLowerCase().indexOf('already applied') !== -1
+}
+
+async function cancelAndRefund(stripe, log, subId, customerId, eventType) {
+  if (!subId) throw new BillingError('Checkout could not be started.', 502)
   if (!stripe || !stripe.subscriptions || !stripe.subscriptions.retrieve || !stripe.subscriptions.cancel) {
     throw new BillingError('Checkout could not be started.', 502)
   }
-  let status = await subscriptionStatus(stripe, newSubId)
+  let status = await subscriptionStatus(stripe, subId)
   if (status !== 'canceled') {
     try {
-      await stripe.subscriptions.cancel(newSubId)
+      await stripe.subscriptions.cancel(subId)
     } catch (err) {
       let after = ''
       try {
-        after = await subscriptionStatus(stripe, newSubId)
+        after = await subscriptionStatus(stripe, subId)
       } catch (_readErr) {
         throw err
       }
       if (after !== 'canceled') throw err
     }
   }
-  await refundFirstInvoice(stripe, newSubId)
+  await refundFirstInvoice(stripe, subId)
   safeLog(log, {
     event_type: eventType,
-    customer_id: row.stripe_customer_id || idOf(row.customer),
-    subscription_id: newSubId,
+    customer_id: customerId,
+    subscription_id: subId,
     result: 'canceled_duplicate_refund',
     note: DUPLICATE_NOTE
   })
-  return true
+}
+
+async function settleDuplicate(stripe, db, log, profileId, signal, plan, customerId, periodEnd, eventType) {
+  const keptId = signal && signal.kept_subscription_id
+  const incomingId = signal && signal.incoming_subscription_id
+  if (!keptId || !incomingId) throw new BillingError('Checkout could not be started.', 502)
+  const kept = await stripe.subscriptions.retrieve(keptId)
+  const incoming = await stripe.subscriptions.retrieve(incomingId)
+  const keptCreated = Number(kept && kept.created) || 0
+  const incomingCreated = Number(incoming && incoming.created) || 0
+  const incomingIsNewer = incomingCreated >= keptCreated
+  const newerId = incomingIsNewer ? incomingId : keptId
+  const olderId = incomingIsNewer ? keptId : incomingId
+  if (!incomingIsNewer) {
+    const switched = await db.rpc('keep_paid_subscription', {
+      p_profile: profileId,
+      p_subscription_id: olderId,
+      p_replace_id: newerId,
+      p_plan: plan || null,
+      p_customer_id: customerId,
+      p_period_end: periodEnd || null
+    })
+    if (!switched || switched.applied !== true) {
+      throw new BillingError('Checkout could not be started.', 502)
+    }
+  }
+  await cancelAndRefund(stripe, log, newerId, customerId, eventType)
+}
+
+async function billingWrite(db, args) {
+  return db.rpc('billing_write', args)
 }
 
 async function dispatch(stripe, db, event, log) {
@@ -248,18 +272,21 @@ async function dispatch(stripe, db, event, log) {
     }
     const profile = row.id
     const paidSub = idOf(object.subscription)
-    if (await cancelDuplicate(stripe, log, row, paidSub, type)) return
     try {
-      await db.rpc('apply_stripe_membership', {
+      const written = await billingWrite(db, {
         p_profile: profile,
         p_action: 'attach',
         p_customer_id: idOf(object.customer),
         p_subscription_id: paidSub
       })
-    } catch (_err) {
+      if (written && written.duplicate === true) {
+        await settleDuplicate(stripe, db, log, profile, written, null, row.stripe_customer_id || idOf(object.customer), null, type)
+      }
+    } catch (err) {
+      if (!alreadyApplied(err)) throw err
       safeLog(log, {
         event_type: type,
-        customer_id: idOf(object.customer),
+        customer_id: row.stripe_customer_id || idOf(object.customer),
         subscription_id: paidSub,
         result: 'checkout_already_applied',
         note: 'Checkout completion did not change membership.'
@@ -280,10 +307,7 @@ async function dispatch(stripe, db, event, log) {
     // An incomplete subscription has not been paid. Do not store its id,
     // or a later delete would remove a complimentary plan.
     if (status === 'incomplete' || status === 'canceled') return
-    if (status === 'active' || status === 'past_due') {
-      if (await cancelDuplicate(stripe, log, row, object.id, type)) return
-    }
-    await db.rpc('apply_stripe_membership', {
+    const written = await billingWrite(db, {
       p_profile: row.id,
       p_action: 'attach',
       p_customer_id: idOf(object.customer),
@@ -291,6 +315,9 @@ async function dispatch(stripe, db, event, log) {
       p_billing_status: status,
       p_period_end: periodEndOf(object)
     })
+    if (written && written.duplicate === true) {
+      await settleDuplicate(stripe, db, log, row.id, written, null, row.stripe_customer_id || idOf(object.customer), periodEndOf(object), type)
+    }
     return
   }
 
@@ -299,22 +326,23 @@ async function dispatch(stripe, db, event, log) {
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
     const status = billingStatus(object.status)
-    if ((status === 'active' || status === 'past_due') && await cancelDuplicate(stripe, log, row, object.id, type)) {
-      return
-    }
     const parsed = status === 'active' || status === 'past_due'
       ? await parsedPrice(stripe, subscriptionPrice(object))
       : null
     const plan = parsed ? parsed.plan : null
-    await db.rpc('apply_stripe_membership', {
+    const periodEnd = periodEndOf(object)
+    const written = await billingWrite(db, {
       p_profile: row.id,
       p_action: 'sync',
       p_plan: plan,
       p_billing_status: status,
       p_customer_id: idOf(object.customer),
       p_subscription_id: object.id,
-      p_period_end: periodEndOf(object)
+      p_period_end: periodEnd
     })
+    if (written && written.duplicate === true) {
+      await settleDuplicate(stripe, db, log, row.id, written, plan, row.stripe_customer_id || idOf(object.customer), periodEnd, type)
+    }
     return
   }
 
@@ -355,22 +383,23 @@ async function dispatch(stripe, db, event, log) {
       }
     }
     const paidSubId = typeof sub === 'string' ? sub : idOf(sub)
-    if (await cancelDuplicate(stripe, log, row, paidSubId, type)) return
     const parsed = await parsedPrice(stripe, choice.ref)
     if (!parsed || !parsed.plan) throw new BillingError('Checkout could not be started.', 500)
     const period = linePeriodEnd(choice.line)
       || subscriptionPeriodEnd(periodSource)
       || isoFromUnix(object.period_end)
-    await db.rpc('apply_stripe_membership', {
+    const customerId = idOf(object.customer)
+    const written = await billingWrite(db, {
       p_profile: profile,
       p_action: 'grant',
       p_plan: parsed.plan,
-      p_customer_id: idOf(object.customer),
-      p_subscription_id: idOf(sub),
-      p_period_end: period
+      p_customer_id: customerId,
+      p_subscription_id: paidSubId,
+      p_period_end: period,
+      p_beta: parsed.tier === 'beta'
     })
-    if (parsed.tier === 'beta') {
-      await db.rpc('mark_beta_paid', { p_profile: profile })
+    if (written && written.duplicate === true) {
+      await settleDuplicate(stripe, db, log, profile, written, parsed.plan, row.stripe_customer_id || customerId, period, type)
     }
     return
   }

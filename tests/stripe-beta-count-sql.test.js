@@ -91,6 +91,57 @@ begin
 
   select beta_locked into locked from public.profiles where id = '${OTHER}';
   if locked then raise exception 'the other account was locked'; end if;
+
+  if has_function_privilege('authenticated', 'public.checkout_claim(uuid, text)', 'execute')
+     or has_function_privilege('anon', 'public.billing_write(uuid, text, text, text, text, text, timestamp with time zone, boolean)', 'execute')
+     or has_function_privilege('authenticated', 'public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone)', 'execute') then
+    raise exception 'a signed-in person can claim Checkout or write billing';
+  end if;
+  if not has_function_privilege('service_role', 'public.checkout_claim(uuid, text)', 'execute')
+     or not has_function_privilege('service_role', 'public.billing_write(uuid, text, text, text, text, text, timestamp with time zone, boolean)', 'execute')
+     or not has_function_privilege('service_role', 'public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone)', 'execute') then
+    raise exception 'service role cannot claim Checkout or write billing';
+  end if;
+
+  if (public.checkout_claim('${USER}'::uuid, 'enthusiast') ->> 'granted')::boolean is not true then
+    raise exception 'the first Checkout claim was refused';
+  end if;
+  if (public.checkout_claim('${USER}'::uuid, 'trainer') ->> 'granted')::boolean then
+    raise exception 'a second Checkout claim was granted';
+  end if;
+end $$;
+`);
+
+psql(DB, `
+do $$
+declare
+  result jsonb;
+  sub text;
+begin
+  result := public.billing_write(
+    '${USER}'::uuid, 'grant', 'enthusiast', null, 'cus_beta0001', 'sub_older001',
+    now() + interval '30 days', true
+  );
+  if (result ->> 'duplicate')::boolean then
+    raise exception 'first grant looked like a duplicate';
+  end if;
+  select stripe_subscription_id into sub from public.profiles where id = '${USER}';
+  if sub is distinct from 'sub_older001' then
+    raise exception 'grant stored %', sub;
+  end if;
+
+  result := public.billing_write(
+    '${USER}'::uuid, 'grant', 'trainer', null, 'cus_beta0001', 'sub_newer001',
+    now() + interval '30 days', false
+  );
+  if (result ->> 'duplicate')::boolean is not true
+     or result ->> 'kept_subscription_id' is distinct from 'sub_older001' then
+    raise exception 'duplicate grant returned %', result;
+  end if;
+  select stripe_subscription_id into sub from public.profiles where id = '${USER}';
+  if sub is distinct from 'sub_older001' then
+    raise exception 'duplicate grant changed the subscription to %', sub;
+  end if;
 end $$;
 `);
 

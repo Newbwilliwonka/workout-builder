@@ -9,6 +9,8 @@ import {
 
 const OPEN_SUBSCRIPTION = { active: true, trialing: true, past_due: true }
 const BETA_LIMIT = 100
+const RECENT_SECONDS = 30 * 60
+const ALREADY = 'You already have a subscription. Use Manage billing to change it.'
 
 function idOf(value) {
   if (!value) return null
@@ -60,19 +62,118 @@ async function customerFor(stripe, db, profile, userId, email) {
   return customerId
 }
 
-async function openCheckoutUrl(stripe, customerId) {
-  if (!customerId || !stripe.checkout || !stripe.checkout.sessions || !stripe.checkout.sessions.list) {
-    return null
-  }
+function createdUnix(value) {
+  const n = Number(value && value.created)
+  return n > 0 ? n : 0
+}
+
+function rowsOf(listed) {
+  return (listed && listed.data) || []
+}
+
+async function listOpen(stripe, customerId) {
+  if (!customerId || !stripe.checkout || !stripe.checkout.sessions || !stripe.checkout.sessions.list) return []
   const listed = await stripe.checkout.sessions.list({
     customer: customerId,
     status: 'open',
-    limit: 1
+    limit: 100
   })
-  const row = listed && listed.data && listed.data[0]
-  if (!row || !row.id) return null
-  if (!row.url) throw new BillingError('Checkout could not be started.', 502)
-  return row.url
+  const rows = []
+  const data = rowsOf(listed)
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] && data[i].id && data[i].status !== 'complete') rows.push(data[i])
+  }
+  return rows
+}
+
+function sameOffer(session, plan, tier) {
+  const meta = (session && session.metadata) || {}
+  if (!meta.plan) return true
+  if (meta.plan !== plan) return false
+  if (meta.tier && meta.tier !== tier) return false
+  return true
+}
+
+function byCreated(rows) {
+  return rows.slice().sort(function (a, b) {
+    const left = createdUnix(a) || Number.MAX_SAFE_INTEGER
+    const right = createdUnix(b) || Number.MAX_SAFE_INTEGER
+    return left - right
+  })
+}
+
+async function readSession(stripe, id) {
+  if (!stripe.checkout.sessions.retrieve) return null
+  return stripe.checkout.sessions.retrieve(id)
+}
+
+async function expireIfOpen(stripe, session) {
+  if (!session || !session.id || !stripe.checkout.sessions.expire) return
+  let current = session
+  if (stripe.checkout.sessions.retrieve) {
+    current = await readSession(stripe, session.id)
+  }
+  if (!current || current.status === 'complete' || current.status === 'expired') return
+  if (current.status !== 'open') return
+  try {
+    await stripe.checkout.sessions.expire(current.id)
+  } catch (_err) {
+    const again = await readSession(stripe, current.id)
+    if (again && (again.status === 'complete' || again.status === 'expired')) return
+    throw new BillingError('Checkout could not be started.', 502)
+  }
+}
+
+async function payingAlready(stripe, customerId, nowMs) {
+  if (!customerId) return false
+  const cutoff = Math.floor(Number(nowMs) / 1000) - RECENT_SECONDS
+  if (stripe.subscriptions && stripe.subscriptions.list) {
+    const listed = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      limit: 100
+    })
+    const data = rowsOf(listed)
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]
+      if (!row) continue
+      if (row.status === 'active' || row.status === 'trialing' || row.status === 'past_due') return true
+      if (row.status === 'incomplete' && createdUnix(row) >= cutoff) return true
+    }
+  }
+  if (stripe.checkout && stripe.checkout.sessions && stripe.checkout.sessions.list) {
+    const listed = await stripe.checkout.sessions.list({
+      customer: customerId,
+      status: 'complete',
+      limit: 100
+    })
+    const data = rowsOf(listed)
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] && createdUnix(data[i]) >= cutoff) return true
+    }
+  }
+  return false
+}
+
+async function waitForOffer(stripe, customerId, plan, tier) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const open = byCreated(await listOpen(stripe, customerId))
+    for (let i = 0; i < open.length; i++) {
+      if (sameOffer(open[i], plan, tier) && open[i].url) return open[i].url
+    }
+    if (attempt < 2) await new Promise(function (resolve) { setTimeout(resolve, 20) })
+  }
+  return null
+}
+
+async function keepEarliest(stripe, rows) {
+  const ordered = byCreated(rows)
+  if (!ordered.length) return null
+  const keep = ordered[0]
+  for (let i = 1; i < ordered.length; i++) {
+    await expireIfOpen(stripe, ordered[i])
+  }
+  return keep
 }
 
 export function planFromBody(body) {
@@ -102,6 +203,7 @@ export async function createCheckoutSession(input) {
     throw new BillingError('You already have a subscription. Use Manage billing to change it.', 409)
   }
 
+  const now = typeof input.now === 'function' ? input.now() : Date.now()
   let tier = 'standard'
   if (profile.beta_locked === true) {
     tier = 'beta'
@@ -113,8 +215,31 @@ export async function createCheckoutSession(input) {
   try {
     const price = await priceFor(stripe, plan, tier)
     const customer = await customerFor(stripe, db, profile, userId, input.email)
-    const openUrl = await openCheckoutUrl(stripe, customer)
-    if (openUrl) return { status: 200, body: { url: openUrl } }
+    if (await payingAlready(stripe, customer, now)) {
+      throw new BillingError(ALREADY, 409)
+    }
+
+    const claim = await db.rpc('checkout_claim', { p_profile: userId, p_plan: plan })
+    if (!claim || claim.granted !== true) {
+      const waiting = await waitForOffer(stripe, customer, plan, tier)
+      if (waiting) return { status: 200, body: { url: waiting } }
+      throw new BillingError('Checkout could not be started.', 502)
+    }
+
+    let open = await listOpen(stripe, customer)
+    const same = []
+    const other = []
+    for (let i = 0; i < open.length; i++) {
+      if (sameOffer(open[i], plan, tier)) same.push(open[i])
+      else other.push(open[i])
+    }
+    if (same.length) {
+      for (let i = 0; i < other.length; i++) await expireIfOpen(stripe, other[i])
+      const kept = await keepEarliest(stripe, same)
+      if (!kept || !kept.url) throw new BillingError('Checkout could not be started.', 502)
+      return { status: 200, body: { url: kept.url } }
+    }
+    for (let i = 0; i < other.length; i++) await expireIfOpen(stripe, other[i])
 
     const metadata = {
       user_id: userId,
@@ -139,8 +264,17 @@ export async function createCheckoutSession(input) {
         }
       }
     })
-    if (!session || !session.url) throw new BillingError('Checkout could not be started.', 502)
-    return { status: 200, body: { url: session.url } }
+    if (!session || !session.id || !session.url) throw new BillingError('Checkout could not be started.', 502)
+    open = await listOpen(stripe, customer)
+    if (session.status !== 'complete') {
+      let seen = false
+      for (let i = 0; i < open.length; i++) if (open[i].id === session.id) seen = true
+      if (!seen) open.push(session)
+    }
+    const kept = await keepEarliest(stripe, open)
+    const url = kept && kept.url ? kept.url : session.url
+    if (!url) throw new BillingError('Checkout could not be started.', 502)
+    return { status: 200, body: { url: url } }
   } catch (err) {
     if (err instanceof BillingError) throw err
     throw new BillingError('Checkout could not be started.', 502)
