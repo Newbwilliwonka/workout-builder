@@ -3036,13 +3036,14 @@
     if (row && row.goals_other) pills += '<span class="goal-pill">' + esc(row.goals_other) + '</span>';
     else if (chosen.Other) pills += '<span class="goal-pill">Other</span>';
     if (!stats && !pills) return '';
+    var edit = showEdit ? '<button type="button" id="client-info-edit">Edit</button>' : '';
+    function head(title) { return '<div class="client-head"><div class="name">' + title + '</div>' + edit + '</div>'; }
     var h = '<div class="card" id="client-info">';
-    if (stats) h += '<div class="name">About you</div><div class="client-stats">' + stats + '</div>';
+    if (stats) h += head('About you') + '<div class="client-stats">' + stats + '</div>';
     if (pills) {
       if (stats) h += '<div class="client-rule" role="separator"></div>';
-      h += '<div class="name">Goals</div><div class="client-pills">' + pills + '</div>';
+      h += (stats ? '<div class="name">Goals</div>' : head('Goals')) + '<div class="client-pills">' + pills + '</div>';
     }
-    if (showEdit) h += '<button type="button" id="client-info-edit">Edit</button>';
     h += '</div>';
     return h;
   }
@@ -3053,6 +3054,7 @@
     var chosen = {};
     (row.goals || []).forEach(function (goal) { chosen[goal] = 1; });
     var h = '<div class="card" id="client-info">';
+    h += '<p class="mute" id="client-info-private"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Private. Only you and your linked trainer can see this information.</span></p>';
     h += '<label for="client-birthday">Birthday</label>';
     h += '<input id="client-birthday" type="date" value="' + esc(row.birthday || '') + '">';
     h += '<div class="client-sex" role="group" aria-label="Sex"><span class="client-k">Sex</span>';
