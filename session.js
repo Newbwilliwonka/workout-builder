@@ -15,7 +15,11 @@
   var anchorWall = 0;
   var anchorElapsed = 0;
   var startedAt = null;
+  var runnerId = '';
+  var ownerId = '';
+  var sessionReady = null;
   var record = null;
+  var summaryStatus = 'completed';
   var tracking = true;
   var sched = null;
   var toneMark = -1;
@@ -285,7 +289,8 @@
     h += unplacedHtml();
     h += benchHtml();
     if (mode === 'place') {
-      h += '<button type="button" class="pri circuit-start" data-act="start"' + ((tracking && ready()) ? '' : ' disabled') + '>Start</button>';
+      if (tracking && !runnerId) h += '<p class="mute" id="circuit-signin">Sign in to run a class.</p>';
+      h += '<button type="button" class="pri circuit-start" data-act="start"' + ((tracking && ready() && runnerId) ? '' : ' disabled') + '>Start</button>';
     } else {
       h += '<div class="circuit-end-slot"><button type="button" class="circuit-end" data-act="end">End session</button></div>';
     }
@@ -392,6 +397,8 @@
     mode = 'summary';
     clearStore();
     paint();
+    saveCircuit(record, summaryStatus || 'completed');
+    summaryStatus = 'completed';
   }
   function catchUp(sound) {
     if (mode !== 'live' || !state || !running) return;
@@ -438,7 +445,8 @@
         state: state,
         running: running,
         wallAt: wall(),
-        startedAt: startedAt
+        startedAt: startedAt,
+        ownerId: ownerId
       }));
       lastPersist = wall();
     } catch (e) {}
@@ -470,7 +478,8 @@
     );
   }
   function onStart() {
-    if (!ready() || !clockApi()) return;
+    if (!ready() || !clockApi() || !runnerId) return;
+    ownerId = runnerId;
     state = model().beginRun(doc, assigned);
     startedAt = Date.now();
     running = true;
@@ -522,11 +531,48 @@
     paint();
     kick();
   }
+  function saveCircuit(done, status) {
+    if (!root.WBCircuitHistory || !done) return;
+    var stations = (doc && doc.stations || []).map(function (station) {
+      var exercise = station && station.exercise || {};
+      return { id: station.id, name: exercise.name || 'Station', libraryId: exercise.libraryId || exercise.library_id || '' };
+    });
+    var started = done.startedAt ? new Date(done.startedAt).toISOString() : new Date().toISOString();
+    var ended = done.endedAt ? new Date(done.endedAt).toISOString() : new Date().toISOString();
+    var body = {
+      name: doc && doc.name,
+      circuitId: doc && doc.id,
+      startedAt: started,
+      endedAt: ended,
+      clock: done.clock,
+      stations: stations,
+      people: done.people
+    };
+    var stamped = ownerId;
+    if (!stamped) {
+      if (ctx && ctx.toast) ctx.toast('Sign in to run a class.');
+      return;
+    }
+    var who = root.WBAuth && root.WBAuth.session ? Promise.resolve().then(function () { return WBAuth.session(); }) : Promise.resolve(null);
+    who.then(function (session) {
+      var current = session && session.user && session.user.id || '';
+      return WBCircuitHistory.saveRecord(body, status, stamped, current);
+    }, function () {
+      return WBCircuitHistory.saveRecord(body, status, stamped, '');
+    }).then(function () {}, function (err) {
+      if (!ctx || !ctx.toast) return;
+      if (err && err.permanent) ctx.toast('Could not save ' + (err.circuitName || 'that circuit') + '.');
+      else if (err && err.signin) ctx.toast('Sign in to run a class.');
+      else ctx.toast('Saved on this phone. It will send when you have a signal.');
+    });
+  }
   function onEnd() {
     if (mode !== 'live' || !state) return;
     if (!confirm('End session?')) return;
+    var early = state.phase !== 'done';
     var nowMs = running ? liveElapsed() : state.elapsedMs;
     state = model().finishSession(state, nowMs);
+    summaryStatus = early ? 'ended_early' : 'completed';
     showSummary();
   }
   function placeKey(key, stationId) {
@@ -712,6 +758,7 @@
     view = snap.view === 'list' ? 'list' : 'grid';
     assigned = snap.assigned || {};
     startedAt = snap.startedAt || null;
+    ownerId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(snap.ownerId || '')) ? String(snap.ownerId) : '';
     selected = '';
     if (snap.mode === 'live' && snap.state) {
       var extra = snap.running ? Math.max(0, wall() - (snap.wallAt || wall())) : 0;
@@ -730,7 +777,27 @@
     mode = 'place';
     state = null;
     running = false;
+    ownerId = '';
     paint();
+  }
+  function ensureRunner() {
+    if (sessionReady) return sessionReady;
+    var auth = root.WBAuth;
+    if (!auth || !auth.session) {
+      sessionReady = Promise.resolve('');
+      return sessionReady;
+    }
+    sessionReady = Promise.resolve().then(function () { return auth.session(); }).then(function (session) {
+      runnerId = session && session.user && session.user.id || '';
+      if (runnerId && root.WBCircuitHistory) WBCircuitHistory.flush(runnerId);
+      if (ctx && mode === 'place') paint();
+      return runnerId;
+    }, function () {
+      runnerId = '';
+      if (ctx && mode === 'place') paint();
+      return '';
+    });
+    return sessionReady;
   }
   function unavailable(err) {
     return (err && err.message) || 'Group circuits are not available yet. Apply the circuits SQL in the Supabase SQL editor.';
@@ -772,6 +839,8 @@
       pending = root.WBAuth && root.WBAuth.circuits ? root.WBAuth.circuits() : Promise.reject(new Error(unavailable()));
     } catch (e) { pending = Promise.reject(e); }
     Promise.resolve(pending).then(function (list) {
+      return ensureRunner().then(function () { return list; });
+    }).then(function (list) {
       if (token !== loadToken || !ctx) return;
       var row = (list || []).filter(function (item) { return item && String(item.id) === String(id); })[0];
       if (!row) return showError('That circuit was not found.');
@@ -813,6 +882,7 @@
     var parts = hashParts();
     if (parts[0] !== 'circuits' || !parts[1] || (parts[2] !== 'run' && parts[2] !== 'view')) return showError('That circuit was not found.');
     tracking = parts[2] !== 'view';
+    ensureRunner();
     load(parts[1]);
   }
   function stop() {
@@ -833,6 +903,9 @@
     state = null;
     running = false;
     drag = null;
+    runnerId = '';
+    ownerId = '';
+    sessionReady = null;
   }
   function back() {
     if (!ctx) return false;

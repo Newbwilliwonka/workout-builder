@@ -15,11 +15,11 @@ const dashSrc = fs.readFileSync(path.join(__dirname, '../dashboard.js'), 'utf8')
 const shareSrc = fs.readFileSync(path.join(__dirname, '../shares.js'), 'utf8');
 const sql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116150000_shared_dashboards.sql'), 'utf8');
 
-assert.deepStrictEqual(S.standard(), ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds']);
+assert.deepStrictEqual(S.standard(), ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds', 'circuit']);
 assert.deepStrictEqual(S.orderOf(['pass', 'plan', 'plan', 'nope', 'holds']), ['pass', 'plan', 'holds']);
 assert.deepStrictEqual(S.orderOf(['records', 'stopwatch', 'pass', 'nope']), ['records', 'stopwatch', 'pass']);
 assert.deepStrictEqual(S.addCard(S.standard(), 'pass'), S.standard().concat(['pass']));
-assert.deepStrictEqual(S.addCard(S.standard().concat(['records', 'stopwatch', 'pass']), 'pass').length, 9);
+assert.deepStrictEqual(S.addCard(S.standard().concat(['records', 'stopwatch', 'pass']), 'pass').length, 10);
 assert.deepStrictEqual(S.removeCard(['plan', 'records', 'pass'], 'records'), ['plan', 'pass']);
 assert.deepStrictEqual(S.moveCard(['plan', 'volume', 'records'], 'volume', -1), ['volume', 'plan', 'records']);
 assert.deepStrictEqual(S.moveCard(['plan'], 'plan', -1), ['plan']);
@@ -48,10 +48,11 @@ const keptOrder = D.freeze(live, ['records', 'stopwatch', 'pass'], { asOf: '2026
 live.plan.pct = 1;
 live.plan.rating = { label: 'Changed', color: '#000000' };
 live.pass.pct = 1;
-assert.strictEqual(frozen.cards.length, 7);
+assert.strictEqual(frozen.cards.length, 8);
 assert.strictEqual(frozen.cards[0].plan.pct, 65);
 assert.strictEqual(frozen.cards[0].plan.rating.label, 'Keep trying');
-assert.strictEqual(frozen.cards[6].pass.pct, 63);
+assert.strictEqual(frozen.cards[7].pass.pct, 63);
+assert.strictEqual(frozen.cards[6].type, 'circuit');
 assert.strictEqual(frozen.cards[5].type, 'holds');
 assert.strictEqual(frozen.cards[2].type, 'volume');
 assert.strictEqual(frozen.cards[3].type, 'strength');
@@ -111,7 +112,8 @@ assert.ok(editing.indexOf('data-card-remove="plan"') >= 0);
 assert.ok(editing.indexOf('data-drag') < 0);
 assert.ok(editing.indexOf('>Drag<') < 0);
 assert.ok(/data-card-up="plan"[^>]*disabled/.test(editing));
-assert.ok(/data-card-down="holds"[^>]*disabled/.test(editing));
+assert.ok(editing.indexOf('id="dashboard-circuit"') < 0);
+assert.ok(!/data-card-down="holds"[^>]*disabled/.test(editing));
 assert.ok(!/data-card-down="calendar"[^>]*disabled/.test(editing));
 assert.ok(!/data-card-up="volume"[^>]*disabled/.test(editing));
 assert.ok(editing.indexOf('data-card-add="records"') >= 0);

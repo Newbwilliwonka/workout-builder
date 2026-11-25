@@ -271,7 +271,7 @@
     return /dashboard_layouts|42P01|PGRST205|schema cache|does not exist/i.test(msg);
   }
   function layoutList(cards) {
-    var allow = (root.WBDashboard && root.WBDashboard.CARDS) || ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'holds', 'stopwatch', 'pass'];
+    var allow = (root.WBDashboard && root.WBDashboard.CARDS) || ['plan', 'workouts', 'strength', 'volume', 'records', 'calendar', 'holds', 'stopwatch', 'pass', 'circuit'];
     var seen = {};
     var out = [];
     (cards || []).forEach(function (id) {
@@ -296,7 +296,7 @@
       };
     }
     return Promise.all([
-      pages(page('workout_sessions', 'id,local_date,started_at,ended_at,workout_name,status,workout_id,program_id', 'client_id'), pageSize),
+      pages(page('workout_sessions', 'id,local_date,started_at,ended_at,workout_name,status,workout_id,program_id,origin', 'client_id'), pageSize),
       pages(page('workout_sets', TRACK_SET_COLS, 'client_id'), pageSize),
       pages(page('personal_exercises', 'id,stable_key', 'user_id'), pageSize)
     ]).then(function (pair) {
@@ -980,6 +980,12 @@
     trainerRequestCount: function () { return findRpc('trainer_request_count'); },
     endTemporary: function (personId) { return findRpc('trainer_temp_end', { p_person: personId }); },
     workoutCopies: function () { return workoutRpc('workout_mine'); },
+    circuitSaveRun: function (run) {
+      return db().then(function (c) { return c.rpc('circuit_save_run', { p_run: run || {} }); }).then(function (res) {
+        if (res.error) throw circuitSaveError(res.error);
+        return res.data;
+      });
+    },
     sendWorkout: function (deliveries, name, items, sourceId) {
       return workoutRpc('workout_send', {
         p_deliveries: deliveries || [],
@@ -1078,7 +1084,7 @@
       input = input || {};
       if (!isUuid(input.clientId)) return Promise.resolve({ ok: false });
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.asOf || ''))) return Promise.resolve({ ok: false });
-      if (!Array.isArray(input.cards) || !input.cards.length || input.cards.length > 9) return Promise.resolve({ ok: false });
+      if (!Array.isArray(input.cards) || !input.cards.length || input.cards.length > 10) return Promise.resolve({ ok: false });
       var name = String(input.trainerName || '').replace(/^\s+|\s+$/g, '').slice(0, 80);
       if (!name || name.indexOf('@') !== -1) name = 'Trainer';
       return signedUser().then(function (ctx) {
@@ -1460,6 +1466,19 @@
   function inviteColumnMissing(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
     return /invitees/i.test(msg) && /schema cache|could not find|PGRST204|42703|does not exist/i.test(msg);
+  }
+  function circuitSaveError(err) {
+    var msg = String((err && (err.message || err.details || err.hint)) || '');
+    var code = String(err && err.code || '');
+    var out;
+    if (/schema cache|could not find the function|PGRST202|PGRST205|42883|42P01/i.test(msg + ' ' + code)) {
+      out = new Error('Saving a circuit is not available yet.');
+    } else {
+      var line = msg.split('\n')[0];
+      out = new Error(line || 'Could not save the circuit.');
+    }
+    if (code) out.code = code;
+    return out;
   }
   function circuitError(err) {
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');

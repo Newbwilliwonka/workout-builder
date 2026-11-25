@@ -738,6 +738,20 @@ button.hx-row .name{font-size:16px}
 .db-bar.on{background:var(--pri)}
 #dashboard-streak-note{margin-top:0}
 .db-vol{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.hx-tag{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#eff6ff;color:#2563eb;font-size:12px;font-weight:700;vertical-align:middle}
+.db-circuit-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.db-circuit-bars{display:flex;align-items:flex-end;gap:6px;height:96px;margin:12px 0 4px;border-bottom:1px solid var(--line)}
+.db-circuit-col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0}
+.db-circuit-fill{display:block;width:100%;max-width:18px;border-radius:6px 6px 2px 2px;background:#2563eb;min-height:0}
+.db-circuit-side{display:flex;align-items:center;gap:8px}
+.db-circuit-legend{list-style:none;margin:0;padding:0}
+.db-circuit-legend li{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink)}
+.db-circuit-legend i{width:8px;height:8px;border-radius:99px;display:block;flex:none}
+.db-circuit-week{margin-top:4px;font-size:10px;color:var(--mute);font-weight:600}
+.db-circuit-stations{list-style:none;margin:8px 0 0;padding:0}
+#dashboard-circuit-latest{margin-top:18px}
+.db-circuit-stations li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.db-circuit-stations b{font-variant-numeric:tabular-nums}
 #dashboard-volume-note{margin:2px 0 8px}
 .db-chart{width:100%;height:auto;display:block;overflow:visible}
 .db-chart polyline{fill:none;stroke:var(--pri);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}

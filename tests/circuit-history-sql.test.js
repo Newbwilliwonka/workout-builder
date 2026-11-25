@@ -1,0 +1,412 @@
+// Circuit history save: linked clients only, no anon, no duplicate retry.
+// Local Postgres only. Does not touch the live project.
+const { spawnSync } = require('child_process');
+const path = require('path');
+
+const root = path.join(__dirname, '..');
+const T = '11111111-1111-4111-8111-111111111111';
+const C = '22222222-2222-4222-8222-222222222222';
+const E = '77777777-7777-4777-8777-777777777777';
+
+function psql(db, sql, file) {
+  const args = ['-u', 'postgres', 'psql', '-v', 'ON_ERROR_STOP=1', '-d', db];
+  const opts = { encoding: 'utf8' };
+  if (file) args.push('-f', file);
+  else {
+    args.push('-f', '-');
+    opts.input = sql;
+  }
+  const res = spawnSync('sudo', args, opts);
+  if (res.status !== 0) {
+    console.error(res.stdout);
+    console.error(res.stderr);
+    process.exit(res.status || 1);
+  }
+  return res.stdout || '';
+}
+
+psql('postgres', 'drop database if exists wb_circuit_history_test;\ncreate database wb_circuit_history_test;\n');
+psql('wb_circuit_history_test', `
+do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+create schema if not exists auth;
+create table auth.users (id uuid primary key, email text);
+create or replace function auth.uid() returns uuid language sql stable as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+$$;
+grant usage on schema auth to authenticated, anon;
+grant execute on function auth.uid() to authenticated, anon;
+`);
+[
+  'supabase/migrations/20261106150000_profiles.sql',
+  'supabase/migrations/20261107160000_invites.sql',
+  'supabase/migrations/20261109195000_exercises.sql',
+  'supabase/migrations/20261110220000_exercise_search_description.sql',
+  'supabase/migrations/20261111120000_messages.sql',
+  'supabase/migrations/20261111140000_workout_copies.sql',
+  'supabase/migrations/20261111160000_share_own.sql',
+  'supabase/migrations/20261111180000_programs.sql',
+  'supabase/migrations/20261111223000_program_times.sql',
+  'supabase/migrations/20261112120000_trainer_own_program.sql',
+  'supabase/migrations/20261112150000_calendar_feeds.sql',
+  'supabase/migrations/20261112200000_account_workouts.sql',
+  'supabase/migrations/20261115002700_profile_details.sql',
+  'supabase/migrations/20261115140000_master_trainer_verification.sql',
+  'supabase/migrations/20261115180000_workout_tracking.sql',
+  'supabase/migrations/20261116150000_shared_dashboards.sql',
+  'supabase/migrations/20261116180000_share_inbox_any_client.sql',
+  'supabase/migrations/20261116210000_hide_other_emails.sql',
+  'supabase/migrations/20261117010000_trainer_dashboard_layout.sql',
+  'supabase/migrations/20261117120000_dashboard_holds_stopwatch.sql',
+  'supabase/migrations/20261117180000_invite_only_access.sql',
+  'supabase/migrations/20261118190000_trainer_hub.sql',
+  'supabase/migrations/20261118210000_trainer_find.sql',
+  'supabase/migrations/20261118230000_trainer_near.sql',
+  'supabase/migrations/20261118233000_profile_service_location.sql',
+  'supabase/migrations/20261123010000_tracking_can_read.sql',
+  'supabase/migrations/20261123020000_signup_invite.sql',
+  'supabase/migrations/20261123030000_trainer_search_linked_first.sql',
+  'supabase/migrations/20261123040000_client_pin.sql',
+  'supabase/migrations/20261123050000_exercise_search_best_match.sql',
+  'supabase/migrations/20261123200000_circuits.sql',
+  'supabase/migrations/20261124200000_circuit_guest_calendar.sql',
+  'supabase/migrations/20261124220000_circuit_without_saved_clients.sql',
+  'supabase/migrations/20261124233000_placement_invitees.sql',
+  'supabase/migrations/20261125030000_client_info.sql',
+  'supabase/migrations/20261125040000_nav_badges.sql',
+  'supabase/migrations/20261125130000_circuit_history.sql'
+].forEach(function (file) { psql('wb_circuit_history_test', null, path.join(root, file)); });
+
+const run = JSON.stringify({
+  runId: 'run_friday_01',
+  name: 'Friday circuit',
+  circuitId: 'circ1',
+  status: 'completed',
+  startedAt: '2026-11-20T15:00:00Z',
+  endedAt: '2026-11-20T15:18:00Z',
+  timeZone: 'UTC',
+  workSec: 40,
+  moveSec: 15,
+  stations: [
+    { id: 'st_squat', name: 'Squat', libraryId: 'squat1' },
+    { id: 'st_row', name: 'Row', libraryId: '' }
+  ],
+  people: [
+    { clientId: C, name: 'Ada', rounds: [{ stationId: 'st_squat', workSec: 40 }, { stationId: 'st_row', workSec: 40 }] },
+    { name: 'ada@example.com', rounds: [{ stationId: 'st_squat', workSec: 40 }] }
+  ]
+});
+
+psql('wb_circuit_history_test', `
+insert into auth.users (id, email) values
+  ('${T}', 'coach@example.com'),
+  ('${C}', 'ada@example.com'),
+  ('${E}', 'fan@example.com');
+update public.profiles set membership = 'trainer', access_approved = true where id = '${T}';
+update public.profiles set membership = 'free_client', access_approved = true where id = '${C}';
+update public.profiles set membership = 'enthusiast', access_approved = true where id = '${E}';
+insert into public.trainer_clients (trainer_id, client_id) values ('${T}', '${C}');
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${T}', false);
+select public.circuit_save_run($json$${run}$json$::jsonb);
+select public.circuit_save_run($json$${run}$json$::jsonb);
+do $$
+declare
+  sessions int;
+  sets int;
+  manual text;
+begin
+  if (select count(*) from public.circuit_runs) <> 1 then
+    raise exception 'retry duplicated the run';
+  end if;
+  select count(*) into sessions from public.workout_sessions where origin = 'circuit';
+  if sessions <> 2 then
+    raise exception 'expected coach and linked client, got %', sessions;
+  end if;
+  select count(*) into sets from public.workout_sets where client_id = '${C}';
+  if sets <> 2 then
+    raise exception 'client rounds were not saved, got %', sets;
+  end if;
+  if exists (select 1 from public.workout_sessions where client_id = '${E}') then
+    raise exception 'a manual person became a session';
+  end if;
+  select r.manual::text into manual from public.circuit_runs r;
+  if position('@' in manual) > 0 then
+    raise exception 'an email was stored';
+  end if;
+  if (select workout_name from public.workout_sessions where client_id = '${T}') <> 'Friday circuit' then
+    raise exception 'coach history name was wrong';
+  end if;
+end $$;
+
+select public.circuit_save_run($json$${JSON.stringify({
+  runId: 'run_idle_01',
+  name: 'Idle class',
+  circuitId: 'circ1',
+  status: 'completed',
+  startedAt: '2026-11-21T15:00:00Z',
+  endedAt: '2026-11-21T15:20:00Z',
+  timeZone: 'UTC',
+  workSec: 40,
+  moveSec: 15,
+  stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+  people: [{ clientId: C, name: 'Ada', rounds: [] }]
+})}$json$::jsonb);
+do $$
+begin
+  if exists (select 1 from public.workout_sessions where client_id = '${C}' and local_id = 'run_idle_01') then
+    raise exception 'a client with no rounds got a session';
+  end if;
+end $$;
+
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_unlinked',
+      name: 'Nope',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-20T16:00:00Z',
+      endedAt: '2026-11-20T16:10:00Z',
+      timeZone: 'UTC',
+      workSec: 40,
+      moveSec: 15,
+      stations: [],
+      people: [{ clientId: E, name: 'Fan', rounds: [] }]
+    })}$json$::jsonb);
+    raise exception 'unlinked client was accepted';
+  exception when others then
+    if SQLERRM like '%unlinked client was accepted%' then raise; end if;
+  end;
+  if exists (select 1 from public.circuit_runs where run_id = 'run_unlinked') then
+    raise exception 'unlinked run was stored';
+  end if;
+end $$;
+
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+update public.profiles set membership = 'none', intended_plan = 'trainer' where id = '${T}';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${T}', false);
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_intended',
+      name: 'Nope',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-24T15:00:00Z',
+      endedAt: '2026-11-24T15:10:00Z',
+      timeZone: 'UTC',
+      workSec: 40,
+      moveSec: 15,
+      stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+      people: []
+    })}$json$::jsonb);
+    raise exception 'intended plan saved a circuit';
+  exception when others then
+    if SQLERRM like '%intended plan saved%' then raise; end if;
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+update public.profiles set membership = 'trainer', intended_plan = null where id = '${T}';
+update public.personal_exercises set name = 'Original row'
+where user_id = '${C}' and stable_key = 'circuit-st_row';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '${T}', false);
+select public.circuit_save_run($json$${JSON.stringify({
+  runId: 'run_name_01',
+  name: 'Name lock',
+  circuitId: 'circ1',
+  status: 'completed',
+  startedAt: '2026-11-24T15:00:00Z',
+  endedAt: '2026-11-24T15:12:00Z',
+  timeZone: 'UTC',
+  workSec: 40,
+  moveSec: 15,
+  stations: [{ id: 'st_row', name: 'Renamed row', libraryId: '' }],
+  people: [{ clientId: C, name: 'Ada', rounds: [{ stationId: 'st_row', workSec: 20 }, { stationId: 'st_row', workSec: 20 }] }]
+})}$json$::jsonb);
+do $$
+begin
+  if (select name from public.personal_exercises where user_id = '${C}' and stable_key = 'circuit-st_row') <> 'Original row' then
+    raise exception 'circuit save renamed a custom exercise';
+  end if;
+  if (select count(*) from public.workout_sets ws
+      join public.workout_sessions s on s.id = ws.session_id
+      where s.client_id = '${C}' and s.local_id = 'run_name_01' and ws.group_tag = 'st_row' and ws.set_number = 1) <> 1
+     or (select count(*) from public.workout_sets ws
+      join public.workout_sessions s on s.id = ws.session_id
+      where s.client_id = '${C}' and s.local_id = 'run_name_01' and ws.group_tag = 'st_row' and ws.set_number = 2) <> 1 then
+    raise exception 'sets were not numbered per station';
+  end if;
+end $$;
+
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_bad_num',
+      name: 'Bad',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-24T15:00:00Z',
+      endedAt: '2026-11-24T15:10:00Z',
+      timeZone: 'UTC',
+      workSec: 'NaN',
+      moveSec: 15,
+      stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+      people: []
+    })}$json$::jsonb);
+    raise exception 'bad number was saved';
+  exception when others then
+    if SQLERRM like '%bad number was saved%' then raise; end if;
+  end;
+end $$;
+
+insert into public.dashboard_layouts (user_id, cards)
+values ('${T}', '["plan","workouts","volume","strength","records","calendar","holds","stopwatch","pass","circuit"]'::jsonb);
+insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
+values ('${C}', '${T}', 'Coach', '2026-11-24', '[{"type":"circuit","circuit":{"sessions":1,"seconds":40}}]'::jsonb);
+do $$
+begin
+  if jsonb_array_length((select cards from public.dashboard_layouts where user_id = '${T}')) <> 10 then
+    raise exception 'layout did not keep circuit';
+  end if;
+  if (select cards->0->>'type' from public.shared_dashboards where client_id = '${C}') <> 'circuit' then
+    raise exception 'share did not keep circuit';
+  end if;
+  begin
+    update public.dashboard_layouts
+      set cards = '["plan","workouts","volume","strength","records","calendar","holds","stopwatch","pass","circuit","extra"]'::jsonb
+      where user_id = '${T}';
+    raise exception 'eleven cards were saved';
+  exception when others then
+    if SQLERRM not like '%Choose the cards on your dashboard%' then
+      if SQLERRM like '%eleven cards were saved%' then raise; end if;
+      raise exception 'layout limit error was %', SQLERRM;
+    end if;
+  end;
+  begin
+    insert into public.shared_dashboards (client_id, trainer_id, trainer_name, as_of, cards)
+    values (
+      '${C}', '${T}', 'Coach', '2026-11-24',
+      '[{"type":"plan"},{"type":"workouts"},{"type":"strength"},{"type":"volume"},{"type":"records"},{"type":"calendar"},{"type":"holds"},{"type":"stopwatch"},{"type":"pass"},{"type":"circuit"},{"type":"extra"}]'::jsonb
+    );
+    raise exception 'eleven shared cards were saved';
+  exception when others then
+    if SQLERRM not like '%Choose the cards to share%' then
+      if SQLERRM like '%eleven shared cards were saved%' then raise; end if;
+      raise exception 'share limit error was %', SQLERRM;
+    end if;
+  end;
+end $$;
+
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_bad_round',
+      name: 'Bad round',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-24T15:00:00Z',
+      endedAt: '2026-11-24T15:10:00Z',
+      timeZone: 'UTC',
+      workSec: 40,
+      moveSec: 15,
+      stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+      people: [{ clientId: C, name: 'Ada', rounds: [{ stationId: 'missing', workSec: 'nope' }] }]
+    })}$json$::jsonb);
+    raise exception 'malformed round was saved';
+  exception when others then
+    if SQLERRM not like '%could not be saved%' and SQLERRM not like '%malformed round was saved%' then
+      raise exception 'malformed round error was %', SQLERRM;
+    end if;
+    if SQLERRM like '%malformed round was saved%' then raise; end if;
+  end;
+  if exists (select 1 from public.workout_sessions where local_id = 'run_bad_round' and client_id = '${C}') then
+    raise exception 'unknown station still created a client session';
+  end if;
+end $$;
+
+select public.circuit_save_run($json$${JSON.stringify({
+  runId: 'run_unknown_station',
+  name: 'Unknown station',
+  circuitId: 'circ1',
+  status: 'completed',
+  startedAt: '2026-11-24T15:00:00Z',
+  endedAt: '2026-11-24T15:10:00Z',
+  timeZone: 'UTC',
+  workSec: 40,
+  moveSec: 15,
+  stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+  people: [{ clientId: C, name: 'Ada', rounds: [{ stationId: 'missing', workSec: 40 }] }]
+})}$json$::jsonb);
+do $$
+begin
+  if exists (select 1 from public.workout_sessions where local_id = 'run_unknown_station' and client_id = '${C}') then
+    raise exception 'a client with only an unknown station got a session';
+  end if;
+end $$;
+
+do $$
+begin
+  begin
+    perform public.circuit_save_run($json$${JSON.stringify({
+      runId: 'run_old',
+      name: 'Too old',
+      circuitId: 'circ1',
+      status: 'completed',
+      startedAt: '2026-11-01T15:00:00Z',
+      endedAt: '2026-11-01T15:10:00Z',
+      timeZone: 'UTC',
+      workSec: 40,
+      moveSec: 15,
+      stations: [{ id: 'st_squat', name: 'Squat', libraryId: 'squat1' }],
+      people: []
+    })}$json$::jsonb);
+    raise exception 'old circuit was saved';
+  exception when others then
+    if SQLERRM not like '%outside the save window%' then
+      if SQLERRM like '%old circuit was saved%' then raise; end if;
+      raise exception 'window error was %', SQLERRM;
+    end if;
+    if SQLERRM like '%could not be saved%' then
+      raise exception 'window shared the validation message';
+    end if;
+  end;
+end $$;
+
+select set_config('request.jwt.claim.sub', '${C}', false);
+do $$
+begin
+  begin
+    perform public.circuit_save_run('{"runId":"run_client","name":"Nope","startedAt":"2026-11-20T16:00:00Z","endedAt":"2026-11-20T16:10:00Z","people":[]}'::jsonb);
+    raise exception 'client saved a circuit';
+  exception when others then
+    if SQLERRM not like '%Only a trainer can save a circuit%' then
+      if SQLERRM like '%client saved a circuit%' then raise; end if;
+      raise exception 'role error was %', SQLERRM;
+    end if;
+  end;
+end $$;
+
+reset role;
+set role anon;
+do $$
+begin
+  begin
+    perform public.circuit_save_run('{}'::jsonb);
+    raise exception 'anon saved a circuit';
+  exception when others then
+    if SQLERRM like '%anon saved a circuit%' then raise; end if;
+  end;
+end $$;
+`);
+
+console.log('CIRCUIT HISTORY SQL OK');

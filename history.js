@@ -114,6 +114,7 @@
       localDate: String(pick(row, 'localDate', 'local_date') || ''),
       startedAt: pick(row, 'startedAt', 'started_at'),
       workoutName: String(pick(row, 'workoutName', 'workout_name') || 'Workout'),
+      origin: String(pick(row, 'origin', 'origin') || ''),
       exerciseName: String(pick(row, 'exerciseName', 'exercise_name') || 'Exercise'),
       libraryExerciseId: String(pick(row, 'libraryExerciseId', 'library_exercise_id') || ''),
       personalExerciseId: String(pick(row, 'personalExerciseId', 'personal_exercise_id') || ''),
@@ -184,6 +185,7 @@
       merged.localDate = session.local_date || session.localDate;
       merged.startedAt = session.started_at || session.startedAt;
       merged.workoutName = session.workout_name || session.workoutName || 'Workout';
+      merged.origin = session.origin || '';
       if (!merged.stableKey && !merged.stable_key && merged.personal_exercise_id) {
         merged.stableKey = stable[merged.personal_exercise_id] || '';
       }
@@ -214,11 +216,12 @@
     if (reps) return reps + ' reps';
     return weight || '';
   }
-  function effortLine(mode, work, rest, rounds, reps, min, max, weight) {
+  function effortLine(mode, work, rest, rounds, reps, min, max, weight, gapWord) {
     var parts = [];
-    if (mode === 'timer' && work != null && rest != null) parts.push(fmtTime(work) + ' work / ' + fmtTime(rest) + ' rest');
+    var gap = gapWord || 'rest';
+    if (mode === 'timer' && work != null && rest != null && Number(rest) !== 0) parts.push(fmtTime(work) + ' work / ' + fmtTime(rest) + ' ' + gap);
     else if (mode === 'timer' && work != null) parts.push(fmtTime(work) + ' work');
-    else if (mode === 'timer' && rest != null) parts.push(fmtTime(rest) + ' rest');
+    else if (mode === 'timer' && rest != null && Number(rest) !== 0) parts.push(fmtTime(rest) + ' ' + gap);
     else if (mode === 'intervals' && work != null) parts.push(fmtTime(work) + ' work');
     if (rounds != null) parts.push(trim(rounds) + (Number(rounds) === 1 ? ' round' : ' rounds'));
     var r = repsPart(reps, min, max);
@@ -249,7 +252,8 @@
         actual ? set.actualReps : set.plannedReps,
         actual ? null : set.plannedRepsMin,
         actual ? null : set.plannedRepsMax,
-        weightPart(actual ? set.actualWeightKg : set.plannedWeightKg, set.displayUnit, actual ? set.actualBodyweight : set.plannedBodyweight)
+        weightPart(actual ? set.actualWeightKg : set.plannedWeightKg, set.displayUnit, actual ? set.actualBodyweight : set.plannedBodyweight),
+        set.origin === 'circuit' ? 'move' : 'rest'
       );
     }
     if (mode === 'stopwatch') {
@@ -484,6 +488,7 @@
       rows.push({
         id: id,
         name: named.workoutName || 'Workout',
+        origin: named.origin || '',
         date: named.localDate,
         label: sessionLabel(named.localDate, named.workoutName),
         sets: all.length,
@@ -545,6 +550,7 @@
       view.localDate = s.localDate;
       view.startedAt = s.startedAt;
       view.workoutName = s.workoutName || 'Workout';
+      view.origin = s.origin || '';
       view.setNumber = s.setNumber;
       return view;
     });
@@ -562,7 +568,7 @@
         session = null;
       }
       if (!session || session.id !== view.sessionId) {
-        session = { id: view.sessionId, name: view.workoutName, time: clock(view.startedAt), sets: [] };
+        session = { id: view.sessionId, name: view.workoutName, origin: view.origin || '', time: clock(view.startedAt), sets: [] };
         day.sessions.push(session);
       }
       session.sets.push(view);
@@ -610,6 +616,7 @@
     return {
       id: id,
       name: named.workoutName || 'Workout',
+      origin: named.origin || '',
       date: named.localDate,
       label: sessionLabel(named.localDate, named.workoutName),
       exercises: exercises
@@ -635,10 +642,13 @@
     if (!rows || !rows.length) return '<div class="empty" id="history-none">No exercises match that search.</div>';
     return rows.map(rowHtml).join('');
   }
+  function circuitTag(origin) {
+    return origin === 'circuit' ? '<span class="hx-tag">Group circuit</span>' : '';
+  }
   function workoutRowHtml(row) {
     var count = row.sets === 1 ? '1 set' : row.sets + ' sets';
     return '<button type="button" class="hx-row" data-session="' + esc(row.id) + '">' +
-      '<span class="grow"><span class="name">' + esc(row.label) + '</span>' +
+      '<span class="grow"><span class="name">' + esc(row.label) + circuitTag(row.origin) + '</span>' +
       '<span class="mute">' + count + '</span></span></button>';
   }
   function workoutItemsHtml(rows) {
@@ -697,7 +707,7 @@
     view.days.forEach(function (day) {
       h += '<h2 class="hx-date">' + esc(day.label) + '</h2>';
       day.sessions.forEach(function (session) {
-        h += '<article class="card hx-session"><div class="row"><div class="name grow">' + esc(session.name) + '</div>';
+        h += '<article class="card hx-session" data-origin="' + esc(session.origin || '') + '"><div class="row"><div class="name grow">' + esc(session.name) + circuitTag(session.origin) + '</div>';
         if (session.time) h += '<div class="mute">' + esc(session.time) + '</div>';
         h += '</div>';
         session.sets.forEach(function (set) { h += setBlock(set); });
@@ -709,7 +719,7 @@
   function sessionHtml(view, opts) {
     opts = opts || {};
     if (!view || !view.exercises || !view.exercises.length) return emptyHtml(opts);
-    var h = '<h2 class="hx-session-title">' + esc(sessionDetailTitle(view.date, view.name || view.label)) + '</h2>';
+    var h = '<h2 class="hx-session-title">' + esc(sessionDetailTitle(view.date, view.name || view.label)) + circuitTag(view.origin) + '</h2>';
     view.exercises.forEach(function (exercise) {
       h += '<article class="card hx-session"><div class="row"><div class="name grow">' + esc(exercise.name) + '</div></div>';
       (exercise.sets || []).forEach(function (set) { h += setBlock(set); });

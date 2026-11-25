@@ -537,9 +537,10 @@ const editorHtml = D.editorHtml({ strength: stored.cards[0].strength, workouts: 
 assert.deepStrictEqual(fillWidths(editorHtml), ['50', '100', '100']);
 assert.ok(editorHtml.indexOf('>15% · Alien<') >= 0);
 
-assert.deepStrictEqual(D.STANDARD, ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds']);
-assert.deepStrictEqual(D.CARDS, ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass']);
-assert.strictEqual(D.CARDS.length, 9);
+assert.deepStrictEqual(D.STANDARD, ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds', 'circuit']);
+assert.deepStrictEqual(D.CARDS, ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass', 'circuit']);
+assert.strictEqual(D.CARDS.length, 10);
+assert.strictEqual(D.CARD_LABEL.circuit, 'Circuit');
 ['records', 'stopwatch', 'pass'].forEach(function (id) {
   assert.ok(D.CARDS.indexOf(id) >= 0);
   assert.ok(D.STANDARD.indexOf(id) < 0);
@@ -639,7 +640,12 @@ assert.ok(/drop constraint if exists dashboard_layouts_cards_array/.test(migrati
 assert.ok(/drop constraint if exists shared_dashboards_cards_array/.test(migration));
 assert.ok(!/create policy/i.test(migration));
 assert.ok(!/enable row level security/i.test(migration));
-assert.ok(/input\.cards\.length > 9/.test(authSrc));
+assert.ok(/input\.cards\.length > 10/.test(authSrc));
+const circuitMigration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261125130000_circuit_history.sql'), 'utf8');
+assert.ok(/jsonb_array_length\(cards\) <= 10/.test(circuitMigration));
+assert.ok(/jsonb_array_length\(cards\) between 1 and 10/.test(circuitMigration));
+assert.ok(/jsonb_array_length\(new\.cards\) > 10/.test(circuitMigration));
+assert.ok(/'pass', 'circuit'/.test(circuitMigration));
 assert.ok(!/cards\.length > 7/.test(authSrc));
 assert.strictEqual((appSrc.match(/workouts: dashboardWorkouts\(\)/g) || []).length, 2);
 assert.strictEqual((appSrc.match(/schemaVersion: data && data.version/g) || []).length, 2);

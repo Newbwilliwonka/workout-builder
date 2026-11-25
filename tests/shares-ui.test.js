@@ -218,7 +218,8 @@ async function openPage(browser, cfg) {
   await trainer.click('#dash-edit');
   await trainer.waitForSelector('[data-card-up="volume"]');
   assert.strictEqual(await trainer.$eval('[data-card-up="plan"]', function (el) { return el.disabled; }), true);
-  assert.strictEqual(await trainer.$eval('[data-card-down="holds"]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await trainer.$('#dashboard-circuit'), null);
+  assert.strictEqual(await trainer.$eval('[data-card-down="holds"]', function (el) { return el.disabled; }), false);
   assert.strictEqual(await trainer.$('[data-drag]'), null);
   assert.ok(await trainer.$('[data-card-add="records"]'));
   assert.ok(await trainer.$('[data-card-add="stopwatch"]'));

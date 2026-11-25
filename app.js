@@ -1588,12 +1588,15 @@
       go('#/signin');
     }
     if (!mustSignOut || !WBAuth.signOut) return goSign();
+    signedInCircuitId().then(function (signingOut) {
+    if (!confirmCircuitSignOut(signingOut)) return;
     // Sign out before dropping the lock. A failed read can leave the recovery
     // session in place, and clearing the lock first would open the app.
     recoveryPhase = 'checking';
     recoverySettled = false;
     renderReset();
     Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
+      if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
       cachedProfile = null;
@@ -1601,6 +1604,7 @@
       goSign();
     }, function () {
       holdRecovery('Could not sign out. Stay here until the new password is set.');
+    });
     });
   }
   function holdRecovery(message) {
@@ -1684,6 +1688,7 @@
         syncHeaderSignOut();
         levelNoteOn = false;
         noteNavSection();
+        if (window.WBCircuitHistory && session && session.user) WBCircuitHistory.flush(session.user.id);
         if (programsRequested()) return openPrograms();
         if (page === 'tracking') return renderTracking(token);
         if (page === 'history') return renderHistory(token);
@@ -2220,9 +2225,26 @@
     refreshRequestBadges();
     if (!noteNavSection()) refreshNavBadges();
   }
+  function signedInCircuitId() {
+    if (!window.WBAuth || !WBAuth.session) return Promise.resolve('');
+    return Promise.resolve().then(function () { return WBAuth.session(); }).then(function (session) {
+      return session && session.user && session.user.id || '';
+    }, function () { return ''; });
+  }
+  function confirmCircuitSignOut(userId) {
+    var n = userId && window.WBCircuitHistory && WBCircuitHistory.pendingCount ? WBCircuitHistory.pendingCount(userId) : 0;
+    if (!n) return true;
+    var msg = n === 1
+      ? 'A group circuit is still on this phone and has not been sent. Sign out anyway?'
+      : n + ' group circuits are still on this phone and have not been sent. Sign out anyway?';
+    return confirm(msg);
+  }
   function signOutFromAccount() {
+    signedInCircuitId().then(function (signingOut) {
+    if (!confirmCircuitSignOut(signingOut)) return;
     var from = hashPage();
     WBAuth.signOut().then(function () {
+      if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
       cachedProfile = null;
@@ -2244,6 +2266,7 @@
     }).catch(function (err) {
       if (hashPage() !== from) return;
       app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
+    });
     });
   }
   var accountSignOut = document.getElementById('account-signout');
@@ -2785,7 +2808,10 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
+        var signingOut = session && session.user && session.user.id || '';
+        if (!confirmCircuitSignOut(signingOut)) return;
         return WBAuth.signOut().then(function () {
+          if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
           forgetRequestBadges();
           clearNavBadges();
           cachedProfile = null;
@@ -4676,7 +4702,7 @@
   function paintClientEditor() {
     if (!window.WBDashboard || !trainerModel) return;
     var self = !editorClient;
-    var order = dashboardEditing && Array.isArray(editDraft) ? editDraft : trainerOrder;
+    var order = visibleOrder();
     var editor = WBDashboard.editorHtml(trainerModel, order, {
       self: self,
       share: !self && receivesShares(clientRecord(editorClient)),
@@ -6475,7 +6501,15 @@
     if (e.key !== M.STORAGE_KEY && e.key !== WBLibrary.DROP_KEY) return;
     adoptSiblingSave();
   });
-  window.addEventListener('online', function () { ensureShare(); libraryOff = false; scheduleAccountSync(); });
+  window.addEventListener('online', function () {
+    ensureShare();
+    libraryOff = false;
+    scheduleAccountSync();
+    if (!window.WBCircuitHistory || !WBAuth.session) return;
+    WBAuth.session().then(function (session) {
+      if (session && session.user) WBCircuitHistory.flush(session.user.id);
+    }, function () {});
+  });
   window.addEventListener('offline', function () {
     if ((!libraryUserId && !libraryOwner()) || libraryOff) return;
     setLibraryStatus('offline', '');

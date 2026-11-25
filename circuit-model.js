@@ -643,7 +643,11 @@
     if (!person || !person.slice) return;
     var add = Math.max(0, atMs - person.slice.from);
     var id = person.slice.stationId;
-    if (id && add > 0) person.ms[id] = (person.ms[id] || 0) + add;
+    if (id && add > 0) {
+      person.ms[id] = (person.ms[id] || 0) + add;
+      if (!person.rounds) person.rounds = [];
+      person.rounds.push({ stationId: id, workMs: add });
+    }
     person.slice = null;
   }
   function openSlice(person, stationId, atMs) {
@@ -707,6 +711,7 @@
         startIndex: startIndex,
         benched: !!spot.bench,
         ms: {},
+        rounds: [],
         slice: null
       };
     });
@@ -795,7 +800,10 @@
         rows.sort(function (a, b) { return (orderIndex[a.stationId] || 0) - (orderIndex[b.stationId] || 0); });
         var total = 0;
         rows.forEach(function (row) { total += row.seconds; });
-        return { key: p.key, source: p.source, id: p.id || null, name: p.name, stations: rows, total: total };
+        var rounds = (p.rounds || []).map(function (round) {
+          return { stationId: round.stationId, workSec: Math.max(1, Math.round((round.workMs || 0) / 1000)) };
+        });
+        return { key: p.key, source: p.source, id: p.id || null, name: p.name, stations: rows, total: total, rounds: rounds };
       })
     };
   }

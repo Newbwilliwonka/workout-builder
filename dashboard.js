@@ -204,7 +204,10 @@
       localDate: date,
       status: status === 'ended_early' ? 'ended_early' : 'completed',
       workoutId: String(row.workoutId || row.workout_id || ''),
-      programId: String(row.programId || row.program_id || '')
+      programId: String(row.programId || row.program_id || ''),
+      origin: String(row.origin || ''),
+      startedAt: row.startedAt || row.started_at || null,
+      endedAt: row.endedAt || row.ended_at || null
     };
   }
   function usableEntry(row) {
@@ -820,7 +823,8 @@
       calendar: calendarBlock(sessions, now),
       holds: holdsBlock(sets, now, input.workouts, input.schemaVersion),
       stopwatch: stopwatchBlock(sets, now),
-      pass: passBlock(sets, now)
+      pass: passBlock(sets, now),
+      circuit: circuitBlock(sessions, sets, now)
     };
   }
   function passBlock(sets, now) {
@@ -1071,6 +1075,129 @@
     h += '<p class="db-note" id="dashboard-calendar-note">' + countLine + '</p></section>';
     return h;
   }
+  function mondayOf(date) {
+    var d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d;
+  }
+  function circuitSeconds(session, sets) {
+    var sec = 0;
+    (sets || []).forEach(function (set) {
+      if (!set || String(set.sessionId || '') !== session.id) return;
+      sec += Number(set.actualWorkSec) || 0;
+    });
+    return sec > 0 ? Math.round(sec) : 0;
+  }
+  function clockText(seconds) {
+    seconds = Math.max(0, Math.round(Number(seconds) || 0));
+    var m = Math.floor(seconds / 60);
+    var s = seconds % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  function circuitBlock(sessions, sets, now) {
+    var mine = (sessions || []).filter(function (session) {
+      if (!session || session.origin !== 'circuit') return false;
+      return (sets || []).some(function (set) {
+        return set && String(set.sessionId || '') === session.id && ((Number(set.actualWorkSec) || 0) > 0 || (Number(set.actualRestSec) || 0) > 0);
+      });
+    });
+    if (!mine.length) return null;
+    var total = 0;
+    var weeks = [];
+    var i;
+    var startWeek = mondayOf(now);
+    for (i = 7; i >= 0; i--) {
+      var day = new Date(startWeek.getFullYear(), startWeek.getMonth(), startWeek.getDate() - i * 7);
+      weeks.push({
+        key: day.getFullYear() + '-' + day.getMonth() + '-' + day.getDate(),
+        label: MONTHS[day.getMonth()].slice(0, 3) + ' ' + day.getDate(),
+        minutes: 0
+      });
+    }
+    var latest = mine[0];
+    mine.forEach(function (session) {
+      var minutes = Math.round(circuitSeconds(session, sets) / 60);
+      total += circuitSeconds(session, sets);
+      var when = Date.parse(session.startedAt || session.localDate);
+      if (!isFinite(when)) when = Date.parse(session.localDate + 'T12:00:00');
+      if (isFinite(when)) {
+        var week = mondayOf(new Date(when));
+        var key = week.getFullYear() + '-' + week.getMonth() + '-' + week.getDate();
+        weeks.forEach(function (bucket) { if (bucket.key === key) bucket.minutes += minutes; });
+      }
+      var latestAt = Date.parse(latest.startedAt || latest.localDate);
+      if (when > latestAt) latest = session;
+    });
+    var stations = {};
+    var order = [];
+    (sets || []).forEach(function (set) {
+      if (!set || String(set.sessionId || '') !== latest.id) return;
+      var name = String(set.exerciseName || 'Station');
+      if (!stations[name]) { stations[name] = 0; order.push(name); }
+      stations[name] += Number(set.actualWorkSec) || 0;
+    });
+    var latestStations = order.map(function (name) {
+      return { name: name, seconds: stations[name] };
+    }).filter(function (row) { return row.seconds > 0; });
+    return { sessions: mine.length, seconds: total, minutes: Math.round(total / 60), weeks: weeks, stations: latestStations };
+  }
+  function circuitBars(weeks) {
+    var max = 1;
+    weeks.forEach(function (week) { if (week.minutes > max) max = week.minutes; });
+    var h = '<div class="db-circuit-bars" id="dashboard-circuit-bars" role="img" aria-label="Circuit minutes for the last 8 weeks">';
+    weeks.forEach(function (week) {
+      var pct = week.minutes > 0 ? Math.round((week.minutes / max) * 100) : 0;
+      h += '<div class="db-circuit-col"><span class="db-circuit-fill" style="height:' + pct + '%"></span><span class="db-circuit-week">' + esc(week.label.split(' ')[1] || '') + '</span></div>';
+    });
+    return h + '</div>';
+  }
+  function circuitRing(stations) {
+    var total = 0;
+    stations.forEach(function (row) { total += row.seconds; });
+    if (!total) return '';
+    var colors = ['#2563eb', '#7c3aed', '#0f766e', '#d97706', '#dc2626'];
+    var r = 28;
+    var c = 2 * Math.PI * r;
+    var offset = 0;
+    var h = '<svg class="db-circuit-ring" viewBox="0 0 72 72" width="72" height="72" aria-hidden="true">';
+    h += '<circle cx="36" cy="36" r="' + r + '" fill="none" stroke="#e5e7eb" stroke-width="8"/>';
+    stations.forEach(function (row, index) {
+      var len = (row.seconds / total) * c;
+      h += '<circle cx="36" cy="36" r="' + r + '" fill="none" stroke="' + colors[index % colors.length] + '" stroke-width="8" stroke-dasharray="' + len.toFixed(2) + ' ' + (c - len).toFixed(2) + '" stroke-dashoffset="' + (-offset).toFixed(2) + '" transform="rotate(-90 36 36)"/>';
+      offset += len;
+    });
+    return h + '</svg>';
+  }
+  function circuitLegend(stations) {
+    var colors = ['#2563eb', '#7c3aed', '#0f766e', '#d97706', '#dc2626'];
+    if (!stations || !stations.length) return '';
+    var h = '<ul class="db-circuit-legend" id="dashboard-circuit-legend">';
+    stations.forEach(function (row, index) {
+      h += '<li><i style="background:' + colors[index % colors.length] + '"></i><span>' + esc(row.name) + '</span></li>';
+    });
+    return h + '</ul>';
+  }
+  function circuitHtml(block) {
+    if (!block || !block.sessions) return '';
+    var noun = block.sessions === 1 ? 'group circuit' : 'group circuits';
+    var h = '<section class="db-sec" id="dashboard-circuit" aria-labelledby="dashboard-circuit-title">';
+    h += '<h2 class="db-label" id="dashboard-circuit-title">Circuit</h2>';
+    h += '<div class="db-circuit-top"><div><div class="db-vol" id="dashboard-circuit-minutes">' + esc(clockText(block.seconds)) + '</div>';
+    h += '<p class="db-note" id="dashboard-circuit-count">' + block.sessions + ' ' + noun + '</p></div>';
+    h += '<div class="db-circuit-side">' + circuitRing(block.stations || []) + circuitLegend(block.stations || []) + '</div>';
+    h += '</div>';
+    h += circuitBars(block.weeks || []);
+    h += '<p class="db-note">Minutes by week</p>';
+    if (block.stations && block.stations.length) {
+      h += '<p class="db-note" id="dashboard-circuit-latest">Latest session</p>';
+      h += '<ul class="db-circuit-stations" id="dashboard-circuit-stations">';
+      block.stations.forEach(function (row) {
+        h += '<li><span>' + esc(row.name) + '</span><b>' + esc(clockText(row.seconds)) + '</b></li>';
+      });
+      h += '</ul>';
+    }
+    return h + '</section>';
+  }
   function html(model) {
     if (!model || model.empty) {
       return '<div id="dashboard"><div class="empty db-empty" id="dashboard-empty"><div class="name">Finish a workout and your dashboard will fill in.</div></div></div>';
@@ -1090,10 +1217,11 @@
     calendar: 'Consistency',
     holds: 'Static holds',
     stopwatch: 'Stopwatch',
-    pass: 'Stopwatch pass rate'
+    pass: 'Stopwatch pass rate',
+    circuit: 'Circuit'
   };
-  var STANDARD = ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds'];
-  var CARD_ALL = ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass'];
+  var STANDARD = ['plan', 'workouts', 'volume', 'strength', 'calendar', 'holds', 'circuit'];
+  var CARD_ALL = ['plan', 'workouts', 'volume', 'strength', 'records', 'calendar', 'holds', 'stopwatch', 'pass', 'circuit'];
   function keptOrder(order) {
     var seen = {};
     var out = [];
@@ -1115,6 +1243,7 @@
     if (id === 'holds') return holdsHtml(model.holds || []);
     if (id === 'stopwatch') return stopwatchHtml(model.stopwatch || []);
     if (id === 'pass') return passHtml(model.pass || { passes: 0, total: 0, pct: null });
+    if (id === 'circuit') return circuitHtml(model.circuit);
     return '';
   }
   function passHtml(block) {
@@ -1237,6 +1366,22 @@
       } else if (id === 'pass') {
         var pass = model.pass || { passes: 0, total: 0, pct: null };
         cards.push({ type: 'pass', pass: { passes: pass.passes || 0, total: pass.total || 0, pct: pass.pct == null ? null : pass.pct } });
+      } else if (id === 'circuit') {
+        var circuit = model.circuit || { sessions: 0, seconds: 0, minutes: 0, weeks: [], stations: [] };
+        cards.push({
+          type: 'circuit',
+          circuit: {
+            sessions: circuit.sessions || 0,
+            seconds: circuit.seconds || 0,
+            minutes: circuit.minutes || 0,
+            weeks: (circuit.weeks || []).map(function (week) {
+              return { key: week.key, label: week.label, minutes: week.minutes || 0 };
+            }),
+            stations: (circuit.stations || []).map(function (row) {
+              return { name: row.name, seconds: row.seconds || 0 };
+            })
+          }
+        });
       }
     });
     return { asOf: asOf, trainerName: name, cards: cards };
@@ -1260,6 +1405,7 @@
     if (card.type === 'stopwatch') model.stopwatch = card.stopwatch;
     if (card.type === 'calendar') model.calendar = card.calendar;
     if (card.type === 'pass') model.pass = card.pass;
+    if (card.type === 'circuit') model.circuit = card.circuit;
     return model;
   }
   function snapshotHtml(snap) {
