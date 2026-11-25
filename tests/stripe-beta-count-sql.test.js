@@ -68,6 +68,11 @@ declare
   n integer;
   locked boolean;
   result jsonb;
+  old_token uuid;
+  new_token uuid;
+  seen_token uuid;
+  seen_plan text;
+  seen_until timestamptz;
 begin
   if has_function_privilege('authenticated', 'public.beta_paid_count()', 'execute')
      or has_function_privilege('anon', 'public.beta_paid_count()', 'execute')
@@ -98,8 +103,8 @@ begin
      or has_function_privilege('authenticated', 'public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone)', 'execute') then
     raise exception 'a signed-in person can claim Checkout or write billing';
   end if;
-  if not has_function_privilege('service_role', 'public.checkout_claim_release(uuid)', 'execute')
-     or has_function_privilege('authenticated', 'public.checkout_claim_release(uuid)', 'execute') then
+  if not has_function_privilege('service_role', 'public.checkout_claim_release(uuid, uuid)', 'execute')
+     or has_function_privilege('authenticated', 'public.checkout_claim_release(uuid, uuid)', 'execute') then
     raise exception 'Checkout claim release has the wrong grants';
   end if;
   if not has_function_privilege('service_role', 'public.checkout_claim(uuid, text)', 'execute')
@@ -109,21 +114,40 @@ begin
   end if;
 
   result := public.checkout_claim('${USER}'::uuid, 'enthusiast');
+  old_token := (result ->> 'token')::uuid;
   if (result ->> 'granted')::boolean is not true
-     or result ->> 'plan' is distinct from 'enthusiast' then
+     or result ->> 'plan' is distinct from 'enthusiast'
+     or old_token is null then
     raise exception 'the first Checkout claim was %', result;
   end if;
-  result := public.checkout_claim('${USER}'::uuid, 'trainer');
-  if (result ->> 'granted')::boolean
-     or result ->> 'plan' is distinct from 'enthusiast' then
-    raise exception 'a second Checkout claim was %', result;
+  perform public.checkout_claim_release('${USER}'::uuid, old_token);
+  select checkout_claim_token, checkout_claim_until
+    into seen_token, seen_until
+  from public.profiles where id = '${USER}';
+  if seen_token is not null or seen_until is not null then
+    raise exception 'a matching token did not clear the claim';
   end if;
-  perform public.checkout_claim_release('${USER}'::uuid);
+
+  perform public.checkout_claim('${USER}'::uuid, 'enthusiast');
+  update public.profiles
+    set checkout_claim_until = now() - interval '1 second'
+  where id = '${USER}'
+  returning checkout_claim_token into old_token;
   result := public.checkout_claim('${USER}'::uuid, 'trainer');
+  new_token := (result ->> 'token')::uuid;
   if (result ->> 'granted')::boolean is not true
-     or result ->> 'plan' is distinct from 'trainer' then
-    raise exception 'release did not free the claim: %', result;
+     or new_token is null
+     or new_token = old_token then
+    raise exception 'the newer claim was %', result;
   end if;
+  perform public.checkout_claim_release('${USER}'::uuid, old_token);
+  select checkout_claim_token, checkout_claim_plan
+    into seen_token, seen_plan
+  from public.profiles where id = '${USER}';
+  if seen_token is distinct from new_token or seen_plan is distinct from 'trainer' then
+    raise exception 'an expired claim release cleared the newer claim';
+  end if;
+  perform public.checkout_claim_release('${USER}'::uuid, new_token);
 end $$;
 `);
 

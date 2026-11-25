@@ -246,6 +246,7 @@ export async function createCheckoutSession(input) {
 
   const timing = waitTiming(input)
   let ownClaim = false
+  let claimToken = null
   try {
     const price = await priceFor(stripe, plan, tier)
     const customer = await customerFor(stripe, db, profile, userId, input.email)
@@ -260,6 +261,7 @@ export async function createCheckoutSession(input) {
         claim = await pollClaim(db, userId, plan, timing.step, timing.limit)
         if (!claim || claim.granted !== true) throw new BillingError(STARTING, 409)
         ownClaim = true
+        claimToken = claim.token || null
       } else {
         const waiting = await waitForOffer(stripe, customer, plan, tier, timing.step, timing.limit)
         if (waiting) return { status: 200, body: { url: waiting } }
@@ -267,6 +269,7 @@ export async function createCheckoutSession(input) {
       }
     } else {
       ownClaim = true
+      claimToken = claim.token || null
     }
 
     let open = await listOpen(stripe, customer)
@@ -324,7 +327,7 @@ export async function createCheckoutSession(input) {
   } finally {
     if (ownClaim) {
       try {
-        await db.rpc('checkout_claim_release', { p_profile: userId })
+        await db.rpc('checkout_claim_release', { p_profile: userId, p_token: claimToken })
       } catch (_releaseErr) {
         // The claim expires on its own if this release does not land.
       }

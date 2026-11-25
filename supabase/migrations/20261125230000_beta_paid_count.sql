@@ -54,11 +54,17 @@ alter table public.profiles
 alter table public.profiles
   add column if not exists checkout_claim_plan text;
 
+alter table public.profiles
+  add column if not exists checkout_claim_token uuid;
+
 comment on column public.profiles.checkout_claim_until is
   'Service role only. While this is in the future, another Checkout create for this profile should reuse the open session.';
 
 comment on column public.profiles.checkout_claim_plan is
   'Service role only. The plan the in-flight Checkout create asked for.';
+
+comment on column public.profiles.checkout_claim_token is
+  'Service role only. Only the request that received this token may clear the claim.';
 
 create or replace function public.checkout_claim(p_profile uuid, p_plan text)
 returns jsonb
@@ -69,6 +75,7 @@ as $fn$
 declare
   v_until timestamptz;
   v_held text;
+  v_token uuid;
   v_plan text := lower(btrim(coalesce(p_plan, '')));
 begin
   perform private.billing_service_only();
@@ -96,16 +103,21 @@ begin
     return jsonb_build_object('granted', false, 'plan', v_held);
   end if;
 
+  v_token := gen_random_uuid();
+
   update public.profiles
     set checkout_claim_until = now() + interval '45 seconds',
-        checkout_claim_plan = v_plan
+        checkout_claim_plan = v_plan,
+        checkout_claim_token = v_token
   where id = p_profile;
 
-  return jsonb_build_object('granted', true, 'plan', v_plan);
+  return jsonb_build_object('granted', true, 'plan', v_plan, 'token', v_token);
 end;
 $fn$;
 
-create or replace function public.checkout_claim_release(p_profile uuid)
+drop function if exists public.checkout_claim_release(uuid);
+
+create or replace function public.checkout_claim_release(p_profile uuid, p_token uuid)
 returns void
 language plpgsql
 security definer
@@ -114,14 +126,18 @@ as $fn$
 begin
   perform private.billing_service_only();
   perform set_config('request.jwt.claim.sub', '', true);
-  if p_profile is null then
-    raise exception 'That account was not found.';
+  if p_profile is null or p_token is null then
+    return;
   end if;
+
+  perform pg_advisory_xact_lock(hashtextextended('checkout:' || p_profile::text, 0));
 
   update public.profiles
     set checkout_claim_until = null,
-        checkout_claim_plan = null
-  where id = p_profile;
+        checkout_claim_plan = null,
+        checkout_claim_token = null
+  where id = p_profile
+    and checkout_claim_token = p_token;
 end;
 $fn$;
 
@@ -258,7 +274,7 @@ $fn$;
 revoke all on function public.beta_paid_count() from public, anon, authenticated;
 revoke all on function public.mark_beta_paid(uuid) from public, anon, authenticated;
 revoke all on function public.checkout_claim(uuid, text) from public, anon, authenticated;
-revoke all on function public.checkout_claim_release(uuid) from public, anon, authenticated;
+revoke all on function public.checkout_claim_release(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.billing_write(uuid, text, text, text, text, text, timestamp with time zone, boolean) from public, anon, authenticated;
 revoke all on function public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone) from public, anon, authenticated;
 
@@ -268,10 +284,10 @@ begin
     grant execute on function public.beta_paid_count() to service_role;
     grant execute on function public.mark_beta_paid(uuid) to service_role;
     grant execute on function public.checkout_claim(uuid, text) to service_role;
-    grant execute on function public.checkout_claim_release(uuid) to service_role;
+    grant execute on function public.checkout_claim_release(uuid, uuid) to service_role;
     grant execute on function public.billing_write(uuid, text, text, text, text, text, timestamp with time zone, boolean) to service_role;
     grant execute on function public.keep_paid_subscription(uuid, text, text, text, text, timestamp with time zone) to service_role;
-    grant update (checkout_claim_until, checkout_claim_plan) on table public.profiles to service_role;
+    grant update (checkout_claim_until, checkout_claim_plan, checkout_claim_token) on table public.profiles to service_role;
   end if;
 end
 $service$;
