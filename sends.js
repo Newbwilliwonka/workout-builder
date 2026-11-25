@@ -477,7 +477,10 @@
     function step() {
       if (index >= pending.length) {
         var failedNames = failed.map(function (item) { return item.name; });
-        if (failedNames.length && sentNames.length) return finish(token, key, new Error(partialMessage(sentNames.length, failedNames)));
+        if (failedNames.length && sentNames.length) {
+          Object.keys(sentKeys).forEach(function (oneKey) { succeeded[oneKey] = 1; });
+          return finish(token, key, new Error(partialMessage(sentNames.length, failedNames)));
+        }
         if (failed.length) return finish(token, key, failed[0].err || new Error('Could not send'));
         return finish(token, key, null);
       }

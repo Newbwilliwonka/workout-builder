@@ -577,6 +577,15 @@ function armSlow() {
     var err = document.getElementById('send-fail');
     return err && err.textContent === 'Sent 1 workout. Could not send Saturday easy.';
   });
+  const callsBeforeRetry = box.calls.length;
+  box.mode = 'fail';
+  await trainer.click('#send-go');
+  await trainer.waitForFunction(function () {
+    var err = document.getElementById('send-fail');
+    return err && err.textContent === 'Sent 1 workout. Could not send Saturday easy.' && err.textContent.indexOf('Friday') === -1;
+  });
+  assert.strictEqual(box.calls.length, callsBeforeRetry + 1);
+  assert.strictEqual(box.calls[box.calls.length - 1].name, 'Saturday easy');
   box.holds = [];
 
   const cleanItems = JSON.parse(JSON.stringify(box.copies[0].items));
