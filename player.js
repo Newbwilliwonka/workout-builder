@@ -519,11 +519,12 @@
     return r.weight != null ? r.weight + ' ' + r.unit : r.unit;
   }
   function stopwatchWeight(r, mi) {
-    var di = ' data-si="' + mi + '"';
+    var text = weightReadout(r), label = 'Weight, ' + text;
     if (r.unit !== 'bodyweight' && S.weightEdit === mi) {
       return '<div class="pl-f pl-sw-weight-edit">' + stepBox('weight', 'Weight (' + r.unit + ')', r.weight, r.unit === 'kg' ? 2.5 : 5, mi, 'Weight') + '</div>';
     }
-    return '<button type="button" class="pl-bw pl-sw-weight" data-wedit="1"' + di + ' aria-label="Weight">' + esc(weightReadout(r)) + '</button>';
+    if (r.unit === 'bodyweight') return '<span class="pl-bw pl-sw-weight" aria-label="' + esc(label) + '">' + esc(text) + '</span>';
+    return '<button type="button" class="pl-bw pl-sw-weight" data-wedit="1" data-si="' + mi + '" aria-label="' + esc(label) + '">' + esc(text) + '</button>';
   }
   function primaryLabel(ex) {
     var c = ex.modeConfig;

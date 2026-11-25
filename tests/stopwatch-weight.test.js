@@ -40,6 +40,8 @@ const data = M.emptyData(); data.workouts.push(w);
       text: ctl ? ctl.textContent : '',
       aria: ctl ? ctl.getAttribute('aria-label') : '',
       tag: ctl ? ctl.tagName : '',
+      role: ctl ? ctl.getAttribute('role') : null,
+      wedit: ctl ? ctl.getAttribute('data-wedit') : null,
       editing: !!track.querySelector('.pl-sw-weight-edit'),
       step: !!step,
       weightStep: !!track.querySelector('[data-st="weight"]'),
@@ -58,6 +60,10 @@ const data = M.emptyData(); data.workouts.push(w);
       bg: cs ? cs.backgroundColor : '',
       color: cs ? cs.color : '',
       font: cs ? cs.fontSize : '',
+      fontWeight: cs ? cs.fontWeight : '',
+      radius: cs ? cs.borderRadius : '',
+      border: cs ? cs.borderTopWidth + ' ' + cs.borderTopStyle + ' ' + cs.borderTopColor : '',
+      pad: cs ? cs.padding : '',
       transform: cs ? cs.textTransform : '',
       rows: track.querySelectorAll('.pl-fields > *').length
     };
@@ -67,8 +73,10 @@ const data = M.emptyData(); data.workouts.push(w);
   let box = await weight();
   assert.deepStrictEqual(box.labels, []);
   assert.strictEqual(box.text, 'Bodyweight');
-  assert.strictEqual(box.aria, 'Weight');
-  assert.strictEqual(box.tag, 'BUTTON');
+  assert.strictEqual(box.aria, 'Weight, Bodyweight');
+  assert.strictEqual(box.tag, 'SPAN');
+  assert.strictEqual(box.role, null);
+  assert.strictEqual(box.wedit, null);
   assert.strictEqual(box.editing, false);
   assert.strictEqual(box.step, false);
   assert.strictEqual(box.rows, 1);
@@ -81,6 +89,7 @@ const data = M.emptyData(); data.workouts.push(w);
   assert.strictEqual(box.color, 'rgb(148, 163, 184)');
   assert.strictEqual(box.font, '15px');
   assert.strictEqual(box.transform, 'none');
+  const chipLook = { bg: box.bg, color: box.color, font: box.font, fontWeight: box.fontWeight, radius: box.radius, border: box.border, pad: box.pad, h: box.h };
   await click('.pl-sw-weight');
   box = await weight();
   assert.strictEqual(box.text, 'Bodyweight');
@@ -90,8 +99,10 @@ const data = M.emptyData(); data.workouts.push(w);
   box = await weight();
   assert.deepStrictEqual(box.labels, []);
   assert.strictEqual(box.text, '20 kg');
-  assert.strictEqual(box.aria, 'Weight');
+  assert.strictEqual(box.aria, 'Weight, 20 kg');
+  assert.strictEqual(box.tag, 'BUTTON');
   assert.strictEqual(box.step, false);
+  assert.deepStrictEqual({ bg: box.bg, color: box.color, font: box.font, fontWeight: box.fontWeight, radius: box.radius, border: box.border, pad: box.pad, h: box.h }, chipLook);
   assert.ok(box.left < 1 && box.h > 24 && box.h < 40 && box.w < box.trackW * 0.5, JSON.stringify(box));
   await click('.pl-sw-weight');
   box = await weight();
@@ -109,7 +120,7 @@ const data = M.emptyData(); data.workouts.push(w);
   await wait(40);
   box = await weight();
   assert.strictEqual(box.text, '25 kg');
-  assert.strictEqual(box.aria, 'Weight');
+  assert.strictEqual(box.aria, 'Weight, 25 kg');
   assert.strictEqual(box.editing, false);
   await click('.pl-sw-weight');
   await p.$eval('[data-f=weight]', e => { e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -118,6 +129,7 @@ const data = M.emptyData(); data.workouts.push(w);
   await wait(40);
   box = await weight();
   assert.strictEqual(box.text, '18 kg');
+  assert.strictEqual(box.aria, 'Weight, 18 kg');
   assert.strictEqual(await p.evaluate(() => window.__wbPlayer.results[1].weight), 18);
   await click('.pl-sw-weight');
   await click('.pl-go');
@@ -129,6 +141,8 @@ const data = M.emptyData(); data.workouts.push(w);
   await click('[data-sel="0"]');
   box = await weight();
   assert.strictEqual(box.text, 'Bodyweight');
+  assert.strictEqual(box.aria, 'Weight, Bodyweight');
+  assert.strictEqual(box.tag, 'SPAN');
   assert.strictEqual(box.editing, false);
 
   await click('[data-sel="2"]');

@@ -232,7 +232,7 @@ body.playing #nav-links,body.playing #account-me,body.playing #account-signout{d
 .pl-step button:active{background:#1f2937}
 .pl-step input{flex:1;min-width:0;border:0;background:transparent;color:#fff;text-align:center;font-size:22px;font-weight:700;padding:0;min-height:52px;font-variant-numeric:tabular-nums}
 .pl-bw{min-height:54px;display:flex;align-items:center;justify-content:center;background:#0b1220;border-radius:14px;color:#94a3b8;border:1px solid #1f2937}
-button.pl-sw-weight{justify-self:start;align-self:start;width:auto;height:32px;min-height:32px;margin:0;padding:0 12px;border-radius:14px;background:#0b1220;color:#94a3b8;border:1px solid #1f2937;font-size:15px;font-weight:400;letter-spacing:0;text-transform:none;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums}
+.pl-sw-weight{justify-self:start;align-self:start;width:auto;height:32px;min-height:32px;margin:0;padding:0 12px;border-radius:14px;background:#0b1220;color:#94a3b8;border:1px solid #1f2937;font-size:15px;font-weight:400;letter-spacing:0;text-transform:none;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums}
 .pl-laps{display:flex;flex-direction:column;gap:2px;margin-top:10px;font:14px ui-monospace,Menlo,monospace;color:#cbd5e1;max-height:140px;overflow:auto}
 .pl-laps span{display:flex;gap:10px}.pl-laps i{margin-left:auto;color:#64748b;font-style:normal}
 .pl-laps.sm{flex-direction:row;flex-wrap:wrap;gap:4px 10px;font-size:12px;margin-top:4px}
