@@ -64,7 +64,7 @@ async function stub(page, membership, userId) {
         api.saveProgramEntry = function (entry) {
           window.__calls = window.__calls || [];
           window.__calls.push('entry');
-          if (window.__failEntry) return Promise.reject(new Error('Could not save that day.'));
+          if (window.__failEntry) return Promise.reject(new Error(typeof window.__failEntry === 'string' ? window.__failEntry : 'Could not save that day.'));
           window.__remotePrograms = remotePrograms().filter(function (row) { return row.local_id !== entry.id; });
           window.__remotePrograms.push({
             local_id: entry.id,
@@ -498,6 +498,16 @@ async function shot(page, name) {
       && rows.some(function (row) {
         return row && row.pending && row.invites && row.invites.indexOf('22222222-2222-4222-8222-222222222222') !== -1;
       });
+  });
+  await page.evaluate(function () { window.__failEntry = 'Invite only linked clients.'; window.__calls = []; location.hash = '#/'; });
+  await page.waitForSelector('#calendar-open');
+  await page.evaluate(function () { location.hash = '#/programs'; });
+  await page.waitForFunction(function () {
+    var note = document.getElementById('pv-remote');
+    var rows = JSON.parse(localStorage.getItem('wb.data.v1')).programs || [];
+    return note && note.textContent.indexOf('Invite only linked clients.') !== -1
+      && note.textContent.indexOf('programs SQL') === -1
+      && rows.some(function (row) { return row && row.pending && row.invites && row.invites.length; });
   });
   await page.evaluate(function () { window.__failEntry = false; window.__calls = []; });
   await page.evaluate(function () { location.hash = '#/'; });

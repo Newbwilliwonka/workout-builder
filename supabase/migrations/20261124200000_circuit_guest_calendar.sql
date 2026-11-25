@@ -126,7 +126,7 @@ create or replace function public.circuit_placement_invites_save(p_placement tex
 returns void
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = ''
 as $$
 declare
   wanted uuid[];
@@ -203,7 +203,7 @@ returns table (
 language plpgsql
 stable
 security definer
-set search_path = public, pg_temp
+set search_path = ''
 as $$
 begin
   if auth.uid() is null or p_client is null then

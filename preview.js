@@ -264,6 +264,7 @@
     if ((err && err.timesLocal) || /program times SQL|starts_at|ends_at/i.test(msg)) {
       return 'Saved on this device. Start and end times will be shared after the new program times SQL is applied.';
     }
+    if (msg.indexOf('Invites stay on this device') === 0 || msg.indexOf('Invite only linked clients.') !== -1) return msg;
     return 'Saved on this device. The shared calendar waits until the programs SQL is applied.';
   }
   var pushEpoch = {};

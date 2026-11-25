@@ -26,6 +26,7 @@
     return Promise.reject(new Error('Could not load sign-in'));
   }
   function db() {
+    if (root.__wbTestDb) return Promise.resolve(root.__wbTestDb);
     return loadLib().then(function (lib) {
       if (!client) {
         client = lib.createClient(URL, PUBLISHABLE_KEY, {
@@ -1250,15 +1251,23 @@
         if (dropped) return dropped.then(function (res2) { return finish(res2, timed, false); });
         return finish(res, timed, sendInvites);
       });
+      function timesLocalError() {
+        var err = new Error('Start and end times are saved on this device until the program times SQL is applied.');
+        err.timesLocal = true;
+        return err;
+      }
       function finish(res, withTimes, withInvites) {
         if (res.error && withTimes && timeColumnMissing(res.error)) {
           return upsert(false, withInvites).then(function (res2) {
             var droppedTimes = withoutInvites(res2, false);
-            if (droppedTimes) return droppedTimes.then(function (res3) { return finish(res3, false, false); });
+            if (droppedTimes) {
+              return droppedTimes.then(function (res3) {
+                if (res3.error) return finish(res3, false, false);
+                throw timesLocalError();
+              });
+            }
             if (res2.error) throw programError(res2.error);
-            var err = new Error('Start and end times are saved on this device until the program times SQL is applied.');
-            err.timesLocal = true;
-            throw err;
+            throw timesLocalError();
           });
         }
         var dropped = withoutInvites(res, withTimes);

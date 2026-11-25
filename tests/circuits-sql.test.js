@@ -349,4 +349,62 @@ begin
 end $$;
 `);
 
+psql('wb_circuits_test', `
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+alter table public.program_entries disable trigger program_entries_guard;
+alter table public.program_entries disable trigger program_entry_invitees_guard;
+alter table public.program_entries disable trigger program_entry_invitees_project;
+insert into public.program_entries (
+  owner_id, local_id, workout_local_id, workout_name, items, day, presence, invitees, updated_at
+) values (
+  '${T}', 'pg-stamp', '88888888-8888-4888-8888-888888888888', 'Saturday circuit',
+  '[{"source":"circuit","circuitId":"88888888-8888-4888-8888-888888888888"}]'::jsonb,
+  current_date, 'trainer', '{}', '2020-01-01 00:00:00+00'
+);
+insert into public.circuit_placement_invites (trainer_id, placement_id, client_id)
+values ('${T}', 'pg-stamp', '${C}');
+alter table public.program_entries enable trigger program_entries_guard;
+alter table public.program_entries enable trigger program_entry_invitees_guard;
+alter table public.program_entries enable trigger program_entry_invitees_project;
+`);
+psql('wb_circuits_test', null, path.join(root, 'supabase/migrations/20261124233000_placement_invitees.sql'));
+psql('wb_circuits_test', null, path.join(root, 'supabase/migrations/20261124233000_placement_invitees.sql'));
+psql('wb_circuits_test', `
+do $$
+declare
+  kept timestamptz;
+begin
+  select updated_at into kept from public.program_entries where local_id = 'pg-stamp';
+  if kept is distinct from '2020-01-01 00:00:00+00'::timestamptz then
+    raise exception 'backfill moved updated_at to %', kept;
+  end if;
+  if (select invitees from public.program_entries where local_id = 'pg-stamp') is distinct from array['${C}']::uuid[] then
+    raise exception 'backfill did not keep the invitees on the row';
+  end if;
+  if (select proconfig::text from pg_proc where proname = 'circuit_guest_placements') like '%pg_temp%'
+     or (select proconfig::text from pg_proc where proname = 'program_entry_invitees_guard') like '%pg_temp%'
+     or (select proconfig::text from pg_proc where proname = 'program_entry_invitees_project') like '%pg_temp%'
+     or (select proconfig::text from pg_proc where proname = 'circuit_placement_invites_save') like '%pg_temp%' then
+    raise exception 'invite functions still search pg_temp';
+  end if;
+end $$;
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+alter table public.program_entries disable trigger program_entries_guard;
+alter table public.program_entries disable trigger program_entry_invitees_guard;
+alter table public.program_entries disable trigger program_entry_invitees_project;
+update public.program_entries set invitees = '{}', updated_at = '2020-01-01 00:00:00+00' where local_id = 'pg-stamp';
+alter table public.program_entries enable trigger program_entries_guard;
+alter table public.program_entries enable trigger program_entry_invitees_guard;
+alter table public.program_entries enable trigger program_entry_invitees_project;
+update public.program_entries set invitees = array['${C}']::uuid[] where local_id = 'pg-stamp';
+do $$
+begin
+  if (select invitees from public.program_entries where local_id = 'pg-stamp') is distinct from array['${C}']::uuid[] then
+    raise exception 'service role could not write invitees';
+  end if;
+end $$;
+`);
+
 console.log('CIRCUITS SQL OK');

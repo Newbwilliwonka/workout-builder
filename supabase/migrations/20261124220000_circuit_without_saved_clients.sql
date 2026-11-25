@@ -55,13 +55,9 @@ declare
   ids text[] := '{}';
   positions text[] := '{}';
   ordered text[] := '{}';
-  linked text[] := '{}';
-  manuals text[] := '{}';
   sid text;
   ename text;
   lib text;
-  cname text;
-  cid text;
   src text;
   pos text;
   col int;
