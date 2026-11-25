@@ -78,7 +78,7 @@ function psql(db, sql, filePath) {
 }
 
 const migrations = fs.readdirSync(path.join(root, 'supabase/migrations'))
-  .filter(function (name) { return name.endsWith('.sql') && name !== migrationName; })
+  .filter(function (name) { return name.endsWith('.sql') && name < migrationName; })
   .sort();
 
 psql('postgres', 'drop database if exists ' + DB + ';\ncreate database ' + DB + ';\n');
