@@ -22,10 +22,12 @@ function pngSize(buf) {
   assert.deepStrictEqual(manifest.icons.map(function (icon) { return icon.sizes + ' ' + icon.purpose; }), [
     '192x192 any',
     '512x512 any',
+    '192x192 maskable',
     '512x512 maskable'
   ]);
   assert.deepStrictEqual(pngSize(fs.readFileSync('icons/icon-192.png')), { w: 192, h: 192 });
   assert.deepStrictEqual(pngSize(fs.readFileSync('icons/icon-512.png')), { w: 512, h: 512 });
+  assert.deepStrictEqual(pngSize(fs.readFileSync('icons/icon-192-maskable.png')), { w: 192, h: 192 });
   assert.deepStrictEqual(pngSize(fs.readFileSync('icons/icon-512-maskable.png')), { w: 512, h: 512 });
 
   const sw = fs.readFileSync('sw.js', 'utf8');
@@ -33,7 +35,38 @@ function pngSize(buf) {
   assert.ok(!/caches|respondWith|cache\.put|cache\.add/i.test(sw));
 
   const html = fs.readFileSync('index.html', 'utf8');
-  assert.ok(html.indexOf('rel="manifest" href="manifest.webmanifest"') !== -1);
+  const head = html.slice(html.indexOf('<head>'), html.indexOf('</head>'));
+  assert.ok(head.indexOf('rel="manifest" href="manifest.webmanifest"') !== -1);
+  [
+    '<link rel="icon" href="/favicon.ico" sizes="48x48">',
+    '<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">',
+    '<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">',
+    '<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png">',
+    '<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">',
+    '<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">'
+  ].forEach(function (link) {
+    assert.ok(head.indexOf(link) !== -1, 'missing ' + link);
+  });
+  assert.ok(head.indexOf('<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">') !== -1);
+  [
+    'favicon.ico',
+    'favicon-16.png',
+    'favicon-32.png',
+    'favicon-48.png',
+    'favicon-96.png',
+    'apple-touch-icon.png',
+    'icons/icon-192.png',
+    'icons/icon-192-maskable.png',
+    'icons/icon-512.png',
+    'icons/icon-512-maskable.png'
+  ].forEach(function (path) {
+    assert.ok(fs.existsSync(path), 'missing ' + path);
+  });
+  assert.deepStrictEqual(pngSize(fs.readFileSync('favicon-16.png')), { w: 16, h: 16 });
+  assert.deepStrictEqual(pngSize(fs.readFileSync('favicon-32.png')), { w: 32, h: 32 });
+  assert.deepStrictEqual(pngSize(fs.readFileSync('favicon-48.png')), { w: 48, h: 48 });
+  assert.deepStrictEqual(pngSize(fs.readFileSync('favicon-96.png')), { w: 96, h: 96 });
+  assert.deepStrictEqual(pngSize(fs.readFileSync('apple-touch-icon.png')), { w: 180, h: 180 });
   assert.ok(html.indexOf('id="fullscreen-btn"') < html.indexOf('id="account-me"'));
 
   const chrome = process.env.CHROME || (fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : '/usr/local/bin/google-chrome');
@@ -139,7 +172,11 @@ function pngSize(buf) {
   });
   assert.ok(/\/$/.test(reg), reg);
   const served = await page.evaluate(function () {
-    return Promise.all(['manifest.webmanifest', 'sw.js', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-512-maskable.png'].map(function (path) {
+    return Promise.all([
+      'manifest.webmanifest', 'sw.js',
+      'favicon.ico', 'favicon-16.png', 'favicon-32.png', 'favicon-48.png', 'favicon-96.png', 'apple-touch-icon.png',
+      'icons/icon-192.png', 'icons/icon-192-maskable.png', 'icons/icon-512.png', 'icons/icon-512-maskable.png'
+    ].map(function (path) {
       return fetch(path).then(function (res) { return { path: path, status: res.status }; });
     }));
   });
