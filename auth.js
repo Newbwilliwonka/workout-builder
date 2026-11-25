@@ -941,6 +941,49 @@
     sendMessage: function (personId, messageId, body) {
       return messageRpc('message_send', { p_person: personId, p_id: messageId, p_body: body });
     },
+    submitFeedback: function (page, type, message) {
+      return db().then(function (c) {
+        return c.from('feedback').insert({
+          page: page,
+          type: type,
+          message: message
+        }).select('id,page,type,message,status,created_at').single();
+      }).then(function (res) {
+        if (res.error) throw feedbackError(res.error);
+        return res.data;
+      }, function (err) { throw feedbackError(err); });
+    },
+    feedbackList: function () {
+      return db().then(function (c) {
+        return c.from('feedback_admin').select('id,user_id,display_name,page,type,message,status,created_at,replied_at').order('created_at', { ascending: false });
+      }).then(function (res) {
+        if (res.error) throw feedbackError(res.error);
+        return (res.data || []).map(feedbackRow);
+      }, function (err) { throw feedbackError(err); });
+    },
+    setFeedbackStatus: function (id, status) {
+      if (status !== 'new' && status !== 'replied' && status !== 'fixed') {
+        return Promise.reject(new Error('Choose a status.'));
+      }
+      return db().then(function (c) {
+        return c.from('feedback').update({ status: status }).eq('id', id).select('id,status,replied_at').single();
+      }).then(function (res) {
+        if (res.error) throw feedbackError(res.error);
+        return res.data;
+      }, function (err) { throw feedbackError(err); });
+    },
+    // A normal Messages send when a connection already exists. Otherwise the
+    // admin-only function opens the minimum conversation and sends it there.
+    replyFeedback: function (personId, feedbackId, body) {
+      var messageId = newFeedbackId();
+      return api.sendMessage(personId, messageId, body).then(function () {
+        return api.setFeedbackStatus(feedbackId, 'replied');
+      }, function (err) {
+        var msg = String((err && err.message) || '');
+        if (!/no connection/i.test(msg)) throw err;
+        return feedbackRpc('feedback_reply', { p_id: feedbackId, p_body: body });
+      });
+    },
     markRead: function (personId) { return messageRpc('message_read', { p_person: personId }); },
     trainerSearch: function (mode, lat, lng) {
       var args = { p_mode: mode || 'online', p_lat: null, p_lng: null };
@@ -1635,6 +1678,49 @@
       if (res.error) throw findError(res.error, name);
       return res.data;
     });
+  }
+  function newFeedbackId() {
+    var c = (root && root.crypto) || (typeof crypto !== 'undefined' ? crypto : null);
+    if (c && c.randomUUID) return c.randomUUID();
+    var hex = '';
+    for (var i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
+    return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-4' + hex.slice(13, 16) + '-a' + hex.slice(17, 20) + '-' + hex.slice(20, 32);
+  }
+  function feedbackRow(row) {
+    row = row || {};
+    return {
+      id: row.id,
+      userId: row.user_id,
+      name: row.display_name || '',
+      page: row.page || '',
+      type: row.type || '',
+      message: row.message || '',
+      status: row.status || 'new',
+      createdAt: row.created_at,
+      repliedAt: row.replied_at
+    };
+  }
+  function feedbackError(err) {
+    var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
+    if (/schema cache|could not find|does not exist|PGRST202|PGRST205|42P01|feedback_admin|feedback_reply/i.test(msg)) {
+      return new Error('Feedback is not ready yet. Apply the feedback SQL in the Supabase SQL editor.');
+    }
+    if (/only the admin can reply/i.test(msg)) return new Error('Only the admin can reply to feedback.');
+    if (/only the admin can update/i.test(msg)) return new Error('Only the admin can update feedback.');
+    if (/wait a moment/i.test(msg)) return new Error('Please wait a moment before sending again.');
+    if (/that message is too long/i.test(msg)) return new Error('That message is too long.');
+    if (/enter a message/i.test(msg)) return new Error('Enter a message.');
+    if (/choose bug, idea, or other/i.test(msg)) return new Error('Choose Bug, Idea, or Other.');
+    if (/you cannot message yourself/i.test(msg)) return new Error('You cannot message yourself.');
+    if (!msg) return new Error('Could not send feedback.');
+    var line = msg.split('\n')[0];
+    return new Error(line.length < 180 ? line : 'Could not send feedback.');
+  }
+  function feedbackRpc(name, args) {
+    return db().then(function (c) { return c.rpc(name, args || {}); }).then(function (res) {
+      if (res.error) throw feedbackError(res.error);
+      return res.data;
+    }, function (err) { throw feedbackError(err); });
   }
   function messageError(err) {
     var msg = (err && (err.message || err.details || err.hint)) || '';
