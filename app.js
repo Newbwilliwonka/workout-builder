@@ -3012,25 +3012,37 @@
       }
     };
   }
-  function clientInfoReadHtml(row) {
-    var h = '<div class="card" id="client-info"><div class="client-read">';
+  function clientInfoStat(label, value) {
+    return '<div class="client-stat"><span class="client-stat-k">' + esc(label) + '</span> <span class="client-stat-v">' + esc(value) + '</span></div>';
+  }
+  function clientInfoReadHtml(row, opts) {
+    var showEdit = !opts || opts.edit !== false;
+    var stats = '';
     var age = row && ageFromBirthday(row.birthday);
-    if (age != null) h += '<p>Age ' + esc(age) + '</p>';
-    if (row && row.sex === 'male') h += '<p>Male</p>';
-    if (row && row.sex === 'female') h += '<p>Female</p>';
+    if (age != null) stats += clientInfoStat('Age', String(age));
+    if (row && row.sex === 'male') stats += clientInfoStat('Sex', 'Male');
+    if (row && row.sex === 'female') stats += clientInfoStat('Sex', 'Female');
     var tall = row && heightText(row.height_cm);
-    if (tall) h += '<p>' + esc(tall) + '</p>';
+    if (tall) stats += clientInfoStat('Height', tall);
     var pounds = row && lbFromKg(row.weight_kg);
-    if (pounds) h += '<p>' + esc(pounds) + ' lb</p>';
+    if (pounds) stats += clientInfoStat('Weight', pounds + ' lb');
     var chosen = {};
     (row && row.goals || []).forEach(function (goal) { chosen[goal] = 1; });
+    var pills = '';
     CLIENT_GOALS.forEach(function (goal) {
       if (!chosen[goal] || goal === 'Other') return;
-      h += '<p>' + esc(goal) + '</p>';
+      pills += '<span class="client-pill">' + esc(goal) + '</span>';
     });
-    if (row && row.goals_other) h += '<p>' + esc(row.goals_other) + '</p>';
-    else if (chosen.Other) h += '<p>Other</p>';
-    h += '</div><button type="button" id="client-info-edit">Edit</button></div>';
+    if (row && row.goals_other) pills += '<span class="client-pill">' + esc(row.goals_other) + '</span>';
+    else if (chosen.Other) pills += '<span class="client-pill">Other</span>';
+    var h = '<div class="card" id="client-info">';
+    if (stats) h += '<div class="name">About you</div><div class="client-stats">' + stats + '</div>';
+    if (pills) {
+      if (stats) h += '<div class="client-rule" role="separator"></div>';
+      h += '<div class="name">Goals</div><div class="client-pills">' + pills + '</div>';
+    }
+    if (showEdit) h += '<button type="button" id="client-info-edit">Edit</button>';
+    h += '</div>';
     return h;
   }
   function clientInfoFormHtml(row) {
