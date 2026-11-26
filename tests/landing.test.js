@@ -171,6 +171,8 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
       return {
         beforeH: before.height,
         beforeImg: before.backgroundImage,
+        beforeSize: before.backgroundSize,
+        beforePos: before.backgroundPosition,
         afterContent: after.content,
         afterTop: parseFloat(after.top),
         afterReach: parseFloat(after.top) + parseFloat(after.height),
@@ -338,7 +340,16 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
     assert.strictEqual(phonePlate.afterContent, '""');
     assert.ok(phonePlate.afterFilter.indexOf('blur') !== -1);
     assert.ok(phonePlate.afterImg.indexOf('app-bg-phone') !== -1);
-    assert.ok(phonePlate.afterTop <= 1120 && phonePlate.afterTop >= 1000);
+    assert.ok(phonePlate.beforeSize.indexOf('135%') !== -1, phonePlate.beforeSize);
+    assert.ok(phonePlate.beforePos.indexOf('50% 0%') !== -1, phonePlate.beforePos);
+    var secondCopy = await page.evaluate(function () {
+      var block = document.querySelectorAll('.landing-feature')[1].querySelector('.landing-copy');
+      var box = block.getBoundingClientRect();
+      return { top: box.top + window.scrollY, bottom: box.bottom + window.scrollY };
+    });
+    assert.ok(secondCopy.bottom < 240 / 100 * 390, 'phone plate covers the second feature text');
+    assert.ok(phonePlate.afterTop < secondCopy.bottom - 80, 'blur overlaps the plate under the second feature');
+    assert.ok(phonePlate.afterTop < 1000);
     assert.ok(phonePlate.afterReach >= phonePlate.bodyH - 2, 'phone wash reaches the page bottom');
     assert.ok(phonePlate.overflow <= 1);
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
