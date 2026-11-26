@@ -190,6 +190,29 @@ begin
     raise exception 'cancel at period end removed access: %', result;
   end if;
 
+  result := public.apply_stripe_membership(
+    '${PAYER}'::uuid, 'end', null, 'canceled', 'cus_payerhold1', 'sub_payerhold4',
+    now() + interval '30 seconds', null
+  );
+  if result ->> 'membership' is distinct from 'none'
+     or result ->> 'billing_status' is distinct from 'canceled'
+     or result ->> 'plan_ended_at' is null then
+    raise exception 'a function clock ahead of Postgres kept the plan: %', result;
+  end if;
+
+  result := public.apply_stripe_membership(
+    '${PAYER}'::uuid, 'grant', 'trainer', null, 'cus_payerhold1', 'sub_payerhold5',
+    now() + interval '20 days', null
+  );
+  result := public.apply_stripe_membership(
+    '${PAYER}'::uuid, 'end', null, 'canceled', 'cus_payerhold1', 'sub_payerhold5',
+    null, null
+  );
+  if result ->> 'membership' is distinct from 'none'
+     or result ->> 'plan_ended_at' is null then
+    raise exception 'a null period kept a future paid period: %', result;
+  end if;
+
   update public.profiles
     set complimentary = true, membership = 'trainer', billing_status = null,
         stripe_customer_id = null, stripe_subscription_id = null, plan_ended_at = null

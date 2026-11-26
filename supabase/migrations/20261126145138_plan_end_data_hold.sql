@@ -213,14 +213,17 @@ begin
     if v_status = 'unpaid' then
       v_status := 'canceled';
     end if;
-    if v_period is null or v_period <= now() then
-      if v_row.complimentary
-         and v_row.stripe_subscription_id is null
-         and v_subscription is null then
-        v_status := v_row.billing_status;
-      else
-        v_downgrade := true;
-      end if;
+    -- Immediate end passes a null period. The database clock decides, so a
+    -- caller timestamp that is ahead of Postgres still clears the plan.
+    if p_period_end is null or p_period_end > now() then
+      v_period := now();
+    end if;
+    if v_row.complimentary
+       and v_row.stripe_subscription_id is null
+       and v_subscription is null then
+      v_status := v_row.billing_status;
+    else
+      v_downgrade := true;
     end if;
   end if;
 

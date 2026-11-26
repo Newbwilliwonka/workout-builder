@@ -450,6 +450,10 @@ async function main() {
 
   const failed = eventDb();
   const renewalStripe = stripeMock();
+  renewalStripe.subscriptions.retrieve = async function (id) {
+    renewalStripe.calls.push(['subscriptions.retrieve', id]);
+    return { id: id, status: 'past_due' };
+  };
   const renewalLogs = [];
   const renewalRpc = failed.rpc;
   failed.rpc = async function (name, args) {
@@ -486,6 +490,7 @@ async function main() {
   assert.strictEqual(endedRenewal.p_action, 'end');
   assert.strictEqual(endedRenewal.p_billing_status, 'canceled');
   assert.strictEqual(endedRenewal.p_subscription_id, 'sub_payer001');
+  assert.strictEqual(endedRenewal.p_period_end, null);
   const renewalCancel = renewalStripe.calls.filter(function (row) { return row[0] === 'subscriptions.cancel'; })[0];
   assert.strictEqual(renewalCancel[1], 'sub_payer001');
   assert.deepStrictEqual(renewalCancel[2], { prorate: false, invoice_now: false });
@@ -521,6 +526,37 @@ async function main() {
   });
   assert.ok(names(ignoredFail.calls).indexOf('apply_stripe_membership') === -1);
   assert.ok(ignoredStripe.calls.filter(function (row) { return row[0] === 'subscriptions.cancel'; }).length === 0);
+
+  const staleFail = eventDb();
+  const staleFailStripe = stripeMock();
+  await webhook.handleWebhook({
+    stripe: staleFailStripe,
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_fail_recovered',
+        type: 'invoice.payment_failed',
+        data: {
+          object: {
+            id: 'in_fail_recovered',
+            customer: 'cus_Existing1',
+            billing_reason: 'subscription_cycle',
+            parent: { subscription_details: { subscription: 'sub_payer001', metadata: { user_id: USER } } }
+          }
+        }
+      };
+    },
+    db: staleFail
+  });
+  assert.ok(names(staleFail.calls).indexOf('apply_stripe_membership') === -1);
+  assert.ok(staleFailStripe.calls.filter(function (row) { return row[0] === 'subscriptions.cancel'; }).length === 0);
+  assert.ok(staleFailStripe.calls.some(function (row) {
+    return row[0] === 'subscriptions.retrieve' && row[1] === 'sub_payer001';
+  }));
 
   const ended = eventDb();
   await webhook.handleWebhook({
@@ -2378,6 +2414,7 @@ async function main() {
   });
   const dueCall = realPastDue.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
   assert.strictEqual(dueCall.p_action, 'end');
+  assert.strictEqual(dueCall.p_period_end, null);
   assert.ok(pastStripe.calls.some(function (row) {
     return row[0] === 'subscriptions.cancel' && row[1] === 'sub_payer001' && row[2].prorate === false && row[2].invoice_now === false;
   }));
@@ -2414,8 +2451,39 @@ async function main() {
   });
   const reportedEnd = reportedDue.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
   assert.strictEqual(reportedEnd.p_action, 'end');
+  assert.strictEqual(reportedEnd.p_period_end, null);
   assert.ok(names(reportedDue.calls).indexOf('billing_write') === -1);
   assert.ok(reportedStripe.calls.some(function (row) { return row[0] === 'subscriptions.cancel' && row[1] === 'sub_payer001'; }));
+
+  const staleUpdated = eventDb();
+  const staleUpdatedStripe = stripeMock();
+  await webhook.handleWebhook({
+    stripe: staleUpdatedStripe,
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_status_recovered',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'past_due',
+            metadata: { user_id: USER },
+            items: { data: [{ price: { id: 'price_current', lookup_key: 'trainer_beta_monthly' }, current_period_end: 1798329600 }] }
+          }
+        }
+      };
+    },
+    db: staleUpdated
+  });
+  assert.ok(names(staleUpdated.calls).indexOf('apply_stripe_membership') === -1);
+  assert.ok(names(staleUpdated.calls).indexOf('billing_write') === -1);
+  assert.ok(staleUpdatedStripe.calls.filter(function (row) { return row[0] === 'subscriptions.cancel'; }).length === 0);
 
   const webhookBody = fs.readFileSync(path.join(shared, 'billing-webhook.mjs'), 'utf8');
   assert.ok(webhookBody.indexOf('TODO(email): Send the end-of-plan email once an email service is chosen.') !== -1);

@@ -180,9 +180,10 @@ function sameStoredSubscription(row, subscriptionId) {
 
 // Cancel immediately, without a credit and without a new invoice.
 // Stripe then sets auto_advance false on open invoices, so Smart Retries stop.
-// A subscription that is already canceled, or already gone, is left as it is.
+// Re-reads the live subscription first. A recovered active or trialing
+// subscription is left alone. Returns true only when the stored plan should end.
 async function cancelSubscriptionNow(stripe, subId, idempotencyKey) {
-  if (!subId) return
+  if (!subId) return false
   if (!stripe || !stripe.subscriptions || !stripe.subscriptions.cancel || !stripe.subscriptions.retrieve) {
     throw new BillingError('Could not update billing.', 502)
   }
@@ -190,10 +191,12 @@ async function cancelSubscriptionNow(stripe, subId, idempotencyKey) {
   try {
     status = await subscriptionStatus(stripe, subId)
   } catch (err) {
-    if (err && (err.code === 'resource_missing' || err.statusCode === 404)) return
+    if (err && (err.code === 'resource_missing' || err.statusCode === 404)) return true
     throw err
   }
-  if (status === 'canceled' || status === 'incomplete_expired') return
+  if (status === 'active' || status === 'trialing') return false
+  if (status === 'canceled' || status === 'incomplete_expired') return true
+  if (status !== 'past_due' && status !== 'unpaid' && status !== 'incomplete') return false
   const params = { prorate: false, invoice_now: false }
   const opts = idempotencyKey ? { idempotencyKey: idempotencyKey } : undefined
   try {
@@ -203,11 +206,13 @@ async function cancelSubscriptionNow(stripe, subId, idempotencyKey) {
     try {
       after = await subscriptionStatus(stripe, subId)
     } catch (readErr) {
-      if (readErr && (readErr.code === 'resource_missing' || readErr.statusCode === 404)) return
+      if (readErr && (readErr.code === 'resource_missing' || readErr.statusCode === 404)) return true
       throw err
     }
+    if (after === 'active' || after === 'trialing') return false
     if (after !== 'canceled' && after !== 'incomplete_expired') throw err
   }
+  return true
 }
 
 // TODO(email): Send the end-of-plan email once an email service is chosen.
@@ -226,7 +231,7 @@ async function endStoredPlan(db, log, row, subId, customerId, periodEnd) {
     p_customer_id: customerId,
     p_subscription_id: subId,
     p_billing_status: 'canceled',
-    p_period_end: periodEnd || new Date().toISOString()
+    p_period_end: periodEnd || null
   })
   if (written && written.newly_ended === true) notePlanEnded(log)
   return written
@@ -408,9 +413,11 @@ async function dispatch(stripe, db, event, log) {
     // past_due and unpaid are not an access state. Cancel so retries stop,
     // and end the stored plan. A different subscription does not end this one.
     if (object.status === 'past_due' || object.status === 'unpaid') {
-      if (object.id) await cancelSubscriptionNow(stripe, object.id, 'cancel-ended-' + object.id)
-      if (sameStoredSubscription(row, object.id)) {
-        await endStoredPlan(db, log, row, object.id, idOf(object.customer), new Date().toISOString())
+      const ended = object.id
+        ? await cancelSubscriptionNow(stripe, object.id, 'cancel-ended-' + object.id)
+        : false
+      if (ended && sameStoredSubscription(row, object.id)) {
+        await endStoredPlan(db, log, row, object.id, idOf(object.customer), null)
       }
       return
     }
@@ -493,19 +500,20 @@ async function dispatch(stripe, db, event, log) {
         }
       }
       if (liveStatus === 'active' || liveStatus === 'trialing') return
-      if ((liveStatus === 'past_due' || liveStatus === 'unpaid') && subId) {
-        await cancelSubscriptionNow(stripe, subId, 'cancel-failed-update-' + (object.id || subId))
-        if (sameStoredSubscription(row, subId)) {
-          await endStoredPlan(db, log, row, subId, idOf(object.customer), new Date().toISOString())
+      if ((liveStatus === 'past_due' || liveStatus === 'unpaid' || liveStatus === 'incomplete') && subId) {
+        const ended = await cancelSubscriptionNow(stripe, subId, 'cancel-failed-update-' + (object.id || subId))
+        if (ended && sameStoredSubscription(row, subId)) {
+          await endStoredPlan(db, log, row, subId, idOf(object.customer), null)
         }
       }
       return
     }
     // A renewal (subscription_cycle) ends now. Cancel stops Smart Retries.
+    // A live re-read that is active or trialing means the payment recovered.
     if (reason === 'subscription_cycle' && subId) {
-      await cancelSubscriptionNow(stripe, subId, 'cancel-failed-renewal-' + (object.id || subId))
-      if (sameStoredSubscription(row, subId)) {
-        await endStoredPlan(db, log, row, subId, idOf(object.customer), new Date().toISOString())
+      const ended = await cancelSubscriptionNow(stripe, subId, 'cancel-failed-renewal-' + (object.id || subId))
+      if (ended && sameStoredSubscription(row, subId)) {
+        await endStoredPlan(db, log, row, subId, idOf(object.customer), null)
       }
     }
   }
