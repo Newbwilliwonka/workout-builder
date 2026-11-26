@@ -151,7 +151,7 @@ button.lib-still-x{align-self:flex-end;width:48px;height:48px;min-width:48px;min
 .plan .price .now{font-size:26px;font-weight:800;letter-spacing:0;color:var(--ink)}
 .plan .price .per{color:var(--mute);font-size:13px;font-weight:400}
 .plan .value{margin:0 0 2px;color:#374151;font-size:13px;font-weight:400}
-.plan .includes{margin:4px 0 0;font-size:12px;font-weight:400;line-height:1.35;color:var(--mute)}
+.plan .includes{margin:4px 0 2px;font-size:13px;font-weight:700;line-height:1.35;color:#2563eb}
 .plan ul{margin:0;padding-left:0;list-style:none}
 .plan li{position:relative;margin:4px 0;padding-left:20px;font-size:12px;font-weight:400;line-height:1.4;color:var(--ink)}
 .plan li:before{content:"✓";position:absolute;left:0;top:0;color:var(--pri);font-weight:800}

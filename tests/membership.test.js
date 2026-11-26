@@ -111,7 +111,9 @@ assert.deepStrictEqual(byId.master_trainer.available, [
   'Show a verified certification on your profile',
   'Group circuit training with tracking'
 ]);
-assert.deepStrictEqual(byId.master_trainer.comingSoon, []);
+assert.deepStrictEqual(byId.master_trainer.comingSoon, [
+  'Create group speed and agility drills'
+]);
 assert.strictEqual(byId.master_trainer.highlight, 'Get found in the Trainer Hub by clients who have trained with a coach');
 assert.strictEqual(byId.master_trainer.recommended, false);
 assert.strictEqual(Mem.priceLine(byId.master_trainer), '$29.99 / month');
@@ -135,6 +137,9 @@ assert.strictEqual(byId.free_client.beta, undefined);
 assert.strictEqual(byId.free_client.oldPriceLabel, undefined);
 assert.strictEqual(byId.free_client.includes, undefined);
 assert.strictEqual(byId.trainer.includes, undefined);
+const css = fs.readFileSync(path.join(__dirname, '../style.css'), 'utf8');
+assert.ok(css.indexOf('.plan .includes{margin:4px 0 2px;font-size:13px;font-weight:700;line-height:1.35;color:#2563eb}') !== -1);
+assert.ok(css.indexOf('.plan .soon{margin:12px 0 2px;font-size:13px;font-weight:700;color:#6b7280}') !== -1);
 
 assert.strictEqual(Mem.canSelectIntended('none'), false);
 assert.strictEqual(Mem.canSelectIntended(''), false);
