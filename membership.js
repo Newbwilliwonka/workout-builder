@@ -146,6 +146,16 @@
     return canSelectIntended(profile.intended_plan);
   }
   function priceLine(t) { return t && t.priceCents ? t.priceLabel + ' / month' : (t ? t.priceLabel : ''); }
+  // A paid membership Stripe is still billing. past_due keeps access and
+  // Checkout refuses another subscription, so that plan uses Manage billing.
+  function activePaidPlan(profile) {
+    if (!profile) return null;
+    var t = tier(profile.membership);
+    if (!t || !t.paysInApp) return null;
+    var status = profile.billing_status;
+    if (status !== 'active' && status !== 'past_due' && status !== 'trialing') return null;
+    return t.id;
+  }
 
   var api = {
     NONE: NONE,
@@ -155,7 +165,8 @@
     entitlements: entitlements,
     isActive: isActive,
     hasDesignated: hasDesignated,
-    priceLine: priceLine
+    priceLine: priceLine,
+    activePaidPlan: activePaidPlan
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBMembership = api;

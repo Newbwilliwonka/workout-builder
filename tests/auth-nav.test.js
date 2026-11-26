@@ -62,7 +62,7 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
     gate.p = new Promise(function (resolve, reject) { gate.resolve = resolve; gate.reject = reject; });
     window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'u', email: 'ada@example.com' } }); };
     window.WBAuth.profile = function () { return Promise.resolve({ membership: 'none', intended_plan: null }); };
-    window.WBAuth.saveIntended = function () { return gate.p; };
+    window.WBAuth.startCheckout = function () { return gate.p; };
     window.__gate = gate;
     location.hash = '#/subscriptions';
   });
@@ -80,13 +80,22 @@ const URL = process.argv[2] || 'http://127.0.0.1:8787/';
   assert.ok(!(await p.evaluate(() => document.body.innerText.includes('Choose how you want to train'))));
 
   await p.evaluate(() => {
-    window.WBAuth.saveIntended = function () { return Promise.resolve({ membership: 'none', intended_plan: 'enthusiast' }); };
+    window.__plans = [];
+    window.WBAuth.startCheckout = function (plan) {
+      window.__plans.push(plan);
+      return new Promise(function () {});
+    };
     location.hash = '#/subscriptions';
   });
   await p.waitForSelector('[data-plan=trainer]');
   await p.click('[data-plan=trainer]');
-  await p.waitForSelector('[data-a=new]');
-  assert.ok(locationHashIsHome(await p.evaluate(() => location.hash)));
+  await p.waitForFunction(() => {
+    var btn = document.querySelector('[data-plan=trainer]');
+    var all = document.querySelectorAll('[data-plan]');
+    var disabled = all.length === 3;
+    for (var i = 0; i < all.length; i++) if (!all[i].disabled) disabled = false;
+    return window.__plans[0] === 'trainer' && btn && btn.textContent === 'Starting checkout…' && disabled && location.hash === '#/subscriptions' && !document.querySelector('[data-a=new]');
+  });
 
   // Confirmation stays visible across a sign-in redraw, and a second submit cannot start.
   await p.goto(URL + '#/join');

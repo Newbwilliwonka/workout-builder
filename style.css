@@ -144,7 +144,8 @@ button.lib-still-x{align-self:flex-end;width:48px;height:48px;min-width:48px;min
 #client-readonly{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:12px;padding:8px 12px;font-size:13px;font-weight:700;text-align:left;margin:0 0 12px}
 .beta-note{font-weight:700;color:var(--pri);font-size:14px;margin:0 0 20px}
 .plan{position:relative;padding:16px 16px 14px;box-shadow:0 1px 3px rgba(17,24,39,.08)}
-.plan h3{font-size:18px;font-weight:700;margin:0;color:var(--ink)}
+.plan h3{font-size:18px;font-weight:700;margin:0;color:var(--ink);flex:1 0 auto;min-width:min-content}
+.plan-pills{display:inline-flex;align-items:center;gap:8px;flex:none;flex-wrap:nowrap}
 .plan .price{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;margin:2px 0 4px}
 .plan .price .was{color:var(--mute);font-size:13px;font-weight:400;text-decoration:line-through;text-decoration-thickness:1px}
 .plan .price .now{font-size:26px;font-weight:800;letter-spacing:0;color:var(--ink)}
@@ -174,6 +175,11 @@ button.lib-still-x{align-self:flex-end;width:48px;height:48px;min-width:48px;min
 .client-row b{font-size:15px}
 button.avatar.av-lg{width:56px;height:56px;min-width:56px;min-height:56px;border-radius:50%;background:#2563eb;color:#fff;font-size:18px;font-weight:800;border:2px solid #fff;box-shadow:0 0 0 1px var(--line)}
 #account-label{font-size:18px}
+#your-plan h2{font-size:18px;font-weight:800;margin:0 0 8px;letter-spacing:-.02em}
+#your-plan .name{margin:0}
+#your-plan .mute{margin:4px 0 0}
+.plan-links{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:12px 0 0}
+.plan-links a{color:var(--pri);font-weight:600;font-size:15px;text-decoration:underline;text-underline-offset:3px}
 .tag{display:inline-block;background:#eff6ff;color:var(--pri);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
 #pv-not-tracked{background:#fef3c7;color:#92400e;text-transform:none;letter-spacing:0;font-size:12px;font-weight:700}
 .invite{margin:14px 0 0;font-weight:600}

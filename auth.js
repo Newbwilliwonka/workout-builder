@@ -82,6 +82,58 @@
       return row;
     });
   }
+  function withBilling(c, userId, row) {
+    if (!row || !userId) return Promise.resolve(row);
+    return c.from('profiles').select('billing_status,stripe_customer_id,complimentary,beta_locked').eq('id', userId).maybeSingle().then(function (v) {
+      if (!v || v.error || !v.data) {
+        row.billing_status = null;
+        row.stripe_customer_id = null;
+        row.complimentary = false;
+        row.beta_locked = false;
+        return row;
+      }
+      row.billing_status = v.data.billing_status || null;
+      row.stripe_customer_id = v.data.stripe_customer_id || null;
+      row.complimentary = v.data.complimentary === true;
+      row.beta_locked = v.data.beta_locked === true;
+      return row;
+    }, function () {
+      row.billing_status = null;
+      row.stripe_customer_id = null;
+      row.complimentary = false;
+      row.beta_locked = false;
+      return row;
+    });
+  }
+  function billingPayload(res, fallback) {
+    var Bill = root.WBBilling;
+    if (!Bill || !Bill.outcome) return Promise.resolve({ error: fallback });
+    if (res && !res.error) return Promise.resolve(Bill.outcome(res.data, fallback));
+    var response = res && (res.response || (res.error && res.error.context));
+    if (!response || typeof response.clone !== 'function' || typeof response.json !== 'function') {
+      return Promise.resolve(Bill.outcome(res && res.data, fallback));
+    }
+    return response.clone().json().then(function (body) {
+      return Bill.outcome(body, fallback);
+    }, function () {
+      return Bill.outcome(null, fallback);
+    });
+  }
+  function callBilling(name, body, fallback) {
+    var Bill = root.WBBilling;
+    if (!Bill || !Bill.outcome) return Promise.reject(new Error(fallback));
+    return db().then(function (c) {
+      if (!c.functions || !c.functions.invoke) throw new Error(fallback);
+      return c.functions.invoke(name, { body: body || {} });
+    }).then(function (res) {
+      return billingPayload(res, fallback);
+    }, function () {
+      return Bill.outcome(null, fallback);
+    }).then(function (out) {
+      if (!out || !out.url) throw new Error((out && out.error) || fallback);
+      return out.url;
+    });
+  }
   function withListing(c, userId, row) {
     if (!row || !userId) return Promise.resolve(row);
     return c.from('profiles').select('listed,service_type').eq('id', userId).maybeSingle().then(function (v) {
@@ -491,6 +543,8 @@
               return withAccess(c, user.id, ready);
             }).then(function (ready) {
               return withListing(c, user.id, ready);
+            }).then(function (ready) {
+              return withBilling(c, user.id, ready);
             });
           });
         });
@@ -815,6 +869,12 @@
         if (res.error) throw verificationError(res.error);
         return res.data;
       }, function (err) { throw verificationError(err); });
+    },
+    startCheckout: function (planId) {
+      return callBilling('create-checkout-session', { plan: planId }, 'Checkout could not be started.');
+    },
+    openBilling: function () {
+      return callBilling('create-portal-session', {}, 'The billing page could not be opened.');
     },
     saveIntended: function (planId) {
       if (!Mem.canSelectIntended(planId)) throw new Error('A trainer invite is required for Free Client.');

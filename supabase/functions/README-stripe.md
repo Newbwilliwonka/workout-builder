@@ -1,6 +1,6 @@
 # Stripe functions
 
-Three Edge Functions. They do not change the app screens. Do not deploy them until William says so.
+Three Edge Functions. The Subscriptions page opens Checkout and the billing portal. The webhook has no screen of its own. Do not deploy a change until William says so.
 
 Checkout and the billing portal need the signed-in person's JWT. The webhook does not. Stripe cannot send one. The webhook checks the Stripe signature instead, and `supabase/config.toml` turns JWT verification off for that function only.
 

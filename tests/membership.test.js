@@ -164,6 +164,18 @@ assert.strictEqual(Mem.hasDesignated({ membership: 'none', intended_plan: 'enthu
 assert.strictEqual(Mem.hasDesignated({ membership: 'free_client', intended_plan: null }), true);
 assert.strictEqual(Mem.hasDesignated({ membership: 'trainer' }), true);
 
+assert.strictEqual(Mem.activePaidPlan(null), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'none', billing_status: 'active' }), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'free_client', billing_status: 'active' }), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer' }), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: null }), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'canceled' }), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'incomplete' }), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'unpaid' }), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'enthusiast', billing_status: 'active' }), 'enthusiast');
+assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'past_due' }), 'trainer');
+assert.strictEqual(Mem.activePaidPlan({ membership: 'master_trainer', billing_status: 'trialing' }), 'master_trainer');
+
 // Card order lives in drawSubscriptions: highlight with the available list, then Coming soon.
 (function () {
   var src = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
