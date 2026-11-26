@@ -1,6 +1,12 @@
 import { BillingError, assertStripeKeyAllowed } from './billing-guard.mjs'
 import { isPlan, lookupKey } from './billing-plans.mjs'
 import { resolvePricePlan } from './billing-price.mjs'
+import { syncAppliedSubscription } from './billing-webhook.mjs'
+
+const INVOICE_EXPAND = [
+  'latest_invoice.confirmation_secret',
+  'latest_invoice.payments.data.payment.payment_intent'
+]
 
 const LIVE = { active: true, trialing: true, past_due: true }
 const NO_SUB = 'Subscribe to a plan before switching.'
@@ -39,27 +45,43 @@ function firstItem(subscription) {
   return (items && items[0]) || null
 }
 
+function intentStatus(intent) {
+  if (!intent || typeof intent !== 'object' || !intent.status) return ''
+  return String(intent.status)
+}
+
 function paymentStatus(invoice) {
   if (!invoice || typeof invoice !== 'object') return ''
-  const direct = invoice.payment_intent
-  if (direct && typeof direct === 'object' && direct.status) return String(direct.status)
-  if (invoice.confirmation_secret) return 'requires_action'
+  const direct = intentStatus(invoice.payment_intent)
+  if (direct) return direct
   const rows = invoice.payments && (invoice.payments.data || invoice.payments)
-  if (!Array.isArray(rows)) return ''
-  for (let i = 0; i < rows.length; i++) {
-    const payment = rows[i] && (rows[i].payment || rows[i])
-    const intent = payment && payment.payment_intent
-    if (intent && typeof intent === 'object' && intent.status) return String(intent.status)
+  if (Array.isArray(rows)) {
+    for (let i = 0; i < rows.length; i++) {
+      const payment = rows[i] && (rows[i].payment || rows[i])
+      const status = intentStatus(payment && payment.payment_intent)
+      if (status) return status
+    }
   }
+  const secret = invoice.confirmation_secret
+  if (secret && typeof secret === 'object' && (secret.client_secret || secret.type)) return 'requires_action'
   return ''
 }
 
 async function invoiceOf(stripe, subscription) {
   const latest = subscription && subscription.latest_invoice
   if (!latest) return null
-  if (typeof latest === 'object') return latest
-  if (stripe.invoices && stripe.invoices.retrieve) return stripe.invoices.retrieve(latest)
-  return null
+  let invoice = typeof latest === 'object' ? latest : null
+  const id = typeof latest === 'string' ? latest : (invoice && invoice.id)
+  if (id && stripe.invoices && stripe.invoices.retrieve && !paymentStatus(invoice)) {
+    const loaded = await stripe.invoices.retrieve(id, {
+      expand: [
+        'payments.data.payment.payment_intent',
+        'confirmation_secret'
+      ]
+    })
+    if (loaded) invoice = loaded
+  }
+  return invoice
 }
 
 function httpsUrl(value) {
@@ -68,16 +90,17 @@ function httpsUrl(value) {
 }
 
 function resultOf(subscription, invoice) {
-  if (subscription && subscription.pending_update) {
-    const status = paymentStatus(invoice)
-    if (status === 'requires_action' || status === 'requires_confirmation') {
-      const url = httpsUrl(invoice && invoice.hosted_invoice_url)
-      if (!url) throw new BillingError(FAIL, 502)
-      return { status: 'requires_action', url: url }
-    }
+  if (!(subscription && subscription.pending_update)) return { status: 'ok' }
+  const status = paymentStatus(invoice)
+  if (status === 'requires_action' || status === 'requires_confirmation') {
+    const url = httpsUrl(invoice && invoice.hosted_invoice_url)
+    if (!url) throw new BillingError(FAIL, 502)
+    return { status: 'requires_action', url: url }
+  }
+  if (status === 'requires_payment_method' || status === 'canceled') {
     return { status: 'payment_failed' }
   }
-  return { status: 'ok' }
+  throw new BillingError(FAIL, 502)
 }
 
 function cardFailure(err) {
@@ -138,7 +161,7 @@ export async function changeSubscription(input) {
         items: [{ id: item.id, price: priceId, quantity: quantity }],
         proration_behavior: 'always_invoice',
         payment_behavior: 'pending_if_incomplete',
-        expand: ['latest_invoice']
+        expand: INVOICE_EXPAND
       }, {
         idempotencyKey: 'change-' + userId + '-' + (claimToken || priceId)
       })
@@ -149,6 +172,12 @@ export async function changeSubscription(input) {
     if (!updated || !updated.id) throw new BillingError(FAIL, 502)
     const invoice = await invoiceOf(input.stripe, updated)
     const body = resultOf(updated, invoice)
+    if (body.status === 'ok') {
+      await syncAppliedSubscription(input.stripe, input.db, input.log, {
+        id: userId,
+        stripe_customer_id: customerId
+      }, updated, 'change-subscription')
+    }
     return { status: 200, body: body }
   } catch (err) {
     if (err instanceof BillingError) throw err
