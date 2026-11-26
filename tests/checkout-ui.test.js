@@ -456,6 +456,80 @@ const paying = {
     return location.hash === '#/subscriptions' && document.getElementById('level-lock') && !sessionStorage.getItem('wb.checkout.wait');
   }, { timeout: 4000 });
 
+  const junk = await open(none);
+  await junk.evaluate(function () { sessionStorage.setItem('wb.checkout.wait', 'foo'); });
+  var junkBefore = Date.now();
+  await show(junk, '#/account?checkout=success');
+  await junk.waitForSelector('#checkout-note');
+  var junkKey = await junk.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); });
+  assert.ok(/^\d+$/.test(junkKey), junkKey);
+  assert.ok(Number(junkKey) >= junkBefore - 1000);
+
+  const expired = await open(none);
+  await expired.evaluate(function () {
+    sessionStorage.setItem('wb.checkout.wait', String(Date.now() - 60000));
+    window.__wbCheckoutWaitMs = 5000;
+  });
+  var expiredBefore = Date.now();
+  await show(expired, '#/account?checkout=success');
+  await expired.waitForSelector('#checkout-note');
+  var expiredKey = Number(await expired.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); }));
+  assert.ok(expiredKey >= expiredBefore - 1000);
+
+  const signedOutWait = await open(none);
+  await signedOutWait.evaluate(function () {
+    window.__wbCheckoutPollMs = 40;
+    window.__wbCheckoutWaitMs = 5000;
+    var n = 0;
+    window.WBAuth.profile = function () {
+      n++;
+      window.__polls = n;
+      return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true });
+    };
+    window.WBAuth.signOut = function () {
+      window.WBAuth.session = function () { return Promise.resolve(null); };
+      return Promise.resolve();
+    };
+  });
+  await show(signedOutWait, '#/account?checkout=success');
+  await signedOutWait.waitForSelector('#checkout-note');
+  await signedOutWait.waitForSelector('#account-signout');
+  await signedOutWait.click('#account-signout');
+  await signedOutWait.waitForFunction(function () {
+    return !sessionStorage.getItem('wb.checkout.wait') && (location.hash === '' || location.hash === '#');
+  });
+  var pollsAtSignOut = await signedOutWait.evaluate(function () { return window.__polls || 0; });
+  await new Promise(function (resolve) { setTimeout(resolve, 200); });
+  assert.strictEqual(await signedOutWait.evaluate(function () { return window.__polls || 0; }), pollsAtSignOut);
+
+  const subSignOut = await open(none);
+  await subSignOut.evaluate(function () {
+    window.__wbCheckoutPollMs = 40;
+    window.__wbCheckoutWaitMs = 5000;
+    var n = 0;
+    window.WBAuth.profile = function () {
+      n++;
+      window.__polls = n;
+      return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true });
+    };
+    window.WBAuth.signOut = function () {
+      window.WBAuth.session = function () { return Promise.resolve(null); };
+      return Promise.resolve();
+    };
+  });
+  await show(subSignOut, '#/account?checkout=success');
+  await subSignOut.waitForSelector('#checkout-note');
+  await subSignOut.evaluate(function () { location.hash = '#/subscriptions'; });
+  await subSignOut.waitForSelector('#level-signout');
+  assert.ok(await subSignOut.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); }));
+  await subSignOut.click('#level-signout');
+  await subSignOut.waitForFunction(function () {
+    return !sessionStorage.getItem('wb.checkout.wait') && (location.hash === '' || location.hash === '#');
+  });
+  var pollsAtLevel = await subSignOut.evaluate(function () { return window.__polls || 0; });
+  await new Promise(function (resolve) { setTimeout(resolve, 200); });
+  assert.strictEqual(await subSignOut.evaluate(function () { return window.__polls || 0; }), pollsAtLevel);
+
   async function accountOf(profile, conn) {
     var p = await open(profile);
     await p.evaluate(function (connection) {

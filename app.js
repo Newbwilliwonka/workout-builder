@@ -134,21 +134,28 @@
     return 30000;
   }
   function checkoutWaitStarted() {
-    try { return Number(sessionStorage.getItem(CHECKOUT_WAIT_KEY)) || 0; }
-    catch (e) { return 0; }
+    try {
+      var raw = sessionStorage.getItem(CHECKOUT_WAIT_KEY);
+      if (!raw) return 0;
+      var started = Number(raw);
+      if (!isFinite(started) || started <= 0) return 0;
+      return started;
+    } catch (e) { return 0; }
   }
   // The success query is removed as soon as Account paints. The wait lives in
-  // sessionStorage so leaving Account does not cancel it.
+  // sessionStorage so leaving Account does not cancel it. A missing, junk, or
+  // expired value is not an active wait.
   function checkoutWaitActive() {
     var started = checkoutWaitStarted();
     if (!started) return false;
-    return Date.now() - started < checkoutWaitMax();
+    var age = Date.now() - started;
+    if (age < 0) return false;
+    return age < checkoutWaitMax();
   }
   function armCheckoutWait() {
     if (hashParam('checkout') !== 'success') return;
-    try {
-      if (!sessionStorage.getItem(CHECKOUT_WAIT_KEY)) sessionStorage.setItem(CHECKOUT_WAIT_KEY, String(Date.now()));
-    } catch (e) {}
+    if (checkoutWaitActive()) return;
+    try { sessionStorage.setItem(CHECKOUT_WAIT_KEY, String(Date.now())); } catch (e) {}
   }
   function clearCheckoutWait() {
     checkoutPollGen++;
@@ -1657,6 +1664,7 @@
   function abandonReset() {
     var mustSignOut = recoveryLocked() || (recoveryPhase === 'form' && recoveryReady);
     function goSign() {
+      clearCheckoutWait();
       signedInNow = false;
       unlockRecovery();
       recoverySettled = true;
@@ -2334,6 +2342,7 @@
     if (!confirmCircuitSignOut(signingOut)) return;
     var from = hashPage();
     WBAuth.signOut().then(function () {
+      clearCheckoutWait();
       if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
@@ -2943,6 +2952,7 @@
         var signingOut = session && session.user && session.user.id || '';
         if (!confirmCircuitSignOut(signingOut)) return;
         return WBAuth.signOut().then(function () {
+          clearCheckoutWait();
           if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
           forgetRequestBadges();
           clearNavBadges();
@@ -4441,6 +4451,7 @@
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
       if (!session) {
+        clearCheckoutWait();
         signedInNow = false;
         if (publicRoot && !recoveryNow && (location.hash === '' || location.hash === '#')) return showLanding();
         hideLanding();
