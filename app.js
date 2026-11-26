@@ -94,6 +94,33 @@
     try { return new URLSearchParams(hash.slice(q + 1)).get(name) || ''; }
     catch (e) { return ''; }
   }
+  var PLAN_PICK_KEY = 'wb.plan.pick';
+  function rememberPlanPick(id) {
+    if (!window.WBMembership || !WBMembership.canSelectIntended(id)) return;
+    try { sessionStorage.setItem(PLAN_PICK_KEY, id); } catch (e) {}
+  }
+  function clearPlanPick() {
+    try { sessionStorage.removeItem(PLAN_PICK_KEY); } catch (e) {}
+  }
+  function planPick() {
+    var fromHash = hashParam('plan');
+    if (fromHash && window.WBMembership && WBMembership.canSelectIntended(fromHash)) {
+      rememberPlanPick(fromHash);
+      return fromHash;
+    }
+    var stored = '';
+    try { stored = sessionStorage.getItem(PLAN_PICK_KEY) || ''; } catch (e) {}
+    if (stored && window.WBMembership && WBMembership.canSelectIntended(stored)) return stored;
+    return '';
+  }
+  function planPickTier() {
+    var id = planPick();
+    return id && window.WBMembership ? WBMembership.tier(id) : null;
+  }
+  function planPickLine(tier) {
+    if (!tier) return '';
+    return tier.name + ' · ' + WBMembership.priceLine(tier);
+  }
   function clearHashParam(name) {
     var hash = '';
     try { hash = location.hash || ''; } catch (e) { return; }
@@ -114,7 +141,10 @@
   }
   function checkoutNotice(page) {
     var value = hashParam('checkout');
-    if ((page === 'account' || page === 'subscriptions') && value === 'success') return 'Payment received, your plan is activating.';
+    if ((page === 'account' || page === 'subscriptions') && value === 'success') {
+      clearPlanPick();
+      return 'Payment received, your plan is activating.';
+    }
     if (page === 'subscriptions' && value === 'cancel') return "Checkout was canceled. You can subscribe whenever you're ready.";
     return '';
   }
@@ -1194,8 +1224,32 @@
     pending.then(function (session) {
       if (!onAuthPage()) return;
       if (!session) return goSignedOutHome();
-      go('#/');
+      var pick = planPick();
+      if (!pick) return go('#/');
+      var profileP = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
+      Promise.resolve(profileP).then(function (profile) {
+        if (!onAuthPage()) return;
+        if (profile && WBMembership.activePaidPlan(profile)) {
+          clearPlanPick();
+          return go('#/subscriptions');
+        }
+        if (profile && profile.access_approved !== true) return go('#/');
+        startPickedCheckout(pick);
+      }, function () {
+        if (onAuthPage()) startPickedCheckout(pick);
+      });
     }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
+  }
+  function startPickedCheckout(plan) {
+    var run = WBAuth.startCheckout ? WBAuth.startCheckout(plan) : Promise.reject(new Error('Checkout could not be started.'));
+    Promise.resolve(run).then(function (url) {
+      if (!onAuthPage()) return;
+      var safe = billingUrl(url);
+      if (!safe) return go('#/subscriptions');
+      location.assign(safe);
+    }, function () {
+      if (onAuthPage()) go('#/subscriptions');
+    });
   }
   function showSignInNotice(text, isError) {
     var here = hashPage();
@@ -1407,6 +1461,8 @@
     if (message) h += '<div id="auth-error" class="' + (isError ? 'errs' : 'card') + '">' + esc(message) + '</div>';
     h += '<h2>' + (create ? 'Create your account' : 'Sign in') + '</h2>';
     h += '<p class="lede">Built for trainers and the people they coach.</p>';
+    var pickedTier = planPickTier();
+    if (pickedTier) h += '<p class="note" id="plan-pick">' + esc(planPickLine(pickedTier)) + '</p>';
     h += '<label for="acct-email">Email</label><input id="acct-email" type="email" autocomplete="username">';
     h += '<label for="acct-pass">Password</label><input id="acct-pass" type="password" autocomplete="' + (create ? 'new-password' : 'current-password') + '">';
     if (create) h += '<label for="confirm-pass">Confirm password</label><input id="confirm-pass" type="password" autocomplete="new-password">';
@@ -1468,7 +1524,11 @@
         if (!finishAuthAttempt(startedOn)) return;
         captchaHold = true;
         resetCaptchaAfterAttempt();
-        if (b.dataset.auth === 'up' && result.needsConfirmation) return showSignInNotice('Check your email to confirm the account, then sign in.');
+        if (b.dataset.auth === 'up' && result.needsConfirmation) {
+          var pickedName = planPickTier();
+          var follow = pickedName ? ' You chose ' + pickedName.name + '.' : '';
+          return showSignInNotice('Check your email to confirm the account, then sign in.' + follow);
+        }
         afterSignIn();
       }).catch(function (err) {
         if (!finishAuthAttempt(startedOn)) return;
@@ -2714,6 +2774,8 @@
         t.comingSoon.forEach(function (line) { h += '<li>' + esc(line) + '</li>'; });
         h += '</ul>';
       }
+      if (t.paysInApp) h += '<button type="button" class="pri" data-landing-plan="' + esc(t.id) + '" style="width:100%;margin-top:16px">Subscribe</button>';
+      else if (t.inviteOnly) h += '<p class="invite">Free with your trainer\'s invite code.</p>';
       h += '</article>';
     });
     h += '</div></div>';
@@ -2724,6 +2786,19 @@
     var host = landingEl.querySelector('#landing-plans');
     if (!host || host.childElementCount) return;
     host.innerHTML = landingPlansHtml();
+    bindLandingPlanClicks();
+  }
+  function bindLandingPlanClicks() {
+    if (!landingEl || landingEl.getAttribute('data-plan-clicks')) return;
+    landingEl.setAttribute('data-plan-clicks', '1');
+    landingEl.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-landing-plan]');
+      if (!b || !window.WBMembership) return;
+      var id = b.getAttribute('data-landing-plan') || '';
+      if (!WBMembership.canSelectIntended(id)) return;
+      rememberPlanPick(id);
+      go('#/join');
+    });
   }
   function bindLandingShots() {
     if (!landingEl) return;
@@ -2823,6 +2898,8 @@
     if (holdLine) h += '<p class="mute" id="plan-ended-hold">' + esc(holdLine) + '</p>';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
+    var pickedTier = !currentId ? planPickTier() : null;
+    if (pickedTier) h += '<p class="note" id="plan-pick">' + esc(planPickLine(pickedTier)) + '</p>';
     h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';
     if (returned) h += '<div class="card" id="checkout-note">' + esc(returned) + '</div>';
     WBMembership.TIERS.forEach(function (t) {

@@ -85,6 +85,9 @@ assert.ok(plans.indexOf('t.available.forEach') !== -1);
 assert.ok(plans.indexOf('t.priceLabel') !== -1);
 assert.ok(plans.indexOf('t.name') !== -1);
 assert.strictEqual(plans.indexOf('data-plan'), -1);
+assert.ok(plans.indexOf('data-landing-plan') !== -1);
+assert.ok(plans.indexOf('>Subscribe</button>') !== -1);
+assert.ok(plans.indexOf("Free with your trainer\\'s invite code.") !== -1);
 assert.strictEqual(plans.indexOf('t.cta'), -1);
 assert.ok(plans.indexOf('landing-plans-chevron') !== -1);
 assert.ok(plans.indexOf('<h2>' + PLANS_HEADING + '</h2>') !== -1);
@@ -284,6 +287,8 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
         names: names,
         text: text,
         plans: document.querySelectorAll('#landing [data-plan]').length,
+        subscribes: Array.prototype.map.call(landing.querySelectorAll('[data-landing-plan]'), function (el) { return el.getAttribute('data-landing-plan'); }),
+        freeInvite: landing.innerText.indexOf("Free with your trainer's invite code.") !== -1,
         overflow: doc.scrollWidth - doc.clientWidth,
         bar: (function () {
           var bar = landing.querySelector('.landing-bar');
@@ -309,6 +314,8 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
     assert.deepStrictEqual(seen.links, ['Sign up / Sign in', 'Sign up / Sign in']);
     assert.deepStrictEqual(seen.names, Mem.TIERS.map(function (t) { return t.name; }));
     assert.strictEqual(seen.plans, 0);
+    assert.deepStrictEqual(seen.subscribes, ['enthusiast', 'trainer', 'master_trainer']);
+    assert.strictEqual(seen.freeInvite, true);
     assert.ok(seen.overflow <= 1, 'horizontal overflow ' + seen.overflow);
     assert.strictEqual(seen.bar.brand, 'Coach Trainer App');
     assert.strictEqual(seen.bar.link, 'Sign up / Sign in');
