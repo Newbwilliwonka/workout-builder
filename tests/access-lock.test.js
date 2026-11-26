@@ -294,6 +294,27 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await client.click('#level-upgrade');
   await client.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1);
 
+  const endedPlan = await open(
+    { user: { id: 'ended', email: 'ended@example.com' } },
+    {
+      id: 'ended',
+      email: 'ended@example.com',
+      membership: 'trainer',
+      intended_plan: 'trainer',
+      billing_status: 'past_due',
+      plan_ended_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      access_approved: true
+    }
+  );
+  await seed(endedPlan);
+  await denied(endedPlan, '#/', '#/subscriptions');
+  await endedPlan.waitForFunction(function () {
+    var line = document.getElementById('plan-ended-hold');
+    return line && line.textContent === 'Your plan has ended. Rejoin within 2 weeks to keep your clients, workouts and history.'
+      && document.getElementById('level-lock')
+      && !document.querySelector('[data-a=new]');
+  });
+
   const cold = await open({ user: { id: 'cold', email: 'cold@example.com' } }, { id: 'cold', email: 'cold@example.com', membership: 'none', intended_plan: null });
   await cold.goto(URL + '#/join');
   await cold.waitForSelector('#acct-email');

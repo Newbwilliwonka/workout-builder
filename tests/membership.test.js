@@ -173,7 +173,18 @@ assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: '
 assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'incomplete' }), null);
 assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'unpaid' }), null);
 assert.strictEqual(Mem.activePaidPlan({ membership: 'enthusiast', billing_status: 'active' }), 'enthusiast');
-assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'past_due' }), 'trainer');
+assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'past_due' }), null);
+assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'unpaid' }), null);
+assert.strictEqual(Mem.hasDesignated({ membership: 'trainer', billing_status: 'past_due' }), false);
+assert.strictEqual(Mem.hasDesignated({ membership: 'trainer', billing_status: 'unpaid' }), false);
+assert.strictEqual(Mem.hasDesignated({ membership: 'free_client', billing_status: 'past_due' }), true);
+assert.strictEqual(Mem.entitlements({ membership: 'trainer', billing_status: 'past_due' }).active, false);
+var holdNow = Date.parse('2026-11-26T12:00:00Z');
+assert.strictEqual(Mem.dataHoldLine({ membership: 'none', plan_ended_at: '2026-11-20T12:00:00Z' }, holdNow), Mem.HOLD_LINE);
+assert.strictEqual(Mem.dataHoldLine({ membership: 'none', plan_ended_at: '2026-11-01T12:00:00Z' }, holdNow), '');
+assert.strictEqual(Mem.dataHoldLine({ membership: 'none', plan_ended_at: null }, holdNow), '');
+assert.strictEqual(Mem.dataHoldLine({ membership: 'free_client', plan_ended_at: '2026-11-20T12:00:00Z' }, holdNow), '');
+assert.strictEqual(Mem.dataHoldLine({ membership: 'trainer', billing_status: 'active', plan_ended_at: '2026-11-20T12:00:00Z' }, holdNow), '');
 assert.strictEqual(Mem.activePaidPlan({ membership: 'master_trainer', billing_status: 'trialing' }), 'master_trainer');
 
 assert.strictEqual(Mem.payable(byId.trainer, true).label, '$19.99');

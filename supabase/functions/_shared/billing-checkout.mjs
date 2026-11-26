@@ -7,7 +7,7 @@ import {
   lookupKey
 } from './billing-plans.mjs'
 
-const OPEN_SUBSCRIPTION = { active: true, trialing: true, past_due: true }
+const OPEN_SUBSCRIPTION = { active: true, trialing: true }
 const BETA_LIMIT = 100
 const RECENT_SECONDS = 30 * 60
 const ALREADY = 'You already have a subscription. Use Manage billing to change it.'
@@ -140,7 +140,7 @@ async function payingAlready(stripe, customerId, nowMs) {
     for (let i = 0; i < data.length; i++) {
       const row = data[i]
       if (!row) continue
-      if (row.status === 'active' || row.status === 'trialing' || row.status === 'past_due') return true
+      if (row.status === 'active' || row.status === 'trialing') return true
       if (row.status === 'incomplete' && createdUnix(row) >= cutoff) return true
     }
   }

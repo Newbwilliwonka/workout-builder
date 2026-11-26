@@ -140,7 +140,13 @@
     return !!(t && t.selfServe && !t.inviteOnly);
   }
   // Paid or invited access. A selected plan that has not been paid does not count.
+  // past_due and unpaid are not access. Free Client is not a Stripe status.
+  function billingEnded(profile) {
+    if (!profile || profile.membership === 'free_client') return false;
+    return profile.billing_status === 'past_due' || profile.billing_status === 'unpaid';
+  }
   function entitlements(profile) {
+    if (billingEnded(profile)) return { active: false, tier: null, workoutCap: null, clientCap: null };
     var id = profile && profile.membership;
     var t = tier(id);
     if (!t) return { active: false, tier: null, workoutCap: null, clientCap: null };
@@ -150,6 +156,7 @@
   // Active membership, or a paid plan they have chosen but not yet paid for.
   function hasDesignated(profile) {
     if (!profile) return false;
+    if (billingEnded(profile)) return false;
     if (tier(profile.membership)) return true;
     return canSelectIntended(profile.intended_plan);
   }
@@ -164,15 +171,27 @@
       label: tier.standardPriceLabel || tier.priceLabel
     };
   }
-  // A paid membership Stripe is still billing. past_due keeps access and
-  // Checkout refuses another subscription, so that plan uses Manage billing.
+  // A paid membership Stripe is still billing. past_due and unpaid have ended.
   function activePaidPlan(profile) {
-    if (!profile) return null;
+    if (!profile || billingEnded(profile)) return null;
     var t = tier(profile.membership);
     if (!t || !t.paysInApp) return null;
     var status = profile.billing_status;
-    if (status !== 'active' && status !== 'past_due' && status !== 'trialing') return null;
+    if (status !== 'active' && status !== 'trialing') return null;
     return t.id;
+  }
+  var HOLD_LINE = 'Your plan has ended. Rejoin within 2 weeks to keep your clients, workouts and history.';
+  var HOLD_MS = 14 * 24 * 60 * 60 * 1000;
+  // One line on Subscriptions, and only while the 2-week hold is still open.
+  function dataHoldLine(profile, now) {
+    if (!profile || profile.membership === 'free_client') return '';
+    if (activePaidPlan(profile)) return '';
+    if (!profile.plan_ended_at) return '';
+    var ended = Date.parse(profile.plan_ended_at);
+    if (!isFinite(ended)) return '';
+    var at = now == null ? Date.now() : now;
+    if (ended > at || at - ended >= HOLD_MS) return '';
+    return HOLD_LINE;
   }
 
   var api = {
@@ -185,7 +204,9 @@
     hasDesignated: hasDesignated,
     priceLine: priceLine,
     payable: payable,
-    activePaidPlan: activePaidPlan
+    activePaidPlan: activePaidPlan,
+    dataHoldLine: dataHoldLine,
+    HOLD_LINE: HOLD_LINE
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBMembership = api;
