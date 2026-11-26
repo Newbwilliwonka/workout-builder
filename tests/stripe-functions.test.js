@@ -1916,7 +1916,16 @@ async function main() {
 
   const scaPay = changeStripe([subOn('trainer', 'beta')], async function (id, params, opts) {
     scaPay.calls.push(['subscriptions.update', id, params, opts]);
-    return { id: id, status: 'active', pending_update: { expires_at: 1 }, latest_invoice: 'in_sca' };
+    return {
+      id: id,
+      status: 'active',
+      pending_update: { expires_at: 1 },
+      latest_invoice: {
+        id: 'in_sca',
+        status: 'open',
+        confirmation_secret: { type: 'payment_intent', client_secret: 'pi_sca_secret' }
+      }
+    };
   });
   scaPay.invoices.retrieve = async function (id, params) {
     scaPay.calls.push(['invoices.retrieve', id, params]);
@@ -1938,8 +1947,7 @@ async function main() {
   assert.deepStrictEqual(scaResult.body, { status: 'requires_action', url: 'https://invoice.stripe.com/i/confirm' });
   const scaRetrieve = scaPay.calls.filter(function (row) { return row[0] === 'invoices.retrieve'; })[0];
   assert.strictEqual(scaRetrieve[1], 'in_sca');
-  assert.ok(scaRetrieve[2].expand.indexOf('payments.data.payment.payment_intent') !== -1);
-  assert.ok(scaRetrieve[2].expand.indexOf('confirmation_secret') !== -1);
+  assert.deepStrictEqual(scaRetrieve[2].expand, ['payments.data.payment.payment_intent']);
   assert.ok(names(scaDb.calls).indexOf('billing_write') === -1);
   const expandPaths = [];
   scaPay.calls.forEach(function (row) {
@@ -1957,28 +1965,6 @@ async function main() {
   });
   assert.ok(expandPaths.indexOf('latest_invoice.payments.data.payment.payment_intent') === -1);
 
-  const secretPay = changeStripe([subOn('trainer', 'beta')], async function (id, params, opts) {
-    secretPay.calls.push(['subscriptions.update', id, params, opts]);
-    return { id: id, status: 'active', pending_update: { expires_at: 1 }, latest_invoice: 'in_secret' };
-  });
-  secretPay.invoices.retrieve = async function (id, params) {
-    secretPay.calls.push(['invoices.retrieve', id, params]);
-    return {
-      id: id,
-      hosted_invoice_url: 'https://invoice.stripe.com/i/secret',
-      confirmation_secret: { type: 'payment_intent', client_secret: 'pi_secret_secret' }
-    };
-  };
-  const secretResult = await change.changeSubscription({
-    stripe: secretPay,
-    db: changeDb(payer),
-    userId: USER,
-    plan: 'master_trainer',
-    secretKey: TEST_KEY,
-    testMode: 'true'
-  });
-  assert.deepStrictEqual(secretResult.body, { status: 'requires_action', url: 'https://invoice.stripe.com/i/secret' });
-
   const declinePay = changeStripe([subOn('enthusiast', 'beta')], async function (id, params, opts) {
     declinePay.calls.push(['subscriptions.update', id, params, opts]);
     return {
@@ -1987,11 +1973,31 @@ async function main() {
       pending_update: { expires_at: 1 },
       latest_invoice: {
         id: 'in_decline',
+        status: 'open',
         hosted_invoice_url: 'https://invoice.stripe.com/i/failed',
-        payments: { data: [{ payment: { payment_intent: { status: 'requires_payment_method' } } }] }
+        confirmation_secret: { type: 'payment_intent', client_secret: 'pi_decline_secret' }
       }
     };
   });
+  declinePay.invoices.retrieve = async function (id, params) {
+    declinePay.calls.push(['invoices.retrieve', id, params]);
+    return {
+      id: id,
+      status: 'open',
+      hosted_invoice_url: 'https://invoice.stripe.com/i/failed',
+      confirmation_secret: { type: 'payment_intent', client_secret: 'pi_decline_secret' },
+      payments: {
+        data: [{
+          payment: {
+            payment_intent: {
+              status: 'requires_payment_method',
+              last_payment_error: { code: 'card_declined' }
+            }
+          }
+        }]
+      }
+    };
+  };
   const declineDb = changeDb(payer);
   const declineResult = await change.changeSubscription({
     stripe: declinePay,
@@ -2002,8 +2008,17 @@ async function main() {
     testMode: 'true'
   });
   assert.deepStrictEqual(declineResult.body, { status: 'payment_failed' });
-  assert.ok(names(declinePay.calls).indexOf('invoices.retrieve') === -1);
+  assert.strictEqual(declinePay.calls.filter(function (row) { return row[0] === 'invoices.retrieve'; })[0][1], 'in_decline');
   assert.ok(names(declineDb.calls).indexOf('billing_write') === -1);
+  declinePay.calls.forEach(function (row) {
+    for (let i = 1; i < row.length; i++) {
+      const expand = row[i] && row[i].expand;
+      if (!expand) continue;
+      (Array.isArray(expand) ? expand : [expand]).forEach(function (path) {
+        assert.ok(String(path).split('.').length <= 4, path);
+      });
+    }
+  });
 
   const syncedDb = changeDb(payer);
   const syncedStripe = changeStripe([subOn('trainer', 'beta')], async function (id, params, opts) {
@@ -2013,6 +2028,12 @@ async function main() {
       status: 'active',
       customer: 'cus_Existing1',
       pending_update: null,
+      latest_invoice: {
+        id: 'in_paid',
+        status: 'paid',
+        confirmation_secret: { type: 'payment_intent', client_secret: 'pi_paid_secret' },
+        payments: { data: [{ payment: { payment_intent: { status: 'succeeded' } } }] }
+      },
       items: {
         data: [{
           id: 'si_current',
@@ -2035,6 +2056,7 @@ async function main() {
     testMode: 'true'
   });
   assert.strictEqual(synced.body.status, 'ok');
+  assert.ok(names(syncedStripe.calls).indexOf('invoices.retrieve') === -1);
   const syncedWrite = syncedDb.calls.filter(function (row) { return row[0] === 'billing_write'; })[0][1];
   assert.strictEqual(syncedWrite.p_action, 'sync');
   assert.strictEqual(syncedWrite.p_plan, 'master_trainer');

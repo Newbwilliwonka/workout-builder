@@ -47,26 +47,33 @@ function firstItem(subscription) {
   return (items && items[0]) || null
 }
 
-function intentStatus(intent) {
-  if (!intent || typeof intent !== 'object' || !intent.status) return ''
-  return String(intent.status)
+function paymentIntent(invoice) {
+  if (!invoice || typeof invoice !== 'object') return null
+  if (invoice.payment_intent && typeof invoice.payment_intent === 'object') return invoice.payment_intent
+  const rows = invoice.payments && (invoice.payments.data || invoice.payments)
+  if (!Array.isArray(rows)) return null
+  for (let i = 0; i < rows.length; i++) {
+    const payment = rows[i] && (rows[i].payment || rows[i])
+    const intent = payment && payment.payment_intent
+    if (intent && typeof intent === 'object') return intent
+  }
+  return null
 }
 
+// The outcome follows the PaymentIntent. A confirmation_secret is also
+// present on a decline, so it is not treated as authentication by itself.
 function paymentStatus(invoice) {
-  if (!invoice || typeof invoice !== 'object') return ''
-  const direct = intentStatus(invoice.payment_intent)
-  if (direct) return direct
-  const rows = invoice.payments && (invoice.payments.data || invoice.payments)
-  if (Array.isArray(rows)) {
-    for (let i = 0; i < rows.length; i++) {
-      const payment = rows[i] && (rows[i].payment || rows[i])
-      const status = intentStatus(payment && payment.payment_intent)
-      if (status) return status
-    }
-  }
-  const secret = invoice.confirmation_secret
-  if (secret && typeof secret === 'object' && (secret.client_secret || secret.type)) return 'requires_action'
+  const intent = paymentIntent(invoice)
+  if (!intent) return ''
+  if (intent.status) return String(intent.status)
+  if (intent.last_payment_error) return 'requires_payment_method'
   return ''
+}
+
+function invoiceIsPaid(invoice) {
+  if (!invoice || typeof invoice !== 'object') return false
+  if (invoice.status === 'paid') return true
+  return paymentStatus(invoice) === 'succeeded'
 }
 
 async function invoiceOf(stripe, subscription) {
@@ -74,12 +81,10 @@ async function invoiceOf(stripe, subscription) {
   if (!latest) return null
   let invoice = typeof latest === 'object' ? latest : null
   const id = typeof latest === 'string' ? latest : (invoice && invoice.id)
-  if (id && stripe.invoices && stripe.invoices.retrieve && !paymentStatus(invoice)) {
+  if (invoiceIsPaid(invoice)) return invoice
+  if (id && stripe.invoices && stripe.invoices.retrieve) {
     const loaded = await stripe.invoices.retrieve(id, {
-      expand: [
-        'payments.data.payment.payment_intent',
-        'confirmation_secret'
-      ]
+      expand: ['payments.data.payment.payment_intent']
     })
     if (loaded) invoice = loaded
   }
@@ -92,14 +97,16 @@ function httpsUrl(value) {
 }
 
 function resultOf(subscription, invoice) {
-  if (!(subscription && subscription.pending_update)) return { status: 'ok' }
   const status = paymentStatus(invoice)
+  const intent = paymentIntent(invoice)
+  if (invoiceIsPaid(invoice) || status === 'succeeded') return { status: 'ok' }
+  if (!(subscription && subscription.pending_update)) return { status: 'ok' }
   if (status === 'requires_action' || status === 'requires_confirmation') {
     const url = httpsUrl(invoice && invoice.hosted_invoice_url)
     if (!url) throw new BillingError(FAIL, 502)
     return { status: 'requires_action', url: url }
   }
-  if (status === 'requires_payment_method' || status === 'canceled') {
+  if (status === 'requires_payment_method' || status === 'canceled' || (intent && intent.last_payment_error)) {
     return { status: 'payment_failed' }
   }
   throw new BillingError(FAIL, 502)
