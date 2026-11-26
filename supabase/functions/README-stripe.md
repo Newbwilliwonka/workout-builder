@@ -1,8 +1,8 @@
 # Stripe functions
 
-Three Edge Functions. The Subscriptions page opens Checkout and the billing portal. The webhook has no screen of its own. Do not deploy a change until William says so.
+Four Edge Functions. The Subscriptions page opens Checkout, switches a paid plan, and opens the billing portal. The webhook has no screen of its own. Do not deploy a change until William says so.
 
-Checkout and the billing portal need the signed-in person's JWT. The webhook does not. Stripe cannot send one. The webhook checks the Stripe signature instead, and `supabase/config.toml` turns JWT verification off for that function only.
+Checkout, plan changes, and the billing portal need the signed-in person's JWT. The webhook does not. Stripe cannot send one. The webhook checks the Stripe signature instead, and `supabase/config.toml` turns JWT verification off for that function only.
 
 Nothing in this folder is a Stripe key. Keys live in Supabase function secrets.
 
@@ -14,13 +14,17 @@ The price is chosen with a Stripe lookup key: `enthusiast_beta_monthly`, `traine
 
 If that customer already has an open Checkout for the same plan, the same URL is returned. Two clicks at once share one page: a short service-role claim, stored with the plan, lets only one request create a session. The other waits up to about 10 seconds for that page. A different plan waits for the in-flight create, then replaces the open page only while it is still open. The claim is cleared when the create finishes or fails. If the page is not ready in time, Checkout answers that it is starting and to try again. Checkout is refused when Stripe already shows an active, trialing, or past-due subscription, an incomplete subscription from the last 30 minutes, or a Checkout completed in the last 30 minutes. Those people use Manage billing.
 
-`stripe-webhook` verifies the raw body with `STRIPE_WEBHOOK_SECRET`, records the event once with `stripe_event_begin`, and updates membership through `apply_stripe_membership`. A paid invoice grants the plan and period from the subscription line. A Beta price also sets `beta_locked` with `mark_beta_paid`. A failed payment marks that same subscription past due and does not remove access. A deleted subscription ends access only when its id is the one stored on the profile. Cancelling a duplicate does not change the subscription that should be kept.
+`stripe-webhook` verifies the raw body with `STRIPE_WEBHOOK_SECRET`, records the event once with `stripe_event_begin`, and updates membership through `apply_stripe_membership`. A paid invoice grants the plan and period from the subscription line. The plan comes from the Stripe product (`metadata.plan`, or `metadata.membership`, or a product id in `PRODUCT_PLANS`). The price lookup key is only a fallback, so a later standard price still maps. A Beta price also sets `beta_locked` with `mark_beta_paid`. `customer.subscription.updated` syncs the membership to the price that is actually on the subscription and does not clear `beta_locked`. A pending update, and `customer.subscription.pending_update_expired`, do not change the plan. A failed payment marks that same subscription past due and does not remove access. A deleted subscription ends access only when its id is the one stored on the profile. Cancelling a duplicate does not change the subscription that should be kept.
 
 A paid invoice is written under a row lock. If that profile already has a different active subscription, the row is not overwritten. The newer subscription, by its Stripe created time, is canceled and its first invoice is refunded through the invoice payments list. A later invoice for the kept subscription checks Stripe again and refunds any newer live subscription still open. If that cancel or refund does not finish, the webhook answers with an error so Stripe tries again. The refund uses an idempotency key so a retry does not refund twice. `checkout.session.completed` ignores only an "already applied" repeat. Any other attach error is returned to Stripe.
 
 `checkout.session.completed` attaches the customer and subscription when that does not replace an active one. A repeat that is already applied answers 200. Any other attach failure answers with an error so Stripe tries again.
 
-`create-portal-session` opens the hosted Customer Portal for the signed-in person's own Stripe customer. A customer id sent by the browser is ignored.
+`change-subscription` switches the signed-in person's own Stripe subscription to Enthusiast, Trainer, or Master Trainer. The browser sends a plan id only. The customer id is the one stored on the profile. A Beta-locked profile uses the Beta lookup key. Anyone else uses the standard key. The subscription item is updated with `proration_behavior` `always_invoice` and `payment_behavior` `pending_if_incomplete`. An upgrade invoices the difference now. If that payment fails, Stripe keeps the old price. A downgrade starts now, and the negative proration is left as customer balance credit. This function does not refund the card. The same plan, or no live subscription, answers 409. No live subscription tells the person to subscribe. A short claim keeps two requests from updating at once.
+
+The response is `{ status: 'ok' }`, `{ status: 'payment_failed' }`, or `{ status: 'requires_action', url }` with the hosted invoice link when the card needs confirmation.
+
+`create-portal-session` opens the hosted Customer Portal for the signed-in person's own Stripe customer. A customer id sent by the browser is ignored. The session is `{ customer, return_url }` only, so Stripe uses the default portal configuration. Plan switching stays off in that portal. In-app changes use `change-subscription`.
 
 ## Secrets
 
@@ -31,7 +35,8 @@ In the Supabase dashboard, Project Settings → Edge Functions → Secrets, set:
 - `SUPABASE_SERVICE_ROLE_KEY` — the service role key. The functions use it only to call the billing SQL and to read the signed-in person's own profile row.
 - `SUPABASE_ANON_KEY` — the anon key already on the project. The function copies it to `SUPABASE_PUBLISHABLE_KEY` when that name is not set, which is what the Supabase server helper expects.
 - `TEST_MODE` — `true` while this project is on the test sandbox. A live key is refused while this is set.
-- `STRIPE_PORTAL_BETA_CONFIGURATION` and `STRIPE_PORTAL_STANDARD_CONFIGURATION` — optional, after the two Customer Portal configurations exist in the Dashboard. Beta-locked people must get the Beta configuration so a later price raise does not apply to them.
+
+The portal does not take a configuration secret. Stripe uses the default Customer Portal configuration.
 
 `SUPABASE_URL` is already provided on the hosted project. Do not paste any of these values into the repo.
 
@@ -44,6 +49,7 @@ Checkout and the portal allow the browser only from https://coachtrainerapp.com,
 ```
 supabase functions deploy create-checkout-session
 supabase functions deploy create-portal-session
+supabase functions deploy change-subscription
 supabase functions deploy stripe-webhook --no-verify-jwt
 ```
 
@@ -51,7 +57,7 @@ Point a test-mode webhook at:
 
 `https://thyrgloermygnezfareg.supabase.co/functions/v1/stripe-webhook`
 
-Subscribe it to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, and `invoice.payment_failed`.
+Subscribe it to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.pending_update_expired`, `invoice.paid`, and `invoice.payment_failed`.
 
 Return URLs go to https://coachtrainerapp.com/. Success lands on Account. Cancel lands on Subscriptions. The portal returns to Account.
 

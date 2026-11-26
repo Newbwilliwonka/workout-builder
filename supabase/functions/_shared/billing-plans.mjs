@@ -27,3 +27,17 @@ export function planFromLookupKey(key) {
 export function isPlan(value) {
   return PLANS.indexOf(String(value || '')) !== -1
 }
+
+// Product id → plan. Metadata plan on the product is preferred.
+// Leave this empty until a product id is known; do not invent one.
+export const PRODUCT_PLANS = Object.freeze({})
+
+export function planFromProduct(product, idMap) {
+  if (!product || typeof product !== 'object') return null
+  const map = idMap || PRODUCT_PLANS
+  const meta = product.metadata || {}
+  const named = String(meta.plan || meta.membership || '').trim().toLowerCase()
+  if (isPlan(named)) return named
+  const mapped = String(product.id && map[String(product.id)] || '').trim().toLowerCase()
+  return isPlan(mapped) ? mapped : null
+}

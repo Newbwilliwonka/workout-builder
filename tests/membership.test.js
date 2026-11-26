@@ -176,6 +176,16 @@ assert.strictEqual(Mem.activePaidPlan({ membership: 'enthusiast', billing_status
 assert.strictEqual(Mem.activePaidPlan({ membership: 'trainer', billing_status: 'past_due' }), 'trainer');
 assert.strictEqual(Mem.activePaidPlan({ membership: 'master_trainer', billing_status: 'trialing' }), 'master_trainer');
 
+assert.strictEqual(Mem.payable(byId.trainer, true).label, '$19.99');
+assert.strictEqual(Mem.payable(byId.trainer, true).cents, 1999);
+assert.strictEqual(Mem.payable(byId.master_trainer, true).label, byId.master_trainer.priceLabel);
+assert.strictEqual(Mem.payable(byId.enthusiast, false).label, byId.enthusiast.standardPriceLabel);
+assert.strictEqual(Mem.payable(byId.trainer, false).cents, byId.trainer.standardPriceCents);
+assert.notStrictEqual(byId.trainer.standardPriceLabel, byId.trainer.oldPriceLabel);
+assert.strictEqual(Mem.payable(byId.free_client, true), null);
+assert.ok(Mem.payable(byId.master_trainer, true).cents > Mem.payable(byId.trainer, true).cents);
+assert.ok(Mem.payable(byId.trainer, true).cents > Mem.payable(byId.enthusiast, true).cents);
+
 // Card order lives in drawSubscriptions: highlight with the available list, then Coming soon.
 (function () {
   var src = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');

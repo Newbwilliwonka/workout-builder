@@ -41,6 +41,11 @@ const PUBLIC_MESSAGE = [
   'Checkout could not be started.',
   'Billing starts after you subscribe.',
   'The billing page could not be opened.',
+  'Plan changes open after an admin approves the account.',
+  'Subscribe to a plan before switching.',
+  'You are already on that plan.',
+  'That plan change is already in progress.',
+  'That plan could not be changed.',
   'Invalid signature.',
   'Webhook is not configured.',
   'Method not allowed.'

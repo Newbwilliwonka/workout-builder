@@ -1,5 +1,5 @@
 import { BillingError, assertStripeKeyAllowed, safeLog } from './billing-guard.mjs'
-import { planFromLookupKey } from './billing-plans.mjs'
+import { priceRef, resolvePricePlan } from './billing-price.mjs'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -35,12 +35,6 @@ function metaUser(meta) {
   if (!meta) return null
   const id = meta.supabase_user_id || meta.user_id || null
   return id && UUID.test(String(id)) ? String(id) : null
-}
-
-function priceRef(price) {
-  if (!price) return null
-  if (typeof price === 'string') return { id: price, lookup_key: null }
-  return { id: price.id || null, lookup_key: price.lookup_key || null }
 }
 
 function subscriptionPrice(subscription) {
@@ -112,15 +106,8 @@ function invoiceSubscription(invoice) {
   return invoice && invoice.subscription ? invoice.subscription : null
 }
 
-async function parsedPrice(stripe, ref) {
-  if (!ref) return null
-  if (ref.lookup_key) {
-    const parsed = planFromLookupKey(ref.lookup_key)
-    if (parsed) return parsed
-  }
-  if (!ref.id || !stripe || !stripe.prices || !stripe.prices.retrieve) return null
-  const price = await stripe.prices.retrieve(ref.id)
-  return planFromLookupKey(price && price.lookup_key)
+function parsedPrice(stripe, ref) {
+  return resolvePricePlan(stripe, ref)
 }
 
 function paymentRefund(row) {
@@ -360,12 +347,20 @@ async function dispatch(stripe, db, event, log) {
     return
   }
 
+  // The old price is unchanged when a pending update expires. Do not
+  // read a price off that event, or a failed upgrade would stick.
+  if (type === 'customer.subscription.pending_update_expired') {
+    return
+  }
+
   if (type === 'customer.subscription.updated') {
     const userId = metaUser(object.metadata)
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
     const status = billingStatus(object.status)
-    const parsed = status === 'active' || status === 'past_due'
+    // A pending update has not been paid. Leave the membership plan as it
+    // is. Sync does not pass p_beta, so beta_locked stays set.
+    const parsed = !object.pending_update && (status === 'active' || status === 'past_due')
       ? await parsedPrice(stripe, subscriptionPrice(object))
       : null
     const plan = parsed ? parsed.plan : null

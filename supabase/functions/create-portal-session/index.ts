@@ -30,13 +30,11 @@ const authed = withSupabase({ auth: 'user', cors: 'disabled' }, async (req, ctx)
         secretKey: env.key,
         testMode: env.testMode,
         userId: userId,
-        portalBeta: Deno.env.get('STRIPE_PORTAL_BETA_CONFIGURATION') || '',
-        portalStandard: Deno.env.get('STRIPE_PORTAL_STANDARD_CONFIGURATION') || '',
         db: {
           loadProfile: async function (id: string) {
             const { data, error } = await ctx.supabaseAdmin
               .from('profiles')
-              .select('stripe_customer_id, beta_locked, access_approved')
+              .select('stripe_customer_id, access_approved')
               .eq('id', id)
               .maybeSingle()
             if (error) throw new BillingError('The billing page could not be opened.', 500)

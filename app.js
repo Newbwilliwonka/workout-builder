@@ -2853,6 +2853,15 @@
         if (t.cta) h += '<p class="invite">' + esc(t.cta) + '</p>';
       } else if (currentId && t.id === currentId && stripePaid(profile)) {
         h += '<button class="pri" data-billing="portal" style="width:100%;margin-top:16px">Manage billing</button>';
+      } else if (stripePaid(profile) && currentId && t.paysInApp && t.id !== currentId) {
+        var currentTier = WBMembership.tier(currentId);
+        var mine = WBMembership.payable(currentTier, profile.beta_locked === true);
+        var next = WBMembership.payable(t, profile.beta_locked === true);
+        if (mine && next) {
+          var higher = next.cents > mine.cents;
+          var verb = higher ? 'Upgrade to ' : 'Switch to ';
+          h += '<button class="pri" type="button" id="switch-' + t.id + '" data-switch="' + t.id + '" data-switch-dir="' + (higher ? 'up' : 'down') + '" style="width:100%;margin-top:16px">' + esc(verb + t.name) + '</button>';
+        }
       } else if (!currentId) {
         h += '<button class="pri" data-plan="' + t.id + '" style="width:100%;margin-top:16px">Subscribe</button>';
       }
@@ -2901,6 +2910,143 @@
         drawSubscriptions(session, profile, (err && err.message) || 'The billing page could not be opened.', true, conn, !!locked);
       });
     }
+    var switchFlight = false;
+    var currentTier = currentId ? WBMembership.tier(currentId) : null;
+    function closeSwitch() {
+      var dialog = document.getElementById('plan-switch');
+      var id = dialog && dialog.getAttribute('data-target');
+      if (dialog) dialog.remove();
+      var back = id && document.getElementById('switch-' + id);
+      if (back) back.focus();
+    }
+    function openSwitch(btn) {
+      if (switchFlight || planBusy || document.getElementById('plan-switch')) return;
+      var target = WBMembership.tier(btn.getAttribute('data-switch'));
+      if (!target) return;
+      var higher = btn.getAttribute('data-switch-dir') === 'up';
+      var price = WBMembership.payable(target, profile && profile.beta_locked === true);
+      var label = price ? price.label : '';
+      var title = (higher ? 'Upgrade to ' : 'Switch to ') + target.name + ', ' + label + ' / month';
+      var body = higher
+        ? 'Starts now. Today your card is charged only the difference for the rest of this billing month.'
+        : 'Starts now. The unused time on your current plan becomes a credit that comes off your next bills. Nothing is refunded to your card.';
+      var yes = higher ? 'Confirm upgrade' : 'Confirm switch';
+      var h = '<div class="pl-modal" id="plan-switch" role="dialog" aria-modal="true" aria-labelledby="plan-switch-title" aria-describedby="plan-switch-body" tabindex="-1" data-target="' + target.id + '">';
+      h += '<div class="card"><h3 id="plan-switch-title">' + esc(title) + '</h3>';
+      h += '<p id="plan-switch-body">' + esc(body) + '</p>';
+      h += '<button type="button" class="pri" id="plan-switch-yes">' + esc(yes) + '</button>';
+      h += '<button type="button" id="plan-switch-no">Not now</button></div></div>';
+      app.insertAdjacentHTML('beforeend', h);
+      var layer = document.getElementById('plan-switch');
+      if (layer) layer.focus();
+    }
+    function redrawBilling(shown) {
+      var page = hashPage();
+      if (page === 'subscriptions') {
+        var nowLocked = !WBMembership.hasDesignated(shown);
+        backBtn.hidden = nowLocked;
+        drawSubscriptions(session, shown, '', false, conn, nowLocked);
+        return;
+      }
+      if (page !== 'account') return;
+      var rosterP = WBAuth.roster ? WBAuth.roster() : Promise.resolve({ role: null });
+      var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(conn);
+      Promise.all([
+        rosterP.then(function (v) { return v; }, function () { return { role: null }; }),
+        connP.then(function (v) { return v; }, function () { return conn; })
+      ]).then(function (pair) {
+        if (hashPage() !== 'account') return;
+        noteProfile(shown);
+        drawAccount(session, shown, pair[0], pair[1]);
+      });
+    }
+    function confirmSwitch() {
+      if (switchFlight) return;
+      var dialog = document.getElementById('plan-switch');
+      var yes = document.getElementById('plan-switch-yes');
+      var no = document.getElementById('plan-switch-no');
+      if (!dialog || !yes) return;
+      var plan = dialog.getAttribute('data-target');
+      if (!plan) return;
+      switchFlight = true;
+      yes.disabled = true;
+      yes.setAttribute('aria-busy', 'true');
+      if (no) no.disabled = true;
+      dialog.setAttribute('aria-busy', 'true');
+      var run = WBAuth.changePlan ? WBAuth.changePlan(plan) : Promise.reject(new Error('That plan could not be changed.'));
+      Promise.resolve(run).then(function (out) {
+        var page = hashPage();
+        if (page !== 'subscriptions' && page !== 'account') return;
+        if (!out || out.status === 'payment_failed') {
+          var name = currentTier ? currentTier.name : 'your plan';
+          planBusy = false;
+          switchFlight = false;
+          if (page === 'account') redrawBilling(profile);
+          else drawSubscriptions(session, profile, "Your payment didn't go through. You're still on " + name + '.', true, conn, !!locked);
+          return;
+        }
+        if (out.status === 'requires_action') {
+          var safe = billingUrl(out.url);
+          if (!safe) {
+            planBusy = false;
+            switchFlight = false;
+            if (page === 'account') redrawBilling(profile);
+            else drawSubscriptions(session, profile, 'That plan could not be changed.', true, conn, !!locked);
+            return;
+          }
+          location.assign(safe);
+          return;
+        }
+        if (out.status !== 'ok') {
+          planBusy = false;
+          switchFlight = false;
+          if (page === 'account') redrawBilling(profile);
+          else drawSubscriptions(session, profile, 'That plan could not be changed.', true, conn, !!locked);
+          return;
+        }
+        var read = WBAuth.profile ? WBAuth.profile() : Promise.resolve(profile);
+        Promise.resolve(read).then(function (fresh) {
+          var shown = fresh || profile;
+          if (fresh) noteProfile(fresh);
+          planBusy = false;
+          switchFlight = false;
+          redrawBilling(shown);
+        }, function () {
+          planBusy = false;
+          switchFlight = false;
+          redrawBilling(profile);
+        });
+      }, function (err) {
+        var page = hashPage();
+        if (page !== 'subscriptions' && page !== 'account') return;
+        planBusy = false;
+        switchFlight = false;
+        var text = (err && err.message) || 'That plan could not be changed.';
+        if (page === 'account') redrawBilling(profile);
+        else drawSubscriptions(session, profile, text, true, conn, !!locked);
+      });
+    }
+    app.onkeydown = function (e) {
+      var dialog = document.getElementById('plan-switch');
+      if (!dialog) return;
+      if (e.key === 'Escape') {
+        if (switchFlight) return;
+        e.preventDefault();
+        closeSwitch();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      var yesBtn = document.getElementById('plan-switch-yes');
+      var noBtn = document.getElementById('plan-switch-no');
+      if (!yesBtn || !noBtn) return;
+      var active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === yesBtn || active === dialog) { e.preventDefault(); noBtn.focus(); }
+      } else if (active === noBtn || active === dialog) {
+        e.preventDefault();
+        yesBtn.focus();
+      }
+    };
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
@@ -2917,7 +3063,13 @@
           goSignedOutHome();
         });
       }
-      if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-billing]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
+      if (e.target.closest('#plan-switch-no')) {
+        if (!switchFlight) closeSwitch();
+        return;
+      }
+      if (e.target.closest('#plan-switch-yes')) return confirmSwitch();
+      if (document.getElementById('plan-switch')) return;
+      if (!session && (nav || e.target.closest('[data-plan]') || e.target.closest('[data-billing]') || e.target.closest('[data-switch]') || e.target.closest('[data-invite="redeem"]'))) return go('#/signin');
       if (nav && nav.dataset.go === 'messages') return go('#/messages');
       if (nav && nav.dataset.go === 'hub') return go('#/hub');
       if (nav && nav.dataset.go === 'received') return go('#/received');
@@ -2925,6 +3077,8 @@
       if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
       var portal = e.target.closest('[data-billing="portal"]');
       if (portal) return openPortal(portal);
+      var sw = e.target.closest('[data-switch]');
+      if (sw) return openSwitch(sw);
       var b = e.target.closest('[data-plan]'); if (!b) return;
       if (planBusy || currentId || !WBMembership.canSelectIntended(b.dataset.plan)) return;
       beginPaidStep();

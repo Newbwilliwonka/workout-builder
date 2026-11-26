@@ -128,6 +128,7 @@ async function main() {
   const checkout = await import(path.join(shared, 'billing-checkout.mjs'));
   const webhook = await import(path.join(shared, 'billing-webhook.mjs'));
   const portal = await import(path.join(shared, 'billing-portal.mjs'));
+  const change = await import(path.join(shared, 'billing-change.mjs'));
 
   assert.strictEqual(guard.testModeOn('true'), true);
   assert.strictEqual(guard.testModeOn('off'), false);
@@ -144,6 +145,12 @@ async function main() {
   assert.strictEqual(plans.lookupKey('master_trainer', 'standard'), 'master_trainer_standard_monthly');
   assert.deepStrictEqual(plans.planFromLookupKey('trainer_standard_monthly'), { plan: 'trainer', tier: 'standard' });
   assert.strictEqual(plans.planFromLookupKey('price_hack'), null);
+  assert.strictEqual(plans.planFromProduct({ id: 'prod_trainer', metadata: { plan: 'trainer' } }), 'trainer');
+  assert.strictEqual(plans.planFromProduct({ id: 'prod_mt', metadata: { membership: 'Master_Trainer' } }), 'master_trainer');
+  assert.strictEqual(plans.planFromProduct({ id: 'prod_mapped', metadata: {} }, { prod_mapped: 'enthusiast' }), 'enthusiast');
+  assert.strictEqual(plans.planFromProduct({ id: 'prod_mapped', metadata: { plan: 'trainer' } }, { prod_mapped: 'enthusiast' }), 'trainer');
+  assert.strictEqual(plans.planFromProduct({ id: 'prod_mapped', metadata: { plan: 'nope' } }, { prod_mapped: 'enthusiast' }), 'enthusiast');
+  assert.strictEqual(plans.planFromProduct({ metadata: { plan: 'lifetime' } }), null);
   assert.strictEqual(checkout.planFromBody({ plan: 'trainer', price: 'price_from_browser' }), 'trainer');
   assert.strictEqual(checkout.planFromBody({ price: 'price_from_browser' }), '');
 
@@ -557,9 +564,10 @@ async function main() {
     db: dbMock({ profile: { stripe_customer_id: 'cus_Existing1', beta_locked: true, access_approved: true } })
   });
   assert.strictEqual(opened.body.url, 'https://billing.stripe.com/p/session/test_portal');
+  assert.deepStrictEqual(Object.keys(portalStripe.calls[0][1]).sort(), ['customer', 'return_url']);
   assert.strictEqual(portalStripe.calls[0][1].customer, 'cus_Existing1');
-  assert.strictEqual(portalStripe.calls[0][1].configuration, 'bpc_beta');
   assert.strictEqual(portalStripe.calls[0][1].return_url, 'https://coachtrainerapp.com/#/account');
+  assert.strictEqual(portalStripe.calls[0][1].configuration, undefined);
 
   const standardPortal = stripeMock();
   await portal.createPortalSession({
@@ -567,11 +575,10 @@ async function main() {
     secretKey: TEST_KEY,
     testMode: 'true',
     userId: USER,
-    portalBeta: 'bpc_beta',
-    portalStandard: 'bpc_standard',
     db: dbMock({ profile: { stripe_customer_id: 'cus_Existing1', beta_locked: false, access_approved: true } })
   });
-  assert.strictEqual(standardPortal.calls[0][1].configuration, 'bpc_standard');
+  assert.strictEqual(standardPortal.calls[0][1].configuration, undefined);
+  assert.deepStrictEqual(Object.keys(standardPortal.calls[0][1]).sort(), ['customer', 'return_url']);
 
   await assert.rejects(function () {
     return portal.createPortalSession({
@@ -1669,6 +1676,425 @@ async function main() {
   assert.ok(config.indexOf('[functions.stripe-webhook]') !== -1);
   assert.ok(/\[functions\.stripe-webhook\][\s\S]*verify_jwt = false/.test(config));
   assert.ok(/\[functions\.create-checkout-session\][\s\S]*verify_jwt = true/.test(config));
+  assert.ok(/\[functions\.change-subscription\][\s\S]*verify_jwt = true/.test(config));
+  const changeSrc = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/change-subscription/index.ts'), 'utf8');
+  const portalMjs = fs.readFileSync(path.join(shared, 'billing-portal.mjs'), 'utf8');
+  assert.ok(changeSrc.indexOf("cors: 'disabled'") !== -1);
+  assert.ok(changeSrc.indexOf('planFromBody') !== -1);
+  assert.ok(changeSrc.indexOf('stripe_customer_id') !== -1);
+  assert.ok(!/body\.customer/.test(changeSrc));
+  assert.ok(portalSrc.indexOf('STRIPE_PORTAL') === -1);
+  assert.ok(portalMjs.indexOf('portalBeta') === -1);
+  assert.ok(!/params\.configuration/.test(portalMjs));
+
+  const TOKEN = '11111111-1111-4111-8111-111111111111';
+  function subOn(plan, tier, status) {
+    return {
+      id: 'sub_payer001',
+      status: status || 'active',
+      customer: 'cus_Existing1',
+      items: {
+        data: [{
+          id: 'si_current',
+          quantity: 1,
+          price: { id: 'price_current_' + plan, lookup_key: plan + '_' + (tier || 'beta') + '_monthly' }
+        }]
+      }
+    };
+  }
+  function changeStripe(list, update) {
+    const calls = [];
+    return {
+      calls: calls,
+      prices: {
+        list: async function (params) {
+          calls.push(['prices.list', params]);
+          const key = params.lookup_keys[0];
+          return { data: [{ id: 'price_from_' + key, lookup_key: key }] };
+        }
+      },
+      subscriptions: {
+        list: async function (params) {
+          calls.push(['subscriptions.list', params]);
+          return { data: list || [] };
+        },
+        update: update || async function (id, params, opts) {
+          calls.push(['subscriptions.update', id, params, opts]);
+          return { id: id, pending_update: null, items: { data: [{ id: params.items[0].id, price: { id: params.items[0].price } }] } };
+        }
+      },
+      refunds: {
+        create: async function (params) {
+          calls.push(['refunds.create', params]);
+          return { id: 're_should_not' };
+        }
+      }
+    };
+  }
+  function changeDb(profile, extra) {
+    extra = extra || {};
+    return dbMock(Object.assign({
+      profile: profile,
+      claim: extra.claim || { granted: true, token: TOKEN }
+    }, extra));
+  }
+  const payer = {
+    id: USER,
+    access_approved: true,
+    complimentary: false,
+    beta_locked: true,
+    stripe_customer_id: 'cus_Existing1'
+  };
+
+  const betaSwitch = changeStripe([subOn('trainer', 'beta')]);
+  const betaDb = changeDb(payer);
+  const upgradedPlan = await change.changeSubscription({
+    stripe: betaSwitch,
+    db: betaDb,
+    userId: USER,
+    plan: 'master_trainer',
+    customer: 'cus_evil',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.deepStrictEqual(upgradedPlan.body, { status: 'ok' });
+  assert.strictEqual(betaSwitch.calls[0][0], 'subscriptions.list');
+  assert.strictEqual(betaSwitch.calls[0][1].customer, 'cus_Existing1');
+  assert.ok(JSON.stringify(betaSwitch.calls).indexOf('cus_evil') === -1);
+  assert.deepStrictEqual(betaSwitch.calls[1][1].lookup_keys, ['master_trainer_beta_monthly']);
+  const update = betaSwitch.calls.filter(function (row) { return row[0] === 'subscriptions.update'; })[0];
+  assert.strictEqual(update[1], 'sub_payer001');
+  assert.strictEqual(update[2].proration_behavior, 'always_invoice');
+  assert.strictEqual(update[2].payment_behavior, 'pending_if_incomplete');
+  assert.deepStrictEqual(update[2].items, [{ id: 'si_current', price: 'price_from_master_trainer_beta_monthly', quantity: 1 }]);
+  assert.strictEqual(update[3].idempotencyKey, 'change-' + USER + '-' + TOKEN);
+  assert.ok(names(betaSwitch.calls).indexOf('refunds.create') === -1);
+  assert.ok(names(betaDb.calls).indexOf('beta_paid_count') === -1);
+  assert.ok(names(betaDb.calls).indexOf('checkout_claim_release') !== -1);
+
+  const standardSwitch = changeStripe([subOn('trainer', 'standard')]);
+  await change.changeSubscription({
+    stripe: standardSwitch,
+    db: changeDb(Object.assign({}, payer, { beta_locked: false })),
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.deepStrictEqual(standardSwitch.calls[1][1].lookup_keys, ['enthusiast_standard_monthly']);
+  assert.strictEqual(standardSwitch.calls[2][2].proration_behavior, 'always_invoice');
+  assert.strictEqual(standardSwitch.calls[2][2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(names(standardSwitch.calls).indexOf('refunds.create') === -1);
+
+  const sameDb = changeDb(payer);
+  const sameStripe = changeStripe([subOn('trainer', 'beta')]);
+  await assert.rejects(function () {
+    return change.changeSubscription({
+      stripe: sameStripe,
+      db: sameDb,
+      userId: USER,
+      plan: 'trainer',
+      secretKey: TEST_KEY,
+      testMode: 'true'
+    });
+  }, function (err) {
+    assert.strictEqual(err.status, 409);
+    assert.strictEqual(err.message, 'You are already on that plan.');
+    return true;
+  });
+  assert.ok(names(sameStripe.calls).indexOf('subscriptions.update') === -1);
+  assert.ok(names(sameDb.calls).indexOf('checkout_claim') === -1);
+
+  const noneStripe = changeStripe([]);
+  await assert.rejects(function () {
+    return change.changeSubscription({
+      stripe: noneStripe,
+      db: changeDb(payer),
+      userId: USER,
+      plan: 'trainer',
+      secretKey: TEST_KEY,
+      testMode: 'true'
+    });
+  }, function (err) {
+    assert.strictEqual(err.status, 409);
+    assert.strictEqual(err.message, 'Subscribe to a plan before switching.');
+    return true;
+  });
+  assert.deepStrictEqual(names(noneStripe.calls), ['subscriptions.list']);
+
+  const canceledStripe = changeStripe([Object.assign(subOn('trainer', 'beta'), { status: 'canceled', id: 'sub_old' })]);
+  await assert.rejects(function () {
+    return change.changeSubscription({
+      stripe: canceledStripe,
+      db: changeDb(payer),
+      userId: USER,
+      plan: 'enthusiast',
+      secretKey: TEST_KEY,
+      testMode: 'true'
+    });
+  }, function (err) {
+    assert.strictEqual(err.status, 409);
+    assert.ok(/Subscribe/.test(err.message));
+    return true;
+  });
+
+  const noCustomer = changeDb(Object.assign({}, payer, { stripe_customer_id: null }));
+  const noCustomerStripe = changeStripe([subOn('trainer', 'beta')]);
+  await assert.rejects(function () {
+    return change.changeSubscription({
+      stripe: noCustomerStripe,
+      db: noCustomer,
+      userId: USER,
+      plan: 'enthusiast',
+      customer: 'cus_evil',
+      secretKey: TEST_KEY,
+      testMode: 'true'
+    });
+  }, function (err) {
+    assert.strictEqual(err.status, 409);
+    assert.strictEqual(err.message, 'Subscribe to a plan before switching.');
+    return true;
+  });
+  assert.deepStrictEqual(noCustomerStripe.calls, []);
+
+  const failedPay = changeStripe([subOn('enthusiast', 'beta')], async function (id, params, opts) {
+    failedPay.calls.push(['subscriptions.update', id, params, opts]);
+    return {
+      id: id,
+      pending_update: { expires_at: 1 },
+      latest_invoice: { payment_intent: { status: 'requires_payment_method' }, hosted_invoice_url: 'https://invoice.stripe.com/i/failed' }
+    };
+  });
+  const failedResult = await change.changeSubscription({
+    stripe: failedPay,
+    db: changeDb(Object.assign({}, payer, { beta_locked: true })),
+    userId: USER,
+    plan: 'trainer',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.deepStrictEqual(failedResult.body, { status: 'payment_failed' });
+  assert.strictEqual(failedPay.calls.filter(function (row) { return row[0] === 'subscriptions.update'; })[0][2].payment_behavior, 'pending_if_incomplete');
+
+  const actionPay = changeStripe([subOn('trainer', 'beta')], async function (id, params, opts) {
+    actionPay.calls.push(['subscriptions.update', id, params, opts]);
+    return {
+      id: id,
+      pending_update: { expires_at: 1 },
+      latest_invoice: {
+        payment_intent: { status: 'requires_action' },
+        hosted_invoice_url: 'https://invoice.stripe.com/i/confirm'
+      }
+    };
+  });
+  const actionResult = await change.changeSubscription({
+    stripe: actionPay,
+    db: changeDb(payer),
+    userId: USER,
+    plan: 'master_trainer',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.deepStrictEqual(actionResult.body, { status: 'requires_action', url: 'https://invoice.stripe.com/i/confirm' });
+
+  const busy = changeDb(payer, { claim: { granted: false, plan: 'trainer' } });
+  const busyStripe = changeStripe([subOn('trainer', 'beta')]);
+  await assert.rejects(function () {
+    return change.changeSubscription({
+      stripe: busyStripe,
+      db: busy,
+      userId: USER,
+      plan: 'enthusiast',
+      secretKey: TEST_KEY,
+      testMode: 'true'
+    });
+  }, function (err) {
+    assert.strictEqual(err.status, 409);
+    assert.strictEqual(err.message, 'That plan change is already in progress.');
+    return true;
+  });
+  assert.ok(names(busyStripe.calls).indexOf('subscriptions.update') === -1);
+
+  const productStripe = stripeMock();
+  productStripe.products = {
+    retrieve: async function (id) {
+      productStripe.calls.push(['products.retrieve', id]);
+      return { id: id, metadata: { plan: 'trainer' } };
+    }
+  };
+  const mapped = eventDb();
+  await webhook.handleWebhook({
+    stripe: productStripe,
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_product_plan',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            metadata: { supabase_user_id: USER },
+            items: {
+              data: [{
+                price: { id: 'price_future', lookup_key: 'trainer_standard_monthly_2027', product: 'prod_trainer' },
+                current_period_end: 1798329600
+              }]
+            }
+          }
+        }
+      };
+    },
+    db: mapped
+  });
+  assert.deepStrictEqual(productStripe.calls[0], ['products.retrieve', 'prod_trainer']);
+  const mappedSync = mapped.calls.filter(function (row) { return row[0] === 'billing_write'; })[0][1];
+  assert.strictEqual(mappedSync.p_action, 'sync');
+  assert.strictEqual(mappedSync.p_plan, 'trainer');
+  assert.ok(!Object.prototype.hasOwnProperty.call(mappedSync, 'p_beta'));
+
+  const productWins = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_product_wins',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            items: {
+              data: [{
+                price: {
+                  id: 'price_meta',
+                  lookup_key: 'enthusiast_beta_monthly',
+                  product: { id: 'prod_mt', metadata: { plan: 'master_trainer' } }
+                },
+                current_period_end: 1798329600
+              }]
+            }
+          }
+        }
+      };
+    },
+    db: productWins
+  });
+  const won = productWins.calls.filter(function (row) { return row[0] === 'billing_write'; })[0][1];
+  assert.strictEqual(won.p_plan, 'master_trainer');
+  assert.ok(!Object.prototype.hasOwnProperty.call(won, 'p_beta'));
+
+  const pending = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_pending',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            pending_update: {
+              subscription_items: [{ price: { id: 'price_new', lookup_key: 'master_trainer_beta_monthly' } }]
+            },
+            items: { data: [{ price: { id: 'price_old', lookup_key: 'enthusiast_beta_monthly' }, current_period_end: 1798329600 }] }
+          }
+        }
+      };
+    },
+    db: pending
+  });
+  const heldPlan = pending.calls.filter(function (row) { return row[0] === 'billing_write'; })[0][1];
+  assert.strictEqual(heldPlan.p_plan, null);
+
+  const expired = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_pending_expired',
+        type: 'customer.subscription.pending_update_expired',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            items: { data: [{ price: { id: 'price_new', lookup_key: 'master_trainer_beta_monthly' }, current_period_end: 1798329600 }] }
+          }
+        }
+      };
+    },
+    db: expired
+  });
+  assert.ok(names(expired.calls).indexOf('billing_write') === -1);
+  assert.ok(names(expired.calls).indexOf('apply_stripe_membership') === -1);
+
+  const granted = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_grant_product',
+        type: 'invoice.paid',
+        data: {
+          object: {
+            customer: 'cus_Existing1',
+            parent: { subscription_details: { subscription: 'sub_payer001', metadata: { user_id: USER } } },
+            lines: {
+              data: [{
+                amount: 1999,
+                proration: false,
+                type: 'subscription',
+                period: { end: Date.parse('2027-02-01T00:00:00Z') / 1000 },
+                pricing: {
+                  price_details: {
+                    price: {
+                      id: 'price_future_beta',
+                      lookup_key: 'trainer_beta_monthly',
+                      product: { id: 'prod_trainer', metadata: { plan: 'trainer' } }
+                    }
+                  }
+                }
+              }]
+            }
+          }
+        }
+      };
+    },
+    db: granted
+  });
+  const grantedCall = granted.calls.filter(function (row) { return row[0] === 'billing_write'; })[0][1];
+  assert.strictEqual(grantedCall.p_action, 'grant');
+  assert.strictEqual(grantedCall.p_plan, 'trainer');
+  assert.strictEqual(grantedCall.p_beta, true);
 
   console.log('stripe functions ok');
 }
