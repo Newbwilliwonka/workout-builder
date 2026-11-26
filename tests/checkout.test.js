@@ -86,7 +86,7 @@ assert.ok(auth.indexOf("callBilling('create-checkout-session', { plan: planId },
 assert.ok(auth.indexOf("callBilling('create-portal-session', {}, 'The billing page could not be opened.')") !== -1);
 assert.ok(auth.indexOf("c.functions.invoke('change-subscription', { body: { plan: planId } })") !== -1);
 assert.ok(app.indexOf('Starts now. Today your card is charged only the difference for the rest of this billing month.') !== -1);
-assert.ok(app.indexOf('Starts now. The unused time on your current plan becomes a credit that comes off your next bills.') !== -1);
+assert.ok(app.indexOf('Starts now. Your remaining plan will be credited towards your next bills.') !== -1);
 assert.ok(app.indexOf('Nothing is refunded to your card.') === -1);
 assert.ok(app.indexOf('Confirm upgrade') !== -1);
 assert.ok(app.indexOf('Confirm switch') !== -1);

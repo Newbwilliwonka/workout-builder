@@ -566,7 +566,7 @@ const paying = {
   assert.ok(downDialog.klass.indexOf('pl-modal') !== -1);
   assert.strictEqual(downDialog.focused, 'plan-switch');
   assert.strictEqual(downDialog.title, 'Switch to Enthusiast, $9.99 / month');
-  assert.strictEqual(downDialog.body, 'Starts now. The unused time on your current plan becomes a credit that comes off your next bills.');
+  assert.strictEqual(downDialog.body, 'Starts now. Your remaining plan will be credited towards your next bills.');
   assert.strictEqual(downDialog.yes, 'Confirm switch');
   assert.strictEqual(downDialog.no, 'Not now');
   await switching.click('#plan-switch-no');
