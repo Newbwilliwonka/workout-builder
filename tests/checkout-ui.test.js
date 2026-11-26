@@ -14,6 +14,9 @@ const paying = {
   membership: 'trainer',
   intended_plan: 'trainer',
   billing_status: 'active',
+  stripe_customer_id: 'cus_test',
+  beta_locked: true,
+  complimentary: false,
   access_approved: true,
   display_name: 'Ada'
 };
@@ -311,20 +314,49 @@ const paying = {
   await show(success, '#/account?checkout=success');
   await success.waitForFunction(function () {
     var note = document.getElementById('checkout-note');
-    return note && note.textContent === 'Your subscription is now active.'
+    var plan = document.getElementById('your-plan');
+    var note = document.getElementById('checkout-note');
+    return note && note.textContent === 'Payment received, your plan is activating.'
+      && plan && note.compareDocumentPosition(plan) === Node.DOCUMENT_POSITION_FOLLOWING
+      && document.getElementById('your-plan-name').textContent === 'Trainer'
+      && document.getElementById('your-plan-price').textContent === '$19.99 / month'
+      && document.getElementById('account-billing').textContent === 'Manage billing'
+      && document.getElementById('account-upgrade').textContent === 'Upgrade subscription'
+      && document.getElementById('account-upgrade').getAttribute('href') === '#/subscriptions'
       && location.hash === '#/account'
       && document.getElementById('account-card');
   });
   await success.screenshot({ path: OUT + '/account-success.png' });
+  await success.evaluate(function () {
+    window.__wbTestDb = {
+      functions: {
+        invoke: function (name, opts) {
+          window.__portal = { name: name, body: opts && opts.body };
+          return Promise.resolve({ data: { url: 'https://billing.stripe.com/p/session/acct_test' }, error: null });
+        }
+      }
+    };
+  });
+  await success.click('#account-billing');
+  await waitHit(success, 'https://billing.stripe.com/p/session/acct_test');
+  assert.deepStrictEqual(await success.evaluate(function () { return window.__portal; }), {
+    name: 'create-portal-session',
+    body: {}
+  });
+  assert.strictEqual(await success.$eval('#account-billing', function (el) { return el.tagName; }), 'A');
 
   const early = await open(none);
   await show(early, '#/account?checkout=success');
   await early.waitForFunction(function () {
     var note = document.getElementById('checkout-note');
-    return note && note.textContent === 'Your subscription is now active.' && location.hash === '#/account';
+    return note && note.textContent === 'Payment received, your plan is activating.' && location.hash === '#/account';
   });
   assert.strictEqual(await early.$('#level-lock'), null);
   assert.strictEqual(await early.$('#invite-code'), null);
+  assert.strictEqual(await early.$('#account-billing'), null);
+  assert.strictEqual(await early.$eval('#your-plan-name', function (el) { return el.textContent; }), 'Free');
+  assert.strictEqual(await early.$eval('#account-upgrade', function (el) { return el.textContent; }), 'Upgrade subscription');
+  assert.strictEqual(await early.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); }), null);
 
   const already = await open(none);
   await show(already, '#/subscriptions');
@@ -381,155 +413,6 @@ const paying = {
   await already.evaluate(function () { window.scrollTo(0, 0); });
   await already.screenshot({ path: OUT + '/subscriptions-409.png' });
 
-  const late = await open(none);
-  await late.evaluate(function () {
-    window.__wbCheckoutPollMs = 40;
-    window.__wbCheckoutPollLimit = 4;
-    var n = 0;
-    window.WBAuth.profile = function () {
-      n++;
-      if (n < 3) return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true });
-      return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'enthusiast', billing_status: 'active', access_approved: true, display_name: 'Ada' });
-    };
-  });
-  await show(late, '#/account?checkout=success');
-  await late.waitForSelector('#checkout-note');
-  await late.waitForFunction(function () {
-    var label = document.querySelector('#account-card .mute');
-    return label && label.textContent.indexOf('Enthusiast') !== -1 && location.hash === '#/account';
-  }, { timeout: 5000 });
-
-  const giveUp = await open(none);
-  await giveUp.evaluate(function () {
-    window.__wbCheckoutPollMs = 40;
-    window.__wbCheckoutWaitMs = 320;
-  });
-  await show(giveUp, '#/account?checkout=success');
-  await giveUp.waitForSelector('#checkout-note');
-  await giveUp.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && !document.getElementById('checkout-note') && document.getElementById('level-lock');
-  }, { timeout: 5000 });
-
-  const roam = await open(none);
-  await roam.evaluate(function () {
-    window.__wbCheckoutPollMs = 40;
-    window.__wbCheckoutWaitMs = 5000;
-    var n = 0;
-    window.WBAuth.profile = function () {
-      n++;
-      window.__polls = n;
-      if (n < 8) return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true });
-      return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'trainer', billing_status: 'active', access_approved: true, display_name: 'Ada' });
-    };
-  });
-  await show(roam, '#/account?checkout=success');
-  await roam.waitForSelector('#checkout-note');
-  assert.ok(await roam.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); }));
-  await roam.evaluate(function () { location.hash = '#/'; });
-  await roam.waitForFunction(function () {
-    return (location.hash === '#/' || location.hash === '' || location.hash === '#')
-      && window.__polls >= 3
-      && sessionStorage.getItem('wb.checkout.wait');
-  }, { timeout: 4000 });
-  await roam.waitForFunction(function () {
-    return !sessionStorage.getItem('wb.checkout.wait')
-      && (location.hash === '#/' || location.hash === '' || location.hash === '#');
-  }, { timeout: 5000 });
-  await new Promise(function (resolve) { setTimeout(resolve, 250); });
-  var pollsAfterPlan = await roam.evaluate(function () { return window.__polls; });
-  await new Promise(function (resolve) { setTimeout(resolve, 200); });
-  assert.strictEqual(await roam.evaluate(function () { return window.__polls; }), pollsAfterPlan);
-  assert.ok(pollsAfterPlan >= 8);
-
-  const roamEnd = await open(none);
-  await roamEnd.evaluate(function () {
-    window.__wbCheckoutPollMs = 40;
-    window.__wbCheckoutWaitMs = 280;
-  });
-  await show(roamEnd, '#/account?checkout=success');
-  await roamEnd.waitForSelector('#checkout-note');
-  await roamEnd.evaluate(function () { location.hash = '#/'; });
-  await roamEnd.waitForFunction(function () {
-    return (location.hash === '#/' || location.hash === '' || location.hash === '#') && sessionStorage.getItem('wb.checkout.wait');
-  }, { timeout: 2000 });
-  await roamEnd.waitForFunction(function () {
-    return location.hash === '#/subscriptions' && document.getElementById('level-lock') && !sessionStorage.getItem('wb.checkout.wait');
-  }, { timeout: 4000 });
-
-  const junk = await open(none);
-  await junk.evaluate(function () { sessionStorage.setItem('wb.checkout.wait', 'foo'); });
-  var junkBefore = Date.now();
-  await show(junk, '#/account?checkout=success');
-  await junk.waitForSelector('#checkout-note');
-  var junkKey = await junk.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); });
-  assert.ok(/^\d+$/.test(junkKey), junkKey);
-  assert.ok(Number(junkKey) >= junkBefore - 1000);
-
-  const expired = await open(none);
-  await expired.evaluate(function () {
-    sessionStorage.setItem('wb.checkout.wait', String(Date.now() - 60000));
-    window.__wbCheckoutWaitMs = 5000;
-  });
-  var expiredBefore = Date.now();
-  await show(expired, '#/account?checkout=success');
-  await expired.waitForSelector('#checkout-note');
-  var expiredKey = Number(await expired.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); }));
-  assert.ok(expiredKey >= expiredBefore - 1000);
-
-  const signedOutWait = await open(none);
-  await signedOutWait.evaluate(function () {
-    window.__wbCheckoutPollMs = 40;
-    window.__wbCheckoutWaitMs = 5000;
-    var n = 0;
-    window.WBAuth.profile = function () {
-      n++;
-      window.__polls = n;
-      return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true });
-    };
-    window.WBAuth.signOut = function () {
-      window.WBAuth.session = function () { return Promise.resolve(null); };
-      return Promise.resolve();
-    };
-  });
-  await show(signedOutWait, '#/account?checkout=success');
-  await signedOutWait.waitForSelector('#checkout-note');
-  await signedOutWait.waitForSelector('#account-signout');
-  await signedOutWait.click('#account-signout');
-  await signedOutWait.waitForFunction(function () {
-    return !sessionStorage.getItem('wb.checkout.wait') && (location.hash === '' || location.hash === '#');
-  });
-  var pollsAtSignOut = await signedOutWait.evaluate(function () { return window.__polls || 0; });
-  await new Promise(function (resolve) { setTimeout(resolve, 200); });
-  assert.strictEqual(await signedOutWait.evaluate(function () { return window.__polls || 0; }), pollsAtSignOut);
-
-  const subSignOut = await open(none);
-  await subSignOut.evaluate(function () {
-    window.__wbCheckoutPollMs = 40;
-    window.__wbCheckoutWaitMs = 5000;
-    var n = 0;
-    window.WBAuth.profile = function () {
-      n++;
-      window.__polls = n;
-      return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true });
-    };
-    window.WBAuth.signOut = function () {
-      window.WBAuth.session = function () { return Promise.resolve(null); };
-      return Promise.resolve();
-    };
-  });
-  await show(subSignOut, '#/account?checkout=success');
-  await subSignOut.waitForSelector('#checkout-note');
-  await subSignOut.evaluate(function () { location.hash = '#/subscriptions'; });
-  await subSignOut.waitForSelector('#level-signout');
-  assert.ok(await subSignOut.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); }));
-  await subSignOut.click('#level-signout');
-  await subSignOut.waitForFunction(function () {
-    return !sessionStorage.getItem('wb.checkout.wait') && (location.hash === '' || location.hash === '#');
-  });
-  var pollsAtLevel = await subSignOut.evaluate(function () { return window.__polls || 0; });
-  await new Promise(function (resolve) { setTimeout(resolve, 200); });
-  assert.strictEqual(await subSignOut.evaluate(function () { return window.__polls || 0; }), pollsAtLevel);
-
   async function accountOf(profile, conn) {
     var p = await open(profile);
     await p.evaluate(function (connection) {
@@ -546,10 +429,23 @@ const paying = {
     null
   );
   await freeAccount.waitForSelector('#invite-code');
+  assert.strictEqual(await freeAccount.$('#account-billing'), null);
+  assert.strictEqual(await freeAccount.$eval('#your-plan-name', function (el) { return el.textContent; }), 'Free Client');
+  assert.strictEqual(await freeAccount.$eval('#your-plan-price', function (el) { return el.textContent; }), 'Free');
   assert.strictEqual(await freeAccount.$('[data-invite=end-self]'), null);
   assert.ok((await freeAccount.evaluate(function () { return document.body.innerText; })).indexOf('Your trainer') === -1);
   await freeAccount.evaluate(function () { document.getElementById('redeem').scrollIntoView({ block: 'center' }); });
   await freeAccount.screenshot({ path: OUT + '/account-free-unlinked.png' });
+
+  const compAccount = await accountOf(
+    { id: 'payer', email: 'ada@example.com', membership: 'trainer', intended_plan: 'trainer', complimentary: true, billing_status: null, stripe_customer_id: null, access_approved: true, display_name: 'Ada Coach' },
+    null
+  );
+  await compAccount.waitForSelector('#your-plan');
+  assert.strictEqual(await compAccount.$('#account-billing'), null);
+  assert.strictEqual(await compAccount.$eval('#your-plan-name', function (el) { return el.textContent; }), 'Trainer');
+  assert.strictEqual(await compAccount.$eval('#your-plan-price', function (el) { return el.textContent; }), 'Complimentary');
+  assert.strictEqual(await compAccount.$eval('#account-upgrade', function (el) { return el.getAttribute('href'); }), '#/subscriptions');
 
   const linkedAccount = await accountOf(
     { id: 'payer', email: 'ada@example.com', membership: 'free_client', intended_plan: null, access_approved: true, display_name: 'Ada Client' },
@@ -595,12 +491,16 @@ const paying = {
   assert.strictEqual(await linkedTrainer.$('#invite-code'), null);
   assert.strictEqual(await linkedTrainer.$('[data-invite=redeem]'), null);
 
-  const wrong = await open(none);
-  await show(wrong, '#/subscriptions?checkout=success');
-  await wrong.waitForSelector('[data-plan=enthusiast]');
-  await new Promise(function (resolve) { setTimeout(resolve, 200); });
-  assert.strictEqual(await wrong.$('#checkout-note'), null);
-  assert.ok((await wrong.evaluate(function () { return document.body.innerText; })).indexOf('Your subscription is now active.') === -1);
+  const subNote = await open(none);
+  await show(subNote, '#/subscriptions?checkout=success');
+  await subNote.waitForFunction(function () {
+    var note = document.getElementById('checkout-note');
+    var plan = document.querySelector('article.plan');
+    return note && note.textContent === 'Payment received, your plan is activating.'
+      && plan && note.compareDocumentPosition(plan) === Node.DOCUMENT_POSITION_FOLLOWING
+      && location.hash === '#/subscriptions'
+      && document.getElementById('level-lock');
+  });
 
   assert.deepStrictEqual(errs, []);
   console.log('CHECKOUT UI OK');

@@ -175,6 +175,11 @@ button.lib-still-x{align-self:flex-end;width:48px;height:48px;min-width:48px;min
 .client-row b{font-size:15px}
 button.avatar.av-lg{width:56px;height:56px;min-width:56px;min-height:56px;border-radius:50%;background:#2563eb;color:#fff;font-size:18px;font-weight:800;border:2px solid #fff;box-shadow:0 0 0 1px var(--line)}
 #account-label{font-size:18px}
+#your-plan h2{font-size:18px;font-weight:800;margin:0 0 8px;letter-spacing:-.02em}
+#your-plan .name{margin:0}
+#your-plan .mute{margin:4px 0 0}
+.plan-links{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:12px 0 0}
+.plan-links a{color:var(--pri);font-weight:600;font-size:15px;text-decoration:underline;text-underline-offset:3px}
 .tag{display:inline-block;background:#eff6ff;color:var(--pri);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
 #pv-not-tracked{background:#fef3c7;color:#92400e;text-transform:none;letter-spacing:0;font-size:12px;font-weight:700}
 .invite{margin:14px 0 0;font-weight:600}

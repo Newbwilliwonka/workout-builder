@@ -112,59 +112,15 @@
       history.replaceState(null, '', u.pathname + u.search + next);
     } catch (e) {}
   }
-  var CHECKOUT_WAIT_KEY = 'wb.checkout.wait';
   function checkoutNotice(page) {
     var value = hashParam('checkout');
-    if (page === 'account' && (value === 'success' || checkoutWaitActive())) return 'Your subscription is now active.';
+    if ((page === 'account' || page === 'subscriptions') && value === 'success') return 'Payment received, your plan is activating.';
     if (page === 'subscriptions' && value === 'cancel') return "Checkout was canceled. You can subscribe whenever you're ready.";
     return '';
   }
-  function paidMembership(profile) {
-    var id = profile && profile.membership;
-    return id === 'enthusiast' || id === 'trainer' || id === 'master_trainer';
-  }
-  function checkoutPollWait() {
-    var n = Number(window.__wbCheckoutPollMs);
-    if (n >= 0 && n < 2000) return n;
-    return 2000;
-  }
-  function checkoutWaitMax() {
-    var n = Number(window.__wbCheckoutWaitMs);
-    if (n > 0 && n <= 30000) return n;
-    return 30000;
-  }
-  function checkoutWaitStarted() {
-    try {
-      var raw = sessionStorage.getItem(CHECKOUT_WAIT_KEY);
-      if (!raw) return 0;
-      var started = Number(raw);
-      if (!isFinite(started) || started <= 0) return 0;
-      return started;
-    } catch (e) { return 0; }
-  }
-  // The success query is removed as soon as Account paints. The wait lives in
-  // sessionStorage so leaving Account does not cancel it. A missing, junk, or
-  // expired value is not an active wait.
-  function checkoutWaitActive() {
-    var started = checkoutWaitStarted();
-    if (!started) return false;
-    var age = Date.now() - started;
-    if (age < 0) return false;
-    return age < checkoutWaitMax();
-  }
-  function armCheckoutWait() {
-    if (hashParam('checkout') !== 'success') return;
-    if (checkoutWaitActive()) return;
-    try { sessionStorage.setItem(CHECKOUT_WAIT_KEY, String(Date.now())); } catch (e) {}
-  }
-  function clearCheckoutWait() {
-    checkoutPollGen++;
-    checkoutPollOn = false;
-    if (checkoutPollTimer) {
-      clearTimeout(checkoutPollTimer);
-      checkoutPollTimer = 0;
-    }
-    try { sessionStorage.removeItem(CHECKOUT_WAIT_KEY); } catch (e) {}
+  function stripePaid(profile) {
+    if (!profile || profile.complimentary === true || !profile.stripe_customer_id) return false;
+    return !!(window.WBMembership && WBMembership.activePaidPlan(profile));
   }
   function billingUrl(url) {
     return window.WBBilling && WBBilling.httpsUrl ? WBBilling.httpsUrl(url) : '';
@@ -1196,7 +1152,7 @@
     app.onchange = null;
   }
   var pendingSignNotice = null, authBusy = false, planBusy = false, checkoutGen = 0;
-  var checkoutWatchGen = 0, checkoutPollTimer = 0, checkoutPollGen = 0, checkoutPollOn = false;
+  var checkoutWatchGen = 0;
   var ALREADY_SUBSCRIBED = 'You already have a subscription. Use Manage billing to change it.';
   // recoveryPhase: '' | 'checking' | 'form' | 'invalid' | 'done'
   var recoveryPhase = '', recoverySettled = false, recoveryReady = false;
@@ -1224,8 +1180,8 @@
       if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== from) return;
-        go(WBMembership.hasDesignated(profile) || checkoutWaitActive() ? '#/account' : '#/subscriptions');
-      }).catch(function () { if (hashPage() === from && !checkoutWaitActive()) go('#/subscriptions'); });
+        go(WBMembership.hasDesignated(profile) ? '#/account' : '#/subscriptions');
+      }).catch(function () { if (hashPage() === from) go('#/subscriptions'); });
     }).catch(function () { if (hashPage() === from) go('#/signin'); });
   }
   function afterSignIn() {
@@ -1664,7 +1620,6 @@
   function abandonReset() {
     var mustSignOut = recoveryLocked() || (recoveryPhase === 'form' && recoveryReady);
     function goSign() {
-      clearCheckoutWait();
       signedInNow = false;
       unlockRecovery();
       recoverySettled = true;
@@ -1761,14 +1716,15 @@
         accessWaitOn = false;
         var profile = cachedProfile || gate.profile;
         if (page === 'admin') return renderAdmin();
-        if (gate.known && !WBMembership.hasDesignated(profile) && !checkoutWaitActive()) return go('#/subscriptions');
+        var checkoutReturn = hashParam('checkout') === 'success' && (page === 'account' || page === 'subscriptions');
+        if (gate.known && !WBMembership.hasDesignated(profile) && !checkoutReturn) return go('#/subscriptions');
         if (clientNeedsName(profile)) {
           profileGateOn = false;
           closeProfileSheet(true);
           if (page !== 'account') return go('#/account');
           return renderSimpleAccount();
         }
-        if (window.WBProfile && WBProfile.needsName(profile) && !checkoutWaitActive()) return showProfileGate(profile);
+        if (window.WBProfile && WBProfile.needsName(profile) && !checkoutReturn) return showProfileGate(profile);
         profileGateOn = false;
         closeProfileSheet(true);
         syncHeaderSignOut();
@@ -2342,7 +2298,6 @@
     if (!confirmCircuitSignOut(signingOut)) return;
     var from = hashPage();
     WBAuth.signOut().then(function () {
-      clearCheckoutWait();
       if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
@@ -2861,13 +2816,13 @@
     var returned = checkoutNotice('subscriptions');
     var currentId = WBMembership.activePaidPlan(profile);
     var h = '<div class="sales">';
-    if (returned) h += '<div class="card" id="checkout-note">' + esc(returned) + '</div>';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '" id="plan-note">' + esc(message) + '</div>';
     if (locked) h += '<p class="mute" id="level-lock">Choose a level to continue.</p>';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';
+    if (returned) h += '<div class="card" id="checkout-note">' + esc(returned) + '</div>';
     WBMembership.TIERS.forEach(function (t) {
       h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
       h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>';
@@ -2952,7 +2907,6 @@
         var signingOut = session && session.user && session.user.id || '';
         if (!confirmCircuitSignOut(signingOut)) return;
         return WBAuth.signOut().then(function () {
-          clearCheckoutWait();
           if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
           forgetRequestBadges();
           clearNavBadges();
@@ -3023,53 +2977,6 @@
       });
     }
   }
-  function settleCheckoutWait() {
-    clearCheckoutWait();
-    if (!signedInNow) return;
-    var page = hashPage();
-    if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') return;
-    if (!WBMembership.hasDesignated(cachedProfile) && page !== 'subscriptions') go('#/subscriptions');
-  }
-  function ensureCheckoutPoll() {
-    if (!checkoutWaitActive() || checkoutPollOn) return;
-    checkoutPollOn = true;
-    var gen = checkoutPollGen;
-    function tick() {
-      checkoutPollTimer = 0;
-      if (gen !== checkoutPollGen) return;
-      if (!checkoutWaitActive()) {
-        settleCheckoutWait();
-        return;
-      }
-      var read = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
-      Promise.resolve(read).then(function (fresh) {
-        if (gen !== checkoutPollGen) return;
-        if (paidMembership(fresh)) {
-          if (fresh) noteProfile(fresh);
-          clearCheckoutWait();
-          route();
-          return;
-        }
-        if (fresh) noteProfile(fresh);
-        if (gen !== checkoutPollGen || !checkoutWaitActive()) {
-          if (gen === checkoutPollGen) settleCheckoutWait();
-          return;
-        }
-        checkoutPollTimer = setTimeout(tick, checkoutPollWait());
-      }, function () {
-        if (gen !== checkoutPollGen) return;
-        if (!checkoutWaitActive()) {
-          settleCheckoutWait();
-          return;
-        }
-        checkoutPollTimer = setTimeout(tick, checkoutPollWait());
-      });
-    }
-    checkoutPollTimer = setTimeout(tick, checkoutPollWait());
-  }
-  function beginCheckoutWatch() {
-    ensureCheckoutPoll();
-  }
   function renderSimpleAccount() {
     var watchGen = ++checkoutWatchGen;
     titleEl.textContent = 'Account'; backBtn.hidden = true;
@@ -3079,8 +2986,7 @@
       if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'account') return;
-        if (paidMembership(profile)) clearCheckoutWait();
-        if (!WBMembership.hasDesignated(profile) && !checkoutWaitActive() && hashParam('checkout') !== 'success') return go('#/subscriptions');
+        if (!WBMembership.hasDesignated(profile) && hashParam('checkout') !== 'success') return go('#/subscriptions');
         var rosterP = WBAuth.roster ? WBAuth.roster() : Promise.resolve({ role: null });
         var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null);
         Promise.all([
@@ -3096,14 +3002,11 @@
           noteProfile(profile);
           if (watchGen !== checkoutWatchGen || hashPage() !== 'account') return;
           drawAccount(session, profile, roster, conn);
-          beginCheckoutWatch();
         });
       }).catch(function () {
         if (hashPage() !== 'account' || watchGen !== checkoutWatchGen) return;
-        if (hashParam('checkout') === 'success' || checkoutWaitActive()) {
-          var waiting = { membership: 'none' };
-          drawAccount(session, waiting, { role: null }, null);
-          beginCheckoutWatch();
+        if (hashParam('checkout') === 'success') {
+          drawAccount(session, { membership: 'none' }, { role: null }, null);
           return;
         }
         go('#/subscriptions');
@@ -3437,6 +3340,54 @@
       showClientInfoError('Could not load client info.');
     });
   }
+  function yourPlanHtml(profile) {
+    var paid = stripePaid(profile);
+    var ent = window.WBMembership ? WBMembership.entitlements(profile) : null;
+    var tier = ent && ent.active ? ent.tier : null;
+    if (!tier && profile && profile.intended_plan && window.WBMembership) tier = WBMembership.tier(profile.intended_plan);
+    var name = 'Free';
+    var detail = '';
+    if (profile && profile.complimentary === true) {
+      name = tier ? tier.name : 'Complimentary';
+      detail = 'Complimentary';
+    } else if (tier && tier.id === 'free_client') {
+      name = tier.name;
+      detail = 'Free';
+    } else if (paid && tier) {
+      name = tier.name;
+      if (tier.priceLabel) detail = tier.priceLabel + ' / month';
+    } else if (tier) {
+      name = tier.name;
+    }
+    var h = '<section class="card" id="your-plan"><h2>Your plan</h2>';
+    h += '<p class="name" id="your-plan-name">' + esc(name) + '</p>';
+    if (detail) h += '<p class="mute" id="your-plan-price">' + esc(detail) + '</p>';
+    h += '<p class="plan-links">';
+    if (paid) h += '<a href="#account-billing" id="account-billing">Manage billing</a>';
+    h += '<a href="#/subscriptions" id="account-upgrade">Upgrade subscription</a>';
+    h += '</p></section>';
+    return h;
+  }
+  function openAccountBilling(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    var link = document.getElementById('account-billing');
+    if (link && link.getAttribute('aria-busy') === 'true') return;
+    if (link) link.setAttribute('aria-busy', 'true');
+    var run = WBAuth.openBilling ? WBAuth.openBilling() : Promise.reject(new Error('The billing page could not be opened.'));
+    Promise.resolve(run).then(function (url) {
+      var safe = billingUrl(url);
+      if (!safe) throw new Error('The billing page could not be opened.');
+      location.assign(safe);
+    }, function (err) {
+      if (link) link.removeAttribute('aria-busy');
+      var old = document.getElementById('plan-note');
+      if (old) old.parentNode.removeChild(old);
+      var host = document.getElementById('your-plan');
+      if (!host) return;
+      var msg = (err && err.message) || 'The billing page could not be opened.';
+      host.insertAdjacentHTML('afterbegin', '<div class="errs" id="plan-note">' + esc(msg) + '</div>');
+    });
+  }
   function drawAccount(session, profile, roster, conn) {
     var uid = (session && session.user && session.user.id) || '';
     clientInfoEditing = false;
@@ -3453,6 +3404,7 @@
     var h = '<div class="account-page">';
     if (returned) h += '<div class="card" id="checkout-note">' + esc(returned) + '</div>';
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
+    h += yourPlanHtml(profile);
     var who = signedInLabel(profile, session);
     var verifiedName = window.WBProfile && WBProfile.isVerified(profile && profile.verified_until, WBProfile.todayISO());
     var whoHtml = window.WBProfile ? WBProfile.nameHtml(who, verifiedName) : esc(who);
@@ -3496,6 +3448,7 @@
       if (nav && nav.dataset.go === 'admin') return go('#/admin');
       var viewBtn = e.target.closest('[data-client-view]');
       if (viewBtn) return go('#/client/' + viewBtn.getAttribute('data-client-view'));
+      if (e.target.closest('#account-billing')) return openAccountBilling(e);
       if (e.target.closest('#profile-open') || e.target.closest('#profile-edit')) return openProfileSheet(profile, { required: false });
       if (e.target.closest('#share-account')) { toggleShare(); return; }
       if (handleInvite(e, function () { renderSimpleAccount(); })) return;
@@ -4396,8 +4349,6 @@
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
     var page = hashPage();
-    armCheckoutWait();
-    ensureCheckoutPoll();
     captureInvite();
     showHeaderSignIn(false);
     // A bare visit keeps the marketing page up while the session check runs, so
@@ -4451,7 +4402,6 @@
     pending.then(function (session) {
       if (token !== routeToken || location.hash !== requested) return;
       if (!session) {
-        clearCheckoutWait();
         signedInNow = false;
         if (publicRoot && !recoveryNow && (location.hash === '' || location.hash === '#')) return showLanding();
         hideLanding();

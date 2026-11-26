@@ -53,12 +53,14 @@ const auth = fs.readFileSync(path.join(root, 'auth.js'), 'utf8');
 assert.ok(app.indexOf("if (!currentId) h += \"<p class=\\\"foot\\\">You'll finish payment on Stripe Checkout.</p>\";") !== -1);
 (function () {
   var start = app.indexOf('function drawSubscriptions(');
-  var end = app.indexOf('function beginCheckoutWatch(');
+  var end = app.indexOf('function renderSimpleAccount(');
   assert.ok(start > 0 && end > start);
   assert.strictEqual(app.slice(start, end).indexOf('redeemCard'), -1);
 })();
 assert.ok(app.indexOf('Starting checkout…') !== -1);
-assert.ok(app.indexOf('Your subscription is now active.') !== -1);
+assert.ok(app.indexOf('Payment received, your plan is activating.') !== -1);
+assert.strictEqual(app.indexOf('wb.checkout.wait'), -1);
+assert.strictEqual(app.indexOf('checkoutWaitActive'), -1);
 assert.ok(app.indexOf("Checkout was canceled. You can subscribe whenever you're ready.") !== -1);
 assert.ok(app.indexOf('Manage billing') !== -1);
 assert.ok(app.indexOf('>Subscribe<') !== -1);
@@ -67,6 +69,6 @@ assert.ok(app.indexOf('Choosing a plan saves your selection.') === -1);
 assert.ok(!/sold out|beta has ended|Beta ended/i.test(app));
 assert.ok(auth.indexOf("callBilling('create-checkout-session', { plan: planId }, 'Checkout could not be started.')") !== -1);
 assert.ok(auth.indexOf("callBilling('create-portal-session', {}, 'The billing page could not be opened.')") !== -1);
-assert.ok(auth.indexOf('select(\'billing_status\')') !== -1);
+assert.ok(auth.indexOf("select('billing_status,stripe_customer_id,complimentary,beta_locked')") !== -1);
 
 console.log('CHECKOUT OK');

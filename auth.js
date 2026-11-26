@@ -84,15 +84,24 @@
   }
   function withBilling(c, userId, row) {
     if (!row || !userId) return Promise.resolve(row);
-    return c.from('profiles').select('billing_status').eq('id', userId).maybeSingle().then(function (v) {
-      if (!v || v.error || !v.data || !Object.prototype.hasOwnProperty.call(v.data, 'billing_status')) {
+    return c.from('profiles').select('billing_status,stripe_customer_id,complimentary,beta_locked').eq('id', userId).maybeSingle().then(function (v) {
+      if (!v || v.error || !v.data) {
         row.billing_status = null;
+        row.stripe_customer_id = null;
+        row.complimentary = false;
+        row.beta_locked = false;
         return row;
       }
       row.billing_status = v.data.billing_status || null;
+      row.stripe_customer_id = v.data.stripe_customer_id || null;
+      row.complimentary = v.data.complimentary === true;
+      row.beta_locked = v.data.beta_locked === true;
       return row;
     }, function () {
       row.billing_status = null;
+      row.stripe_customer_id = null;
+      row.complimentary = false;
+      row.beta_locked = false;
       return row;
     });
   }
