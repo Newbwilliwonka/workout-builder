@@ -2851,7 +2851,7 @@
       }
       if (t.inviteOnly) {
         if (t.cta) h += '<p class="invite">' + esc(t.cta) + '</p>';
-      } else if (currentId && t.id === currentId) {
+      } else if (currentId && t.id === currentId && stripePaid(profile)) {
         h += '<button class="pri" data-billing="portal" style="width:100%;margin-top:16px">Manage billing</button>';
       } else if (!currentId) {
         h += '<button class="pri" data-plan="' + t.id + '" style="width:100%;margin-top:16px">Subscribe</button>';
@@ -3374,18 +3374,24 @@
     if (link && link.getAttribute('aria-busy') === 'true') return;
     if (link) link.setAttribute('aria-busy', 'true');
     var run = WBAuth.openBilling ? WBAuth.openBilling() : Promise.reject(new Error('The billing page could not be opened.'));
-    Promise.resolve(run).then(function (url) {
-      var safe = billingUrl(url);
-      if (!safe) throw new Error('The billing page could not be opened.');
-      location.assign(safe);
-    }, function (err) {
+    function showBillingError(msg) {
       if (link) link.removeAttribute('aria-busy');
       var old = document.getElementById('plan-note');
-      if (old) old.parentNode.removeChild(old);
+      if (old && old.parentNode) old.parentNode.removeChild(old);
       var host = document.getElementById('your-plan');
       if (!host) return;
-      var msg = (err && err.message) || 'The billing page could not be opened.';
       host.insertAdjacentHTML('afterbegin', '<div class="errs" id="plan-note">' + esc(msg) + '</div>');
+    }
+    Promise.resolve(run).then(function (url) {
+      var safe = billingUrl(url);
+      if (!safe) {
+        showBillingError('The billing page could not be opened.');
+        return;
+      }
+      if (link) link.removeAttribute('aria-busy');
+      location.assign(safe);
+    }, function (err) {
+      showBillingError((err && err.message) || 'The billing page could not be opened.');
     });
   }
   function drawAccount(session, profile, roster, conn) {

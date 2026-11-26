@@ -282,6 +282,19 @@ const paying = {
     body: {}
   });
 
+  const compPlan = await open(Object.assign({}, paying, { complimentary: true, stripe_customer_id: 'cus_comp' }));
+  await show(compPlan, '#/subscriptions');
+  await compPlan.waitForSelector('#current-plan');
+  assert.strictEqual(await compPlan.$('[data-billing=portal]'), null);
+  assert.strictEqual(await compPlan.evaluate(function () {
+    return document.getElementById('current-plan').closest('article').querySelector('h3').textContent;
+  }), 'Trainer');
+
+  const noCustomer = await open(Object.assign({}, paying, { stripe_customer_id: null }));
+  await show(noCustomer, '#/subscriptions');
+  await noCustomer.waitForSelector('#current-plan');
+  assert.strictEqual(await noCustomer.$('[data-billing=portal]'), null);
+
   const pastDue = await open(Object.assign({}, paying, { billing_status: 'past_due', membership: 'master_trainer' }));
   await show(pastDue, '#/subscriptions');
   await pastDue.waitForSelector('#current-plan');
@@ -315,7 +328,6 @@ const paying = {
   await success.waitForFunction(function () {
     var note = document.getElementById('checkout-note');
     var plan = document.getElementById('your-plan');
-    var note = document.getElementById('checkout-note');
     return note && note.textContent === 'Payment received, your plan is activating.'
       && plan && note.compareDocumentPosition(plan) === Node.DOCUMENT_POSITION_FOLLOWING
       && document.getElementById('your-plan-name').textContent === 'Trainer'
@@ -328,21 +340,26 @@ const paying = {
   });
   await success.screenshot({ path: OUT + '/account-success.png' });
   await success.evaluate(function () {
-    window.__wbTestDb = {
-      functions: {
-        invoke: function (name, opts) {
-          window.__portal = { name: name, body: opts && opts.body };
-          return Promise.resolve({ data: { url: 'https://billing.stripe.com/p/session/acct_test' }, error: null });
-        }
-      }
+    var n = 0;
+    window.WBAuth.openBilling = function () {
+      n++;
+      window.__billingTaps = n;
+      if (n === 1) return Promise.resolve('not-a-url');
+      return Promise.resolve('https://billing.stripe.com/p/session/acct_retry');
     };
   });
   await success.click('#account-billing');
-  await waitHit(success, 'https://billing.stripe.com/p/session/acct_test');
-  assert.deepStrictEqual(await success.evaluate(function () { return window.__portal; }), {
-    name: 'create-portal-session',
-    body: {}
+  await success.waitForFunction(function () {
+    var note = document.getElementById('plan-note');
+    var link = document.getElementById('account-billing');
+    return note && note.className.indexOf('errs') !== -1
+      && note.textContent === 'The billing page could not be opened.'
+      && link && link.getAttribute('aria-busy') !== 'true'
+      && window.__billingTaps === 1;
   });
+  await success.click('#account-billing');
+  await waitHit(success, 'https://billing.stripe.com/p/session/acct_retry');
+  assert.strictEqual(await success.evaluate(function () { return window.__billingTaps; }), 2);
   assert.strictEqual(await success.$eval('#account-billing', function (el) { return el.tagName; }), 'A');
 
   const early = await open(none);
@@ -369,6 +386,8 @@ const paying = {
         membership: 'trainer',
         intended_plan: 'trainer',
         billing_status: 'active',
+        stripe_customer_id: 'cus_test',
+        complimentary: false,
         access_approved: true,
         display_name: 'Ada'
       });
