@@ -112,9 +112,10 @@
       history.replaceState(null, '', u.pathname + u.search + next);
     } catch (e) {}
   }
+  var CHECKOUT_WAIT_KEY = 'wb.checkout.wait';
   function checkoutNotice(page) {
     var value = hashParam('checkout');
-    if (page === 'account' && (value === 'success' || checkoutHold === 'success')) return 'Your subscription is now active.';
+    if (page === 'account' && (value === 'success' || checkoutWaitActive())) return 'Your subscription is now active.';
     if (page === 'subscriptions' && value === 'cancel') return "Checkout was canceled. You can subscribe whenever you're ready.";
     return '';
   }
@@ -127,10 +128,36 @@
     if (n >= 0 && n < 2000) return n;
     return 2000;
   }
-  function checkoutPollLimit() {
-    var n = Number(window.__wbCheckoutPollLimit);
-    if (n > 0 && n <= 10) return n;
-    return 10;
+  function checkoutWaitMax() {
+    var n = Number(window.__wbCheckoutWaitMs);
+    if (n > 0 && n <= 30000) return n;
+    return 30000;
+  }
+  function checkoutWaitStarted() {
+    try { return Number(sessionStorage.getItem(CHECKOUT_WAIT_KEY)) || 0; }
+    catch (e) { return 0; }
+  }
+  // The success query is removed as soon as Account paints. The wait lives in
+  // sessionStorage so leaving Account does not cancel it.
+  function checkoutWaitActive() {
+    var started = checkoutWaitStarted();
+    if (!started) return false;
+    return Date.now() - started < checkoutWaitMax();
+  }
+  function armCheckoutWait() {
+    if (hashParam('checkout') !== 'success') return;
+    try {
+      if (!sessionStorage.getItem(CHECKOUT_WAIT_KEY)) sessionStorage.setItem(CHECKOUT_WAIT_KEY, String(Date.now()));
+    } catch (e) {}
+  }
+  function clearCheckoutWait() {
+    checkoutPollGen++;
+    checkoutPollOn = false;
+    if (checkoutPollTimer) {
+      clearTimeout(checkoutPollTimer);
+      checkoutPollTimer = 0;
+    }
+    try { sessionStorage.removeItem(CHECKOUT_WAIT_KEY); } catch (e) {}
   }
   function billingUrl(url) {
     return window.WBBilling && WBBilling.httpsUrl ? WBBilling.httpsUrl(url) : '';
@@ -1162,7 +1189,7 @@
     app.onchange = null;
   }
   var pendingSignNotice = null, authBusy = false, planBusy = false, checkoutGen = 0;
-  var checkoutHold = '', checkoutWatchGen = 0;
+  var checkoutWatchGen = 0, checkoutPollTimer = 0, checkoutPollGen = 0, checkoutPollOn = false;
   var ALREADY_SUBSCRIBED = 'You already have a subscription. Use Manage billing to change it.';
   // recoveryPhase: '' | 'checking' | 'form' | 'invalid' | 'done'
   var recoveryPhase = '', recoverySettled = false, recoveryReady = false;
@@ -1190,8 +1217,8 @@
       if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== from) return;
-        go(WBMembership.hasDesignated(profile) ? '#/account' : '#/subscriptions');
-      }).catch(function () { if (hashPage() === from) go('#/subscriptions'); });
+        go(WBMembership.hasDesignated(profile) || checkoutWaitActive() ? '#/account' : '#/subscriptions');
+      }).catch(function () { if (hashPage() === from && !checkoutWaitActive()) go('#/subscriptions'); });
     }).catch(function () { if (hashPage() === from) go('#/signin'); });
   }
   function afterSignIn() {
@@ -1726,15 +1753,14 @@
         accessWaitOn = false;
         var profile = cachedProfile || gate.profile;
         if (page === 'admin') return renderAdmin();
-        var checkoutReturn = page === 'account' && (hashParam('checkout') === 'success' || checkoutHold === 'success');
-        if (gate.known && !WBMembership.hasDesignated(profile) && !checkoutReturn) return go('#/subscriptions');
+        if (gate.known && !WBMembership.hasDesignated(profile) && !checkoutWaitActive()) return go('#/subscriptions');
         if (clientNeedsName(profile)) {
           profileGateOn = false;
           closeProfileSheet(true);
           if (page !== 'account') return go('#/account');
           return renderSimpleAccount();
         }
-        if (window.WBProfile && WBProfile.needsName(profile) && !checkoutReturn) return showProfileGate(profile);
+        if (window.WBProfile && WBProfile.needsName(profile) && !checkoutWaitActive()) return showProfileGate(profile);
         profileGateOn = false;
         closeProfileSheet(true);
         syncHeaderSignOut();
@@ -2987,45 +3013,52 @@
       });
     }
   }
-  function beginCheckoutWatch(gen, session, profile, roster, conn) {
-    if (gen !== checkoutWatchGen || checkoutHold !== 'success' || hashPage() !== 'account') return;
-    if (paidMembership(profile)) return;
-    var tries = 0;
-    var limit = checkoutPollLimit();
-    var wait = checkoutPollWait();
+  function settleCheckoutWait() {
+    clearCheckoutWait();
+    if (!signedInNow) return;
+    var page = hashPage();
+    if (page === 'signin' || page === 'join' || page === 'forgot' || page === 'reset') return;
+    if (!WBMembership.hasDesignated(cachedProfile) && page !== 'subscriptions') go('#/subscriptions');
+  }
+  function ensureCheckoutPoll() {
+    if (!checkoutWaitActive() || checkoutPollOn) return;
+    checkoutPollOn = true;
+    var gen = checkoutPollGen;
     function tick() {
-      if (gen !== checkoutWatchGen || hashPage() !== 'account') return;
+      checkoutPollTimer = 0;
+      if (gen !== checkoutPollGen) return;
+      if (!checkoutWaitActive()) {
+        settleCheckoutWait();
+        return;
+      }
       var read = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
       Promise.resolve(read).then(function (fresh) {
-        if (gen !== checkoutWatchGen || hashPage() !== 'account') return;
-        tries++;
-        if (fresh) noteProfile(fresh);
+        if (gen !== checkoutPollGen) return;
         if (paidMembership(fresh)) {
-          drawAccount(session, fresh, roster, conn);
+          if (fresh) noteProfile(fresh);
+          clearCheckoutWait();
+          route();
           return;
         }
-        if (tries >= limit) {
-          if (!WBMembership.hasDesignated(fresh || cachedProfile)) {
-            checkoutHold = '';
-            go('#/subscriptions');
-          }
+        if (fresh) noteProfile(fresh);
+        if (gen !== checkoutPollGen || !checkoutWaitActive()) {
+          if (gen === checkoutPollGen) settleCheckoutWait();
           return;
         }
-        setTimeout(tick, wait);
+        checkoutPollTimer = setTimeout(tick, checkoutPollWait());
       }, function () {
-        if (gen !== checkoutWatchGen || hashPage() !== 'account') return;
-        tries++;
-        if (tries >= limit) {
-          if (!WBMembership.hasDesignated(cachedProfile)) {
-            checkoutHold = '';
-            go('#/subscriptions');
-          }
+        if (gen !== checkoutPollGen) return;
+        if (!checkoutWaitActive()) {
+          settleCheckoutWait();
           return;
         }
-        setTimeout(tick, wait);
+        checkoutPollTimer = setTimeout(tick, checkoutPollWait());
       });
     }
-    setTimeout(tick, wait);
+    checkoutPollTimer = setTimeout(tick, checkoutPollWait());
+  }
+  function beginCheckoutWatch() {
+    ensureCheckoutPoll();
   }
   function renderSimpleAccount() {
     var watchGen = ++checkoutWatchGen;
@@ -3036,7 +3069,8 @@
       if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'account') return;
-        if (!WBMembership.hasDesignated(profile) && hashParam('checkout') !== 'success' && checkoutHold !== 'success') return go('#/subscriptions');
+        if (paidMembership(profile)) clearCheckoutWait();
+        if (!WBMembership.hasDesignated(profile) && !checkoutWaitActive() && hashParam('checkout') !== 'success') return go('#/subscriptions');
         var rosterP = WBAuth.roster ? WBAuth.roster() : Promise.resolve({ role: null });
         var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null);
         Promise.all([
@@ -3052,14 +3086,14 @@
           noteProfile(profile);
           if (watchGen !== checkoutWatchGen || hashPage() !== 'account') return;
           drawAccount(session, profile, roster, conn);
-          beginCheckoutWatch(watchGen, session, profile, roster, conn);
+          beginCheckoutWatch();
         });
       }).catch(function () {
         if (hashPage() !== 'account' || watchGen !== checkoutWatchGen) return;
-        if (hashParam('checkout') === 'success' || checkoutHold === 'success') {
+        if (hashParam('checkout') === 'success' || checkoutWaitActive()) {
           var waiting = { membership: 'none' };
           drawAccount(session, waiting, { role: null }, null);
-          beginCheckoutWatch(watchGen, session, waiting, { role: null }, null);
+          beginCheckoutWatch();
           return;
         }
         go('#/subscriptions');
@@ -4352,12 +4386,8 @@
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
     var page = hashPage();
-    if (page !== 'account') {
-      checkoutWatchGen++;
-      checkoutHold = '';
-    } else if (hashParam('checkout') === 'success') {
-      checkoutHold = 'success';
-    }
+    armCheckoutWait();
+    ensureCheckoutPoll();
     captureInvite();
     showHeaderSignIn(false);
     // A bare visit keeps the marketing page up while the session check runs, so

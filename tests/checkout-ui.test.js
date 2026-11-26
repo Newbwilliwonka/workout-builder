@@ -393,24 +393,68 @@ const paying = {
     };
   });
   await show(late, '#/account?checkout=success');
+  await late.waitForSelector('#checkout-note');
   await late.waitForFunction(function () {
-    var note = document.getElementById('checkout-note');
     var label = document.querySelector('#account-card .mute');
-    return note && note.textContent === 'Your subscription is now active.'
-      && label && label.textContent.indexOf('Enthusiast') !== -1
-      && location.hash === '#/account';
+    return label && label.textContent.indexOf('Enthusiast') !== -1 && location.hash === '#/account';
   }, { timeout: 5000 });
 
   const giveUp = await open(none);
   await giveUp.evaluate(function () {
-    window.__wbCheckoutPollMs = 30;
-    window.__wbCheckoutPollLimit = 2;
+    window.__wbCheckoutPollMs = 40;
+    window.__wbCheckoutWaitMs = 320;
   });
   await show(giveUp, '#/account?checkout=success');
   await giveUp.waitForSelector('#checkout-note');
   await giveUp.waitForFunction(function () {
     return location.hash === '#/subscriptions' && !document.getElementById('checkout-note') && document.getElementById('level-lock');
   }, { timeout: 5000 });
+
+  const roam = await open(none);
+  await roam.evaluate(function () {
+    window.__wbCheckoutPollMs = 40;
+    window.__wbCheckoutWaitMs = 5000;
+    var n = 0;
+    window.WBAuth.profile = function () {
+      n++;
+      window.__polls = n;
+      if (n < 8) return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true });
+      return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'trainer', billing_status: 'active', access_approved: true, display_name: 'Ada' });
+    };
+  });
+  await show(roam, '#/account?checkout=success');
+  await roam.waitForSelector('#checkout-note');
+  assert.ok(await roam.evaluate(function () { return sessionStorage.getItem('wb.checkout.wait'); }));
+  await roam.evaluate(function () { location.hash = '#/'; });
+  await roam.waitForFunction(function () {
+    return (location.hash === '#/' || location.hash === '' || location.hash === '#')
+      && window.__polls >= 3
+      && sessionStorage.getItem('wb.checkout.wait');
+  }, { timeout: 4000 });
+  await roam.waitForFunction(function () {
+    return !sessionStorage.getItem('wb.checkout.wait')
+      && (location.hash === '#/' || location.hash === '' || location.hash === '#');
+  }, { timeout: 5000 });
+  await new Promise(function (resolve) { setTimeout(resolve, 250); });
+  var pollsAfterPlan = await roam.evaluate(function () { return window.__polls; });
+  await new Promise(function (resolve) { setTimeout(resolve, 200); });
+  assert.strictEqual(await roam.evaluate(function () { return window.__polls; }), pollsAfterPlan);
+  assert.ok(pollsAfterPlan >= 8);
+
+  const roamEnd = await open(none);
+  await roamEnd.evaluate(function () {
+    window.__wbCheckoutPollMs = 40;
+    window.__wbCheckoutWaitMs = 280;
+  });
+  await show(roamEnd, '#/account?checkout=success');
+  await roamEnd.waitForSelector('#checkout-note');
+  await roamEnd.evaluate(function () { location.hash = '#/'; });
+  await roamEnd.waitForFunction(function () {
+    return (location.hash === '#/' || location.hash === '' || location.hash === '#') && sessionStorage.getItem('wb.checkout.wait');
+  }, { timeout: 2000 });
+  await roamEnd.waitForFunction(function () {
+    return location.hash === '#/subscriptions' && document.getElementById('level-lock') && !sessionStorage.getItem('wb.checkout.wait');
+  }, { timeout: 4000 });
 
   async function accountOf(profile, conn) {
     var p = await open(profile);
