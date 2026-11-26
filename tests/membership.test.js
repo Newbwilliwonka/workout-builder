@@ -22,7 +22,8 @@ assert.deepStrictEqual(byId.free_client.available, [
   'View your workout history',
   'Follow custom tracking dashboards set up by your trainer',
   'Find a trainer near you or online in the Trainer Hub, and send a message request',
-  'Join the Trainer Hub forum'
+  'Track solo sessions and sessions with your trainer',
+  'Add a photo and bio to your profile'
 ]);
 assert.deepStrictEqual(byId.free_client.comingSoon, []);
 byId.free_client.available.forEach(function (line) {
@@ -50,12 +51,8 @@ assert.deepStrictEqual(byId.enthusiast.available, [
   'Search 1,300+ exercises',
   'Save up to 6 of your own workouts',
   'Plan your training on a program calendar',
-  'Track solo sessions and sessions with your trainer',
   'See your progress on a live tracking dashboard',
   'Share your workouts and tracking with your trainer',
-  'Add a photo and bio to your profile',
-  'Follow custom tracking dashboards from your trainer',
-  'Find a trainer near you or online in the Trainer Hub, and send a message request',
   'Join the Trainer Hub forum'
 ]);
 assert.deepStrictEqual(byId.enthusiast.comingSoon, []);
