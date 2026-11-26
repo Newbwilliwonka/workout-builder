@@ -811,8 +811,9 @@ html.wb-app #landing{display:none !important}
 html.wb-app body:has(#landing) > header.bar{display:flex !important}
 html.wb-app body:has(#landing) > #app{display:block !important}
 html.wb-landing{background:#c5d4e6}
-html.wb-landing body{background:transparent}
-html.wb-landing body::before{position:absolute;top:0;right:0;bottom:auto;left:0;height:1120px;background-color:#c5d4e6;background-image:linear-gradient(180deg,rgba(197,212,230,.25) 0%,rgba(197,212,230,.12) 48%,#c5d4e6 100%),image-set(url("assets/bg/app-bg-phone.webp") type("image/webp"),url("assets/bg/app-bg-phone.jpg") type("image/jpeg"));background-repeat:no-repeat;background-position:center top;background-size:100% 100%,100% auto}
+html.wb-landing body{position:relative;background:transparent}
+html.wb-landing body::before{position:absolute;z-index:-1;top:0;right:0;bottom:auto;left:0;height:1120px;background-color:#c5d4e6;background-image:linear-gradient(180deg,rgba(197,212,230,.25) 0%,rgba(197,212,230,.12) 48%,#c5d4e6 100%),image-set(url("assets/bg/app-bg-phone.webp") type("image/webp"),url("assets/bg/app-bg-phone.jpg") type("image/jpeg"));background-repeat:no-repeat;background-position:center top;background-size:100% 100%,100% auto}
+html.wb-landing body::after{content:"";position:absolute;z-index:-1;top:1088px;right:0;bottom:0;left:0;pointer-events:none;background-color:#c5d4e6;background-image:linear-gradient(180deg,#c5d4e6 0%,rgba(197,212,230,.55) 96px,rgba(197,212,230,.26) 100%),image-set(url("assets/bg/app-bg-phone.webp") type("image/webp"),url("assets/bg/app-bg-phone.jpg") type("image/jpeg"));background-repeat:no-repeat;background-position:center top,center bottom;background-size:100% 100%,220% 340%;filter:blur(22px);clip-path:inset(0)}
 .landing-shell{box-sizing:border-box;width:100%;max-width:1100px;margin-left:auto;margin-right:auto;padding-left:16px;padding-right:16px}
 .landing-bar{position:sticky;top:0;z-index:6;background:#111827;color:#fff}
 .landing-bar .landing-shell{display:flex;align-items:center;gap:8px;min-height:52px;padding-top:0;padding-bottom:0;padding-left:16px;padding-right:12px}
@@ -963,6 +964,8 @@ body.circuit-on .circuit-sum-row.is-total{border-top:1px solid var(--line);margi
   .landing-frame{max-width:none;margin:0}
   .landing-plans-chevron{margin-bottom:37px}
   .landing-pricing .plan-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+  html.wb-landing body::before{top:0;right:0;bottom:0;left:0;height:auto;background-image:linear-gradient(180deg,rgba(197,212,230,.25) 0%,rgba(197,212,230,.12) 42%,rgba(197,212,230,.2) 100%),image-set(url("assets/bg/app-bg-wide.webp") type("image/webp"),url("assets/bg/app-bg-wide.jpg") type("image/jpeg"));background-position:center top,center top;background-size:100% 100%,cover}
+  html.wb-landing body::after{content:none;filter:none}
 }
 button#feedback-open{position:fixed;z-index:34;right:max(16px,env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));width:48px;height:48px;min-width:48px;min-height:48px;padding:0;border:0;border-radius:50%;background:#2563eb;color:#fff;box-shadow:0 6px 16px rgba(37,99,235,.28);display:inline-flex;align-items:center;justify-content:center}
 button#feedback-open[hidden]{display:none !important}

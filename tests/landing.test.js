@@ -164,6 +164,22 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
       boot(0);
     });
     await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
+    function landingPlate() {
+      var before = getComputedStyle(document.body, '::before');
+      var after = getComputedStyle(document.body, '::after');
+      var bodyH = document.body.getBoundingClientRect().height;
+      return {
+        beforeH: before.height,
+        beforeImg: before.backgroundImage,
+        afterContent: after.content,
+        afterTop: parseFloat(after.top),
+        afterReach: parseFloat(after.top) + parseFloat(after.height),
+        afterFilter: after.filter,
+        afterImg: after.backgroundImage,
+        bodyH: bodyH,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      };
+    }
     function plansCue() {
       var feats = document.querySelectorAll('.landing-feature');
       var last = feats[feats.length - 1].getBoundingClientRect();
@@ -315,6 +331,16 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
     });
     assert.ok(phoneInset.cards[1].top >= phoneInset.cards[0].top + phoneInset.cards[0].height);
     assert.strictEqual(phoneInset.cards[1].top - (phoneInset.cards[0].top + phoneInset.cards[0].height), 64);
+    const phonePlate = await page.evaluate(landingPlate);
+    assert.strictEqual(phonePlate.beforeH, '1120px');
+    assert.ok(phonePlate.beforeImg.indexOf('app-bg-phone') !== -1);
+    assert.strictEqual(phonePlate.beforeImg.indexOf('app-bg-wide'), -1);
+    assert.strictEqual(phonePlate.afterContent, '""');
+    assert.ok(phonePlate.afterFilter.indexOf('blur') !== -1);
+    assert.ok(phonePlate.afterImg.indexOf('app-bg-phone') !== -1);
+    assert.ok(phonePlate.afterTop <= 1120 && phonePlate.afterTop >= 1000);
+    assert.ok(phonePlate.afterReach >= phonePlate.bodyH - 2, 'phone wash reaches the page bottom');
+    assert.ok(phonePlate.overflow <= 1);
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     const deskInset = await page.evaluate(landingInset);
     assert.strictEqual(deskInset.max, '1100px');
@@ -331,6 +357,11 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
       assertCopyBlock(card, i, '16px', 10, '31.2px', '23.2px');
     });
     assert.strictEqual(deskInset.cards[1].top - (deskInset.cards[0].top + deskInset.cards[0].height), 64);
+    const deskPlate = await page.evaluate(landingPlate);
+    assert.ok(deskPlate.beforeImg.indexOf('app-bg-wide') !== -1, deskPlate.beforeImg);
+    assert.strictEqual(deskPlate.afterContent, 'none');
+    assert.ok(parseFloat(deskPlate.beforeH) >= deskPlate.bodyH - 2, 'desktop wash covers the page');
+    assert.ok(deskPlate.overflow <= 1);
     const deskCue = await page.evaluate(plansCue);
     assert.strictEqual(deskCue.afterFeature, 16);
     assert.strictEqual(deskCue.beforeHeading, 37);
@@ -495,6 +526,12 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
       return !!(el && el.isConnected && getComputedStyle(el).display === 'none');
     }), true);
     assert.ok(await signedIn.$('header.bar'));
+    assert.strictEqual(await signedIn.evaluate(function () {
+      return getComputedStyle(document.body, '::after').content;
+    }), 'none');
+    assert.strictEqual(await signedIn.evaluate(function () {
+      return getComputedStyle(document.body, '::before').backgroundImage;
+    }), 'none');
 
     async function neverShowsLanding(setup, url, ready) {
       const p = await browser.newPage();
