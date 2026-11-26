@@ -442,7 +442,7 @@ function install(page, who) {
   });
   await signedOut.goto(URL + '#/messages');
   await signedOut.reload();
-  await signedOut.waitForFunction(function () { return (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]'); });
+  await signedOut.waitForFunction(function () { return (location.hash === '' || location.hash === '#') && document.body.innerText.indexOf('Simple Plans for Every Coach') !== -1 && !document.querySelector('[data-a=new]'); });
 
   assert.deepStrictEqual(errs, []);
   console.log('MESSAGES UI OK');
