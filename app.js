@@ -2819,6 +2819,8 @@
     if (note) h += '<div class="' + (note.isError ? 'errs' : 'card') + '">' + esc(note.text) + '</div>';
     if (message) h += '<div class="' + (isError ? 'errs' : 'card') + '" id="plan-note">' + esc(message) + '</div>';
     if (locked) h += '<p class="mute" id="level-lock">Choose a level to continue.</p>';
+    var holdLine = window.WBMembership && WBMembership.dataHoldLine ? WBMembership.dataHoldLine(profile) : '';
+    if (holdLine) h += '<p class="mute" id="plan-ended-hold">' + esc(holdLine) + '</p>';
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';

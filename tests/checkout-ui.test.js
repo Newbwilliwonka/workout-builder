@@ -295,13 +295,31 @@ const paying = {
   await noCustomer.waitForSelector('#current-plan');
   assert.strictEqual(await noCustomer.$('[data-billing=portal]'), null);
 
-  const pastDue = await open(Object.assign({}, paying, { billing_status: 'past_due', membership: 'master_trainer' }));
+  const pastDue = await open(Object.assign({}, paying, {
+    billing_status: 'canceled',
+    membership: 'none',
+    intended_plan: null,
+    plan_ended_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+  }));
   await show(pastDue, '#/subscriptions');
-  await pastDue.waitForSelector('#current-plan');
-  assert.strictEqual(await pastDue.evaluate(function () {
-    return document.getElementById('current-plan').closest('article').querySelector('h3').textContent;
-  }), 'Master Trainer');
-  assert.strictEqual(await pastDue.$('[data-plan]'), null);
+  await pastDue.waitForSelector('#plan-ended-hold');
+  assert.strictEqual(await pastDue.$eval('#plan-ended-hold', function (el) { return el.textContent; }), 'Your plan has ended. Rejoin within 2 weeks to keep your clients, workouts and history.');
+  assert.strictEqual(await pastDue.$('#current-plan'), null);
+  assert.ok(await pastDue.$('[data-plan=trainer]'));
+  assert.strictEqual(await pastDue.evaluate(function () { return document.body.innerText.indexOf('past due'); }), -1);
+  await show(pastDue, '#/');
+  await pastDue.waitForFunction(function () {
+    return location.hash === '#/subscriptions' && document.getElementById('plan-ended-hold') && !document.querySelector('[data-a=new]');
+  });
+  const holdOver = await open(Object.assign({}, paying, {
+    billing_status: 'canceled',
+    membership: 'none',
+    intended_plan: null,
+    plan_ended_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+  }));
+  await show(holdOver, '#/subscriptions');
+  await holdOver.waitForSelector('[data-plan=enthusiast]');
+  assert.strictEqual(await holdOver.$('#plan-ended-hold'), null);
 
   const canceled = await open(Object.assign({}, paying, { billing_status: 'canceled' }));
   await show(canceled, '#/subscriptions');

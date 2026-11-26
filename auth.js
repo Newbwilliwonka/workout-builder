@@ -82,28 +82,36 @@
       return row;
     });
   }
+  function applyBilling(row, data) {
+    row.billing_status = data.billing_status || null;
+    row.stripe_customer_id = data.stripe_customer_id || null;
+    row.complimentary = data.complimentary === true;
+    row.beta_locked = data.beta_locked === true;
+    row.plan_ended_at = data.plan_ended_at || null;
+    return row;
+  }
+  function emptyBilling(row) {
+    row.billing_status = null;
+    row.stripe_customer_id = null;
+    row.complimentary = false;
+    row.beta_locked = false;
+    row.plan_ended_at = null;
+    return row;
+  }
   function withBilling(c, userId, row) {
     if (!row || !userId) return Promise.resolve(row);
-    return c.from('profiles').select('billing_status,stripe_customer_id,complimentary,beta_locked').eq('id', userId).maybeSingle().then(function (v) {
-      if (!v || v.error || !v.data) {
-        row.billing_status = null;
-        row.stripe_customer_id = null;
-        row.complimentary = false;
-        row.beta_locked = false;
-        return row;
+    var full = 'billing_status,stripe_customer_id,complimentary,beta_locked,plan_ended_at';
+    var base = 'billing_status,stripe_customer_id,complimentary,beta_locked';
+    return c.from('profiles').select(full).eq('id', userId).maybeSingle().then(function (v) {
+      if (v && !v.error && v.data) return applyBilling(row, v.data);
+      if (v && v.error && profileColumnMissing(v.error)) {
+        return c.from('profiles').select(base).eq('id', userId).maybeSingle().then(function (again) {
+          if (!again || again.error || !again.data) return emptyBilling(row);
+          return applyBilling(row, again.data);
+        }, function () { return emptyBilling(row); });
       }
-      row.billing_status = v.data.billing_status || null;
-      row.stripe_customer_id = v.data.stripe_customer_id || null;
-      row.complimentary = v.data.complimentary === true;
-      row.beta_locked = v.data.beta_locked === true;
-      return row;
-    }, function () {
-      row.billing_status = null;
-      row.stripe_customer_id = null;
-      row.complimentary = false;
-      row.beta_locked = false;
-      return row;
-    });
+      return emptyBilling(row);
+    }, function () { return emptyBilling(row); });
   }
   function billingPayload(res, fallback, interpret) {
     var Bill = root.WBBilling;

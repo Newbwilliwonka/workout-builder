@@ -10,7 +10,7 @@ const INVOICE_EXPAND = [
   'latest_invoice.confirmation_secret'
 ]
 
-const LIVE = { active: true, trialing: true, past_due: true }
+const LIVE = { active: true, trialing: true }
 const NO_SUB = 'Subscribe to a plan before switching.'
 const SAME = 'You are already on that plan.'
 const BUSY = 'That plan change is already in progress.'

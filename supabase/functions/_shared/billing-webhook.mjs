@@ -174,14 +174,62 @@ async function billingRow(db, customerId, userId) {
   return asRow(await db.findProfile(customerId, userId))
 }
 
-function sameActiveSubscription(row, subscriptionId) {
-  return !!(
-    row
-    && subscriptionId
-    && row.billing_status === 'active'
-    && row.stripe_subscription_id
-    && row.stripe_subscription_id === subscriptionId
-  )
+function sameStoredSubscription(row, subscriptionId) {
+  return !!(row && subscriptionId && row.stripe_subscription_id && row.stripe_subscription_id === subscriptionId)
+}
+
+// Cancel immediately, without a credit and without a new invoice.
+// Stripe then sets auto_advance false on open invoices, so Smart Retries stop.
+// A subscription that is already canceled, or already gone, is left as it is.
+async function cancelSubscriptionNow(stripe, subId, idempotencyKey) {
+  if (!subId) return
+  if (!stripe || !stripe.subscriptions || !stripe.subscriptions.cancel || !stripe.subscriptions.retrieve) {
+    throw new BillingError('Could not update billing.', 502)
+  }
+  let status = ''
+  try {
+    status = await subscriptionStatus(stripe, subId)
+  } catch (err) {
+    if (err && (err.code === 'resource_missing' || err.statusCode === 404)) return
+    throw err
+  }
+  if (status === 'canceled' || status === 'incomplete_expired') return
+  const params = { prorate: false, invoice_now: false }
+  const opts = idempotencyKey ? { idempotencyKey: idempotencyKey } : undefined
+  try {
+    await stripe.subscriptions.cancel(subId, params, opts)
+  } catch (err) {
+    let after = ''
+    try {
+      after = await subscriptionStatus(stripe, subId)
+    } catch (readErr) {
+      if (readErr && (readErr.code === 'resource_missing' || readErr.statusCode === 404)) return
+      throw err
+    }
+    if (after !== 'canceled' && after !== 'incomplete_expired') throw err
+  }
+}
+
+// TODO(email): Send the end-of-plan email once an email service is chosen.
+// Text: your plan ended; we'll keep your data for 2 weeks so you can rejoin.
+export function notePlanEnded(log) {
+  safeLog(log, {
+    result: 'plan_ended_email_pending',
+    note: 'No email is sent yet.'
+  })
+}
+
+async function endStoredPlan(db, log, row, subId, customerId, periodEnd) {
+  const written = await db.rpc('apply_stripe_membership', {
+    p_profile: row.id,
+    p_action: 'end',
+    p_customer_id: customerId,
+    p_subscription_id: subId,
+    p_billing_status: 'canceled',
+    p_period_end: periodEnd || new Date().toISOString()
+  })
+  if (written && written.newly_ended === true) notePlanEnded(log)
+  return written
 }
 
 const DUPLICATE_NOTE = 'Refund the duplicate subscription. This account already has an active one.'
@@ -357,6 +405,15 @@ async function dispatch(stripe, db, event, log) {
     const userId = metaUser(object.metadata)
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
+    // past_due and unpaid are not an access state. Cancel so retries stop,
+    // and end the stored plan. A different subscription does not end this one.
+    if (object.status === 'past_due' || object.status === 'unpaid') {
+      if (object.id) await cancelSubscriptionNow(stripe, object.id, 'cancel-ended-' + object.id)
+      if (sameStoredSubscription(row, object.id)) {
+        await endStoredPlan(db, log, row, object.id, idOf(object.customer), new Date().toISOString())
+      }
+      return
+    }
     await syncAppliedSubscription(stripe, db, log, row, object, type)
     return
   }
@@ -367,14 +424,7 @@ async function dispatch(stripe, db, event, log) {
     if (!row) throw new BillingError('That account was not found.', 500)
     if (!row.stripe_subscription_id || row.stripe_subscription_id !== object.id) return
     const endedAt = object.ended_at ? isoFromUnix(object.ended_at) : null
-    await db.rpc('apply_stripe_membership', {
-      p_profile: row.id,
-      p_action: 'end',
-      p_customer_id: idOf(object.customer),
-      p_subscription_id: object.id,
-      p_billing_status: 'canceled',
-      p_period_end: endedAt || periodEndOf(object)
-    })
+    await endStoredPlan(db, log, row, object.id, idOf(object.customer), endedAt || periodEndOf(object))
     return
   }
 
@@ -429,11 +479,11 @@ async function dispatch(stripe, db, event, log) {
       || metaUser(subObject && subObject.metadata)
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
-    const profile = row.id
     const subId = idOf(sub)
-    if (sameActiveSubscription(row, subId)) {
-      // A plan-change invoice can fail while pending_if_incomplete keeps the
-      // subscription active on the old price. Use the status Stripe has now.
+    const reason = object.billing_reason || ''
+    // A failed upgrade or downgrade uses pending_if_incomplete. Stripe keeps
+    // the subscription active on the current price. Do not cancel that.
+    if (reason === 'subscription_update') {
       let liveStatus = ''
       if (subId && stripe && stripe.subscriptions && stripe.subscriptions.retrieve) {
         try {
@@ -443,13 +493,20 @@ async function dispatch(stripe, db, event, log) {
         }
       }
       if (liveStatus === 'active' || liveStatus === 'trialing') return
-      if (object.billing_reason === 'subscription_update' && liveStatus !== 'past_due' && liveStatus !== 'unpaid') return
-      await db.rpc('apply_stripe_membership', {
-        p_profile: profile,
-        p_action: 'past_due',
-        p_customer_id: idOf(object.customer),
-        p_subscription_id: subId
-      })
+      if ((liveStatus === 'past_due' || liveStatus === 'unpaid') && subId) {
+        await cancelSubscriptionNow(stripe, subId, 'cancel-failed-update-' + (object.id || subId))
+        if (sameStoredSubscription(row, subId)) {
+          await endStoredPlan(db, log, row, subId, idOf(object.customer), new Date().toISOString())
+        }
+      }
+      return
+    }
+    // A renewal (subscription_cycle) ends now. Cancel stops Smart Retries.
+    if (reason === 'subscription_cycle' && subId) {
+      await cancelSubscriptionNow(stripe, subId, 'cancel-failed-renewal-' + (object.id || subId))
+      if (sameStoredSubscription(row, subId)) {
+        await endStoredPlan(db, log, row, subId, idOf(object.customer), new Date().toISOString())
+      }
     }
   }
 }
@@ -459,7 +516,7 @@ async function dispatch(stripe, db, event, log) {
 export async function syncAppliedSubscription(stripe, db, log, row, subscription, eventType) {
   if (!row || !subscription) return null
   const status = billingStatus(subscription.status)
-  const parsed = !subscription.pending_update && (status === 'active' || status === 'past_due')
+  const parsed = !subscription.pending_update && status === 'active'
     ? await parsedPrice(stripe, subscriptionPrice(subscription))
     : null
   const plan = parsed ? parsed.plan : null
