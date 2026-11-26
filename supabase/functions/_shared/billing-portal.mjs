@@ -12,16 +12,10 @@ export async function createPortalSession(input) {
   const customer = profile.stripe_customer_id
   if (!customer) throw new BillingError('Billing starts after you subscribe.', 400)
 
+  // No configuration id. Stripe uses the default Customer Portal config.
   const params = {
     customer: customer,
     return_url: PORTAL_RETURN_URL
-  }
-  const betaConfig = input.portalBeta || ''
-  const standardConfig = input.portalStandard || ''
-  if (profile.beta_locked === true && betaConfig) {
-    params.configuration = betaConfig
-  } else if (profile.beta_locked !== true && standardConfig) {
-    params.configuration = standardConfig
   }
 
   let session

@@ -1,5 +1,5 @@
 import { BillingError, assertStripeKeyAllowed, safeLog } from './billing-guard.mjs'
-import { planFromLookupKey } from './billing-plans.mjs'
+import { priceRef, resolvePricePlan } from './billing-price.mjs'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -35,12 +35,6 @@ function metaUser(meta) {
   if (!meta) return null
   const id = meta.supabase_user_id || meta.user_id || null
   return id && UUID.test(String(id)) ? String(id) : null
-}
-
-function priceRef(price) {
-  if (!price) return null
-  if (typeof price === 'string') return { id: price, lookup_key: null }
-  return { id: price.id || null, lookup_key: price.lookup_key || null }
 }
 
 function subscriptionPrice(subscription) {
@@ -112,15 +106,8 @@ function invoiceSubscription(invoice) {
   return invoice && invoice.subscription ? invoice.subscription : null
 }
 
-async function parsedPrice(stripe, ref) {
-  if (!ref) return null
-  if (ref.lookup_key) {
-    const parsed = planFromLookupKey(ref.lookup_key)
-    if (parsed) return parsed
-  }
-  if (!ref.id || !stripe || !stripe.prices || !stripe.prices.retrieve) return null
-  const price = await stripe.prices.retrieve(ref.id)
-  return planFromLookupKey(price && price.lookup_key)
+function parsedPrice(stripe, ref) {
+  return resolvePricePlan(stripe, ref)
 }
 
 function paymentRefund(row) {
@@ -360,28 +347,17 @@ async function dispatch(stripe, db, event, log) {
     return
   }
 
+  // The old price is unchanged when a pending update expires. Do not
+  // read a price off that event, or a failed upgrade would stick.
+  if (type === 'customer.subscription.pending_update_expired') {
+    return
+  }
+
   if (type === 'customer.subscription.updated') {
     const userId = metaUser(object.metadata)
     const row = await billingRow(db, idOf(object.customer), userId)
     if (!row) throw new BillingError('That account was not found.', 500)
-    const status = billingStatus(object.status)
-    const parsed = status === 'active' || status === 'past_due'
-      ? await parsedPrice(stripe, subscriptionPrice(object))
-      : null
-    const plan = parsed ? parsed.plan : null
-    const periodEnd = periodEndOf(object)
-    const written = await billingWrite(db, {
-      p_profile: row.id,
-      p_action: 'sync',
-      p_plan: plan,
-      p_billing_status: status,
-      p_customer_id: idOf(object.customer),
-      p_subscription_id: object.id,
-      p_period_end: periodEnd
-    })
-    if (written && written.duplicate === true) {
-      await settleDuplicate(stripe, db, log, row.id, written, plan, row.stripe_customer_id || idOf(object.customer), periodEnd, type)
-    }
+    await syncAppliedSubscription(stripe, db, log, row, object, type)
     return
   }
 
@@ -456,6 +432,18 @@ async function dispatch(stripe, db, event, log) {
     const profile = row.id
     const subId = idOf(sub)
     if (sameActiveSubscription(row, subId)) {
+      // A plan-change invoice can fail while pending_if_incomplete keeps the
+      // subscription active on the old price. Use the status Stripe has now.
+      let liveStatus = ''
+      if (subId && stripe && stripe.subscriptions && stripe.subscriptions.retrieve) {
+        try {
+          liveStatus = await subscriptionStatus(stripe, subId)
+        } catch (_err) {
+          liveStatus = ''
+        }
+      }
+      if (liveStatus === 'active' || liveStatus === 'trialing') return
+      if (object.billing_reason === 'subscription_update' && liveStatus !== 'past_due' && liveStatus !== 'unpaid') return
       await db.rpc('apply_stripe_membership', {
         p_profile: profile,
         p_action: 'past_due',
@@ -464,6 +452,41 @@ async function dispatch(stripe, db, event, log) {
       })
     }
   }
+}
+
+// The plan comes from the product. p_beta is omitted so beta_locked stays.
+// A later webhook sync of the same subscription writes the same fields.
+export async function syncAppliedSubscription(stripe, db, log, row, subscription, eventType) {
+  if (!row || !subscription) return null
+  const status = billingStatus(subscription.status)
+  const parsed = !subscription.pending_update && (status === 'active' || status === 'past_due')
+    ? await parsedPrice(stripe, subscriptionPrice(subscription))
+    : null
+  const plan = parsed ? parsed.plan : null
+  const periodEnd = periodEndOf(subscription)
+  const written = await billingWrite(db, {
+    p_profile: row.id,
+    p_action: 'sync',
+    p_plan: plan,
+    p_billing_status: status,
+    p_customer_id: idOf(subscription.customer),
+    p_subscription_id: subscription.id,
+    p_period_end: periodEnd
+  })
+  if (written && written.duplicate === true) {
+    await settleDuplicate(
+      stripe,
+      db,
+      log,
+      row.id,
+      written,
+      plan,
+      row.stripe_customer_id || idOf(subscription.customer),
+      periodEnd,
+      eventType || 'customer.subscription.updated'
+    )
+  }
+  return written
 }
 
 export async function handleWebhook(input) {

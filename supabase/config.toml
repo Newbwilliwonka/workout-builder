@@ -7,7 +7,7 @@
 verify_jwt = false
 
 # Stripe sends webhooks with no Supabase user. The signature is the check.
-# Checkout and the billing portal require the signed-in person's JWT.
+# Checkout, in-app plan changes, and the billing portal require the signed-in person's JWT.
 # Do not deploy these until the owner says so.
 
 [functions.stripe-webhook]
@@ -17,4 +17,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.create-portal-session]
+verify_jwt = true
+
+[functions.change-subscription]
 verify_jwt = true

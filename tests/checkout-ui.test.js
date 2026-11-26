@@ -33,7 +33,7 @@ const paying = {
     await p.setRequestInterception(true);
     p.on('request', function (req) {
       var url = req.url();
-      if (/checkout\.stripe\.com|billing\.stripe\.com|evil\.example/.test(url)) {
+      if (/checkout\.stripe\.com|billing\.stripe\.com|invoice\.stripe\.com|evil\.example/.test(url)) {
         p.__hits.push(url);
         req.abort('aborted');
         return;
@@ -254,9 +254,9 @@ const paying = {
   assert.strictEqual(subscribed.color, 'rgb(37, 99, 235)');
   assert.deepStrictEqual(subscribed.articles, [
     { name: 'Free Client', button: '', billing: '' },
-    { name: 'Enthusiast', button: '', billing: '' },
+    { name: 'Enthusiast', button: 'Switch to Enthusiast', billing: '' },
     { name: 'Trainer', button: 'Manage billing', billing: 'portal' },
-    { name: 'Master Trainer', button: '', billing: '' }
+    { name: 'Master Trainer', button: 'Upgrade to Master Trainer', billing: '' }
   ]);
   assert.strictEqual(subscribed.subscribe, 0);
   assert.strictEqual(subscribed.beta, 'Beta pricing for the first 100 members.');
@@ -520,6 +520,214 @@ const paying = {
       && location.hash === '#/subscriptions'
       && document.getElementById('level-lock');
   });
+
+  const switching = await open(paying);
+  await show(switching, '#/subscriptions');
+  await switching.waitForSelector('#switch-master_trainer');
+  const offers = await switching.evaluate(function () {
+    var free = document.querySelector('article.plan');
+    return {
+      down: document.getElementById('switch-enthusiast').textContent,
+      up: document.getElementById('switch-master_trainer').textContent,
+      downDir: document.getElementById('switch-enthusiast').getAttribute('data-switch-dir'),
+      upDir: document.getElementById('switch-master_trainer').getAttribute('data-switch-dir'),
+      freeButton: !!free.querySelector('button'),
+      manage: document.querySelector('[data-billing=portal]').textContent
+    };
+  });
+  assert.strictEqual(offers.down, 'Switch to Enthusiast');
+  assert.strictEqual(offers.up, 'Upgrade to Master Trainer');
+  assert.strictEqual(offers.downDir, 'down');
+  assert.strictEqual(offers.upDir, 'up');
+  assert.strictEqual(offers.freeButton, false);
+  assert.strictEqual(offers.manage, 'Manage billing');
+
+  await switching.click('#switch-enthusiast');
+  await switching.waitForSelector('#plan-switch');
+  const downDialog = await switching.evaluate(function () {
+    var box = document.getElementById('plan-switch');
+    return {
+      role: box.getAttribute('role'),
+      modal: box.getAttribute('aria-modal'),
+      labelled: box.getAttribute('aria-labelledby'),
+      described: box.getAttribute('aria-describedby'),
+      klass: box.className,
+      focused: document.activeElement && document.activeElement.id,
+      title: document.getElementById('plan-switch-title').textContent,
+      body: document.getElementById('plan-switch-body').textContent,
+      yes: document.getElementById('plan-switch-yes').textContent,
+      no: document.getElementById('plan-switch-no').textContent
+    };
+  });
+  assert.strictEqual(downDialog.role, 'dialog');
+  assert.strictEqual(downDialog.modal, 'true');
+  assert.strictEqual(downDialog.labelled, 'plan-switch-title');
+  assert.strictEqual(downDialog.described, 'plan-switch-body');
+  assert.ok(downDialog.klass.indexOf('pl-modal') !== -1);
+  assert.strictEqual(downDialog.focused, 'plan-switch');
+  assert.strictEqual(downDialog.title, 'Switch to Enthusiast, $9.99 / month');
+  assert.strictEqual(downDialog.body, 'Starts now. Your remaining plan will be credited towards your next bills.');
+  assert.strictEqual(downDialog.yes, 'Confirm switch');
+  assert.strictEqual(downDialog.no, 'Not now');
+  await switching.click('#plan-switch-no');
+  assert.strictEqual(await switching.$('#plan-switch'), null);
+
+  await switching.click('#switch-master_trainer');
+  await switching.waitForSelector('#plan-switch-title');
+  const upDialog = await switching.evaluate(function () {
+    return {
+      title: document.getElementById('plan-switch-title').textContent,
+      body: document.getElementById('plan-switch-body').textContent,
+      yes: document.getElementById('plan-switch-yes').textContent,
+      no: document.getElementById('plan-switch-no').textContent
+    };
+  });
+  assert.strictEqual(upDialog.title, 'Upgrade to Master Trainer, $29.99 / month');
+  assert.strictEqual(upDialog.body, 'Starts now. Today your card is charged only the difference for the rest of this billing month.');
+  assert.strictEqual(upDialog.yes, 'Confirm upgrade');
+  assert.strictEqual(upDialog.no, 'Not now');
+  await switching.screenshot({ path: OUT + '/subscriptions-switch.png' });
+  await switching.keyboard.press('Escape');
+  assert.strictEqual(await switching.$('#plan-switch'), null);
+  await switching.screenshot({ path: OUT + '/subscriptions-switch.png' });
+
+  await switching.evaluate(function () {
+    window.__reads = 0;
+    window.__changes = 0;
+    window.WBAuth.changePlan = function (plan) {
+      window.__changes++;
+      window.__lastPlan = plan;
+      return Promise.resolve({ status: 'payment_failed' });
+    };
+    window.WBAuth.profile = function () {
+      window.__reads++;
+      return Promise.resolve(null);
+    };
+  });
+  await switching.click('#switch-master_trainer');
+  await switching.waitForSelector('#plan-switch-yes');
+  await switching.click('#plan-switch-yes');
+  await switching.waitForFunction(function () {
+    var note = document.getElementById('plan-note');
+    var card = document.getElementById('current-plan') && document.getElementById('current-plan').closest('article');
+    return note && note.className.indexOf('errs') !== -1
+      && note.textContent === "Your payment didn't go through. You're still on Trainer."
+      && card && card.querySelector('h3').textContent === 'Trainer'
+      && window.__changes === 1
+      && window.__lastPlan === 'master_trainer'
+      && window.__reads === 0
+      && !document.getElementById('plan-switch');
+  });
+
+  await switching.evaluate(function () {
+    window.WBAuth.changePlan = function () {
+      return Promise.resolve({ status: 'requires_action', url: 'https://invoice.stripe.com/i/confirm' });
+    };
+  });
+  await switching.click('#switch-master_trainer');
+  await switching.waitForSelector('#plan-switch-yes');
+  await switching.click('#plan-switch-yes');
+  await waitHit(switching, 'https://invoice.stripe.com/i/confirm');
+
+  const switched = await open(paying);
+  await show(switched, '#/subscriptions');
+  await switched.waitForSelector('#switch-master_trainer');
+  await switched.evaluate(function () {
+    window.__reads = 0;
+    window.WBAuth.changePlan = function () {
+      return Promise.resolve({ status: 'ok' });
+    };
+    window.WBAuth.profile = function () {
+      window.__reads++;
+      return Promise.resolve({
+        id: 'payer',
+        email: 'ada@example.com',
+        membership: 'master_trainer',
+        intended_plan: 'master_trainer',
+        billing_status: 'active',
+        stripe_customer_id: 'cus_test',
+        beta_locked: true,
+        complimentary: false,
+        access_approved: true,
+        display_name: 'Ada'
+      });
+    };
+  });
+  await switched.click('#switch-master_trainer');
+  await switched.waitForSelector('#plan-switch-yes');
+  await switched.click('#plan-switch-yes');
+  await switched.waitForFunction(function () {
+    var card = document.getElementById('current-plan') && document.getElementById('current-plan').closest('article');
+    return card && card.querySelector('h3').textContent === 'Master Trainer'
+      && window.__reads === 1
+      && location.hash === '#/subscriptions'
+      && document.body.innerText.indexOf('Loading…') === -1
+      && document.getElementById('switch-trainer').textContent === 'Switch to Trainer';
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 400); });
+  assert.strictEqual(await switched.evaluate(function () { return window.__reads; }), 1);
+
+  const repeat = await open(paying);
+  await show(repeat, '#/subscriptions');
+  await repeat.waitForSelector('#switch-master_trainer');
+  await repeat.evaluate(function () {
+    window.__changes = 0;
+    window.WBAuth.changePlan = function () {
+      window.__changes++;
+      return new Promise(function (resolve) {
+        setTimeout(function () { resolve({ status: 'payment_failed' }); }, 300);
+      });
+    };
+  });
+  await repeat.click('#switch-master_trainer');
+  await repeat.waitForSelector('#plan-switch-yes');
+  await repeat.evaluate(function () {
+    var yes = document.getElementById('plan-switch-yes');
+    yes.click();
+    yes.click();
+  });
+  await repeat.waitForFunction(function () {
+    var note = document.getElementById('plan-note');
+    return note && note.textContent === "Your payment didn't go through. You're still on Trainer." && window.__changes === 1;
+  });
+
+  const standard = await open(Object.assign({}, paying, { beta_locked: false }));
+  await show(standard, '#/subscriptions');
+  await standard.waitForSelector('#switch-master_trainer');
+  await standard.click('#switch-master_trainer');
+  await standard.waitForFunction(function () {
+    var title = document.getElementById('plan-switch-title');
+    var label = window.WBMembership.payable(window.WBMembership.tier('master_trainer'), false).label;
+    return title && title.textContent === 'Upgrade to Master Trainer, ' + label + ' / month'
+      && label !== window.WBMembership.tier('master_trainer').oldPriceLabel;
+  });
+
+  const compSwitch = await open(Object.assign({}, paying, { complimentary: true, stripe_customer_id: 'cus_comp' }));
+  await show(compSwitch, '#/subscriptions');
+  await compSwitch.waitForSelector('#current-plan');
+  assert.strictEqual(await compSwitch.$('[data-switch]'), null);
+  const tester = await open(Object.assign({}, paying, { complimentary: true, stripe_customer_id: null, billing_status: null }));
+  await show(tester, '#/subscriptions');
+  await tester.waitForSelector('[data-plan=trainer]');
+  assert.strictEqual(await tester.$('[data-switch]'), null);
+  const unpaid = await open(Object.assign({}, paying, { stripe_customer_id: null }));
+  await show(unpaid, '#/subscriptions');
+  await unpaid.waitForSelector('#current-plan');
+  assert.strictEqual(await unpaid.$('[data-switch]'), null);
+
+  const fan = await open(Object.assign({}, paying, { membership: 'enthusiast', intended_plan: 'enthusiast' }));
+  await show(fan, '#/subscriptions');
+  await fan.waitForSelector('#switch-trainer');
+  const fanButtons = await fan.evaluate(function () {
+    return {
+      trainer: document.getElementById('switch-trainer').textContent,
+      master: document.getElementById('switch-master_trainer').textContent,
+      down: document.querySelectorAll('[data-switch-dir=down]').length
+    };
+  });
+  assert.strictEqual(fanButtons.trainer, 'Upgrade to Trainer');
+  assert.strictEqual(fanButtons.master, 'Upgrade to Master Trainer');
+  assert.strictEqual(fanButtons.down, 0);
 
   assert.deepStrictEqual(errs, []);
   console.log('CHECKOUT UI OK');

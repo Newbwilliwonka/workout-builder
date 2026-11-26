@@ -105,18 +105,19 @@
       return row;
     });
   }
-  function billingPayload(res, fallback) {
+  function billingPayload(res, fallback, interpret) {
     var Bill = root.WBBilling;
-    if (!Bill || !Bill.outcome) return Promise.resolve({ error: fallback });
-    if (res && !res.error) return Promise.resolve(Bill.outcome(res.data, fallback));
+    var read = interpret || (Bill && Bill.outcome);
+    if (!read) return Promise.resolve({ error: fallback });
+    if (res && !res.error) return Promise.resolve(read(res.data, fallback));
     var response = res && (res.response || (res.error && res.error.context));
     if (!response || typeof response.clone !== 'function' || typeof response.json !== 'function') {
-      return Promise.resolve(Bill.outcome(res && res.data, fallback));
+      return Promise.resolve(read(res && res.data, fallback));
     }
     return response.clone().json().then(function (body) {
-      return Bill.outcome(body, fallback);
+      return read(body, fallback);
     }, function () {
-      return Bill.outcome(null, fallback);
+      return read(null, fallback);
     });
   }
   function callBilling(name, body, fallback) {
@@ -875,6 +876,24 @@
     },
     openBilling: function () {
       return callBilling('create-portal-session', {}, 'The billing page could not be opened.');
+    },
+    changePlan: function (planId) {
+      var fallback = 'That plan could not be changed.';
+      var Bill = root.WBBilling;
+      if (!Bill || !Bill.switchOutcome) return Promise.reject(new Error(fallback));
+      return db().then(function (c) {
+        if (!c.functions || !c.functions.invoke) throw new Error(fallback);
+        return c.functions.invoke('change-subscription', { body: { plan: planId } });
+      }).then(function (res) {
+        return billingPayload(res, fallback, Bill.switchOutcome);
+      }, function () {
+        return Bill.switchOutcome(null, fallback);
+      }).then(function (out) {
+        if (!out || out.error || (out.status !== 'ok' && out.status !== 'payment_failed' && out.status !== 'requires_action')) {
+          throw new Error((out && out.error) || fallback);
+        }
+        return out;
+      });
     },
     saveIntended: function (planId) {
       if (!Mem.canSelectIntended(planId)) throw new Error('A trainer invite is required for Free Client.');

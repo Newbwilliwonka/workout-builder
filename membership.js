@@ -33,6 +33,10 @@
       name: 'Enthusiast',
       priceCents: 999,
       priceLabel: '$9.99',
+      // What Stripe charges after the first 100. Same as Beta until a later raise.
+      // oldPrice* is the crossed-out launch price on the card, not this charge.
+      standardPriceCents: 999,
+      standardPriceLabel: '$9.99',
       oldPriceCents: 1999,
       oldPriceLabel: '$19.99',
       beta: true,
@@ -66,6 +70,8 @@
       name: 'Trainer',
       priceCents: 1999,
       priceLabel: '$19.99',
+      standardPriceCents: 1999,
+      standardPriceLabel: '$19.99',
       oldPriceCents: 3999,
       oldPriceLabel: '$39.99',
       beta: true,
@@ -101,6 +107,8 @@
       name: 'Master Trainer',
       priceCents: 2999,
       priceLabel: '$29.99',
+      standardPriceCents: 2999,
+      standardPriceLabel: '$29.99',
       oldPriceCents: 5999,
       oldPriceLabel: '$59.99',
       beta: true,
@@ -146,6 +154,16 @@
     return canSelectIntended(profile.intended_plan);
   }
   function priceLine(t) { return t && t.priceCents ? t.priceLabel + ' / month' : (t ? t.priceLabel : ''); }
+  // The price this person would be charged. Beta-locked members stay on the
+  // Beta amount. Everyone else pays the standard amount.
+  function payable(tier, betaLocked) {
+    if (!tier || !tier.paysInApp) return null;
+    if (betaLocked) return { cents: tier.priceCents, label: tier.priceLabel };
+    return {
+      cents: tier.standardPriceCents != null ? tier.standardPriceCents : tier.priceCents,
+      label: tier.standardPriceLabel || tier.priceLabel
+    };
+  }
   // A paid membership Stripe is still billing. past_due keeps access and
   // Checkout refuses another subscription, so that plan uses Manage billing.
   function activePaidPlan(profile) {
@@ -166,6 +184,7 @@
     isActive: isActive,
     hasDesignated: hasDesignated,
     priceLine: priceLine,
+    payable: payable,
     activePaidPlan: activePaidPlan
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

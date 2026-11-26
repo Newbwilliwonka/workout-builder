@@ -37,6 +37,21 @@ assert.deepStrictEqual(Bill.outcome(null, 'The billing page could not be opened.
 });
 assert.strictEqual(Bill.httpsUrl('https://checkout.stripe.com/c/pay/cs_test_123'), 'https://checkout.stripe.com/c/pay/cs_test_123');
 assert.strictEqual(Bill.httpsUrl('http://checkout.stripe.com/c/pay/cs_test_123'), '');
+assert.deepStrictEqual(Bill.switchOutcome({ status: 'ok' }, 'That plan could not be changed.'), { status: 'ok' });
+assert.deepStrictEqual(Bill.switchOutcome({ status: 'payment_failed' }, 'That plan could not be changed.'), { status: 'payment_failed' });
+assert.deepStrictEqual(
+  Bill.switchOutcome({ status: 'requires_action', url: 'https://invoice.stripe.com/i/confirm' }, 'That plan could not be changed.'),
+  { status: 'requires_action', url: 'https://invoice.stripe.com/i/confirm' }
+);
+assert.deepStrictEqual(Bill.switchOutcome({ status: 'requires_action', url: 'http://evil.example/i' }, 'That plan could not be changed.'), {
+  error: 'That plan could not be changed.'
+});
+assert.deepStrictEqual(Bill.switchOutcome({ error: 'Subscribe to a plan before switching.' }, 'That plan could not be changed.'), {
+  error: 'Subscribe to a plan before switching.'
+});
+assert.deepStrictEqual(Bill.switchOutcome({ error: 'You are already on that plan.' }, 'That plan could not be changed.'), {
+  error: 'You are already on that plan.'
+});
 
 assert.strictEqual(Mem.activePaidPlan({ membership: 'enthusiast', billing_status: 'active' }), 'enthusiast');
 assert.strictEqual(Mem.activePaidPlan({ membership: 'free_client', billing_status: 'active' }), null);
@@ -69,6 +84,21 @@ assert.ok(app.indexOf('Choosing a plan saves your selection.') === -1);
 assert.ok(!/sold out|beta has ended|Beta ended/i.test(app));
 assert.ok(auth.indexOf("callBilling('create-checkout-session', { plan: planId }, 'Checkout could not be started.')") !== -1);
 assert.ok(auth.indexOf("callBilling('create-portal-session', {}, 'The billing page could not be opened.')") !== -1);
+assert.ok(auth.indexOf("c.functions.invoke('change-subscription', { body: { plan: planId } })") !== -1);
+assert.ok(app.indexOf('Starts now. Today your card is charged only the difference for the rest of this billing month.') !== -1);
+assert.ok(app.indexOf('Starts now. Your remaining plan will be credited towards your next bills.') !== -1);
+assert.ok(app.indexOf('Nothing is refunded to your card.') === -1);
+assert.ok(app.indexOf('Confirm upgrade') !== -1);
+assert.ok(app.indexOf('Confirm switch') !== -1);
+assert.ok(app.indexOf('>Not now</button>') !== -1);
+assert.ok(app.indexOf("Your payment didn't go through. You're still on ") !== -1);
+assert.ok(app.indexOf('data-switch') !== -1);
+(function () {
+  var start = app.indexOf('function confirmSwitch()');
+  var end = app.indexOf('app.onkeydown = function', start);
+  assert.ok(start > 0 && end > start);
+  assert.strictEqual(app.slice(start, end).indexOf('route()'), -1);
+})();
 assert.ok(auth.indexOf("select('billing_status,stripe_customer_id,complimentary,beta_locked')") !== -1);
 
 console.log('CHECKOUT OK');
