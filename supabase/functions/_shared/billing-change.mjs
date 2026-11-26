@@ -3,9 +3,11 @@ import { isPlan, lookupKey } from './billing-plans.mjs'
 import { resolvePricePlan } from './billing-price.mjs'
 import { syncAppliedSubscription } from './billing-webhook.mjs'
 
+// Stripe allows four properties in an expand path. Prefixing the payment
+// intent with latest_invoice makes five, so the update only expands the
+// invoice secret. The payment intent is loaded on invoices.retrieve.
 const INVOICE_EXPAND = [
-  'latest_invoice.confirmation_secret',
-  'latest_invoice.payments.data.payment.payment_intent'
+  'latest_invoice.confirmation_secret'
 ]
 
 const LIVE = { active: true, trialing: true, past_due: true }

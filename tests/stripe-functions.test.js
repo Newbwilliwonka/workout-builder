@@ -1782,8 +1782,7 @@ async function main() {
   assert.strictEqual(update[1], 'sub_payer001');
   assert.strictEqual(update[2].proration_behavior, 'always_invoice');
   assert.strictEqual(update[2].payment_behavior, 'pending_if_incomplete');
-  assert.ok(update[2].expand.indexOf('latest_invoice.confirmation_secret') !== -1);
-  assert.ok(update[2].expand.indexOf('latest_invoice.payments.data.payment.payment_intent') !== -1);
+  assert.deepStrictEqual(update[2].expand, ['latest_invoice.confirmation_secret']);
   assert.deepStrictEqual(update[2].items, [{ id: 'si_current', price: 'price_from_master_trainer_beta_monthly', quantity: 1 }]);
   assert.strictEqual(update[3].idempotencyKey, 'change-' + USER + '-' + TOKEN);
   assert.ok(names(betaSwitch.calls).indexOf('refunds.create') === -1);
@@ -1942,6 +1941,21 @@ async function main() {
   assert.ok(scaRetrieve[2].expand.indexOf('payments.data.payment.payment_intent') !== -1);
   assert.ok(scaRetrieve[2].expand.indexOf('confirmation_secret') !== -1);
   assert.ok(names(scaDb.calls).indexOf('billing_write') === -1);
+  const expandPaths = [];
+  scaPay.calls.forEach(function (row) {
+    for (let i = 1; i < row.length; i++) {
+      const expand = row[i] && row[i].expand;
+      if (!expand) continue;
+      (Array.isArray(expand) ? expand : [expand]).forEach(function (path) {
+        expandPaths.push(String(path));
+      });
+    }
+  });
+  assert.ok(expandPaths.length >= 2);
+  expandPaths.forEach(function (path) {
+    assert.ok(path.split('.').length <= 4, path);
+  });
+  assert.ok(expandPaths.indexOf('latest_invoice.payments.data.payment.payment_intent') === -1);
 
   const secretPay = changeStripe([subOn('trainer', 'beta')], async function (id, params, opts) {
     secretPay.calls.push(['subscriptions.update', id, params, opts]);
