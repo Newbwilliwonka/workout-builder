@@ -122,7 +122,9 @@
         'Show a verified certification on your profile',
         'Group circuit training with tracking'
       ],
-      comingSoon: [],
+      comingSoon: [
+        'Create group speed and agility drills'
+      ],
       highlight: 'Get found in the Trainer Hub by clients who have trained with a coach',
       cta: 'Choose Master Trainer'
     }
