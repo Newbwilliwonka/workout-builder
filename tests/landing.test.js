@@ -352,6 +352,15 @@ function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
     assert.ok(phonePlate.afterTop < 1000);
     assert.ok(phonePlate.afterReach >= phonePlate.bodyH - 2, 'phone wash reaches the page bottom');
     assert.ok(phonePlate.overflow <= 1);
+    await page.setViewport({ width: 768, height: 900, deviceScaleFactor: 1 });
+    const midPlate = await page.evaluate(landingPlate);
+    assert.strictEqual(midPlate.beforeH, '1120px');
+    assert.ok(midPlate.beforeImg.indexOf('app-bg-phone') !== -1);
+    assert.strictEqual(midPlate.afterContent, '""');
+    assert.strictEqual(midPlate.afterTop, 900);
+    assert.ok(1120 - midPlate.afterTop >= 200, 'blur overlaps the clipped plate');
+    assert.ok(midPlate.afterReach >= midPlate.bodyH - 2, 'mid-width wash reaches the page bottom');
+    assert.ok(midPlate.overflow <= 1);
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     const deskInset = await page.evaluate(landingInset);
     assert.strictEqual(deskInset.max, '1100px');
