@@ -50,7 +50,13 @@ assert.deepStrictEqual(grants.split('\n').filter(function (line) { return line.l
 
 const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const auth = fs.readFileSync(path.join(root, 'auth.js'), 'utf8');
-assert.ok(app.indexOf("You'll finish payment on Stripe Checkout.") !== -1);
+assert.ok(app.indexOf("if (!currentId) h += \"<p class=\\\"foot\\\">You'll finish payment on Stripe Checkout.</p>\";") !== -1);
+(function () {
+  var start = app.indexOf('function drawSubscriptions(');
+  var end = app.indexOf('function beginCheckoutWatch(');
+  assert.ok(start > 0 && end > start);
+  assert.strictEqual(app.slice(start, end).indexOf('redeemCard'), -1);
+})();
 assert.ok(app.indexOf('Starting checkout…') !== -1);
 assert.ok(app.indexOf('Your subscription is now active.') !== -1);
 assert.ok(app.indexOf("Checkout was canceled. You can subscribe whenever you're ready.") !== -1);

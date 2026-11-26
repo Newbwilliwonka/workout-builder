@@ -249,7 +249,7 @@ const E = '33333333-3333-4333-8333-333333333333';
     });
   }
 
-  await boot({ who: 'enthusiast', linked: false, mode: 'ok', on: true }, '#/subscriptions');
+  await boot({ who: 'enthusiast', linked: false, mode: 'ok', on: true }, '#/account');
   await page.waitForSelector('#share-link');
   assert.strictEqual(await page.$eval('#share-link', function (el) { return el.checked; }), true);
   assert.ok((await page.$eval('#share-option', function (el) { return el.textContent; })).includes('avoid training conflicts'));
@@ -269,7 +269,9 @@ const E = '33333333-3333-4333-8333-333333333333';
   assert.deepStrictEqual(await page.evaluate(function () { return window.__pushes; }), []);
 
   await boot({ who: 'free', linked: false, mode: 'ok', on: true }, '#/subscriptions');
-  await page.waitForSelector('#redeem');
+  await page.waitForFunction(function () { return document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.getElementById('invite-code') && !document.getElementById('redeem'); });
+  await page.evaluate(function () { location.hash = '#/account'; });
+  await page.waitForSelector('#redeem #invite-code');
   assert.strictEqual(await page.$('#share-link'), null);
   assert.strictEqual(await page.$('#share-account'), null);
   assert.ok((await page.evaluate(function () { return document.body.innerText; })).indexOf('Let your trainer view') === -1);
@@ -448,7 +450,7 @@ const E = '33333333-3333-4333-8333-333333333333';
     localStorage.setItem('wb.sharetest', JSON.stringify(cfg));
   });
   await page.evaluate(function () { location.hash = '#/subscriptions'; });
-  await page.waitForSelector('#redeem');
+  await page.waitForFunction(function () { return document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.getElementById('invite-code'); });
   await page.evaluate(function () { location.hash = '#/account'; });
   await page.waitForSelector('#share-account');
   await wait(400);
@@ -498,7 +500,7 @@ const E = '33333333-3333-4333-8333-333333333333';
   assert.ok((await page.$eval('#share-wait', function (el) { return el.textContent; })).includes('Not available yet'));
   assert.strictEqual(await page.evaluate(function () { return window.__pushes.length; }), 1);
   await page.evaluate(function () { location.hash = '#/subscriptions'; });
-  await page.waitForSelector('#redeem');
+  await page.waitForFunction(function () { return document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.getElementById('invite-code'); });
   await page.evaluate(function () { location.hash = '#/account'; });
   await page.waitForFunction(function () {
     var el = document.getElementById('share-account');

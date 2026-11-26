@@ -147,7 +147,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await denied(stranger, '#/', '#/subscriptions');
   await stranger.waitForFunction(() => document.body.innerText.includes('Choose how you want to train'));
   assert.strictEqual(await stranger.$eval('#header-signin', el => el.hidden), true);
-  assert.ok(await stranger.$('#redeem'));
+  assert.strictEqual(await stranger.$('#redeem, #invite-code'), null);
   assert.ok(await stranger.$('#level-lock'));
   assert.strictEqual(await stranger.$eval('#nav-links', function (el) { return el.hidden; }), true);
   await denied(stranger, '#/w/' + w.id, '#/subscriptions');
@@ -204,7 +204,7 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   assert.strictEqual(await other.$eval('#header-signin', el => el.hidden), true);
   assert.ok(await other.$('#messages-nav'));
   assert.ok(await other.$('#workouts-nav'));
-  assert.ok(await other.$('#redeem'));
+  assert.strictEqual(await other.$('#redeem, #invite-code'), null);
   await other.click('#back');
   await other.waitForSelector('[data-a=run]');
   assert.strictEqual(await other.evaluate(() => location.hash), '#/');
@@ -398,10 +398,12 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
   await consumed.waitForFunction(() => window.__redeemed === 1 && location.hash === '#/');
   assert.strictEqual(await consumed.evaluate(() => sessionStorage.getItem('wb.invite')), null);
   await consumed.evaluate(() => { location.hash = '#/subscriptions'; });
+  await consumed.waitForFunction(() => location.hash === '#/subscriptions' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.getElementById('invite-code'));
+  await consumed.evaluate(() => { location.hash = '#/account'; });
   await consumed.waitForSelector('#redeem #invite-code');
   assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), '');
-  await consumed.evaluate(() => { location.hash = '#/subscriptions?again=1'; });
-  await consumed.waitForFunction(() => location.hash === '#/subscriptions?again=1' && document.getElementById('invite-code'));
+  await consumed.evaluate(() => { location.hash = '#/account?again=1'; });
+  await consumed.waitForFunction(() => location.hash === '#/account?again=1' && document.getElementById('invite-code'));
   assert.strictEqual(await consumed.$eval('#invite-code', function (el) { return el.value; }), '');
   assert.strictEqual(await consumed.evaluate(() => sessionStorage.getItem('wb.invite')), null);
   await consumed.evaluate(() => {
@@ -424,21 +426,29 @@ const chosen = { membership: 'none', intended_plan: 'enthusiast' };
     { id: 'card', email: 'card@example.com', membership: 'none', intended_plan: null }
   );
   await card.goto(URL + '?invite=ABCD2345#/subscriptions');
-  await card.waitForSelector('#redeem #invite-code');
-  assert.strictEqual(await card.$eval('#invite-code', function (el) { return el.value; }), 'ABCD-2345');
+  await card.waitForFunction(() => location.hash.indexOf('#/subscriptions') === 0 && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.getElementById('invite-code'));
+  assert.strictEqual(await card.evaluate(() => sessionStorage.getItem('wb.invite')), 'ABCD2345');
   assert.strictEqual(await card.evaluate(() => new URLSearchParams(location.search).get('invite')), null);
   await card.evaluate(() => {
     window.__cardRedeemed = 0;
+    window.WBAuth.profile = function () {
+      return Promise.resolve({ id: 'card', email: 'card@example.com', membership: 'free_client', intended_plan: null, access_approved: true });
+    };
     window.WBAuth.myConnection = function () { return Promise.resolve(null); };
+    window.WBAuth.roster = function () { return Promise.resolve({ role: null }); };
     window.WBAuth.redeemInvite = function () {
       window.__cardRedeemed++;
       return Promise.resolve({ message: 'Invite applied.' });
     };
+    location.hash = '#/account';
   });
-  await card.click('[data-invite=redeem]');
-  await card.waitForFunction(() => window.__cardRedeemed === 1 && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
-  await card.evaluate(() => { location.hash = '#/subscriptions?again=1'; });
-  await card.waitForFunction(() => location.hash === '#/subscriptions?again=1' && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
+  await card.waitForFunction(() => {
+    var code = document.getElementById('invite-code');
+    return window.__cardRedeemed === 1 && code && code.value === '' && document.body.innerText.indexOf('Invite applied.') !== -1;
+  });
+  assert.strictEqual(await card.evaluate(() => sessionStorage.getItem('wb.invite')), null);
+  await card.evaluate(() => { location.hash = '#/account?again=1'; });
+  await card.waitForFunction(() => location.hash === '#/account?again=1' && document.getElementById('invite-code') && document.getElementById('invite-code').value === '');
   assert.strictEqual(await card.evaluate(() => sessionStorage.getItem('wb.invite')), null);
   assert.strictEqual(await card.evaluate(() => window.__cardRedeemed), 1);
 

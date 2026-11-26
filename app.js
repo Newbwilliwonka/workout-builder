@@ -114,9 +114,23 @@
   }
   function checkoutNotice(page) {
     var value = hashParam('checkout');
-    if (page === 'account' && value === 'success') return 'Your subscription is now active.';
+    if (page === 'account' && (value === 'success' || checkoutHold === 'success')) return 'Your subscription is now active.';
     if (page === 'subscriptions' && value === 'cancel') return "Checkout was canceled. You can subscribe whenever you're ready.";
     return '';
+  }
+  function paidMembership(profile) {
+    var id = profile && profile.membership;
+    return id === 'enthusiast' || id === 'trainer' || id === 'master_trainer';
+  }
+  function checkoutPollWait() {
+    var n = Number(window.__wbCheckoutPollMs);
+    if (n >= 0 && n < 2000) return n;
+    return 2000;
+  }
+  function checkoutPollLimit() {
+    var n = Number(window.__wbCheckoutPollLimit);
+    if (n > 0 && n <= 10) return n;
+    return 10;
   }
   function billingUrl(url) {
     return window.WBBilling && WBBilling.httpsUrl ? WBBilling.httpsUrl(url) : '';
@@ -1148,6 +1162,8 @@
     app.onchange = null;
   }
   var pendingSignNotice = null, authBusy = false, planBusy = false, checkoutGen = 0;
+  var checkoutHold = '', checkoutWatchGen = 0;
+  var ALREADY_SUBSCRIBED = 'You already have a subscription. Use Manage billing to change it.';
   // recoveryPhase: '' | 'checking' | 'form' | 'invalid' | 'done'
   var recoveryPhase = '', recoverySettled = false, recoveryReady = false;
   var RECOVERY_LOCK = 'wb.recovery';
@@ -1710,7 +1726,7 @@
         accessWaitOn = false;
         var profile = cachedProfile || gate.profile;
         if (page === 'admin') return renderAdmin();
-        var checkoutReturn = page === 'account' && hashParam('checkout') === 'success';
+        var checkoutReturn = page === 'account' && (hashParam('checkout') === 'success' || checkoutHold === 'success');
         if (gate.known && !WBMembership.hasDesignated(profile) && !checkoutReturn) return go('#/subscriptions');
         if (clientNeedsName(profile)) {
           profileGateOn = false;
@@ -1838,17 +1854,28 @@
       navigator.clipboard.writeText(text).then(function () { toast('Copied'); }, function () { toast('Could not copy'); });
     } else toast('Could not copy');
   }
+  function inviteEntry(profile) {
+    if (!profile || !window.WBInvites || WBInvites.trainerRole(profile)) return false;
+    if (profile.membership === 'free_client') return true;
+    return WBInvites.isEnthusiast(profile);
+  }
+  // Your trainer stays for a linked person. The code field is only for an
+  // unlinked Free Client or Enthusiast. Create account keeps its own field.
   function redeemCard(conn, profile) {
-    var h = '<div class="card" id="redeem">';
     var linked = !!(conn && conn.trainerId);
+    var enter = !linked && inviteEntry(profile);
+    if (!linked && !enter) return '';
+    var h = '<div class="card" id="redeem">';
     if (linked) {
       var trainerName = personLabel({ name: conn.trainerName, display_name: conn.trainerName, plan: 'Trainer' }) || 'Trainer';
       h += '<div class="name">Your trainer</div><p class="mute">' + (window.WBProfile ? WBProfile.nameHtml(trainerName, !!conn.verified) : esc(trainerName)) + '</p>';
       h += '<button class="danger" data-invite="end-self" style="width:100%">End connection</button>';
+    } else {
+      h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
+      if (window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile)) h += WBSharing.linkOption(linkShareChoice);
+      h += '<button class="pri" data-invite="redeem" style="width:100%;margin-top:10px">Redeem invite</button>';
     }
-    h += '<label for="invite-code">Invite code</label><input id="invite-code" autocomplete="off" value="' + esc(WBInvites.formatCode(pendingCode())) + '">';
-    if (!linked && window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile)) h += WBSharing.linkOption(linkShareChoice);
-    h += '<button class="pri" data-invite="redeem" style="width:100%;margin-top:10px">Redeem invite</button></div>';
+    h += '</div>';
     return h;
   }
   function noteProfile(profile) {
@@ -2806,7 +2833,6 @@
     h += '<h2>Choose how you want to train</h2>';
     h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
     h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';
-    if (session) h += redeemCard(conn, profile);
     WBMembership.TIERS.forEach(function (t) {
       h += '<article class="card plan' + (t.recommended ? ' recommended' : '') + '">';
       h += '<div class="row"><h3 class="grow">' + esc(t.name) + '</h3>';
@@ -2842,7 +2868,7 @@
       }
       h += '</article>';
     });
-    h += "<p class=\"foot\">You'll finish payment on Stripe Checkout.</p>";
+    if (!currentId) h += "<p class=\"foot\">You'll finish payment on Stripe Checkout.</p>";
     if (locked) h += '<button class="linkish" type="button" id="level-signout">Sign out</button>';
     h += '</div>';
     app.innerHTML = h;
@@ -2930,12 +2956,79 @@
         location.assign(safe);
       }, function (err) {
         if (!paidStepOpen()) return;
-        planBusy = false;
-        drawSubscriptions(session, profile, (err && err.message) || 'Checkout could not be started.', true, conn, !!locked);
+        showCheckoutFailure((err && err.message) || 'Checkout could not be started.');
       });
     };
+    function showCheckoutFailure(text) {
+      if (hashPage() !== 'subscriptions') {
+        planBusy = false;
+        return;
+      }
+      if (text !== ALREADY_SUBSCRIBED || !WBAuth.profile) {
+        planBusy = false;
+        drawSubscriptions(session, profile, text, true, conn, !!locked);
+        return;
+      }
+      WBAuth.profile().then(function (fresh) {
+        if (hashPage() !== 'subscriptions') {
+          planBusy = false;
+          return;
+        }
+        var shown = fresh || profile;
+        if (fresh) noteProfile(fresh);
+        var nowLocked = !WBMembership.hasDesignated(shown);
+        backBtn.hidden = nowLocked;
+        planBusy = false;
+        drawSubscriptions(session, shown, text, true, conn, nowLocked);
+      }, function () {
+        if (hashPage() !== 'subscriptions') return;
+        planBusy = false;
+        drawSubscriptions(session, profile, text, true, conn, !!locked);
+      });
+    }
+  }
+  function beginCheckoutWatch(gen, session, profile, roster, conn) {
+    if (gen !== checkoutWatchGen || checkoutHold !== 'success' || hashPage() !== 'account') return;
+    if (paidMembership(profile)) return;
+    var tries = 0;
+    var limit = checkoutPollLimit();
+    var wait = checkoutPollWait();
+    function tick() {
+      if (gen !== checkoutWatchGen || hashPage() !== 'account') return;
+      var read = WBAuth.profile ? WBAuth.profile() : Promise.resolve(null);
+      Promise.resolve(read).then(function (fresh) {
+        if (gen !== checkoutWatchGen || hashPage() !== 'account') return;
+        tries++;
+        if (fresh) noteProfile(fresh);
+        if (paidMembership(fresh)) {
+          drawAccount(session, fresh, roster, conn);
+          return;
+        }
+        if (tries >= limit) {
+          if (!WBMembership.hasDesignated(fresh || cachedProfile)) {
+            checkoutHold = '';
+            go('#/subscriptions');
+          }
+          return;
+        }
+        setTimeout(tick, wait);
+      }, function () {
+        if (gen !== checkoutWatchGen || hashPage() !== 'account') return;
+        tries++;
+        if (tries >= limit) {
+          if (!WBMembership.hasDesignated(cachedProfile)) {
+            checkoutHold = '';
+            go('#/subscriptions');
+          }
+          return;
+        }
+        setTimeout(tick, wait);
+      });
+    }
+    setTimeout(tick, wait);
   }
   function renderSimpleAccount() {
+    var watchGen = ++checkoutWatchGen;
     titleEl.textContent = 'Account'; backBtn.hidden = true;
     app.innerHTML = '<p class="mute">Loading account…</p>';
     WBAuth.session().then(function (session) {
@@ -2943,7 +3036,7 @@
       if (!session) return goSignedOutHome();
       WBAuth.profile().then(function (profile) {
         if (hashPage() !== 'account') return;
-        if (!WBMembership.hasDesignated(profile) && hashParam('checkout') !== 'success') return go('#/subscriptions');
+        if (!WBMembership.hasDesignated(profile) && hashParam('checkout') !== 'success' && checkoutHold !== 'success') return go('#/subscriptions');
         var rosterP = WBAuth.roster ? WBAuth.roster() : Promise.resolve({ role: null });
         var connP = WBAuth.myConnection ? WBAuth.myConnection() : Promise.resolve(null);
         Promise.all([
@@ -2957,12 +3050,16 @@
           }
           syncTrainerWorkouts(conn, session.user && session.user.id);
           noteProfile(profile);
+          if (watchGen !== checkoutWatchGen || hashPage() !== 'account') return;
           drawAccount(session, profile, roster, conn);
+          beginCheckoutWatch(watchGen, session, profile, roster, conn);
         });
       }).catch(function () {
-        if (hashPage() !== 'account') return;
-        if (hashParam('checkout') === 'success') {
-          drawAccount(session, { membership: 'none' }, { role: null }, null);
+        if (hashPage() !== 'account' || watchGen !== checkoutWatchGen) return;
+        if (hashParam('checkout') === 'success' || checkoutHold === 'success') {
+          var waiting = { membership: 'none' };
+          drawAccount(session, waiting, { role: null }, null);
+          beginCheckoutWatch(watchGen, session, waiting, { role: null }, null);
           return;
         }
         go('#/subscriptions');
@@ -3326,8 +3423,7 @@
     if (window.WBProfile && WBProfile.needsName(profile)) {
       h += '<p class="lede" id="account-name-note">' + esc(WBProfile.PROMPT) + '</p>';
     }
-    var trainerAccount = window.WBInvites && WBInvites.trainerRole(profile);
-    if (!trainerAccount || (conn && conn.trainerId)) h += redeemCard(conn, profile);
+    h += redeemCard(conn, profile);
     var shareHere = !!(window.WBInvites && window.WBSharing && WBInvites.isEnthusiast(profile) && conn && conn.trainerId);
     if (shareHere) h += '<div id="share-slot"></div>';
     h += trainerSection(roster);
@@ -3341,7 +3437,11 @@
     if (window.WBProfile && session && WBProfile.isAdminEmail(session.user && session.user.email)) loadPendingCount();
     if (shareHere) loadShare();
     loadClientInfo();
+    app.onchange = function (e) {
+      if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
+    };
     app.onclick = function (e) {
+      if (e.target && e.target.id === 'share-link') linkShareChoice = !!e.target.checked;
       if (e.target.closest('#client-info-save')) return saveClientInfoFromForm();
       if (e.target.closest('#client-info-edit')) { clientInfoEditing = true; paintClientInfo(); return; }
       var nav = e.target.closest('[data-go]');
@@ -4252,6 +4352,12 @@
     window.WBPreview && WBPreview.unmount();
     document.body.classList.remove('playing');
     var page = hashPage();
+    if (page !== 'account') {
+      checkoutWatchGen++;
+      checkoutHold = '';
+    } else if (hashParam('checkout') === 'success') {
+      checkoutHold = 'success';
+    }
     captureInvite();
     showHeaderSignIn(false);
     // A bare visit keeps the marketing page up while the session check runs, so

@@ -91,6 +91,7 @@ const paying = {
       freeName: free.querySelector('h3').textContent,
       freeButton: !!free.querySelector('button'),
       invite: !!document.getElementById('invite-code'),
+      redeem: !!document.getElementById('redeem'),
       text: document.body.innerText
     };
   });
@@ -111,7 +112,9 @@ const paying = {
   assert.strictEqual(offered.betaPills, 3);
   assert.strictEqual(offered.freeName, 'Free Client');
   assert.strictEqual(offered.freeButton, false);
-  assert.strictEqual(offered.invite, true);
+  assert.strictEqual(offered.invite, false);
+  assert.strictEqual(offered.redeem, false);
+  await fresh.screenshot({ path: OUT + '/subscriptions-no-plan.png' });
   assert.ok(offered.text.indexOf('Choose Enthusiast') === -1);
   assert.ok(offered.text.indexOf('Choose Trainer') === -1);
   assert.ok(offered.text.indexOf('Choose Master Trainer') === -1);
@@ -155,7 +158,7 @@ const paying = {
             error: { message: 'Edge Function returned a non-2xx status code' },
             response: {
               clone: function () { return this; },
-              json: function () { return Promise.resolve({ error: 'You already have a subscription. Use Manage billing to change it.' }); }
+              json: function () { return Promise.resolve({ error: 'Checkout is starting, try again in a moment.' }); }
             }
           });
         }
@@ -167,31 +170,13 @@ const paying = {
     var note = document.getElementById('plan-note');
     var plan = document.querySelector('[data-plan=enthusiast]');
     return note && note.className.indexOf('errs') !== -1
-      && note.textContent === 'You already have a subscription. Use Manage billing to change it.'
-      && plan && !plan.disabled && plan.textContent === 'Subscribe';
+      && note.textContent === 'Checkout is starting, try again in a moment.'
+      && plan && !plan.disabled && plan.textContent === 'Subscribe'
+      && !document.getElementById('current-plan');
   });
   assert.deepStrictEqual(await refused.evaluate(function () { return window.__invoke; }), {
     name: 'create-checkout-session',
     body: { plan: 'enthusiast' }
-  });
-  await refused.screenshot({ path: OUT + '/subscriptions-already.png' });
-
-  await refused.evaluate(function () {
-    window.__wbTestDb.functions.invoke = function () {
-      return Promise.resolve({
-        data: null,
-        error: { message: 'Edge Function returned a non-2xx status code' },
-        response: {
-          clone: function () { return this; },
-          json: function () { return Promise.resolve({ error: 'Checkout is starting, try again in a moment.' }); }
-        }
-      });
-    };
-  });
-  await refused.click('[data-plan=master_trainer]');
-  await refused.waitForFunction(function () {
-    var note = document.getElementById('plan-note');
-    return note && note.textContent === 'Checkout is starting, try again in a moment.';
   });
 
   await refused.evaluate(function () {
@@ -252,7 +237,8 @@ const paying = {
       subscribe: document.querySelectorAll('[data-plan]').length,
       beta: document.getElementById('app').querySelector('.beta-note').textContent,
       was: document.getElementById('app').querySelectorAll('.was').length,
-      invite: !!document.querySelector('#redeem #invite-code')
+      invite: !!document.querySelector('#invite-code'),
+      foot: document.getElementById('app').querySelector('.foot') ? document.getElementById('app').querySelector('.foot').textContent : ''
     };
   });
   assert.strictEqual(subscribed.label, 'Current plan');
@@ -272,7 +258,8 @@ const paying = {
   assert.strictEqual(subscribed.subscribe, 0);
   assert.strictEqual(subscribed.beta, 'Beta pricing for the first 100 members.');
   assert.strictEqual(subscribed.was, 3);
-  assert.strictEqual(subscribed.invite, true);
+  assert.strictEqual(subscribed.invite, false);
+  assert.strictEqual(subscribed.foot, '');
   await current.screenshot({ path: OUT + '/subscriptions-current.png' });
 
   await current.evaluate(function () {
@@ -337,6 +324,158 @@ const paying = {
     return note && note.textContent === 'Your subscription is now active.' && location.hash === '#/account';
   });
   assert.strictEqual(await early.$('#level-lock'), null);
+  assert.strictEqual(await early.$('#invite-code'), null);
+
+  const already = await open(none);
+  await show(already, '#/subscriptions');
+  await already.waitForSelector('[data-plan=enthusiast]');
+  await already.evaluate(function () {
+    window.WBAuth.profile = function () {
+      return Promise.resolve({
+        id: 'payer',
+        email: 'ada@example.com',
+        membership: 'trainer',
+        intended_plan: 'trainer',
+        billing_status: 'active',
+        access_approved: true,
+        display_name: 'Ada'
+      });
+    };
+    window.__wbTestDb = {
+      functions: {
+        invoke: function () {
+          return Promise.resolve({
+            data: null,
+            error: { message: 'Edge Function returned a non-2xx status code' },
+            response: {
+              clone: function () { return this; },
+              json: function () {
+                return Promise.resolve({ error: 'You already have a subscription. Use Manage billing to change it.' });
+              }
+            }
+          });
+        }
+      }
+    };
+  });
+  await already.click('[data-plan=trainer]');
+  await already.waitForFunction(function () {
+    var note = document.getElementById('plan-note');
+    var card = document.getElementById('current-plan') && document.getElementById('current-plan').closest('article');
+    var links = document.getElementById('nav-links');
+    var back = document.getElementById('back');
+    var me = document.getElementById('account-me');
+    return note && note.className.indexOf('errs') !== -1
+      && note.textContent === 'You already have a subscription. Use Manage billing to change it.'
+      && card && card.querySelector('h3').textContent === 'Trainer'
+      && card.querySelector('[data-billing=portal]').textContent === 'Manage billing'
+      && !document.querySelector('[data-plan]')
+      && !document.getElementById('level-lock')
+      && !document.getElementById('level-signout')
+      && !document.querySelector('.foot')
+      && !document.getElementById('invite-code')
+      && links && !links.hidden
+      && back && !back.hidden
+      && me && !me.hidden;
+  });
+  await already.evaluate(function () { window.scrollTo(0, 0); });
+  await already.screenshot({ path: OUT + '/subscriptions-409.png' });
+
+  const late = await open(none);
+  await late.evaluate(function () {
+    window.__wbCheckoutPollMs = 40;
+    window.__wbCheckoutPollLimit = 4;
+    var n = 0;
+    window.WBAuth.profile = function () {
+      n++;
+      if (n < 3) return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true });
+      return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'enthusiast', billing_status: 'active', access_approved: true, display_name: 'Ada' });
+    };
+  });
+  await show(late, '#/account?checkout=success');
+  await late.waitForFunction(function () {
+    var note = document.getElementById('checkout-note');
+    var label = document.querySelector('#account-card .mute');
+    return note && note.textContent === 'Your subscription is now active.'
+      && label && label.textContent.indexOf('Enthusiast') !== -1
+      && location.hash === '#/account';
+  }, { timeout: 5000 });
+
+  const giveUp = await open(none);
+  await giveUp.evaluate(function () {
+    window.__wbCheckoutPollMs = 30;
+    window.__wbCheckoutPollLimit = 2;
+  });
+  await show(giveUp, '#/account?checkout=success');
+  await giveUp.waitForSelector('#checkout-note');
+  await giveUp.waitForFunction(function () {
+    return location.hash === '#/subscriptions' && !document.getElementById('checkout-note') && document.getElementById('level-lock');
+  }, { timeout: 5000 });
+
+  async function accountOf(profile, conn) {
+    var p = await open(profile);
+    await p.evaluate(function (connection) {
+      window.WBAuth.myConnection = function () { return Promise.resolve(connection); };
+      window.WBAuth.roster = function () { return Promise.resolve({ role: null, clients: [] }); };
+      window.WBAuth.clientInfo = function () { return Promise.resolve(null); };
+    }, conn);
+    await show(p, '#/account');
+    await p.waitForSelector('#account-card');
+    return p;
+  }
+  const freeAccount = await accountOf(
+    { id: 'payer', email: 'ada@example.com', membership: 'free_client', intended_plan: null, access_approved: true, display_name: 'Ada Client' },
+    null
+  );
+  await freeAccount.waitForSelector('#invite-code');
+  assert.strictEqual(await freeAccount.$('[data-invite=end-self]'), null);
+  assert.ok((await freeAccount.evaluate(function () { return document.body.innerText; })).indexOf('Your trainer') === -1);
+  await freeAccount.evaluate(function () { document.getElementById('redeem').scrollIntoView({ block: 'center' }); });
+  await freeAccount.screenshot({ path: OUT + '/account-free-unlinked.png' });
+
+  const linkedAccount = await accountOf(
+    { id: 'payer', email: 'ada@example.com', membership: 'free_client', intended_plan: null, access_approved: true, display_name: 'Ada Client' },
+    { trainerId: 't1', trainerName: 'Coach Kim' }
+  );
+  await linkedAccount.waitForSelector('[data-invite=end-self]');
+  assert.strictEqual(await linkedAccount.$('#invite-code'), null);
+  assert.ok((await linkedAccount.evaluate(function () { return document.getElementById('redeem').innerText; })).indexOf('Your trainer') !== -1);
+  assert.ok((await linkedAccount.evaluate(function () { return document.getElementById('redeem').innerText; })).indexOf('Coach Kim') !== -1);
+  await linkedAccount.evaluate(function () { document.getElementById('redeem').scrollIntoView({ block: 'center' }); });
+  await linkedAccount.screenshot({ path: OUT + '/account-client-linked.png' });
+
+  const enthusiastAccount = await accountOf(
+    { id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: 'enthusiast', access_approved: true, display_name: 'Ada Fan' },
+    null
+  );
+  await enthusiastAccount.waitForSelector('#invite-code');
+  assert.ok(await enthusiastAccount.$('#share-link'));
+  assert.strictEqual(await enthusiastAccount.$('[data-invite=end-self]'), null);
+
+  const linkedFan = await accountOf(
+    { id: 'payer', email: 'ada@example.com', membership: 'enthusiast', intended_plan: 'enthusiast', access_approved: true, display_name: 'Ada Fan' },
+    { trainerId: 't1', trainerName: 'Coach Kim' }
+  );
+  await linkedFan.waitForSelector('[data-invite=end-self]');
+  assert.strictEqual(await linkedFan.$('#invite-code'), null);
+  assert.strictEqual(await linkedFan.$('[data-invite=redeem]'), null);
+
+  const trainerAccount = await accountOf(
+    { id: 'payer', email: 'ada@example.com', membership: 'trainer', intended_plan: 'trainer', access_approved: true, display_name: 'Ada Coach' },
+    null
+  );
+  await trainerAccount.waitForFunction(function () { return document.body.innerText.indexOf('Trainer') !== -1; });
+  assert.strictEqual(await trainerAccount.$('#redeem'), null);
+  assert.strictEqual(await trainerAccount.$('#invite-code'), null);
+  await trainerAccount.screenshot({ path: OUT + '/account-trainer.png' });
+
+  const linkedTrainer = await accountOf(
+    { id: 'payer', email: 'ada@example.com', membership: 'trainer', intended_plan: 'trainer', access_approved: true, display_name: 'Ada Coach' },
+    { trainerId: 'm1', trainerName: 'Master Kim' }
+  );
+  await linkedTrainer.waitForSelector('[data-invite=end-self]');
+  assert.strictEqual(await linkedTrainer.$('#invite-code'), null);
+  assert.strictEqual(await linkedTrainer.$('[data-invite=redeem]'), null);
 
   const wrong = await open(none);
   await show(wrong, '#/subscriptions?checkout=success');
