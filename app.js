@@ -2929,7 +2929,7 @@
       var title = (higher ? 'Upgrade to ' : 'Switch to ') + target.name + ', ' + label + ' / month';
       var body = higher
         ? 'Starts now. Today your card is charged only the difference for the rest of this billing month.'
-        : 'Starts now. The unused time on your current plan becomes a credit that comes off your next bills. Nothing is refunded to your card.';
+        : 'Starts now. The unused time on your current plan becomes a credit that comes off your next bills.';
       var yes = higher ? 'Confirm upgrade' : 'Confirm switch';
       var h = '<div class="pl-modal" id="plan-switch" role="dialog" aria-modal="true" aria-labelledby="plan-switch-title" aria-describedby="plan-switch-body" tabindex="-1" data-target="' + target.id + '">';
       h += '<div class="card"><h3 id="plan-switch-title">' + esc(title) + '</h3>';
