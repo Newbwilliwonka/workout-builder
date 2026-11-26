@@ -2688,8 +2688,8 @@
   var landingEl = document.getElementById('landing');
   function landingPlansHtml() {
     var h = '<div class="sales">';
-    h += '<h2>Choose how you want to train</h2>';
-    h += '<p class="lede">Every plan is defined by what you can do, now and as the next features arrive.</p>';
+    h += '<svg class="landing-plans-chevron" viewBox="0 0 12 8" width="12" height="8" aria-hidden="true" focusable="false"><path d="M1 1.2 6 6.2 11 1.2" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    h += '<h2>Simple Plans for Every Coach</h2>';
     h += '<p class="beta-note">Beta pricing for the first 100 members.</p>';
     h += '<div class="plan-grid">';
     WBMembership.TIERS.forEach(function (t) {

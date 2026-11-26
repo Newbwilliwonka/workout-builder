@@ -12,13 +12,14 @@ const Mem = require('../membership.js');
 const TITLE = 'Coach Trainer App | Build, Run, and Track Client Training';
 const DESCRIPTION = 'Coach Trainer App helps trainers create team drills, run gym circuits, build personal training sessions, schedule programs, and track client progress live.';
 const HEADINGS = [
-  'Build custom training sessions using reps, intervals, timed sets, and a built-in stopwatch to record laps with events for speed and skill.',
-  'Run group circuits, manage your calendar, and track client progress in real time.'
+  'Precision Speed & Custom Workouts',
+  'Effortless Group Circuits & Client Tracking'
 ];
 const VALUES = [
-  'Free client access to the Workout Player, Calendar, History, Messaging, and Trainer Hub.',
-  'Keep clients engaged with custom tracking dashboards while attracting new leads via our local and online Trainer Hub.'
+  'Build sessions with reps, intervals, timed sets, and a built-in stopwatch with laps and events, plus free client access to the Workout Player, Calendar, History, Messaging, and Trainer Hub.',
+  'Manage your calendar and track progress in real time with custom client dashboards, while attracting new leads via our local and online Trainer Hub.'
 ];
+const PLANS_HEADING = 'Simple Plans for Every Coach';
 const SHOTS = [
   'assets/landing/team-drills.jpg',
   'assets/landing/team-gym.jpg'
@@ -50,14 +51,14 @@ landing.replace(/<section class="landing-feature">([\s\S]*?)<\/section>/g, funct
 });
 assert.strictEqual(sections.length, HEADINGS.length);
 sections.forEach(function (inner, i) {
-  var headingAt = inner.indexOf('<h2>' + HEADINGS[i] + '</h2>');
   var frameAt = inner.indexOf('<div class="landing-frame">');
+  var copyAt = inner.indexOf('<div class="landing-copy">');
+  var headingAt = inner.indexOf('<h2>' + HEADINGS[i] + '</h2>');
   var shotAt = inner.indexOf(SHOTS[i]);
   var valueAt = inner.indexOf('<p class="landing-value">' + VALUES[i] + '</p>');
-  assert.strictEqual(headingAt, 0, HEADINGS[i]);
-  assert.ok(frameAt > headingAt, SHOTS[i]);
-  assert.ok(shotAt > frameAt && shotAt < valueAt, SHOTS[i]);
-  assert.ok(valueAt > frameAt, VALUES[i]);
+  assert.strictEqual(frameAt, 0, SHOTS[i]);
+  assert.ok(shotAt > frameAt && shotAt < copyAt, SHOTS[i]);
+  assert.ok(copyAt > frameAt && headingAt > copyAt && valueAt > headingAt, HEADINGS[i]);
 });
 VALUES.forEach(function (text) {
   assert.strictEqual(landing.split(text).length - 1, 1, text);
@@ -85,26 +86,34 @@ assert.ok(plans.indexOf('t.priceLabel') !== -1);
 assert.ok(plans.indexOf('t.name') !== -1);
 assert.strictEqual(plans.indexOf('data-plan'), -1);
 assert.strictEqual(plans.indexOf('t.cta'), -1);
+assert.ok(plans.indexOf('landing-plans-chevron') !== -1);
+assert.ok(plans.indexOf('<h2>' + PLANS_HEADING + '</h2>') !== -1);
+assert.ok(plans.indexOf('landing-plans-chevron') < plans.indexOf('<h2>' + PLANS_HEADING + '</h2>'));
+assert.strictEqual(plans.indexOf('Choose how you want to train'), -1);
+assert.strictEqual(plans.indexOf('Every plan is defined'), -1);
+assert.ok(plans.indexOf('Beta pricing for the first 100 members.') !== -1);
+assert.ok(appSrc.indexOf('<h2>Choose how you want to train</h2>') !== -1);
+assert.ok(appSrc.indexOf('Every plan is defined by what you can do, now and as the next features arrive.') !== -1);
 Mem.TIERS.forEach(function (tier) {
   tier.available.concat(tier.comingSoon || []).forEach(function (line) {
     assert.strictEqual(landing.indexOf(line), -1, 'plan copy stays in the shared tier list: ' + line);
   });
 });
 
-function assertValueLine(card, i, size) {
-  assert.strictEqual(card.kids, 3);
-  assert.strictEqual(card.h2Margin, '12px');
+function assertCopyBlock(card, i, size) {
+  assert.strictEqual(card.kids, 2);
   assert.strictEqual(card.h2Weight, '800');
   assert.ok(card.h2Align === 'left' || card.h2Align === 'start', card.h2Align);
-  assert.strictEqual(card.radius, '14px');
-  assert.strictEqual(card.bg, 'rgb(255, 255, 255)');
+  assert.strictEqual(card.radius, '0px');
+  assert.strictEqual(card.bg, 'rgba(0, 0, 0, 0)');
+  assert.strictEqual(card.shadow, 'none');
   assert.strictEqual(card.valueText, VALUES[i]);
   assert.strictEqual(card.valueWeight, '400');
   assert.strictEqual(card.valueSize, size);
   assert.ok(parseFloat(card.valueSize) < parseFloat(card.h2Size), card.valueSize + ' vs ' + card.h2Size);
   assert.strictEqual(card.valueColor, 'rgb(55, 65, 81)');
   assert.strictEqual(card.valueAlign, 'left');
-  assert.strictEqual(card.valueGap, 12);
+  assert.strictEqual(card.headToValue, 8);
 }
 
 (async function () {
@@ -171,7 +180,9 @@ function assertValueLine(card, i, size) {
           var value = el.querySelector('.landing-value');
           var hs = getComputedStyle(h);
           var vs = getComputedStyle(value);
+          var featureStyle = getComputedStyle(el);
           var fr = frame.getBoundingClientRect();
+          var hr = h.getBoundingClientRect();
           var vr = value.getBoundingClientRect();
           var cr = el.getBoundingClientRect();
           return {
@@ -179,18 +190,19 @@ function assertValueLine(card, i, size) {
             top: Math.round(cr.top),
             height: Math.round(cr.height),
             kids: el.children.length,
-            h2Margin: hs.marginBottom,
             h2Size: hs.fontSize,
             h2Weight: hs.fontWeight,
             h2Align: hs.textAlign,
-            radius: getComputedStyle(el).borderRadius,
-            bg: getComputedStyle(el).backgroundColor,
+            radius: featureStyle.borderRadius,
+            bg: featureStyle.backgroundColor,
+            shadow: featureStyle.boxShadow,
             valueText: value.textContent,
             valueSize: vs.fontSize,
             valueWeight: vs.fontWeight,
             valueColor: vs.color,
             valueAlign: vs.textAlign,
-            valueGap: Math.round(vr.top - fr.bottom),
+            photoToHead: Math.round(hr.top - fr.bottom),
+            headToValue: Math.round(vr.top - hr.bottom),
             frameMax: getComputedStyle(frame).maxWidth
           };
         })
@@ -273,10 +285,11 @@ function assertValueLine(card, i, size) {
       assert.deepStrictEqual(card.edges, phoneInset.feats);
       assert.strictEqual(card.h2Size, '18px');
       assert.strictEqual(card.frameMax, 'none');
-      assertValueLine(card, i, '16px');
+      assert.strictEqual(card.photoToHead, 16);
+      assertCopyBlock(card, i, '16px');
     });
     assert.ok(phoneInset.cards[1].top >= phoneInset.cards[0].top + phoneInset.cards[0].height);
-    assert.strictEqual(phoneInset.cards[1].top - (phoneInset.cards[0].top + phoneInset.cards[0].height), 16);
+    assert.strictEqual(phoneInset.cards[1].top - (phoneInset.cards[0].top + phoneInset.cards[0].height), 64);
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     const deskInset = await page.evaluate(landingInset);
     assert.strictEqual(deskInset.max, '1100px');
@@ -288,40 +301,44 @@ function assertValueLine(card, i, size) {
     assert.strictEqual(deskInset.cards.length, HEADINGS.length);
     deskInset.cards.forEach(function (card, i) {
       assert.strictEqual(card.h2Size, '22px');
-      assert.strictEqual(card.frameMax, '720px');
-      assertValueLine(card, i, '18px');
+      assert.strictEqual(card.frameMax, 'none');
+      assert.deepStrictEqual(card.edges, deskInset.feats);
+      assertCopyBlock(card, i, '18px');
     });
-    const deskFeatures = await page.evaluate(function () {
-      var vw = document.documentElement.clientWidth;
+    assert.strictEqual(deskInset.cards[1].top - (deskInset.cards[0].top + deskInset.cards[0].height), 64);
+    const deskRows = await page.evaluate(function () {
       function box(el) {
         var r = el.getBoundingClientRect();
-        return { left: Math.round(r.left), right: Math.round(vw - r.right), top: Math.round(r.top), width: Math.round(r.width) };
+        return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), width: Math.round(r.width) };
       }
-      var feats = box(document.querySelector('.landing-features'));
-      return {
-        feats: feats,
-        cards: Array.prototype.map.call(document.querySelectorAll('.landing-feature'), function (el) {
-          return { box: box(el), frame: box(el.querySelector('.landing-frame')) };
-        })
-      };
+      return Array.prototype.map.call(document.querySelectorAll('.landing-feature'), function (el) {
+        return {
+          frame: box(el.querySelector('.landing-frame')),
+          copy: box(el.querySelector('.landing-copy')),
+          head: box(el.querySelector('h2')),
+          value: box(el.querySelector('.landing-value'))
+        };
+      });
     });
-    assert.strictEqual(deskFeatures.cards.length, HEADINGS.length);
-    var sprint = deskFeatures.cards[0];
-    var group = deskFeatures.cards[1];
-    assert.strictEqual(sprint.box.top, group.box.top);
-    assert.strictEqual(sprint.box.left, deskFeatures.feats.left);
-    assert.strictEqual(group.box.right, deskFeatures.feats.right);
-    assert.strictEqual(sprint.box.width, group.box.width);
-    assert.ok(sprint.box.width < deskFeatures.feats.width, 'a photo card still spans the row');
-    var colGap = group.box.left - (sprint.box.left + sprint.box.width);
-    assert.strictEqual(colGap, 16);
-    assert.strictEqual(sprint.box.width + colGap + group.box.width, deskFeatures.feats.width);
-    deskFeatures.cards.forEach(function (card, i) {
-      assert.ok(card.frame.width <= 720, 'feature ' + i + ' photo ' + card.frame.width);
-      assert.ok(card.frame.width <= card.box.width);
-      var insetLeft = card.frame.left - card.box.left;
-      var insetRight = (card.box.left + card.box.width) - (card.frame.left + card.frame.width);
-      assert.ok(Math.abs(insetLeft - insetRight) <= 1, 'feature ' + i + ' photo inset');
+    assert.strictEqual(deskRows.length, HEADINGS.length);
+    function beside(row) {
+      var overlap = Math.min(row.frame.bottom, row.copy.bottom) - Math.max(row.frame.top, row.copy.top);
+      assert.ok(overlap > 40, 'photo and copy share a row');
+      var midFrame = (row.frame.top + row.frame.bottom) / 2;
+      var midCopy = (row.copy.top + row.copy.bottom) / 2;
+      assert.ok(Math.abs(midFrame - midCopy) <= 2, 'copy sits with the photo');
+      assert.ok(Math.abs(row.frame.width - row.copy.width) <= 1);
+    }
+    beside(deskRows[0]);
+    beside(deskRows[1]);
+    assert.ok(deskRows[0].frame.right <= deskRows[0].copy.left);
+    assert.strictEqual(deskRows[0].copy.left - deskRows[0].frame.right, 48);
+    assert.ok(deskRows[1].copy.right <= deskRows[1].frame.left);
+    assert.strictEqual(deskRows[1].frame.left - deskRows[1].copy.right, 48);
+    deskRows.forEach(function (row) {
+      assert.ok(Math.abs(row.head.left - row.copy.left) <= 1);
+      assert.ok(Math.abs(row.value.left - row.copy.left) <= 1);
+      assert.ok(row.value.top >= row.head.bottom);
     });
     await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
     assert.strictEqual(seen.frames.length, SHOTS.length);
@@ -354,6 +371,39 @@ function assertValueLine(card, i, size) {
       tier.available.forEach(function (line) { assert.ok(seen.text.indexOf(line) !== -1, line); });
       (tier.comingSoon || []).forEach(function (line) { assert.ok(seen.text.indexOf(line) !== -1, line); });
     });
+    assert.ok(seen.text.indexOf(PLANS_HEADING) !== -1);
+    assert.strictEqual(seen.text.indexOf('Choose how you want to train'), -1);
+    assert.strictEqual(seen.text.indexOf('Every plan is defined'), -1);
+    assert.ok(seen.text.indexOf('Beta pricing for the first 100 members.') !== -1);
+    const plansHead = await page.evaluate(function () {
+      var mark = document.querySelector('#landing-plans .landing-plans-chevron');
+      var title = document.querySelector('#landing-plans h2');
+      var beta = document.querySelector('#landing-plans .beta-note');
+      var plan = document.querySelector('#landing-plans .plan');
+      var mr = mark.getBoundingClientRect();
+      var tr = title.getBoundingClientRect();
+      var ps = getComputedStyle(plan);
+      return {
+        title: title.textContent,
+        beta: beta.textContent,
+        lede: !!document.querySelector('#landing-plans .lede'),
+        above: mr.bottom <= tr.top + 1,
+        gap: Math.round(tr.top - mr.bottom),
+        markW: Math.round(mr.width),
+        markH: Math.round(mr.height),
+        planBg: ps.backgroundColor,
+        planRadius: ps.borderRadius
+      };
+    });
+    assert.strictEqual(plansHead.title, PLANS_HEADING);
+    assert.strictEqual(plansHead.beta, 'Beta pricing for the first 100 members.');
+    assert.strictEqual(plansHead.lede, false);
+    assert.strictEqual(plansHead.above, true);
+    assert.strictEqual(plansHead.gap, 8);
+    assert.strictEqual(plansHead.markW, 12);
+    assert.strictEqual(plansHead.markH, 8);
+    assert.strictEqual(plansHead.planBg, 'rgb(255, 255, 255)');
+    assert.strictEqual(plansHead.planRadius, '14px');
     assert.ok(seen.text.indexOf('Choose Enthusiast') === -1);
     assert.ok(seen.text.indexOf('Choose Trainer') === -1);
     assert.ok(seen.text.indexOf('Choose Master Trainer') === -1);
@@ -389,7 +439,7 @@ function assertValueLine(card, i, size) {
     await page.goto(URL + '#/', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(function () {
       var landing = document.getElementById('landing');
-      return (location.hash === '' || location.hash === '#') && landing && getComputedStyle(landing).display !== 'none' && document.body.innerText.indexOf('Choose how you want to train') !== -1 && !document.querySelector('[data-a=new]');
+      return (location.hash === '' || location.hash === '#') && landing && getComputedStyle(landing).display !== 'none' && document.body.innerText.indexOf('Simple Plans for Every Coach') !== -1 && !document.querySelector('[data-a=new]');
     });
     await page.goto(URL + '?invite=ABCD2345', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(function () {
