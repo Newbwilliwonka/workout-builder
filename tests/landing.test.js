@@ -100,9 +100,11 @@ Mem.TIERS.forEach(function (tier) {
   });
 });
 
-function assertCopyBlock(card, i, size) {
+var FRAME_SHADOW = 'rgba(17, 24, 39, 0.14) 0px 10px 28px 0px, rgba(17, 24, 39, 0.08) 0px 2px 8px 0px';
+function assertCopyBlock(card, i, size, headGap, h2Line, valueLine) {
   assert.strictEqual(card.kids, 2);
   assert.strictEqual(card.h2Weight, '800');
+  assert.strictEqual(card.h2Line, h2Line);
   assert.ok(card.h2Align === 'left' || card.h2Align === 'start', card.h2Align);
   assert.strictEqual(card.radius, '0px');
   assert.strictEqual(card.bg, 'rgba(0, 0, 0, 0)');
@@ -110,10 +112,13 @@ function assertCopyBlock(card, i, size) {
   assert.strictEqual(card.valueText, VALUES[i]);
   assert.strictEqual(card.valueWeight, '400');
   assert.strictEqual(card.valueSize, size);
+  assert.strictEqual(card.valueLine, valueLine);
   assert.ok(parseFloat(card.valueSize) < parseFloat(card.h2Size), card.valueSize + ' vs ' + card.h2Size);
-  assert.strictEqual(card.valueColor, 'rgb(55, 65, 81)');
+  assert.strictEqual(card.valueColor, 'rgb(75, 85, 99)');
   assert.strictEqual(card.valueAlign, 'left');
-  assert.strictEqual(card.headToValue, 8);
+  assert.strictEqual(card.headToValue, headGap);
+  assert.strictEqual(card.frameRadius, '14px');
+  assert.strictEqual(card.frameShadow, FRAME_SHADOW);
 }
 
 (async function () {
@@ -159,6 +164,21 @@ function assertCopyBlock(card, i, size) {
       boot(0);
     });
     await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
+    function plansCue() {
+      var feats = document.querySelectorAll('.landing-feature');
+      var last = feats[feats.length - 1].getBoundingClientRect();
+      var mark = document.querySelector('#landing-plans .landing-plans-chevron');
+      var title = document.querySelector('#landing-plans h2');
+      var host = document.getElementById('landing-plans').getBoundingClientRect();
+      var mr = mark.getBoundingClientRect();
+      var tr = title.getBoundingClientRect();
+      return {
+        afterFeature: Math.round(mr.top - last.bottom),
+        beforeHeading: Math.round(tr.top - mr.bottom),
+        total: Math.round(tr.top - last.bottom),
+        centered: Math.abs((mr.left + mr.right) / 2 - (host.left + host.right) / 2) <= 1
+      };
+    }
     function landingInset() {
       var shell = document.querySelector('.landing-wrap');
       var style = getComputedStyle(shell);
@@ -181,6 +201,7 @@ function assertCopyBlock(card, i, size) {
           var hs = getComputedStyle(h);
           var vs = getComputedStyle(value);
           var featureStyle = getComputedStyle(el);
+          var frameStyle = getComputedStyle(frame);
           var fr = frame.getBoundingClientRect();
           var hr = h.getBoundingClientRect();
           var vr = value.getBoundingClientRect();
@@ -192,6 +213,7 @@ function assertCopyBlock(card, i, size) {
             kids: el.children.length,
             h2Size: hs.fontSize,
             h2Weight: hs.fontWeight,
+            h2Line: hs.lineHeight,
             h2Align: hs.textAlign,
             radius: featureStyle.borderRadius,
             bg: featureStyle.backgroundColor,
@@ -199,11 +221,14 @@ function assertCopyBlock(card, i, size) {
             valueText: value.textContent,
             valueSize: vs.fontSize,
             valueWeight: vs.fontWeight,
+            valueLine: vs.lineHeight,
             valueColor: vs.color,
             valueAlign: vs.textAlign,
             photoToHead: Math.round(hr.top - fr.bottom),
             headToValue: Math.round(vr.top - hr.bottom),
-            frameMax: getComputedStyle(frame).maxWidth
+            frameMax: frameStyle.maxWidth,
+            frameRadius: frameStyle.borderRadius,
+            frameShadow: frameStyle.boxShadow
           };
         })
       };
@@ -283,10 +308,10 @@ function assertCopyBlock(card, i, size) {
     assert.strictEqual(phoneInset.cards.length, HEADINGS.length);
     phoneInset.cards.forEach(function (card, i) {
       assert.deepStrictEqual(card.edges, phoneInset.feats);
-      assert.strictEqual(card.h2Size, '18px');
+      assert.strictEqual(card.h2Size, '22px');
       assert.strictEqual(card.frameMax, 'none');
       assert.strictEqual(card.photoToHead, 16);
-      assertCopyBlock(card, i, '16px');
+      assertCopyBlock(card, i, '15px', 8, '27.5px', '21.75px');
     });
     assert.ok(phoneInset.cards[1].top >= phoneInset.cards[0].top + phoneInset.cards[0].height);
     assert.strictEqual(phoneInset.cards[1].top - (phoneInset.cards[0].top + phoneInset.cards[0].height), 64);
@@ -300,12 +325,17 @@ function assertCopyBlock(card, i, size) {
     assert.ok(deskInset.feats.left >= deskInset.shell.left);
     assert.strictEqual(deskInset.cards.length, HEADINGS.length);
     deskInset.cards.forEach(function (card, i) {
-      assert.strictEqual(card.h2Size, '22px');
+      assert.strictEqual(card.h2Size, '26px');
       assert.strictEqual(card.frameMax, 'none');
       assert.deepStrictEqual(card.edges, deskInset.feats);
-      assertCopyBlock(card, i, '18px');
+      assertCopyBlock(card, i, '16px', 10, '31.2px', '23.2px');
     });
     assert.strictEqual(deskInset.cards[1].top - (deskInset.cards[0].top + deskInset.cards[0].height), 64);
+    const deskCue = await page.evaluate(plansCue);
+    assert.strictEqual(deskCue.afterFeature, 16);
+    assert.strictEqual(deskCue.beforeHeading, 37);
+    assert.strictEqual(deskCue.total, 61);
+    assert.strictEqual(deskCue.centered, true);
     const deskRows = await page.evaluate(function () {
       function box(el) {
         var r = el.getBoundingClientRect();
@@ -389,6 +419,9 @@ function assertCopyBlock(card, i, size) {
         lede: !!document.querySelector('#landing-plans .lede'),
         above: mr.bottom <= tr.top + 1,
         gap: Math.round(tr.top - mr.bottom),
+        afterFeature: Math.round(mr.top - document.querySelectorAll('.landing-feature')[1].getBoundingClientRect().bottom),
+        total: Math.round(tr.top - document.querySelectorAll('.landing-feature')[1].getBoundingClientRect().bottom),
+        centered: Math.abs((mr.left + mr.right) / 2 - (document.getElementById('landing-plans').getBoundingClientRect().left + document.getElementById('landing-plans').getBoundingClientRect().right) / 2) <= 1,
         markW: Math.round(mr.width),
         markH: Math.round(mr.height),
         planBg: ps.backgroundColor,
@@ -399,7 +432,10 @@ function assertCopyBlock(card, i, size) {
     assert.strictEqual(plansHead.beta, 'Beta pricing for the first 100 members.');
     assert.strictEqual(plansHead.lede, false);
     assert.strictEqual(plansHead.above, true);
-    assert.strictEqual(plansHead.gap, 8);
+    assert.strictEqual(plansHead.afterFeature, 16);
+    assert.strictEqual(plansHead.gap, 21);
+    assert.strictEqual(plansHead.total, 45);
+    assert.strictEqual(plansHead.centered, true);
     assert.strictEqual(plansHead.markW, 12);
     assert.strictEqual(plansHead.markH, 8);
     assert.strictEqual(plansHead.planBg, 'rgb(255, 255, 255)');
