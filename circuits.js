@@ -303,18 +303,21 @@
     if (!ctx) return;
     ctx.titleEl.textContent = 'Group Circuit Training';
     ctx.backBtn.hidden = false;
-    var C = model();
     var h = '<button class="pri" type="button" id="circuit-new" data-act="new" style="width:100%;margin-bottom:12px">+ New circuit</button>';
     if (loadError) h += '<div class="errs">' + esc(loadError) + '</div>';
     if (!rows.length && !loadError) h += '<div class="empty" id="circuit-empty">No circuits yet.<br>Tap “New circuit” to set one up.</div>';
-    rows.forEach(function (row) {
+    rows.forEach(function (row, i) {
       if (!row) return;
-      var data = row.data || {};
-      var info = C.summary({ name: row.name, stations: data.stations });
-      h += '<div class="card" data-circuit="' + esc(row.id) + '"><div class="name">' + esc(row.name || 'Circuit') + '</div>' +
-        '<div class="mute">' + esc(countLabel(info.stations, 'station')) + '</div>' +
-        '<div class="actions"><button type="button" class="pri sm" data-act="run" data-id="' + esc(row.id) + '">Run</button>' +
-        '<button type="button" class="sm" data-act="open" data-id="' + esc(row.id) + '">Open</button>' +
+      var n = stationCount(row);
+      var last = i === rows.length - 1;
+      h += '<div class="card" data-circuit="' + esc(row.id) + '">' +
+        '<div class="name" data-act="open" data-id="' + esc(row.id) + '" style="cursor:pointer">' + esc(row.name || 'Circuit') + '</div>' +
+        '<div class="mute">' + esc(countLabel(n, 'station')) + '</div><div class="actions">' +
+        '<button type="button" class="sm" data-act="up" data-id="' + esc(row.id) + '" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
+        '<button type="button" class="sm" data-act="down" data-id="' + esc(row.id) + '" aria-label="Move down"' + (last ? ' disabled' : '') + '>▼</button>' +
+        '<button type="button" class="pri sm" data-act="open" data-id="' + esc(row.id) + '">Edit</button>' +
+        '<button type="button" class="sm" data-act="view" data-id="' + esc(row.id) + '"' + (n ? '' : ' disabled') + '>View</button>' +
+        '<button type="button" class="sm" data-act="run" data-id="' + esc(row.id) + '"' + (n ? '' : ' disabled') + '>Run</button>' +
         '<button type="button" class="sm danger" data-act="del" data-id="' + esc(row.id) + '">Delete</button></div></div>';
     });
     ctx.app.innerHTML = h;
@@ -515,14 +518,32 @@
     if (!ctx) return;
     var target = id || (draft && draft.id);
     if (!target) return;
+    if (id && !stationCount(rowById(id))) return;
     ctx.go('#/circuits/' + target + '/prepare' + (fromCalendar() ? '?from=calendar' : ''));
+  }
+  function onView(id) {
+    if (!ctx || !id || !stationCount(rowById(id))) return;
+    ctx.go('#/circuits/' + id + '/view?from=list');
+  }
+  function moveCircuit(id, dir) {
+    var i = -1;
+    rows.forEach(function (row, at) { if (row && String(row.id) === String(id)) i = at; });
+    var j = i + dir;
+    if (i < 0 || j < 0 || j >= rows.length) return;
+    var held = rows[i];
+    rows[i] = rows[j];
+    rows[j] = held;
+    writeCircuitOrder(rows);
+    paintList();
   }
   function onClick(e) {
     var button = e.target.closest ? e.target.closest('[data-act]') : null;
     if (!button || button.disabled || busy) return;
     var act = button.getAttribute('data-act');
     if (act === 'new') return ctx.go('#/circuits/new');
+    if (act === 'up' || act === 'down') return moveCircuit(button.getAttribute('data-id'), act === 'up' ? -1 : 1);
     if (act === 'run') return onRun(button.getAttribute('data-id'));
+    if (act === 'view') return onView(button.getAttribute('data-id'));
     if (act === 'open') return ctx.go('#/circuits/' + button.getAttribute('data-id'));
     if (act === 'del') return onDelete(button.getAttribute('data-id'));
     if (act === 'add') return onAdd();
@@ -572,6 +593,44 @@
     if (busy || e.key !== 'Enter') return;
     if (e.target && e.target.id === 'circuit-ex-name') { e.preventDefault(); onManualExercise(); }
   }
+  var CIRCUIT_ORDER_KEY = 'wb.circuitOrder.v1';
+  function readCircuitOrder() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(CIRCUIT_ORDER_KEY) || '[]');
+      return Array.isArray(raw) ? raw.map(function (id) { return String(id); }) : [];
+    } catch (e) { return []; }
+  }
+  function writeCircuitOrder(list) {
+    try {
+      localStorage.setItem(CIRCUIT_ORDER_KEY, JSON.stringify((list || []).map(function (row) {
+        return String(row && row.id || '');
+      }).filter(Boolean)));
+    } catch (e) {}
+  }
+  function sortCircuits(list) {
+    var order = readCircuitOrder();
+    if (!order.length) return list;
+    var rank = {};
+    order.forEach(function (id, i) { rank[id] = i; });
+    var known = [];
+    var fresh = [];
+    (list || []).forEach(function (row) {
+      var id = row && row.id != null ? String(row.id) : '';
+      if (id && Object.prototype.hasOwnProperty.call(rank, id)) known.push(row);
+      else fresh.push(row);
+    });
+    known.sort(function (a, b) { return rank[String(a.id)] - rank[String(b.id)]; });
+    return fresh.concat(known);
+  }
+  function rowById(id) {
+    var found = null;
+    rows.forEach(function (row) { if (!found && row && String(row.id) === String(id)) found = row; });
+    return found;
+  }
+  function stationCount(row) {
+    var stations = row && row.data && row.data.stations;
+    return Array.isArray(stations) ? stations.length : 0;
+  }
   function unavailable(err) {
     return (err && err.message) || 'Group circuits are not available yet. Apply the circuits SQL in the Supabase SQL editor.';
   }
@@ -588,7 +647,7 @@
     } catch (e) { pending = Promise.reject(e); }
     Promise.resolve(pending).then(function (list) {
       if (token !== loadToken || !ctx) return;
-      rows = Array.isArray(list) ? list : [];
+      rows = sortCircuits(Array.isArray(list) ? list : []);
       loadError = '';
       paintList();
     }, function (err) {
