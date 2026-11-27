@@ -170,6 +170,12 @@ export async function changeSubscription(input) {
         items: [{ id: item.id, price: priceId, quantity: quantity }],
         proration_behavior: 'always_invoice',
         payment_behavior: 'pending_if_incomplete',
+        // A portal cancel sets cancel_at to the period end. Updating the
+        // price does not clear it, so the new plan would still end.
+        // Empty cancel_at unsets that date. cancel_at_period_end false
+        // clears the classic period-end flag.
+        cancel_at_period_end: false,
+        cancel_at: '',
         expand: INVOICE_EXPAND
       }, {
         idempotencyKey: 'change-' + userId + '-' + (claimToken || priceId)
@@ -182,10 +188,12 @@ export async function changeSubscription(input) {
     const invoice = await invoiceOf(input.stripe, updated)
     const body = resultOf(updated, invoice)
     if (body.status === 'ok') {
+      // The returned subscription can still show the old cancel_at. The
+      // update above cleared it, so the stored date must clear too.
       await syncAppliedSubscription(input.stripe, input.db, input.log, {
         id: userId,
         stripe_customer_id: customerId
-      }, updated, 'change-subscription')
+      }, Object.assign({}, updated, { cancel_at: null, cancel_at_period_end: false }), 'change-subscription')
     }
     return { status: 200, body: body }
   } catch (err) {

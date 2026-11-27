@@ -50,7 +50,7 @@
   function profileColumnMissing(err) {
     var msg = String((err && (err.message || err.details || err.hint || err.code)) || '');
     if (/\b42703\b|PGRST204|schema cache/i.test(msg)) return true;
-    if (/display_name|online_only|avatar_path/i.test(msg)) return true;
+    if (/display_name|online_only|avatar_path|cancel_at|plan_ended_at/i.test(msg)) return true;
     return /['"]listed['"]|['"]service_type['"]|column\s+(?:profiles\.)?(?:listed|service_type)\b/i.test(msg);
   }
   function withReady(row, ready) {
@@ -88,6 +88,7 @@
     row.complimentary = data.complimentary === true;
     row.beta_locked = data.beta_locked === true;
     row.plan_ended_at = data.plan_ended_at || null;
+    row.cancel_at = data.cancel_at || null;
     return row;
   }
   function emptyBilling(row) {
@@ -96,22 +97,22 @@
     row.complimentary = false;
     row.beta_locked = false;
     row.plan_ended_at = null;
+    row.cancel_at = null;
     return row;
   }
   function withBilling(c, userId, row) {
     if (!row || !userId) return Promise.resolve(row);
-    var full = 'billing_status,stripe_customer_id,complimentary,beta_locked,plan_ended_at';
+    var full = 'billing_status,stripe_customer_id,complimentary,beta_locked,plan_ended_at,cancel_at';
+    var held = 'billing_status,stripe_customer_id,complimentary,beta_locked,plan_ended_at';
     var base = 'billing_status,stripe_customer_id,complimentary,beta_locked';
-    return c.from('profiles').select(full).eq('id', userId).maybeSingle().then(function (v) {
-      if (v && !v.error && v.data) return applyBilling(row, v.data);
-      if (v && v.error && profileColumnMissing(v.error)) {
-        return c.from('profiles').select(base).eq('id', userId).maybeSingle().then(function (again) {
-          if (!again || again.error || !again.data) return emptyBilling(row);
-          return applyBilling(row, again.data);
-        }, function () { return emptyBilling(row); });
-      }
-      return emptyBilling(row);
-    }, function () { return emptyBilling(row); });
+    function readBilling(columns, next) {
+      return c.from('profiles').select(columns).eq('id', userId).maybeSingle().then(function (v) {
+        if (v && !v.error && v.data) return applyBilling(row, v.data);
+        if (v && v.error && profileColumnMissing(v.error) && next) return readBilling(next.columns, next.next);
+        return emptyBilling(row);
+      }, function () { return emptyBilling(row); });
+    }
+    return readBilling(full, { columns: held, next: { columns: base, next: null } });
   }
   function billingPayload(res, fallback, interpret) {
     var Bill = root.WBBilling;

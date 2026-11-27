@@ -23,6 +23,15 @@ function periodEndOf(subscription) {
   return isoFromUnix(unix)
 }
 
+// Flexible portal cancels set cancel_at. Classic portal cancels set
+// cancel_at_period_end. Either one means the subscription is scheduled to end.
+function pendingCancelIso(subscription) {
+  if (!subscription || subscription.status === 'canceled' || subscription.status === 'incomplete_expired') return null
+  if (subscription.cancel_at) return isoFromUnix(subscription.cancel_at)
+  if (subscription.cancel_at_period_end === true) return periodEndOf(subscription)
+  return null
+}
+
 function billingStatus(status) {
   if (status === 'active' || status === 'past_due' || status === 'unpaid' || status === 'canceled' || status === 'incomplete') {
     return status
@@ -224,6 +233,15 @@ export function notePlanEnded(log) {
   })
 }
 
+async function rememberCancel(db, profileId, subscription) {
+  if (!profileId || !subscription || !subscription.id) return
+  await db.rpc('set_subscription_cancel', {
+    p_profile: profileId,
+    p_subscription_id: subscription.id,
+    p_cancel_at: pendingCancelIso(subscription)
+  })
+}
+
 async function endStoredPlan(db, log, row, subId, customerId, periodEnd) {
   const written = await db.rpc('apply_stripe_membership', {
     p_profile: row.id,
@@ -233,6 +251,13 @@ async function endStoredPlan(db, log, row, subId, customerId, periodEnd) {
     p_billing_status: 'canceled',
     p_period_end: periodEnd || null
   })
+  if (subId) {
+    await db.rpc('set_subscription_cancel', {
+      p_profile: row.id,
+      p_subscription_id: subId,
+      p_cancel_at: null
+    })
+  }
   if (written && written.newly_ended === true) notePlanEnded(log)
   return written
 }
@@ -538,6 +563,9 @@ export async function syncAppliedSubscription(stripe, db, log, row, subscription
     p_subscription_id: subscription.id,
     p_period_end: periodEnd
   })
+  if (!(written && written.duplicate === true)) {
+    await rememberCancel(db, row.id, subscription)
+  }
   if (written && written.duplicate === true) {
     await settleDuplicate(
       stripe,

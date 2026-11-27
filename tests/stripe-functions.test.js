@@ -448,6 +448,101 @@ async function main() {
   assert.strictEqual(sync.p_plan, 'trainer');
   assert.strictEqual(sync.p_billing_status, 'active');
   assert.ok(sync.p_period_end.indexOf('2026') === -1 || sync.p_period_end.indexOf('T') !== -1);
+  const renews = updated.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(renews.p_subscription_id, 'sub_payer001');
+  assert.strictEqual(renews.p_profile, USER);
+  assert.strictEqual(renews.p_cancel_at, null);
+
+  const scheduled = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_cancel_at',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            cancel_at: Date.parse('2026-12-27T12:00:00.000Z') / 1000,
+            cancel_at_period_end: false,
+            metadata: { supabase_user_id: USER },
+            items: { data: [{ price: 'price_only_id', current_period_end: 1798329600 }] }
+          }
+        }
+      };
+    },
+    db: scheduled
+  });
+  const scheduledCancel = scheduled.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(scheduledCancel.p_cancel_at, '2026-12-27T12:00:00.000Z');
+  assert.strictEqual(scheduledCancel.p_subscription_id, 'sub_payer001');
+
+  const classicCancel = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_cancel_period',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            cancel_at: null,
+            cancel_at_period_end: true,
+            metadata: { supabase_user_id: USER },
+            items: { data: [{ price: 'price_only_id', current_period_end: Date.parse('2026-12-27T00:00:00.000Z') / 1000 }] }
+          }
+        }
+      };
+    },
+    db: classicCancel
+  });
+  const classicWrite = classicCancel.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(classicWrite.p_cancel_at, '2026-12-27T00:00:00.000Z');
+
+  const resumed = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_cancel_cleared',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            cancel_at: null,
+            cancel_at_period_end: false,
+            metadata: { supabase_user_id: USER },
+            items: { data: [{ price: 'price_only_id', current_period_end: 1798329600 }] }
+          }
+        }
+      };
+    },
+    db: resumed
+  });
+  const clearedCancel = resumed.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(clearedCancel.p_cancel_at, null);
 
   const failed = eventDb();
   const renewalStripe = stripeMock();
@@ -587,6 +682,9 @@ async function main() {
   const endCall = ended.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
   assert.strictEqual(endCall.p_action, 'end');
   assert.strictEqual(endCall.p_billing_status, 'canceled');
+  const clearedOnDelete = ended.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(clearedOnDelete.p_subscription_id, 'sub_payer001');
+  assert.strictEqual(clearedOnDelete.p_cancel_at, null);
 
   const createdSub = eventDb();
   await webhook.handleWebhook({
@@ -1871,12 +1969,45 @@ async function main() {
   assert.strictEqual(update[1], 'sub_payer001');
   assert.strictEqual(update[2].proration_behavior, 'always_invoice');
   assert.strictEqual(update[2].payment_behavior, 'pending_if_incomplete');
+  assert.strictEqual(update[2].cancel_at_period_end, false);
+  assert.strictEqual(update[2].cancel_at, '');
   assert.deepStrictEqual(update[2].expand, ['latest_invoice.confirmation_secret']);
   assert.deepStrictEqual(update[2].items, [{ id: 'si_current', price: 'price_from_master_trainer_beta_monthly', quantity: 1 }]);
   assert.strictEqual(update[3].idempotencyKey, 'change-' + USER + '-' + TOKEN);
   assert.ok(names(betaSwitch.calls).indexOf('refunds.create') === -1);
   assert.ok(names(betaDb.calls).indexOf('beta_paid_count') === -1);
   assert.ok(names(betaDb.calls).indexOf('checkout_claim_release') !== -1);
+  const clearedBySwitch = betaDb.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(clearedBySwitch.p_subscription_id, 'sub_payer001');
+  assert.strictEqual(clearedBySwitch.p_cancel_at, null);
+
+  const stillEnding = Object.assign({}, subOn('trainer', 'beta'), {
+    cancel_at: Date.parse('2026-12-27T12:00:00.000Z') / 1000,
+    cancel_at_period_end: false
+  });
+  const stayStripe = changeStripe([stillEnding], async function (id, params, opts) {
+    stayStripe.calls.push(['subscriptions.update', id, params, opts]);
+    return Object.assign({}, stillEnding, {
+      pending_update: null,
+      items: { data: [{ id: params.items[0].id, price: { id: params.items[0].price }, current_period_end: 1798329600 }] }
+    });
+  });
+  const stayDb = changeDb(payer);
+  const stayed = await change.changeSubscription({
+    stripe: stayStripe,
+    db: stayDb,
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.strictEqual(stayed.body.status, 'ok');
+  const stayUpdate = stayStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; })[0];
+  assert.strictEqual(stayUpdate[2].cancel_at_period_end, false);
+  assert.strictEqual(stayUpdate[2].cancel_at, '');
+  const stayClear = stayDb.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(stayClear.p_cancel_at, null);
+  assert.strictEqual(stayClear.p_subscription_id, 'sub_payer001');
 
   const standardSwitch = changeStripe([subOn('trainer', 'standard')]);
   await change.changeSubscription({
@@ -1890,6 +2021,8 @@ async function main() {
   assert.deepStrictEqual(standardSwitch.calls[1][1].lookup_keys, ['enthusiast_standard_monthly']);
   assert.strictEqual(standardSwitch.calls[2][2].proration_behavior, 'always_invoice');
   assert.strictEqual(standardSwitch.calls[2][2].payment_behavior, 'pending_if_incomplete');
+  assert.strictEqual(standardSwitch.calls[2][2].cancel_at_period_end, false);
+  assert.strictEqual(standardSwitch.calls[2][2].cancel_at, '');
   assert.ok(names(standardSwitch.calls).indexOf('refunds.create') === -1);
 
   const sameDb = changeDb(payer);

@@ -350,6 +350,7 @@ const paying = {
       && plan && note.compareDocumentPosition(plan) === Node.DOCUMENT_POSITION_FOLLOWING
       && document.getElementById('your-plan-name').textContent === 'Trainer'
       && document.getElementById('your-plan-price').textContent === '$19.99 / month'
+      && !document.getElementById('your-plan-ends')
       && document.getElementById('account-billing').textContent === 'Manage billing'
       && document.getElementById('account-upgrade').textContent === 'Upgrade subscription'
       && document.getElementById('account-upgrade').getAttribute('href') === '#/subscriptions'
@@ -357,6 +358,15 @@ const paying = {
       && document.getElementById('account-card');
   });
   await success.screenshot({ path: OUT + '/account-success.png' });
+  const ending = await open(Object.assign({}, paying, { cancel_at: '2099-12-27T12:00:00.000Z' }));
+  await show(ending, '#/account');
+  await ending.waitForFunction(function () {
+    var line = document.getElementById('your-plan-ends');
+    return line && line.className.indexOf('mute') !== -1
+      && line.textContent === 'Ends Dec 27'
+      && document.getElementById('your-plan-name').textContent === 'Trainer'
+      && document.getElementById('your-plan-price').textContent === '$19.99 / month';
+  });
   await success.evaluate(function () {
     var n = 0;
     window.WBAuth.openBilling = function () {

@@ -192,6 +192,17 @@
     if (ended > at || at - ended >= HOLD_MS) return '';
     return HOLD_LINE;
   }
+  // "Ends Dec 27". A past date is not a pending cancel.
+  function planEndsLabel(cancelAt, now) {
+    if (!cancelAt) return '';
+    var ms = Date.parse(cancelAt);
+    if (!isFinite(ms)) return '';
+    var at = now == null ? Date.now() : now;
+    if (ms <= at) return '';
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var d = new Date(ms);
+    return 'Ends ' + months[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
 
   var api = {
     NONE: NONE,
@@ -205,6 +216,7 @@
     payable: payable,
     activePaidPlan: activePaidPlan,
     dataHoldLine: dataHoldLine,
+    planEndsLabel: planEndsLabel,
     HOLD_LINE: HOLD_LINE
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

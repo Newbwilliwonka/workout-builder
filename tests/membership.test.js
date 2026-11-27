@@ -188,6 +188,14 @@ assert.strictEqual(Mem.dataHoldLine({ membership: 'none', plan_ended_at: null },
 assert.strictEqual(Mem.dataHoldLine({ membership: 'free_client', plan_ended_at: '2026-11-20T12:00:00Z' }, holdNow), '');
 assert.strictEqual(Mem.dataHoldLine({ membership: 'trainer', billing_status: 'active', plan_ended_at: '2026-11-20T12:00:00Z' }, holdNow), '');
 assert.strictEqual(Mem.activePaidPlan({ membership: 'master_trainer', billing_status: 'trialing' }), 'master_trainer');
+var endsNow = Date.parse('2026-11-27T00:00:00Z');
+assert.strictEqual(Mem.planEndsLabel('2026-12-27T12:00:00.000Z', endsNow), 'Ends Dec 27');
+assert.strictEqual(Mem.planEndsLabel('2026-01-05T00:00:00.000Z', Date.parse('2025-12-01T00:00:00Z')), 'Ends Jan 5');
+assert.strictEqual(Mem.planEndsLabel('2026-11-27T00:00:00.000Z', endsNow), '');
+assert.strictEqual(Mem.planEndsLabel('2026-11-26T00:00:00.000Z', endsNow), '');
+assert.strictEqual(Mem.planEndsLabel(null, endsNow), '');
+assert.strictEqual(Mem.planEndsLabel('', endsNow), '');
+assert.strictEqual(Mem.planEndsLabel('not-a-date', endsNow), '');
 
 assert.strictEqual(Mem.payable(byId.trainer, true).label, '$19.99');
 assert.strictEqual(Mem.payable(byId.trainer, true).cents, 1999);
