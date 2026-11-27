@@ -38,13 +38,16 @@
     if (!/^\d+$/.test(raw)) return false;
     var n = Number(raw);
     var b = el.getAttribute('data-b') || '';
-    if (b === 'cfg.ws' || b === 'cfg.rs') return n <= 59;
+    if (b === 'cfg.ws' || b === 'cfg.rs') return n >= 0;
     if (b === 'cfg.wm' || b === 'cfg.rm') return true;
     return n >= 1;
   }
-  // Tap or focus clears a pre-filled number. Leaving it blank keeps it blank.
+  // A real tap or keyboard focus clears a pre-filled number. A scroll does not.
+  // Leaving a cleared field blank keeps it blank.
+  var clearGesture = null;
+  var clearTap = 0;
   function clearPrefilled(el) {
-    if (!el || el.disabled || el.readOnly || !el.hasAttribute('data-clear') || el._wbClear) return;
+    if (!el || el.disabled || el.readOnly || !el.hasAttribute || !el.hasAttribute('data-clear') || el._wbClear) return;
     var original = el.value;
     if (original === '') return;
     var typed = false, mine = false;
@@ -77,12 +80,51 @@
     }
     wipe();
   }
+  function clearTarget(e) {
+    return e.target && e.target.closest ? e.target.closest('input[data-clear]') : null;
+  }
+  function gestureMoved(e) {
+    if (!clearGesture) return true;
+    return clearGesture.moved || clearGesture.scrolled ||
+      Math.abs(e.clientX - clearGesture.x) >= 10 || Math.abs(e.clientY - clearGesture.y) >= 10;
+  }
   document.addEventListener('pointerdown', function (e) {
-    var el = e.target && e.target.closest ? e.target.closest('input[data-clear]') : null;
-    if (!el || el === document.activeElement) return;
+    var el = clearTarget(e);
+    if (!el) { clearGesture = null; return; }
+    clearGesture = { id: e.pointerId, x: e.clientX, y: e.clientY, el: el, moved: false, scrolled: false };
+  }, true);
+  document.addEventListener('pointermove', function (e) {
+    if (!clearGesture || e.pointerId !== clearGesture.id) return;
+    if (Math.abs(e.clientX - clearGesture.x) >= 10 || Math.abs(e.clientY - clearGesture.y) >= 10) clearGesture.moved = true;
+  }, true);
+  window.addEventListener('scroll', function () {
+    if (clearGesture) clearGesture.scrolled = true;
+  }, true);
+  document.addEventListener('pointerup', function (e) {
+    if (!clearGesture || e.pointerId !== clearGesture.id) return;
+    var el = clearGesture.el;
+    var tap = !gestureMoved(e);
+    clearGesture = null;
+    if (!tap) { clearTap = 0; return; }
+    clearTap = Date.now();
     clearPrefilled(el);
   }, true);
-  document.addEventListener('focusin', function (e) { clearPrefilled(e.target); });
+  document.addEventListener('pointercancel', function (e) {
+    if (clearGesture && e.pointerId === clearGesture.id) clearGesture = null;
+  }, true);
+  document.addEventListener('click', function (e) {
+    var el = clearTarget(e);
+    if (!el) return;
+    if (Date.now() - clearTap < 700) return;
+    if (clearGesture) return;
+    clearPrefilled(el);
+  }, true);
+  document.addEventListener('focusin', function (e) {
+    var el = e.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-clear')) return;
+    if (clearGesture && clearGesture.el === el) return;
+    clearPrefilled(el);
+  });
   function go(h) { location.hash = h; }
   function hashBody() { return location.hash.replace(/^#\/?/, '').split('?')[0]; }
   function hashPage() { return hashBody().split('/')[0]; }
@@ -6907,7 +6949,13 @@
       }
     }
     if (raw.some(function (v) { var n = M.num(v); return n !== null && n < 0; })) errs.push('Numbers cannot be negative.');
-    if (d.mode !== 'stopwatch' && [c.ws, c.rs].some(function (v) { return M.num(v) > 59; })) errs.push('Seconds must be 0–59.');
+    if (d.mode !== 'stopwatch') {
+      [['wm', 'ws'], ['rm', 'rs']].forEach(function (pair) {
+        if (c[pair[0]] == null && c[pair[1]] == null) return;
+        var total = M.toSec(c[pair[0]], c[pair[1]]);
+        if (total > 60 * 60) errs.push('Time cannot be more than 60:00.');
+      });
+    }
     errs = errs.concat(M.validateExercise(ex).filter(function (m) { return errs.indexOf(m) < 0; }));
     return { ex: ex, errors: errs };
   }
