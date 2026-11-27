@@ -424,6 +424,64 @@ async function shot(page, name) {
   assert.ok(!('reps' in saved.data) && !('weight' in saved.data));
   await shot(page, 'circuits-list-after.png');
 
+  const cardActions = await page.$$eval('[data-circuit] .actions button', function (nodes) {
+    return nodes.map(function (el) {
+      return { text: el.textContent, act: el.getAttribute('data-act'), disabled: el.disabled, pri: el.classList.contains('pri'), danger: el.classList.contains('danger') };
+    });
+  });
+  assert.deepStrictEqual(cardActions.map(function (b) { return b.text; }), ['▲', '▼', 'Edit', 'View', 'Run', 'Delete']);
+  assert.strictEqual(cardActions[0].disabled, true);
+  assert.strictEqual(cardActions[1].disabled, true);
+  assert.strictEqual(cardActions[2].pri, true);
+  assert.strictEqual(cardActions[2].act, 'open');
+  assert.strictEqual(cardActions[5].danger, true);
+  assert.strictEqual(cardActions[3].disabled, false);
+  assert.strictEqual(cardActions[4].disabled, false);
+  await page.click('[data-circuit] .name');
+  await page.waitForSelector('#circuit-name');
+  assert.strictEqual(await page.evaluate(function () { return location.hash; }), '#/circuits/11111111-1111-4111-8111-111111111111');
+  await page.click('#back');
+  await page.waitForSelector('#circuit-new');
+  await page.click('[data-act=view]');
+  await page.waitForFunction(function () { return location.hash.indexOf('/view') !== -1; });
+  await page.evaluate(function () { location.hash = '#/circuits'; });
+  await page.waitForSelector('[data-circuit]');
+  await page.click('[data-act=run]');
+  await page.waitForFunction(function () { return location.hash.indexOf('/prepare') !== -1; });
+  await page.evaluate(function () { location.hash = '#/'; });
+  await page.waitForSelector('#calendar-open');
+  await page.evaluate(function () {
+    window.__circuits.push({
+      id: '22222222-2222-4222-8222-222222222222',
+      name: 'Empty class',
+      data: { stations: [], order: [], clock: { workSec: 45, moveSec: 15, rounds: 1 } },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+    location.hash = '#/circuits';
+  });
+  await page.waitForFunction(function () { return document.querySelectorAll('[data-circuit]').length === 2; });
+  assert.strictEqual(await page.$eval('[data-circuit="22222222-2222-4222-8222-222222222222"] [data-act=view]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await page.$eval('[data-circuit="22222222-2222-4222-8222-222222222222"] [data-act=run]', function (el) { return el.disabled; }), true);
+  await page.click('[data-circuit="11111111-1111-4111-8111-111111111111"] [data-act=down]');
+  await page.waitForFunction(function () {
+    var names = document.querySelectorAll('[data-circuit] .name');
+    return names[0] && names[0].textContent === 'Empty class' && names[1] && names[1].textContent === 'Saturday class';
+  });
+  assert.strictEqual(await page.$eval('[data-circuit="22222222-2222-4222-8222-222222222222"] [data-act=up]', function (el) { return el.disabled; }), true);
+  assert.strictEqual(await page.$eval('[data-circuit="11111111-1111-4111-8111-111111111111"] [data-act=down]', function (el) { return el.disabled; }), true);
+  await page.evaluate(function () { location.hash = '#/'; });
+  await page.waitForSelector('#calendar-open');
+  await page.evaluate(function () { location.hash = '#/circuits'; });
+  await page.waitForFunction(function () {
+    var names = document.querySelectorAll('[data-circuit] .name');
+    return names.length === 2 && names[0].textContent === 'Empty class' && names[1].textContent === 'Saturday class';
+  });
+  await page.click('[data-circuit="22222222-2222-4222-8222-222222222222"] [data-act=del]');
+  await page.waitForFunction(function () {
+    return document.getElementById('toast').textContent === 'Deleted' && document.querySelectorAll('[data-circuit]').length === 1;
+  });
+
   await page.evaluate(function () { location.hash = '#/'; });
   await page.waitForSelector('#calendar-open');
   await page.click('#calendar-open');
