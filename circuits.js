@@ -523,7 +523,7 @@
   }
   function onView(id) {
     if (!ctx || !id || !stationCount(rowById(id))) return;
-    ctx.go('#/circuits/' + id + '/view');
+    ctx.go('#/circuits/' + id + '/view?from=list');
   }
   function moveCircuit(id, dir) {
     var i = -1;

@@ -461,10 +461,16 @@
     if (!tracking) return;
     try { localStorage.removeItem(KEY); } catch (e) {}
   }
-  function fromCalendar() {
+  function hashQuery(flag) {
     var q = '';
     try { q = String(location.hash || '').split('?')[1] || ''; } catch (e) {}
-    return /(^|&)from=calendar(&|$)/.test(q);
+    return new RegExp('(^|&)' + flag + '(&|$)').test(q);
+  }
+  function fromCalendar() {
+    return hashQuery('from=calendar');
+  }
+  function fromList() {
+    return hashQuery('from=list');
   }
   function armSchedule() {
     var C = model();
@@ -915,6 +921,7 @@
     if (mode === 'live') { onEnd(); return true; }
     clearStore();
     if (fromCalendar()) { ctx.go('#/programs'); return true; }
+    if (fromList()) { ctx.go('#/circuits'); return true; }
     ctx.go(doc && doc.id ? '#/circuits/' + doc.id : '#/circuits');
     return true;
   }
