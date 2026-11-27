@@ -46,7 +46,7 @@
   // Leaving a cleared field blank keeps it blank.
   var clearGesture = null;
   var clearTap = 0;
-  var clearEdit = null;
+  var clearEdited = new WeakSet();
   var clearDecision = null;
   var clearWiping = false;
   function clearPrefilled(el) {
@@ -93,30 +93,23 @@
     return clearGesture.moved || clearGesture.scrolled ||
       Math.abs(e.clientX - clearGesture.x) >= 10 || Math.abs(e.clientY - clearGesture.y) >= 10;
   }
-  function rememberField(el) {
-    if (!clearEdit || clearEdit.el !== el) clearEdit = { el: el, edited: false };
-  }
   function fieldEdited(el) {
-    return !!(clearEdit && clearEdit.el === el && clearEdit.edited);
+    return !!(el && clearEdited.has(el));
   }
   document.addEventListener('keydown', function (e) {
     var el = e.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-clear')) return;
-    if (e.key && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
-      rememberField(el);
-      clearEdit.edited = true;
-    }
+    if (e.key && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) clearEdited.add(el);
   }, true);
   document.addEventListener('input', function (e) {
     if (clearWiping) return;
     var el = e.target;
-    if (!el || !clearEdit || clearEdit.el !== el) return;
-    clearEdit.edited = true;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-clear')) return;
+    clearEdited.add(el);
   }, true);
   document.addEventListener('pointerdown', function (e) {
     var el = clearTarget(e);
     if (!el) { clearGesture = null; return; }
-    rememberField(el);
     clearGesture = {
       id: e.pointerId,
       x: e.clientX,
@@ -163,7 +156,6 @@
   document.addEventListener('focusin', function (e) {
     var el = e.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-clear')) return;
-    rememberField(el);
     if (clearGesture && clearGesture.el === el) return;
     clearPrefilled(el);
   });
