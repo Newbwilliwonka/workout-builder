@@ -91,6 +91,36 @@ async function invoiceOf(stripe, subscription) {
   return invoice
 }
 
+function savedCancel(subscription) {
+  // Classic period-end cancels set both fields. That shape is the flag.
+  // Flexible portal cancels set only cancel_at.
+  if (subscription && subscription.cancel_at_period_end === true) {
+    return { cancel_at_period_end: true }
+  }
+  const at = subscription && Number(subscription.cancel_at)
+  if (at && isFinite(at)) return { cancel_at: at }
+  return null
+}
+
+function clearedCancel(saved) {
+  if (saved.cancel_at_period_end === true) return { cancel_at_period_end: false }
+  return { cancel_at: '' }
+}
+
+// A failed price change can leave pending_update. cancel_at is not a
+// pending-update parameter. Voiding the invoice releases that pending
+// update, then a single-field restore applies immediately and does not
+// send payment_behavior.
+async function restoreSavedCancel(stripe, subscriptionId, saved, failedSub, idempotencyKey) {
+  if (!saved) return
+  if (failedSub && failedSub.pending_update && stripe.invoices && stripe.invoices.voidInvoice) {
+    const latest = failedSub.latest_invoice
+    const invoiceId = typeof latest === 'string' ? latest : (latest && latest.id)
+    if (invoiceId) await stripe.invoices.voidInvoice(invoiceId)
+  }
+  await stripe.subscriptions.update(subscriptionId, saved, { idempotencyKey: idempotencyKey })
+}
+
 function httpsUrl(value) {
   const url = typeof value === 'string' ? value : ''
   return url.indexOf('https://') === 0 ? url : ''
@@ -160,24 +190,19 @@ export async function changeSubscription(input) {
     claimToken = claim.token || null
 
     const quantity = Number(item.quantity) > 0 ? Number(item.quantity) : 1
+    const saved = savedCancel(subscription)
+    const restoreKey = 'restore-' + userId + '-' + (claimToken || priceId)
+    let cleared = false
     let updated
     try {
       // Stripe rejects cancel_at together with cancel_at_period_end, and
       // rejects cancel_at when payment_behavior is pending_if_incomplete.
-      // Clear a portal cancel on its own, with no price change. Flexible
-      // portal cancels set cancel_at. Classic ones set cancel_at_period_end.
-      if (subscription.cancel_at) {
-        await input.stripe.subscriptions.update(subscription.id, {
-          cancel_at: ''
-        }, {
+      // Clear a portal cancel on its own, with one field and no price change.
+      if (saved) {
+        await input.stripe.subscriptions.update(subscription.id, clearedCancel(saved), {
           idempotencyKey: 'uncancel-' + userId + '-' + (claimToken || priceId)
         })
-      } else if (subscription.cancel_at_period_end === true) {
-        await input.stripe.subscriptions.update(subscription.id, {
-          cancel_at_period_end: false
-        }, {
-          idempotencyKey: 'uncancel-' + userId + '-' + (claimToken || priceId)
-        })
+        cleared = true
       }
       // always_invoice charges an upgrade now. A downgrade's negative
       // proration is left as customer balance credit. This call does not
@@ -192,20 +217,33 @@ export async function changeSubscription(input) {
         idempotencyKey: 'change-' + userId + '-' + (claimToken || priceId)
       })
     } catch (err) {
+      if (cleared) await restoreSavedCancel(input.stripe, subscription.id, saved, null, restoreKey)
       if (cardFailure(err)) return { status: 200, body: { status: 'payment_failed' } }
       throw new BillingError(FAIL, 502)
     }
-    if (!updated || !updated.id) throw new BillingError(FAIL, 502)
-    const invoice = await invoiceOf(input.stripe, updated)
-    const body = resultOf(updated, invoice)
-    if (body.status === 'ok') {
-      // The returned subscription can still show the old cancel_at. The
-      // update above cleared it, so the stored date must clear too.
-      await syncAppliedSubscription(input.stripe, input.db, input.log, {
-        id: userId,
-        stripe_customer_id: customerId
-      }, Object.assign({}, updated, { cancel_at: null, cancel_at_period_end: false }), 'change-subscription')
+    if (!updated || !updated.id) {
+      if (cleared) await restoreSavedCancel(input.stripe, subscription.id, saved, null, restoreKey)
+      throw new BillingError(FAIL, 502)
     }
+    let invoice
+    let body
+    try {
+      invoice = await invoiceOf(input.stripe, updated)
+      body = resultOf(updated, invoice)
+    } catch (err) {
+      if (cleared) await restoreSavedCancel(input.stripe, subscription.id, saved, updated, restoreKey)
+      throw err
+    }
+    if (body.status !== 'ok') {
+      if (cleared) await restoreSavedCancel(input.stripe, subscription.id, saved, updated, restoreKey)
+      return { status: 200, body: body }
+    }
+    // The returned subscription can still show the old cancel_at. The
+    // clear above removed it, so the stored date must clear too.
+    await syncAppliedSubscription(input.stripe, input.db, input.log, {
+      id: userId,
+      stripe_customer_id: customerId
+    }, Object.assign({}, updated, { cancel_at: null, cancel_at_period_end: false }), 'change-subscription')
     return { status: 200, body: body }
   } catch (err) {
     if (err instanceof BillingError) throw err
