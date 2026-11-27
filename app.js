@@ -879,6 +879,7 @@
     }
     var next = WBLibrary.activateAccount({
       lastId: readLastAccount(),
+      ownerId: libraryOwner() || '',
       live: liveBundle(),
       parked: readBundles(),
       deviceAfterSignOut: deviceAfterSignOut()

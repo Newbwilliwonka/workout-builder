@@ -16,12 +16,42 @@ assert.strictEqual(a.lastId, 'account-a');
 assert.deepStrictEqual(a.live.workouts, []);
 assert.strictEqual(a.parked[L.UNKNOWN_ACCOUNT].workouts[0].name, 'Saturday easy');
 
-const savedA = L.activateAccount({
+const WILLIAM = '11111111-1111-4111-8111-111111111111';
+const upgrade = L.activateAccount({
   lastId: '',
-  live: bundle('Saturday easy'),
+  ownerId: WILLIAM,
+  live: {
+    workouts: [
+      { id: 'wo_lsit', name: 'LSit hold', items: [] },
+      { id: 'wo_hollow', name: 'Hollow Body', items: [] }
+    ],
+    sessions: [{ id: 'ses_lsit', workoutId: 'wo_lsit', workoutName: 'LSit hold', ownWork: true }],
+    programs: [{ id: 'pg_lsit', ownerId: WILLIAM, workoutId: 'wo_lsit', workoutName: 'LSit hold' }],
+    log: [{ id: 'log_hollow', workoutId: 'wo_hollow', workoutName: 'Hollow Body', ownWork: true }]
+  },
   parked: {},
   deviceAfterSignOut: false
-}, 'account-a');
+}, WILLIAM);
+assert.strictEqual(upgrade.lastId, WILLIAM);
+assert.strictEqual(upgrade.switched, false);
+assert.deepStrictEqual(upgrade.live.workouts.map(function (w) { return w.name; }), ['LSit hold', 'Hollow Body']);
+assert.strictEqual(upgrade.live.sessions[0].workoutName, 'LSit hold');
+assert.strictEqual(upgrade.live.programs[0].workoutName, 'LSit hold');
+assert.strictEqual(upgrade.live.log[0].workoutName, 'Hollow Body');
+assert.strictEqual(upgrade.parked[L.UNKNOWN_ACCOUNT], undefined);
+
+const other = L.activateAccount({
+  lastId: '',
+  ownerId: WILLIAM,
+  live: upgrade.live,
+  parked: {},
+  deviceAfterSignOut: false
+}, 'account-b');
+assert.strictEqual(other.lastId, 'account-b');
+assert.deepStrictEqual(other.live.workouts, []);
+assert.strictEqual(other.parked[WILLIAM].workouts[0].name, 'LSit hold');
+assert.strictEqual(other.parked[L.UNKNOWN_ACCOUNT], undefined);
+assert.strictEqual(L.activateAccount(other, WILLIAM).live.workouts[1].name, 'Hollow Body');
 const withA = {
   lastId: 'account-a',
   live: bundle('Saturday easy'),

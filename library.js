@@ -607,21 +607,32 @@
     }
     return [ids(bundle.workouts), ids(bundle.sessions), ids(bundle.programs), ids(bundle.log)].join('|');
   }
-  // One active account on the device. state: { lastId, live, parked, deviceAfterSignOut }.
-  // A different sign-in parks the previous account's saved bundle and loads that
-  // person's own bundle, or an empty one. 'unknown' is never shown or uploaded.
+  // One active account on the device. state: { lastId, ownerId, live, parked, deviceAfterSignOut }.
+  // ownerId is the old wb.libraryOwner.v1 record, used only when lastId is missing.
+  // 'unknown' is only for a live bundle with no owner record at all.
   function activateAccount(state, userId) {
     state = state || {};
     var live = copyBundle(state.live);
     var parked = {};
     Object.keys(state.parked || {}).forEach(function (id) { parked[id] = copyBundle(state.parked[id]); });
     var lastId = state.lastId || '';
+    var prior = state.ownerId || '';
     if (!userId) return { lastId: lastId, live: live, parked: parked, switched: false };
     if (lastId === userId) {
       parked[userId] = copyBundle(live);
       return { lastId: userId, live: live, parked: parked, switched: false };
     }
     if (!lastId) {
+      if (prior && prior === userId) {
+        parked[userId] = copyBundle(live);
+        return { lastId: userId, live: live, parked: parked, switched: false };
+      }
+      if (prior && prior !== userId) {
+        parked[prior] = copyBundle(live);
+        live = parked[userId] ? copyBundle(parked[userId]) : emptyBundle();
+        parked[userId] = copyBundle(live);
+        return { lastId: userId, live: live, parked: parked, switched: true };
+      }
       if (bundleHas(live) && !state.deviceAfterSignOut) {
         parked[UNKNOWN_ACCOUNT] = copyBundle(live);
         live = emptyBundle();
