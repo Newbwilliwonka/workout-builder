@@ -14,6 +14,10 @@ const ART = '/opt/cursor/artifacts';
   const p = await b.newPage();
   const errs = [];
   p.on('pageerror', function (e) { errs.push(String(e)); });
+  p.on('dialog', function (d) {
+    if (d.message().indexOf('have not uploaded') !== -1 || d.message().indexOf('group circuit') !== -1) d.accept();
+    else d.dismiss();
+  });
   await p.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   await p.evaluateOnNewDocument(function () {
     window.__mode = 'waiting';

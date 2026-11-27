@@ -30,6 +30,10 @@ function badge(page, id) {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', function (err) { errors.push(String(err)); });
+  page.on('dialog', function (d) {
+    if (d.message().indexOf('have not uploaded') !== -1 || d.message().indexOf('group circuit') !== -1) d.accept();
+    else d.dismiss();
+  });
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.evaluateOnNewDocument(function (userId) {
     var current;
