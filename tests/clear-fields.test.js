@@ -120,6 +120,9 @@ function ex(over) {
     var el = document.querySelector('[data-b="cfg.count"]');
     return el.value === '8' && !el.classList.contains('is-empty');
   });
+  await page.tap('[data-b="cfg.count"]');
+  await new Promise(function (r) { setTimeout(r, 120); });
+  assert.strictEqual(await page.$eval('[data-b="cfg.count"]', function (el) { return el.value; }), '8');
   await page.tap('[data-a=save]');
   await page.waitForFunction(function () { return location.hash.indexOf('/ex/') === -1; });
   const saved = await page.evaluate(function (key) {

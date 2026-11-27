@@ -570,6 +570,10 @@
   function onInput(e) {
     var field = e.target;
     if (busy || !field || !draft) return;
+    if (String(field.value == null ? '' : field.value).trim() !== '') {
+      field.classList.remove('is-empty');
+      field.removeAttribute('aria-invalid');
+    }
     if (field.id === 'circuit-name') { draft.name = field.value; return; }
     if (!clockText) clockText = clockTextFrom(draft.clock);
     if (field.id === 'circuit-work-m' || field.id === 'circuit-work-s' || field.id === 'circuit-move-m' || field.id === 'circuit-move-s') {

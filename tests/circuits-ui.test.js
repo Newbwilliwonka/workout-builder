@@ -430,10 +430,25 @@ async function shot(page, name) {
       el.value = value;
       el.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    fill('circuit-work-s', '60');
     fill('circuit-move-s', '15');
+    fill('circuit-work-s', '60');
   });
-  await page.waitForFunction(function () { return document.getElementById('circuit-work-s').value === '60'; });
+  await page.waitForFunction(function () {
+    var sec = document.getElementById('circuit-work-s');
+    var move = document.getElementById('circuit-move-s');
+    return sec.value === '60' && document.activeElement === sec && !sec.classList.contains('is-empty') && sec.getAttribute('aria-invalid') !== 'true' &&
+      move.value === '15' && !move.classList.contains('is-empty');
+  });
+  await page.evaluate(function () {
+    var el = document.getElementById('circuit-work-s');
+    var rect = el.getBoundingClientRect();
+    var x = rect.left + rect.width / 2;
+    var y = rect.top + rect.height / 2;
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 11, button: 0 }));
+    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 11, button: 0 }));
+  });
+  await new Promise(function (r) { setTimeout(r, 120); });
+  assert.strictEqual(await page.$eval('#circuit-work-s', function (el) { return el.value; }), '60');
 
   await page.evaluate(function () { window.__blockSave = true; });
   await page.click('[data-act=save]');

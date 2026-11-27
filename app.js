@@ -91,7 +91,15 @@
   document.addEventListener('pointerdown', function (e) {
     var el = clearTarget(e);
     if (!el) { clearGesture = null; return; }
-    clearGesture = { id: e.pointerId, x: e.clientX, y: e.clientY, el: el, moved: false, scrolled: false };
+    clearGesture = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      el: el,
+      moved: false,
+      scrolled: false,
+      wasFocused: el === document.activeElement
+    };
   }, true);
   document.addEventListener('pointermove', function (e) {
     if (!clearGesture || e.pointerId !== clearGesture.id) return;
@@ -103,7 +111,8 @@
   document.addEventListener('pointerup', function (e) {
     if (!clearGesture || e.pointerId !== clearGesture.id) return;
     var el = clearGesture.el;
-    var tap = !gestureMoved(e);
+    var already = clearGesture.wasFocused;
+    var tap = !already && !gestureMoved(e);
     clearGesture = null;
     if (!tap) { clearTap = 0; return; }
     clearTap = Date.now();
@@ -114,7 +123,7 @@
   }, true);
   document.addEventListener('click', function (e) {
     var el = clearTarget(e);
-    if (!el) return;
+    if (!el || el === document.activeElement) return;
     if (Date.now() - clearTap < 700) return;
     if (clearGesture) return;
     clearPrefilled(el);
