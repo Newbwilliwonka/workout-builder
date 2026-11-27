@@ -234,10 +234,12 @@ export async function changeSubscription(input) {
       if (cleared) await restoreSavedCancel(input.stripe, subscription.id, saved, updated, restoreKey)
       throw err
     }
-    if (body.status !== 'ok') {
+    if (body.status === 'payment_failed') {
+      // Voiding the invoice would cancel a 3DS challenge. requires_action
+      // keeps the open invoice so the member can finish it.
       if (cleared) await restoreSavedCancel(input.stripe, subscription.id, saved, updated, restoreKey)
-      return { status: 200, body: body }
     }
+    if (body.status !== 'ok') return { status: 200, body: body }
     // The returned subscription can still show the old cancel_at. The
     // clear above removed it, so the stored date must clear too.
     await syncAppliedSubscription(input.stripe, input.db, input.log, {

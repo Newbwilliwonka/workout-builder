@@ -2185,10 +2185,11 @@ async function main() {
   });
   assert.deepStrictEqual(actionCancel.body, { status: 'requires_action', url: 'https://invoice.stripe.com/i/confirm' });
   const actionCancelUpdates = actionCancelStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(actionCancelUpdates.length, 2);
   assert.deepStrictEqual(actionCancelUpdates[0][2], { cancel_at: '' });
-  assert.deepStrictEqual(actionCancelUpdates[2][2], { cancel_at: restoreWhen });
-  assert.ok(!Object.prototype.hasOwnProperty.call(actionCancelUpdates[2][2], 'payment_behavior'));
-  assert.strictEqual(actionCancelStripe.calls.filter(function (row) { return row[0] === 'invoices.voidInvoice'; })[0][1], 'in_restore_action');
+  assert.strictEqual(actionCancelUpdates[1][2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(actionCancelStripe.calls.filter(function (row) { return row[0] === 'invoices.voidInvoice'; }).length === 0);
+  assert.ok(!actionCancelUpdates.some(function (row) { return row[2] && row[2].cancel_at === restoreWhen; }));
 
   const thrownSub = Object.assign({}, subOn('trainer', 'beta'), {
     cancel_at: restoreWhen,
