@@ -103,6 +103,29 @@ assert.ok(appSrc.indexOf('WBAuth.startCheckout(plan)') !== -1);
     await paying.waitForFunction(function () {
       return location.hash === '#/subscriptions' && window.__pickedCheckout.length === 0 && !sessionStorage.getItem('wb.plan.pick');
     });
+
+    const failed = await browser.newPage();
+    failed.on('pageerror', function (err) { errors.push(String(err)); });
+    await stubAuth(failed, { session: null, profile: null });
+    await failed.goto(URL + '#/signin', { waitUntil: 'domcontentloaded' });
+    await failed.waitForSelector('[data-auth="in"]');
+    await failed.evaluate(function () {
+      sessionStorage.setItem('wb.plan.pick', 'trainer');
+      window.WBAuth.signIn = function () { return Promise.resolve({ user: { id: 'payer', email: 'ada@example.com' } }); };
+      window.WBAuth.session = function () { return Promise.resolve({ user: { id: 'payer', email: 'ada@example.com' } }); };
+      window.WBAuth.profile = function () {
+        return Promise.resolve({ id: 'payer', email: 'ada@example.com', membership: 'none', intended_plan: null, access_approved: true, billing_status: null });
+      };
+      window.WBAuth.startCheckout = function () { return Promise.reject(new Error('no session')); };
+    });
+    await failed.type('#acct-email', 'ada@example.com');
+    await failed.type('#acct-pass', 'correct horse battery');
+    await failed.click('[data-auth="in"]');
+    await failed.waitForFunction(function () {
+      var note = document.getElementById('plan-note');
+      var pick = document.getElementById('plan-pick');
+      return location.hash === '#/subscriptions' && note && note.textContent === 'Checkout could not be started. Please try again.' && pick && pick.textContent.indexOf('Trainer') === 0 && sessionStorage.getItem('wb.plan.pick') === 'trainer';
+    });
     assert.deepStrictEqual(errors, []);
   } finally {
     await browser.close();

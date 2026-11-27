@@ -1240,16 +1240,22 @@
       });
     }).catch(function () { if (onAuthPage()) go('#/subscriptions'); });
   }
+  var pendingCheckoutNotice = '';
   function startPickedCheckout(plan) {
     var run = WBAuth.startCheckout ? WBAuth.startCheckout(plan) : Promise.reject(new Error('Checkout could not be started.'));
     Promise.resolve(run).then(function (url) {
       if (!onAuthPage()) return;
       var safe = billingUrl(url);
-      if (!safe) return go('#/subscriptions');
+      if (!safe) return failPickedCheckout();
       location.assign(safe);
     }, function () {
-      if (onAuthPage()) go('#/subscriptions');
+      failPickedCheckout();
     });
+  }
+  function failPickedCheckout() {
+    if (!onAuthPage()) return;
+    pendingCheckoutNotice = 'Checkout could not be started. Please try again.';
+    go('#/subscriptions');
   }
   function showSignInNotice(text, isError) {
     var here = hashPage();
@@ -2887,6 +2893,11 @@
     });
   }
   function drawSubscriptions(session, profile, message, isError, conn, locked) {
+    if (!message && pendingCheckoutNotice) {
+      message = pendingCheckoutNotice;
+      isError = true;
+      pendingCheckoutNotice = '';
+    }
     var note = takeInviteNotice();
     var returned = checkoutNotice('subscriptions');
     var currentId = WBMembership.activePaidPlan(profile);
