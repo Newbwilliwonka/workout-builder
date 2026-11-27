@@ -19,6 +19,10 @@ assert.ok(src.indexOf('updateUser({ password: password })') !== -1, 'updateUser'
   async function open(cfg) {
     const p = await b.newPage();
     p.on('pageerror', e => errs.push(String(e)));
+    p.on('dialog', function (d) {
+      if (d.message().indexOf('have not uploaded') !== -1 || d.message().indexOf('group circuit') !== -1) d.accept();
+      else d.dismiss();
+    });
     await p.setViewport({ width: 412, height: 915, isMobile: true, deviceScaleFactor: 2 });
     await p.evaluateOnNewDocument(function (cfg) {
       var current;

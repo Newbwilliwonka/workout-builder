@@ -623,6 +623,7 @@
   }
   var guests = [], guestStamp = {}, guestGen = {}, applyingLibrary = false, clientScreen = null;
   var libraryFlight = null, libraryAgain = false, libraryPhase = '', libraryDetail = '', libraryOff = false, libraryUserId = '';
+  var syncGen = 0, signOutHold = false;
   var librarySwitched = false;
   var libraryResumeAt = 0;
   var libraryAck = {}, pendingDrops = {}, clientQueue = [];
@@ -755,8 +756,9 @@
     }
     if (el) el.innerHTML = esc(model.text) + (model.plans ? ' <a href="#/subscriptions">See plans</a>' : '');
   }
-  function applyLibraryRows(rows) {
-    if (!window.WBLibrary) return;
+  function applyLibraryRows(rows, forUser) {
+    if (!window.WBLibrary || !libraryUserId) return;
+    if (forUser && forUser !== libraryUserId) return;
     absorbUserDrops(pendingDrops);
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var stored = M.load(localStorage);
@@ -1005,6 +1007,7 @@
     });
   }
   function pushAccountChanges() {
+    var forUser = libraryUserId;
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var changes = WBLibrary.pushChanges(data.workouts, drops, libraryAck);
     return eachStep(changes, function (change, outcome) {
@@ -1018,7 +1021,7 @@
         clearRejection(key);
         if (row && row.localId) libraryAck[String(row.localId)] = row.revisedAt;
         if (change.deleted && row && !row.deleted && WBLibrary.ms(row.revisedAt) > change.revisedAt) {
-          applyLibraryRows([row]);
+          applyLibraryRows([row], forUser);
         }
       }, function (err) {
         if (libraryMissing(err)) throw err;
@@ -1071,6 +1074,10 @@
     });
   }
   function runAccountSync() {
+    var gen = syncGen;
+    function stillThisUser(userId) {
+      return gen === syncGen && !!libraryUserId && (!userId || libraryUserId === userId);
+    }
     if (!window.WBLibrary || !WBAuth.accountPull || !WBAuth.accountImport || !WBAuth.accountPush) return Promise.resolve();
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       if (libraryUserId || libraryOwner()) setLibraryStatus('offline', '');
@@ -1082,10 +1089,12 @@
     try { pending = readSession(); } catch (e) { return Promise.resolve(); }
     var beforeSig = listSig(data.workouts);
     return Promise.resolve(pending).then(function (session) {
+      if (gen !== syncGen) return;
       var userId = accountUserId(session);
       if (!userId) return;
       var switching = !!(libraryOwner() && libraryOwner() !== userId);
       adoptAccount(userId);
+      if (!stillThisUser(userId)) return;
       if (!switching) {
         absorbUserDrops(userMap(WBLibrary.DROP_KEY, '_pending'));
         absorbUserDrops(pendingDrops);
@@ -1104,12 +1113,14 @@
       // Workouts that arrive from the account are not copied back as if this phone built them.
       if (!readSeed(libraryUserId)) writeUserMap(LIBRARY_SEED_KEY, libraryUserId, WBLibrary.seedIds(null, data.workouts));
       return pullAccount().then(function (rows) {
-        try { applyLibraryRows(rows); }
+        if (!stillThisUser(userId)) return { dropped: true };
+        try { applyLibraryRows(rows, userId); }
         catch (err) { return { pullError: err }; }
         return { rows: rows };
       }, function (err) {
         return { pullError: err };
       }).then(function (pulled) {
+        if (!stillThisUser(userId) || (pulled && pulled.dropped)) return;
         var outcome = blankOutcome();
         if (pulled && pulled.pullError) noteFailure(outcome, pulled.pullError);
         if (outcome.missing || outcome.auth || outcome.offline) return outcome;
@@ -1127,7 +1138,7 @@
         });
       });
     }).then(function (outcome) {
-      if (!outcome) return;
+      if (gen !== syncGen || !libraryUserId || !outcome) return;
       applyOutcome(outcome);
       // A refused save must not hide workouts the account just sent.
       finishLibraryView(beforeSig);
@@ -1140,7 +1151,7 @@
     });
   }
   function scheduleAccountSync() {
-    if (libraryOff || applyingLibrary || !window.WBLibrary || !WBAuth.accountPull) return;
+    if (signOutHold || libraryOff || applyingLibrary || !window.WBLibrary || !WBAuth.accountPull) return;
     if (libraryFlight) { libraryAgain = true; return; }
     libraryAgain = false;
     libraryFlight = runAccountSync().then(finishSync, finishSync);
@@ -1720,15 +1731,19 @@
     recoveryPhase = 'checking';
     recoverySettled = false;
     renderReset();
-    Promise.resolve().then(function () { return WBAuth.signOut(); }).then(function () {
-      if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
-      forgetRequestBadges();
-      clearNavBadges();
-      cachedProfile = null;
-      clearClientInfo();
+    signOutAndWipe(signingOut).then(function (result) {
+      if (result && result.cancelled) {
+        recoveryPhase = 'form';
+        recoverySettled = true;
+        recoveryReady = true;
+        renderReset();
+        return;
+      }
+      if (!result || result.error) {
+        holdRecovery('Could not sign out. Stay here until the new password is set.');
+        return;
+      }
       goSign();
-    }, function () {
-      holdRecovery('Could not sign out. Stay here until the new password is set.');
     });
     });
   }
@@ -2377,44 +2392,117 @@
       : n + ' group circuits are still on this phone and have not been sent. Sign out anyway?';
     return confirm(msg);
   }
+  function queuePending() {
+    if (clientQueue && clientQueue.length) return true;
+    if (!window.WBLibrary) return false;
+    var ids = [libraryUserId, libraryOwner(), '_pending'];
+    for (var i = 0; i < ids.length; i++) {
+      if (!ids[i]) continue;
+      var list = userMap(WBLibrary.QUEUE_KEY, ids[i]);
+      if (Array.isArray(list) && list.length) return true;
+    }
+    return false;
+  }
+  function hasUnsentLocal() {
+    if (queuePending()) return true;
+    if (data.workouts && data.workouts.some(function (w) { return w && !w.deleted; })) return true;
+    if (data.sessions && data.sessions.length) return true;
+    if (data.programs && data.programs.length) return true;
+    return false;
+  }
+  function pushLocalChanges() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve({ offline: true });
+    if (!window.WBLibrary || !WBAuth.accountPush) return Promise.resolve(hasUnsentLocal() ? { failed: true } : blankOutcome());
+    var readSession = WBAuth.freshSession || WBAuth.session;
+    if (!readSession) return Promise.resolve({ failed: true });
+    var pending;
+    try { pending = readSession(); }
+    catch (e) { return Promise.resolve({ failed: true }); }
+    return Promise.resolve(pending).then(function (session) {
+      var userId = accountUserId(session);
+      if (!userId) return { failed: true };
+      if (libraryOwner() && libraryOwner() !== userId) return { failed: true };
+      if (!libraryUserId) libraryUserId = userId;
+      return pushAccountChanges().then(function (pushed) {
+        return flushClientQueue().then(function (flushed) {
+          var outcome = blankOutcome();
+          mergeOutcome(outcome, pushed);
+          mergeOutcome(outcome, flushed);
+          if (queuePending()) outcome.pending = true;
+          return outcome;
+        });
+      });
+    }, function (err) {
+      if (libraryMissing(err)) return { missing: true };
+      return { failed: true };
+    }).catch(function (err) {
+      if (libraryMissing(err)) return { missing: true };
+      return { failed: true };
+    });
+  }
   function uploadsBlockingSignOut() {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve(true);
-    if (!window.WBLibrary || !WBAuth.accountPull || !WBAuth.accountImport || !WBAuth.accountPush) return Promise.resolve(false);
-    return Promise.resolve(runAccountSync()).then(function () {
-      return libraryPhase === 'offline' || libraryPhase === 'error' || libraryPhase === 'auth';
+    return pushLocalChanges().then(function (outcome) {
+      if (!outcome) return true;
+      if (outcome.failed || outcome.offline || outcome.auth || outcome.missing || outcome.notice || outcome.pending || outcome.permanent) return true;
+      return false;
     }, function () { return true; });
+  }
+  function signOutAndWipe(signingOut) {
+    syncGen++;
+    signOutHold = true;
+    libraryAgain = false;
+    return uploadsBlockingSignOut().then(function (blocked) {
+      if (blocked && !confirm('Unsaved changes have not uploaded. Sign out anyway?')) {
+        signOutHold = false;
+        scheduleAccountSync();
+        return { cancelled: true };
+      }
+      if (!WBAuth.signOut) {
+        signOutHold = false;
+        scheduleAccountSync();
+        return { error: new Error('Could not sign out') };
+      }
+      return WBAuth.signOut().then(function () {
+        wipeDeviceData();
+        signOutHold = false;
+        if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
+        forgetRequestBadges();
+        clearNavBadges();
+        cachedProfile = null;
+        clearClientInfo();
+        copyStamp = {};
+        removedCopies = [];
+        shareUser = '';
+        resetShareLookup();
+        pushPending = false;
+        stopPushRetry();
+        resetLibraryMemory();
+        profileGateOn = false;
+        closeProfileSheet(true);
+        if (window.WBSharing) shareState = WBSharing.initialState();
+        syncHeaderSignOut();
+        signedInNow = false;
+        return { ok: true };
+      }).catch(function (err) {
+        signOutHold = false;
+        scheduleAccountSync();
+        return { error: err || new Error('Could not sign out') };
+      });
+    });
   }
   function signOutFromAccount() {
     signedInCircuitId().then(function (signingOut) {
     if (!confirmCircuitSignOut(signingOut)) return;
     var from = hashPage();
-    uploadsBlockingSignOut().then(function (blocked) {
-      if (blocked && !confirm('Unsaved changes have not uploaded. Sign out anyway?')) return;
-      wipeDeviceData();
-      return WBAuth.signOut().then(function () {
-      if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
-      forgetRequestBadges();
-      clearNavBadges();
-      cachedProfile = null;
-      clearClientInfo();
-      copyStamp = {};
-      removedCopies = [];
-      shareUser = '';
-      resetShareLookup();
-      pushPending = false;
-      stopPushRetry();
-      resetLibraryMemory();
-      profileGateOn = false;
-      closeProfileSheet(true);
-      if (window.WBSharing) shareState = WBSharing.initialState();
-      syncHeaderSignOut();
-      signedInNow = false;
+    signOutAndWipe(signingOut).then(function (result) {
+      if (!result || result.cancelled) return;
+      if (result.error) {
+        if (hashPage() !== from) return;
+        app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc(result.error.message || 'Could not sign out') + '</div>');
+        return;
+      }
       if (hashPage() !== from) return;
       goSignedOutHome();
-    }).catch(function (err) {
-      if (hashPage() !== from) return;
-      app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
-    });
     });
     });
   }
@@ -3169,18 +3257,8 @@
     app.onclick = function (e) {
       var nav = e.target.closest('[data-go]');
       if (e.target.closest('#level-signout')) {
-        var signingOut = session && session.user && session.user.id || '';
-        if (!confirmCircuitSignOut(signingOut)) return;
-        return WBAuth.signOut().then(function () {
-          if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
-          forgetRequestBadges();
-          clearNavBadges();
-          cachedProfile = null;
-          clearClientInfo();
-          signedInNow = false;
-          resetLibraryMemory();
-          goSignedOutHome();
-        });
+        signOutFromAccount();
+        return;
       }
       if (e.target.closest('#plan-switch-no')) {
         if (!switchFlight) closeSwitch();
