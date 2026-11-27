@@ -163,6 +163,23 @@ async function shot(page, name) {
   assert.strictEqual(await enthusiast.$('#circuits-open'), null);
   await shot(enthusiast, 'home-before.png');
 
+  const trainerOnly = await browser.newPage();
+  trainerOnly.on('pageerror', function (err) { errors.push('trainer ' + err); });
+  await trainerOnly.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+  await stub(trainerOnly, 'trainer', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+  await trainerOnly.goto(URL + '#/');
+  await trainerOnly.waitForSelector('#circuits-open');
+  await trainerOnly.click('#circuits-open');
+  await trainerOnly.waitForSelector('#level-note');
+  assert.ok((await trainerOnly.$eval('#level-note', function (el) { return el.textContent; })).indexOf('Your plan can:') !== -1);
+  assert.strictEqual(await trainerOnly.$('#circuit-new'), null);
+  await trainerOnly.click('#level-upgrade');
+  await trainerOnly.waitForFunction(function () { return location.hash === '#/subscriptions'; });
+  await trainerOnly.goto(URL + '#/circuits/new');
+  await trainerOnly.waitForSelector('#level-note');
+  assert.strictEqual(await trainerOnly.$('#circuit-name'), null);
+  await trainerOnly.close();
+
   const page = await browser.newPage();
   const dialogs = [];
   page.on('pageerror', function (err) { errors.push(String(err)); });
@@ -173,7 +190,7 @@ async function shot(page, name) {
     else dialog.dismiss();
   });
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
-  await stub(page, 'trainer', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  await stub(page, 'master_trainer', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   const seeded = M.emptyData();
   const lift = M.newWorkout('Morning lift');
   lift.items = [M.normalizeExercise(M.newExercise({
@@ -181,7 +198,13 @@ async function shot(page, name) {
     mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 }
   }))];
   seeded.workouts.push(lift);
-  await page.evaluateOnNewDocument(function (key, raw) { localStorage.setItem(key, raw); }, M.STORAGE_KEY, JSON.stringify(seeded));
+  await page.evaluateOnNewDocument(function (key, raw) {
+    localStorage.removeItem('wb.libraryOwner.v1');
+    localStorage.removeItem('wb.libraryCache.v1');
+    localStorage.removeItem('wb.ownSessions.v1');
+    localStorage.removeItem('wb.workoutOwner.v1');
+    localStorage.setItem(key, raw);
+  }, M.STORAGE_KEY, JSON.stringify(seeded));
   await page.goto(URL + '#/');
   await page.waitForSelector('#circuits-open');
   const home = await page.$eval('#circuits-open', function (el) {
@@ -886,6 +909,8 @@ async function shot(page, name) {
       localDate: day,
       results: [{ logged: true, name: 'Press' }]
     }];
+    localStorage.removeItem('wb.libraryOwner.v1');
+    localStorage.removeItem('wb.libraryCache.v1');
     localStorage.setItem(key, JSON.stringify(data));
   }, M.STORAGE_KEY);
   await enthusiast.reload({ waitUntil: 'domcontentloaded' });

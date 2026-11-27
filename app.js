@@ -414,6 +414,12 @@
       return read().then(fromProfile, fromFailure);
     });
   }
+  function circuitsAllowed(profile) {
+    var email = profile && profile.email;
+    if (window.WBProfile && WBProfile.isAdminEmail(email)) return true;
+    var ent = window.WBMembership && WBMembership.entitlements(profile);
+    return !!(ent && ent.active && ent.tier && ent.tier.id === 'master_trainer');
+  }
   function levelNoteHtml(profile) {
     var tier = levelTier(profile);
     var name = tier ? tier.name : 'Your plan';
@@ -1808,7 +1814,7 @@
           return openClient(token);
         }
         if (page === 'circuits') {
-          if (!window.WBPrograms || !WBPrograms.isTrainer(WBPrograms.roleOf(profile))) return renderLevelNote(profile);
+          if (!circuitsAllowed(profile)) return renderLevelNote(profile);
           return openCircuits(token);
         }
         if (page === 'send') {
@@ -4286,6 +4292,7 @@
   }
   function openCircuits(token) {
     if (token !== routeToken) return;
+    if (!circuitsAllowed(cachedProfile)) return renderLevelNote(cachedProfile);
     backBtn.hidden = false;
     app.onclick = null;
     app.oninput = null;
@@ -5855,7 +5862,7 @@
       if (a === 'messages') return go('#/messages');
       if (a === 'hub') return go('#/hub');
       if (a === 'circuits') {
-        if (!(window.WBPrograms && WBPrograms.isTrainer(WBPrograms.roleOf(cachedProfile)))) {
+        if (!circuitsAllowed(cachedProfile)) {
           levelNoteOn = true;
           return renderList();
         }
