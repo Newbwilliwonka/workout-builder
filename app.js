@@ -842,33 +842,45 @@
     }
     writeUserMap(WBLibrary.QUEUE_KEY, '_pending', []);
   }
+  function wipeDeviceData() {
+    data.workouts = [];
+    data.sessions = [];
+    data.programs = [];
+    try {
+      var keys = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (key && key.indexOf('wb.') === 0) keys.push(key);
+      }
+      keys.forEach(function (key) { localStorage.removeItem(key); });
+    } catch (e) {}
+    try { if (window.WBSharing && WBSharing.writeLog) WBSharing.writeLog(localStorage, []); } catch (e) {}
+    try { if (window.indexedDB) window.indexedDB.deleteDatabase('wb.exercise-images'); } catch (e) {}
+    try {
+      if (window.caches && window.caches.keys) {
+        window.caches.keys().then(function (names) {
+          (names || []).forEach(function (name) { window.caches.delete(name); });
+        });
+      }
+    } catch (e) {}
+    resetLibraryMemory();
+  }
   function adoptAccount(userId) {
     var owner = libraryOwner();
     librarySwitched = !!(owner && owner !== userId);
     if (librarySwitched) {
-      parkLibrary(owner);
+      wipeDeviceData();
       pendingDrops = {};
       clientQueue = [];
-      libraryAck = {};
-      guests = [];
-      guestStamp = {};
-      guestGen = {};
-      copyStamp = {};
-      removedCopies = [];
-      var cached = libraryBox(LIBRARY_CACHE_KEY)[userId];
-      var choice = WBLibrary.libraryForAccount(owner, userId, data.workouts, cached);
-      data.workouts = choice.workouts;
-      data.sessions = cached && Array.isArray(cached.sessions) ? cached.sessions : [];
-      data.programs = cached && Array.isArray(cached.programs) ? cached.programs : [];
-      setLibraryOwner(userId);
-      libraryUserId = userId;
+    }
+    setLibraryOwner(userId);
+    libraryUserId = userId;
+    if (librarySwitched) {
       applyingLibrary = true;
       try { persistLocal(); }
       catch (e) {}
       finally { applyingLibrary = false; }
     }
-    setLibraryOwner(userId);
-    libraryUserId = userId;
   }
   function blankOutcome() {
     return { offline: false, auth: false, notice: '', missing: false, permanent: false };
@@ -2365,11 +2377,21 @@
       : n + ' group circuits are still on this phone and have not been sent. Sign out anyway?';
     return confirm(msg);
   }
+  function uploadsBlockingSignOut() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve(true);
+    if (!window.WBLibrary || !WBAuth.accountPull || !WBAuth.accountImport || !WBAuth.accountPush) return Promise.resolve(false);
+    return Promise.resolve(runAccountSync()).then(function () {
+      return libraryPhase === 'offline' || libraryPhase === 'error' || libraryPhase === 'auth';
+    }, function () { return true; });
+  }
   function signOutFromAccount() {
     signedInCircuitId().then(function (signingOut) {
     if (!confirmCircuitSignOut(signingOut)) return;
     var from = hashPage();
-    WBAuth.signOut().then(function () {
+    uploadsBlockingSignOut().then(function (blocked) {
+      if (blocked && !confirm('Unsaved changes have not uploaded. Sign out anyway?')) return;
+      wipeDeviceData();
+      return WBAuth.signOut().then(function () {
       if (signingOut && window.WBCircuitHistory) WBCircuitHistory.clearFor(signingOut);
       forgetRequestBadges();
       clearNavBadges();
@@ -2392,6 +2414,7 @@
     }).catch(function (err) {
       if (hashPage() !== from) return;
       app.insertAdjacentHTML('afterbegin', '<div class="errs">' + esc((err && err.message) || 'Could not sign out') + '</div>');
+    });
     });
     });
   }
