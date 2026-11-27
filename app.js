@@ -46,6 +46,9 @@
   // Leaving a cleared field blank keeps it blank.
   var clearGesture = null;
   var clearTap = 0;
+  var clearEdit = null;
+  var clearDecision = null;
+  var clearWiping = false;
   function clearPrefilled(el) {
     if (!el || el.disabled || el.readOnly || !el.hasAttribute || !el.hasAttribute('data-clear') || el._wbClear) return;
     var original = el.value;
@@ -72,7 +75,9 @@
         mine = true;
         el.value = '';
         try { el.setSelectionRange(0, 0); } catch (err) {}
+        clearWiping = true;
         el.dispatchEvent(new Event('input', { bubbles: true }));
+        clearWiping = false;
         mine = false;
       }
       if (Date.now() - started > 280) { stop(); return; }
@@ -88,9 +93,30 @@
     return clearGesture.moved || clearGesture.scrolled ||
       Math.abs(e.clientX - clearGesture.x) >= 10 || Math.abs(e.clientY - clearGesture.y) >= 10;
   }
+  function rememberField(el) {
+    if (!clearEdit || clearEdit.el !== el) clearEdit = { el: el, edited: false };
+  }
+  function fieldEdited(el) {
+    return !!(clearEdit && clearEdit.el === el && clearEdit.edited);
+  }
+  document.addEventListener('keydown', function (e) {
+    var el = e.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-clear')) return;
+    if (e.key && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
+      rememberField(el);
+      clearEdit.edited = true;
+    }
+  }, true);
+  document.addEventListener('input', function (e) {
+    if (clearWiping) return;
+    var el = e.target;
+    if (!el || !clearEdit || clearEdit.el !== el) return;
+    clearEdit.edited = true;
+  }, true);
   document.addEventListener('pointerdown', function (e) {
     var el = clearTarget(e);
     if (!el) { clearGesture = null; return; }
+    rememberField(el);
     clearGesture = {
       id: e.pointerId,
       x: e.clientX,
@@ -112,25 +138,32 @@
     if (!clearGesture || e.pointerId !== clearGesture.id) return;
     var el = clearGesture.el;
     var already = clearGesture.wasFocused;
-    var tap = !already && !gestureMoved(e);
+    var moved = gestureMoved(e);
     clearGesture = null;
-    if (!tap) { clearTap = 0; return; }
+    var doClear = !moved && !(already && fieldEdited(el));
+    clearDecision = { el: el, clear: doClear, at: Date.now() };
+    if (!doClear) { clearTap = 0; return; }
     clearTap = Date.now();
     clearPrefilled(el);
   }, true);
   document.addEventListener('pointercancel', function (e) {
-    if (clearGesture && e.pointerId === clearGesture.id) clearGesture = null;
+    if (!clearGesture || e.pointerId !== clearGesture.id) return;
+    clearDecision = { el: clearGesture.el, clear: false, at: Date.now() };
+    clearGesture = null;
+    clearTap = 0;
   }, true);
   document.addEventListener('click', function (e) {
     var el = clearTarget(e);
-    if (!el || el === document.activeElement) return;
-    if (Date.now() - clearTap < 700) return;
+    if (!el) return;
+    if (clearDecision && clearDecision.el === el && Date.now() - clearDecision.at < 700) return;
     if (clearGesture) return;
+    if (fieldEdited(el)) return;
     clearPrefilled(el);
   }, true);
   document.addEventListener('focusin', function (e) {
     var el = e.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-clear')) return;
+    rememberField(el);
     if (clearGesture && clearGesture.el === el) return;
     clearPrefilled(el);
   });

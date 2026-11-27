@@ -73,6 +73,16 @@ function ex(over) {
     el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y + 40, pointerId: 4, button: 0 }));
   });
   assert.strictEqual(await page.$eval('[data-b="cfg.count"]', function (el) { return el.value; }), '10');
+  var box = await page.$eval('[data-b="cfg.count"]', function (el) {
+    var rect = el.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x, box.y + 40);
+  await page.mouse.up();
+  await new Promise(function (r) { setTimeout(r, 80); });
+  assert.strictEqual(await page.$eval('[data-b="cfg.count"]', function (el) { return el.value; }), '10');
   await page.tap('[data-b="cfg.count"]');
   await page.waitForFunction(function () { return document.querySelector('[data-b="cfg.count"]').value === ''; });
   assert.strictEqual(await page.$eval('[data-b=sets]', function (el) { return el.value; }), '');
