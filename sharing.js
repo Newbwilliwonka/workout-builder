@@ -246,20 +246,36 @@
       var parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return { legacy: parsed, users: {}, device: [] };
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed.users || typeof parsed.users !== 'object' || Array.isArray(parsed.users)) return null;
-      return { users: parsed.users, device: Array.isArray(parsed.device) ? parsed.device : [] };
+      return {
+        users: parsed.users,
+        device: Array.isArray(parsed.device) ? parsed.device : [],
+        held: Array.isArray(parsed.held) ? parsed.held : []
+      };
     } catch (e) { return null; }
   }
   function writeBox(storage, box) {
-    storage.setItem(LOG_KEY, JSON.stringify({ v: 2, users: box.users || {}, device: box.device || [] }));
+    storage.setItem(LOG_KEY, JSON.stringify({
+      v: 2,
+      users: box.users || {},
+      device: box.device || [],
+      held: box.held || []
+    }));
   }
-  // A list saved before accounts were separated belongs to the last signed-in
-  // person. With no one signed in, it stays on the device until that person
-  // signs in. It is never given to a different account.
-  function settleLog(storage, ownerId) {
+  // An old shared list is not given to whoever is signed in. A row is filed
+  // under an account only when its workout is already stamped to that account.
+  // Everything else is held aside: it is not shown and not claimed on sign-in.
+  function settleLog(storage, owners) {
     var box = loadBox(storage);
     if (!box || !box.legacy) return box ? true : false;
-    if (ownerId) box.users[ownerId] = (box.users[ownerId] || []).concat(box.legacy);
-    else box.device = (box.device || []).concat(box.legacy);
+    var held = [];
+    box.legacy.forEach(function (row) {
+      var workoutId = row && (row.workoutId || row.workout_id);
+      var owner = workoutId && owners && owners[String(workoutId)];
+      if (!owner) { held.push(row); return; }
+      box.users[owner] = box.users[owner] || [];
+      box.users[owner].push(row);
+    });
+    box.held = (box.held || []).concat(held);
     try { writeBox(storage, box); return true; } catch (e) { return false; }
   }
   // Sessions made while signed out can join the account that signs in.
@@ -286,8 +302,8 @@
     var box = loadBox(storage);
     if (!box) return false;
     if (box.legacy) {
-      if (userId) box.users[userId] = (box.users[userId] || []).concat(box.legacy);
-      else box.device = (box.device || []).concat(box.legacy);
+      box.held = (box.held || []).concat(box.legacy);
+      delete box.legacy;
     }
     var list = userId ? (box.users[userId] = box.users[userId] || []) : (box.device = box.device || []);
     if (list.some(function (r) { return r && r.id === sess.id; })) return false;

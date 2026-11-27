@@ -866,12 +866,49 @@
     if (changed) writeWorkoutOwners(map);
   }
   function adoptAccount(userId) {
-    if (window.WBSharing && WBSharing.settleLog) WBSharing.settleLog(localStorage, libraryOwner());
-    stampWorkoutOwners(libraryOwner());
+    if (window.WBSharing && WBSharing.settleLog) WBSharing.settleLog(localStorage, readWorkoutOwners());
+    var stored = M.load(localStorage);
+    if ((stored.workouts || []).length && !(data.workouts || []).length) {
+      data.workouts = stored.workouts;
+      data.sessions = stored.sessions;
+      data.programs = stored.programs;
+    }
     var owner = libraryOwner();
     librarySwitched = !!(owner && owner !== userId);
     if (librarySwitched) {
-      parkLibrary(owner);
+      var owners = readWorkoutOwners();
+      var kept = [];
+      var foreign = [];
+      (data.workouts || []).forEach(function (w) {
+        if (!w) return;
+        var stamped = owners[String(w.id)];
+        if (stamped && stamped !== userId) foreign.push(w);
+        else kept.push(w);
+      });
+      var liveSessions = data.sessions;
+      var livePrograms = data.programs;
+      if (foreign.length) {
+        data.workouts = foreign;
+        data.sessions = [];
+        data.programs = [];
+        parkLibrary(owner);
+        data.sessions = liveSessions;
+        data.programs = livePrograms;
+      }
+      var cached = libraryBox(LIBRARY_CACHE_KEY)[userId] || {};
+      var cachedWorkouts = Array.isArray(cached.workouts) ? cached.workouts : [];
+      if (!kept.length) {
+        data.workouts = cachedWorkouts;
+        data.sessions = Array.isArray(cached.sessions) ? cached.sessions : [];
+        data.programs = Array.isArray(cached.programs) ? cached.programs : [];
+      } else {
+        var seen = {};
+        kept.forEach(function (w) { if (w && w.id != null) seen[String(w.id)] = 1; });
+        cachedWorkouts.forEach(function (w) {
+          if (w && w.id != null && !seen[String(w.id)]) kept.push(w);
+        });
+        data.workouts = kept;
+      }
       pendingDrops = {};
       clientQueue = [];
       libraryAck = {};
@@ -880,11 +917,6 @@
       guestGen = {};
       copyStamp = {};
       removedCopies = [];
-      var cached = libraryBox(LIBRARY_CACHE_KEY)[userId];
-      var choice = WBLibrary.libraryForAccount(owner, userId, data.workouts, cached);
-      data.workouts = choice.workouts;
-      data.sessions = cached && Array.isArray(cached.sessions) ? cached.sessions : [];
-      data.programs = cached && Array.isArray(cached.programs) ? cached.programs : [];
       setLibraryOwner(userId);
       libraryUserId = userId;
       applyingLibrary = true;
