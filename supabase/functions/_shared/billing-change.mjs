@@ -162,6 +162,23 @@ export async function changeSubscription(input) {
     const quantity = Number(item.quantity) > 0 ? Number(item.quantity) : 1
     let updated
     try {
+      // Stripe rejects cancel_at together with cancel_at_period_end, and
+      // rejects cancel_at when payment_behavior is pending_if_incomplete.
+      // Clear a portal cancel on its own, with no price change. Flexible
+      // portal cancels set cancel_at. Classic ones set cancel_at_period_end.
+      if (subscription.cancel_at) {
+        await input.stripe.subscriptions.update(subscription.id, {
+          cancel_at: ''
+        }, {
+          idempotencyKey: 'uncancel-' + userId + '-' + (claimToken || priceId)
+        })
+      } else if (subscription.cancel_at_period_end === true) {
+        await input.stripe.subscriptions.update(subscription.id, {
+          cancel_at_period_end: false
+        }, {
+          idempotencyKey: 'uncancel-' + userId + '-' + (claimToken || priceId)
+        })
+      }
       // always_invoice charges an upgrade now. A downgrade's negative
       // proration is left as customer balance credit. This call does not
       // refund the card. pending_if_incomplete keeps the old price when
@@ -170,12 +187,6 @@ export async function changeSubscription(input) {
         items: [{ id: item.id, price: priceId, quantity: quantity }],
         proration_behavior: 'always_invoice',
         payment_behavior: 'pending_if_incomplete',
-        // A portal cancel sets cancel_at to the period end. Updating the
-        // price does not clear it, so the new plan would still end.
-        // Empty cancel_at unsets that date. cancel_at_period_end false
-        // clears the classic period-end flag.
-        cancel_at_period_end: false,
-        cancel_at: '',
         expand: INVOICE_EXPAND
       }, {
         idempotencyKey: 'change-' + userId + '-' + (claimToken || priceId)

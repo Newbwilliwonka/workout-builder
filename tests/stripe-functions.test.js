@@ -1966,11 +1966,12 @@ async function main() {
   assert.ok(JSON.stringify(betaSwitch.calls).indexOf('cus_evil') === -1);
   assert.deepStrictEqual(betaSwitch.calls[1][1].lookup_keys, ['master_trainer_beta_monthly']);
   const update = betaSwitch.calls.filter(function (row) { return row[0] === 'subscriptions.update'; })[0];
+  assert.strictEqual(betaSwitch.calls.filter(function (row) { return row[0] === 'subscriptions.update'; }).length, 1);
   assert.strictEqual(update[1], 'sub_payer001');
   assert.strictEqual(update[2].proration_behavior, 'always_invoice');
   assert.strictEqual(update[2].payment_behavior, 'pending_if_incomplete');
-  assert.strictEqual(update[2].cancel_at_period_end, false);
-  assert.strictEqual(update[2].cancel_at, '');
+  assert.ok(!Object.prototype.hasOwnProperty.call(update[2], 'cancel_at'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(update[2], 'cancel_at_period_end'));
   assert.deepStrictEqual(update[2].expand, ['latest_invoice.confirmation_secret']);
   assert.deepStrictEqual(update[2].items, [{ id: 'si_current', price: 'price_from_master_trainer_beta_monthly', quantity: 1 }]);
   assert.strictEqual(update[3].idempotencyKey, 'change-' + USER + '-' + TOKEN);
@@ -1987,6 +1988,7 @@ async function main() {
   });
   const stayStripe = changeStripe([stillEnding], async function (id, params, opts) {
     stayStripe.calls.push(['subscriptions.update', id, params, opts]);
+    if (!params.items) return Object.assign({}, stillEnding, { cancel_at: null, cancel_at_period_end: false });
     return Object.assign({}, stillEnding, {
       pending_update: null,
       items: { data: [{ id: params.items[0].id, price: { id: params.items[0].price }, current_period_end: 1798329600 }] }
@@ -2002,12 +2004,50 @@ async function main() {
     testMode: 'true'
   });
   assert.strictEqual(stayed.body.status, 'ok');
-  const stayUpdate = stayStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; })[0];
-  assert.strictEqual(stayUpdate[2].cancel_at_period_end, false);
-  assert.strictEqual(stayUpdate[2].cancel_at, '');
+  const stayUpdates = stayStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(stayUpdates.length, 2);
+  assert.deepStrictEqual(stayUpdates[0][2], { cancel_at: '' });
+  assert.strictEqual(stayUpdates[0][3].idempotencyKey, 'uncancel-' + USER + '-' + TOKEN);
+  assert.strictEqual(stayUpdates[1][2].proration_behavior, 'always_invoice');
+  assert.strictEqual(stayUpdates[1][2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(!Object.prototype.hasOwnProperty.call(stayUpdates[1][2], 'cancel_at'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(stayUpdates[1][2], 'cancel_at_period_end'));
   const stayClear = stayDb.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
   assert.strictEqual(stayClear.p_cancel_at, null);
   assert.strictEqual(stayClear.p_subscription_id, 'sub_payer001');
+
+  const classicEnding = Object.assign({}, subOn('trainer', 'beta'), {
+    cancel_at: null,
+    cancel_at_period_end: true
+  });
+  const classicStripe = changeStripe([classicEnding], async function (id, params, opts) {
+    classicStripe.calls.push(['subscriptions.update', id, params, opts]);
+    if (!params.items) {
+      return { id: id, status: 'active', customer: 'cus_Existing1', pending_update: null, cancel_at: null, cancel_at_period_end: false, items: classicEnding.items };
+    }
+    return {
+      id: id,
+      status: 'active',
+      customer: 'cus_Existing1',
+      pending_update: null,
+      items: { data: [{ id: params.items[0].id, price: { id: params.items[0].price }, current_period_end: 1798329600 }] }
+    };
+  });
+  const classicDb = changeDb(payer);
+  const classicStay = await change.changeSubscription({
+    stripe: classicStripe,
+    db: classicDb,
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.strictEqual(classicStay.body.status, 'ok');
+  const classicUpdates = classicStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(classicUpdates.length, 2);
+  assert.deepStrictEqual(classicUpdates[0][2], { cancel_at_period_end: false });
+  assert.strictEqual(classicUpdates[1][2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(!Object.prototype.hasOwnProperty.call(classicUpdates[1][2], 'cancel_at'));
 
   const standardSwitch = changeStripe([subOn('trainer', 'standard')]);
   await change.changeSubscription({
@@ -2021,9 +2061,19 @@ async function main() {
   assert.deepStrictEqual(standardSwitch.calls[1][1].lookup_keys, ['enthusiast_standard_monthly']);
   assert.strictEqual(standardSwitch.calls[2][2].proration_behavior, 'always_invoice');
   assert.strictEqual(standardSwitch.calls[2][2].payment_behavior, 'pending_if_incomplete');
-  assert.strictEqual(standardSwitch.calls[2][2].cancel_at_period_end, false);
-  assert.strictEqual(standardSwitch.calls[2][2].cancel_at, '');
+  assert.strictEqual(standardSwitch.calls.filter(function (row) { return row[0] === 'subscriptions.update'; }).length, 1);
+  assert.ok(!Object.prototype.hasOwnProperty.call(standardSwitch.calls[2][2], 'cancel_at'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(standardSwitch.calls[2][2], 'cancel_at_period_end'));
   assert.ok(names(standardSwitch.calls).indexOf('refunds.create') === -1);
+  [betaSwitch, stayStripe, classicStripe, standardSwitch].forEach(function (stripe) {
+    stripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; }).forEach(function (row) {
+      const params = row[2] || {};
+      const hasAt = Object.prototype.hasOwnProperty.call(params, 'cancel_at');
+      const hasEnd = Object.prototype.hasOwnProperty.call(params, 'cancel_at_period_end');
+      assert.ok(!(hasAt && hasEnd));
+      if (params.payment_behavior === 'pending_if_incomplete') assert.ok(!hasAt);
+    });
+  });
 
   const sameDb = changeDb(payer);
   const sameStripe = changeStripe([subOn('trainer', 'beta')]);

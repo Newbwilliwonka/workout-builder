@@ -367,6 +367,7 @@ const paying = {
       && document.getElementById('your-plan-name').textContent === 'Trainer'
       && document.getElementById('your-plan-price').textContent === '$19.99 / month';
   });
+  await ending.close();
   await success.evaluate(function () {
     var n = 0;
     window.WBAuth.openBilling = function () {
