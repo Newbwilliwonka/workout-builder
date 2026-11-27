@@ -239,25 +239,66 @@
   function sessionIsOwn(sess) {
     return !!(sess && sess.id && sess.ownWork === true);
   }
-  function readLog(storage) {
+  function loadBox(storage) {
     try {
       var raw = storage.getItem(LOG_KEY);
-      if (!raw) return [];
-      var rows = JSON.parse(raw);
-      if (!Array.isArray(rows)) return null;
-      return rows;
+      if (!raw) return { users: {}, device: [] };
+      var parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return { legacy: parsed, users: {}, device: [] };
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed.users || typeof parsed.users !== 'object' || Array.isArray(parsed.users)) return null;
+      return { users: parsed.users, device: Array.isArray(parsed.device) ? parsed.device : [] };
     } catch (e) { return null; }
   }
-  function rememberSession(storage, sess, played) {
+  function writeBox(storage, box) {
+    storage.setItem(LOG_KEY, JSON.stringify({ v: 2, users: box.users || {}, device: box.device || [] }));
+  }
+  // A list saved before accounts were separated belongs to the last signed-in
+  // person. With no one signed in, it stays on the device until that person
+  // signs in. It is never given to a different account.
+  function settleLog(storage, ownerId) {
+    var box = loadBox(storage);
+    if (!box || !box.legacy) return box ? true : false;
+    if (ownerId) box.users[ownerId] = (box.users[ownerId] || []).concat(box.legacy);
+    else box.device = (box.device || []).concat(box.legacy);
+    try { writeBox(storage, box); return true; } catch (e) { return false; }
+  }
+  // Sessions made while signed out can join the account that signs in.
+  // Rows already stored under another account stay there.
+  function claimDevice(storage, userId) {
+    if (!userId) return false;
+    var box = loadBox(storage);
+    if (!box || box.legacy) return false;
+    var device = box.device || [];
+    if (!device.length) return true;
+    box.users[userId] = (box.users[userId] || []).concat(device);
+    box.device = [];
+    try { writeBox(storage, box); return true; } catch (e) { return false; }
+  }
+  function readLog(storage, userId) {
+    var box = loadBox(storage);
+    if (!box) return null;
+    if (box.legacy) return userId ? [] : box.legacy.slice();
+    if (userId) return (box.users[userId] || []).slice();
+    return (box.device || []).slice();
+  }
+  function rememberSession(storage, sess, played, userId) {
     if (classifySession(sess, played) !== true) return false;
-    var rows = readLog(storage);
-    if (rows == null) return false;
-    if (rows.some(function (r) { return r && r.id === sess.id; })) return false;
+    var box = loadBox(storage);
+    if (!box) return false;
+    if (box.legacy) {
+      if (userId) box.users[userId] = (box.users[userId] || []).concat(box.legacy);
+      else box.device = (box.device || []).concat(box.legacy);
+    }
+    var list = userId ? (box.users[userId] = box.users[userId] || []) : (box.device = box.device || []);
+    if (list.some(function (r) { return r && r.id === sess.id; })) return false;
     var copy;
     try { copy = JSON.parse(JSON.stringify(sess)); } catch (e) { return false; }
-    rows.push(copy);
-    try { storage.setItem(LOG_KEY, JSON.stringify(rows.slice(-60))); } catch (e2) { return false; }
-    return true;
+    if (userId) copy.accountId = userId;
+    list.push(copy);
+    var kept = list.slice(-60);
+    if (userId) box.users[userId] = kept;
+    else box.device = kept;
+    try { writeBox(storage, box); return true; } catch (e2) { return false; }
   }
   // Own workouts and their logged sets, for a push. Null means the local read
   // failed or was not a list: the caller must not upload or delete anything.
@@ -300,7 +341,7 @@
     linkOption: linkOption, accountCard: accountCard, unavailableHtml: unavailableHtml, errorHtml: errorHtml,
     setLine: setLine, whenLabel: whenLabel, clientHtml: clientHtml,
     isOwnWorkout: isOwnWorkout, classifySession: classifySession, sessionIsOwn: sessionIsOwn,
-    readLog: readLog, rememberSession: rememberSession, payload: payload
+    readLog: readLog, rememberSession: rememberSession, settleLog: settleLog, claimDevice: claimDevice, payload: payload
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBSharing = api;

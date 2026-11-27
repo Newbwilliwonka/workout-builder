@@ -5,7 +5,7 @@
   var M = window.WB, app = document.getElementById('app'), titleEl = document.getElementById('title'), backBtn = document.getElementById('back');
   var data = M.load(localStorage), selected = {}, draft = null;
 
-  function persist() { archiveCurrent(); M.save(localStorage, data); scheduleCopySave(); scheduleSharePush(); if (!applyingLibrary) scheduleAccountSync(); scheduleGuestSave(); }
+  function persist() { stampWorkoutOwners(libraryUserId); archiveCurrent(); M.save(localStorage, data); scheduleCopySave(); scheduleSharePush(); if (!applyingLibrary) scheduleAccountSync(); scheduleGuestSave(); }
   function persistLocal() { archiveCurrent(); M.save(localStorage, data); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function getW(id) {
@@ -790,6 +790,7 @@
   var LIBRARY_CACHE_KEY = 'wb.libraryCache.v1';
   var LIBRARY_SEED_KEY = 'wb.accountSeed.v1';
   var LIBRARY_REJECT_KEY = 'wb.accountReject.v1';
+  var WORKOUT_OWNER_KEY = 'wb.workoutOwner.v1';
   function libraryOwner() {
     try { return localStorage.getItem(LIBRARY_OWNER_KEY) || ''; } catch (e) { return ''; }
   }
@@ -842,7 +843,31 @@
     }
     writeUserMap(WBLibrary.QUEUE_KEY, '_pending', []);
   }
+  function readWorkoutOwners() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(WORKOUT_OWNER_KEY) || '{}');
+      return raw && typeof raw === 'object' ? raw : {};
+    } catch (e) { return {}; }
+  }
+  function writeWorkoutOwners(map) {
+    try { localStorage.setItem(WORKOUT_OWNER_KEY, JSON.stringify(map || {})); } catch (e) {}
+  }
+  function stampWorkoutOwners(ownerId) {
+    if (!ownerId) return;
+    var map = readWorkoutOwners();
+    var changed = false;
+    (data.workouts || []).forEach(function (w) {
+      if (!w || w.id == null) return;
+      var id = String(w.id);
+      if (map[id]) return;
+      map[id] = ownerId;
+      changed = true;
+    });
+    if (changed) writeWorkoutOwners(map);
+  }
   function adoptAccount(userId) {
+    if (window.WBSharing && WBSharing.settleLog) WBSharing.settleLog(localStorage, libraryOwner());
+    stampWorkoutOwners(libraryOwner());
     var owner = libraryOwner();
     librarySwitched = !!(owner && owner !== userId);
     if (librarySwitched) {
@@ -869,6 +894,7 @@
     }
     setLibraryOwner(userId);
     libraryUserId = userId;
+    if (window.WBSharing && WBSharing.claimDevice) WBSharing.claimDevice(localStorage, userId);
   }
   function blankOutcome() {
     return { offline: false, auth: false, notice: '', missing: false, permanent: false };
@@ -966,7 +992,9 @@
     var claimed = userMap(WBLibrary.CLAIM_KEY, libraryUserId);
     var drops = userMap(WBLibrary.DROP_KEY, libraryUserId);
     var seed = ensureSeed(libraryUserId);
-    var pending = WBLibrary.importsForSeed(data.workouts, claimed, drops, seed);
+    var pending = window.WBLibrary && WBLibrary.importsForAccount
+      ? WBLibrary.importsForAccount(data.workouts, claimed, drops, seed, libraryUserId, readWorkoutOwners())
+      : WBLibrary.importsForSeed(data.workouts, claimed, drops, seed);
     return eachStep(pending, function (w, outcome) {
       var change = WBLibrary.changeFrom(w, false);
       var key = String(w.id);
@@ -1787,6 +1815,7 @@
         if (!accessApproved(gate.profile, session)) return renderAccessWait();
         accessWaitOn = false;
         var profile = cachedProfile || gate.profile;
+        if (session && session.user && session.user.id) adoptAccount(session.user.id);
         if (page === 'admin') return renderAdmin();
         var checkoutReturn = hashParam('checkout') === 'success' && (page === 'account' || page === 'subscriptions');
         if (gate.known && !WBMembership.hasDesignated(profile) && !checkoutReturn) return go('#/subscriptions');
@@ -2122,7 +2151,7 @@
     }
     if (pushFlight) { pushPending = true; return; }
     stopPushRetry();
-    var log = WBSharing.readLog(localStorage);
+    var log = WBSharing.readLog(localStorage, libraryUserId || '');
     var body = WBSharing.payload(data, log);
     if (!body) { pushPending = true; return; }
     pushPending = false;
@@ -2153,8 +2182,8 @@
         player.done = null;
         return;
       }
-      var stored = WBSharing.rememberSession(localStorage, done, player.w);
-      if (!stored && WBSharing.readLog(localStorage) == null) return;
+      var stored = WBSharing.rememberSession(localStorage, done, player.w, libraryUserId || '');
+      if (!stored && WBSharing.readLog(localStorage, libraryUserId || '') == null) return;
       player.done = null;
       if (stored) {
         ensureShare();
@@ -2168,6 +2197,7 @@
     if (data.sessions.some(function (row) { return row && row.id === done.id; })) return;
     data.sessions.push({
       id: done.id,
+      accountId: libraryUserId || '',
       workoutId: done.workoutId,
       workoutName: done.workoutName,
       startedAt: done.startedAt,
@@ -4535,9 +4565,20 @@
     });
   }
   function trackedSessions() {
-    var rows = Array.isArray(data.sessions) ? data.sessions.slice() : [];
+    var mine = libraryUserId || '';
+    var owner = libraryOwner();
+    var rows = [];
+    (Array.isArray(data.sessions) ? data.sessions : []).forEach(function (row) {
+      if (!row) return;
+      if (row.accountId) {
+        if (!mine || row.accountId !== mine) return;
+      } else if (mine && owner && owner !== mine) {
+        return;
+      }
+      rows.push(row);
+    });
     if (window.WBSharing) {
-      var log = WBSharing.readLog(localStorage);
+      var log = WBSharing.readLog(localStorage, mine);
       if (Array.isArray(log)) rows = rows.concat(log);
     }
     return rows;

@@ -85,6 +85,14 @@
       return allow[String(w.id)];
     });
   }
+  // A workout already tied to another account is not copied into this one.
+  // A workout with no owner was made while signed out and can be copied.
+  function importsForAccount(workouts, claimed, tombstones, seed, userId, owners) {
+    return importsForSeed(workouts, claimed, tombstones, seed).filter(function (w) {
+      var owner = owners && owners[String(w && w.id || '')];
+      return !owner || owner === userId;
+    });
+  }
   // A browser already tied to one account does not hand that library to the next person.
   function libraryForAccount(ownerId, userId, workouts, cached) {
     if (!userId) return { ownerId: ownerId || '', workouts: workouts || [], switched: false };
@@ -588,6 +596,7 @@
     pendingImports: pendingImports,
     seedIds: seedIds,
     importsForSeed: importsForSeed,
+    importsForAccount: importsForAccount,
     libraryForAccount: libraryForAccount,
     rememberClaim: rememberClaim,
     absorbImports: absorbImports,
