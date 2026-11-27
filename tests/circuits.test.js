@@ -33,8 +33,17 @@ assert.deepStrictEqual(C.splitClock(15), { m: 0, s: 15 });
 assert.strictEqual(C.joinClock('0', '45'), 45);
 assert.strictEqual(C.joinClock('0', '15'), 15);
 assert.strictEqual(C.joinClock('0', '00'), 0);
-assert.strictEqual(C.joinClock('1', '60'), null);
+assert.strictEqual(C.joinClock('0', '60'), 60);
+assert.strictEqual(C.joinClock('0', '90'), 90);
+assert.strictEqual(C.joinClock('1', '60'), 120);
+assert.strictEqual(C.joinClock('59', '60'), 3600);
+assert.strictEqual(C.joinClock('60', '1'), null);
 assert.strictEqual(C.joinClock('', '15'), null);
+const rolled = build(1, 'Rolled clock');
+rolled.clock = { workSec: C.joinClock('0', '60'), moveSec: C.joinClock('0', '15'), rounds: 1 };
+const rolledSave = C.toPayload(rolled);
+assert.strictEqual(rolledSave.ok, true, (rolledSave.errors || []).join(' '));
+assert.strictEqual(rolledSave.data.clock.workSec, 60);
 
 assert.strictEqual(C.publicName('Ada'), 'Ada');
 assert.strictEqual(C.publicName('  '), 'Client');

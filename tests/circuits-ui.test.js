@@ -388,6 +388,68 @@ async function shot(page, name) {
   await page.addStyleTag({ content: '.bar{position:static !important}' });
   await shot(page, 'circuits-setup.png');
 
+  assert.strictEqual(await page.$eval('#circuit-work-s', function (el) { return el.getAttribute('data-clear'); }), '1');
+  await page.evaluate(function () {
+    var el = document.getElementById('circuit-work-s');
+    var rect = el.getBoundingClientRect();
+    var x = rect.left + rect.width / 2;
+    var y = rect.top + rect.height / 2;
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 8, button: 0 }));
+    el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: x, clientY: y + 40, pointerId: 8, button: 0 }));
+    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y + 40, pointerId: 8, button: 0 }));
+  });
+  assert.strictEqual(await page.$eval('#circuit-work-s', function (el) { return el.value; }), '45');
+  function poke(id, dy) {
+    return page.evaluate(function (fieldId, delta) {
+      var el = document.getElementById(fieldId);
+      el.scrollIntoView({ block: 'center' });
+      var rect = el.getBoundingClientRect();
+      var x = rect.left + rect.width / 2;
+      var y = rect.top + rect.height / 2;
+      el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 9, button: 0 }));
+      if (delta) el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: x, clientY: y + delta, pointerId: 9, button: 0 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x + (delta ? 0 : 0), clientY: y + (delta || 0), pointerId: 9, button: 0 }));
+    }, id, dy || 0);
+  }
+  await poke('circuit-move-s', 0);
+  await page.waitForFunction(function () { return document.getElementById('circuit-move-s').value === ''; });
+  await poke('circuit-work-s', 0);
+  await page.waitForFunction(function () { return document.getElementById('circuit-work-s').value === ''; });
+  await page.click('[data-act=save]');
+  await page.waitForFunction(function () {
+    var err = document.getElementById('circuit-err');
+    var sec = document.getElementById('circuit-work-s');
+    return err && err.textContent.indexOf('Enter the work time.') !== -1 && sec.classList.contains('is-empty') && sec.getAttribute('aria-invalid') === 'true';
+  });
+  assert.strictEqual(await page.$eval('#circuit-work-m', function (el) { return el.classList.contains('is-empty'); }), false);
+  assert.strictEqual(await page.$eval('#circuit-move-s', function (el) { return el.classList.contains('is-empty'); }), true);
+  await page.evaluate(function () {
+    function fill(id, value) {
+      var el = document.getElementById(id);
+      el.focus();
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    fill('circuit-move-s', '15');
+    fill('circuit-work-s', '60');
+  });
+  await page.waitForFunction(function () {
+    var sec = document.getElementById('circuit-work-s');
+    var move = document.getElementById('circuit-move-s');
+    return sec.value === '60' && document.activeElement === sec && !sec.classList.contains('is-empty') && sec.getAttribute('aria-invalid') !== 'true' &&
+      move.value === '15' && !move.classList.contains('is-empty');
+  });
+  await page.evaluate(function () {
+    var el = document.getElementById('circuit-work-s');
+    var rect = el.getBoundingClientRect();
+    var x = rect.left + rect.width / 2;
+    var y = rect.top + rect.height / 2;
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 11, button: 0 }));
+    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 11, button: 0 }));
+  });
+  await new Promise(function (r) { setTimeout(r, 120); });
+  assert.strictEqual(await page.$eval('#circuit-work-s', function (el) { return el.value; }), '60');
+
   await page.evaluate(function () { window.__blockSave = true; });
   await page.click('[data-act=save]');
   await page.waitForFunction(function () { return document.getElementById('circuit-name').disabled === true; });
@@ -416,7 +478,7 @@ async function shot(page, name) {
   assert.strictEqual(saved.name, 'Saturday class');
   assert.strictEqual(saved.data.stations.length, 6);
   assert.strictEqual(saved.data.order.length, 6);
-  assert.strictEqual(saved.data.clock.workSec, 45);
+  assert.strictEqual(saved.data.clock.workSec, 60);
   assert.strictEqual(saved.data.clock.moveSec, 15);
   assert.strictEqual(saved.data.clock.rounds, 6);
   assert.ok(!saved.data.clients);

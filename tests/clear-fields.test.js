@@ -63,6 +63,26 @@ function ex(over) {
   await new Promise(function (r) { setTimeout(r, 350); });
   assert.strictEqual(await page.$eval('[data-b=sets]', function (el) { return el.value; }), '');
 
+  await page.evaluate(function () {
+    var el = document.querySelector('[data-b="cfg.count"]');
+    var rect = el.getBoundingClientRect();
+    var x = rect.left + rect.width / 2;
+    var y = rect.top + rect.height / 2;
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 4, button: 0 }));
+    el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: x, clientY: y + 40, pointerId: 4, button: 0 }));
+    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y + 40, pointerId: 4, button: 0 }));
+  });
+  assert.strictEqual(await page.$eval('[data-b="cfg.count"]', function (el) { return el.value; }), '10');
+  var box = await page.$eval('[data-b="cfg.count"]', function (el) {
+    var rect = el.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x, box.y + 40);
+  await page.mouse.up();
+  await new Promise(function (r) { setTimeout(r, 80); });
+  assert.strictEqual(await page.$eval('[data-b="cfg.count"]', function (el) { return el.value; }), '10');
   await page.tap('[data-b="cfg.count"]');
   await page.waitForFunction(function () { return document.querySelector('[data-b="cfg.count"]').value === ''; });
   assert.strictEqual(await page.$eval('[data-b=sets]', function (el) { return el.value; }), '');
@@ -110,6 +130,9 @@ function ex(over) {
     var el = document.querySelector('[data-b="cfg.count"]');
     return el.value === '8' && !el.classList.contains('is-empty');
   });
+  await page.tap('[data-b="cfg.count"]');
+  await new Promise(function (r) { setTimeout(r, 120); });
+  assert.strictEqual(await page.$eval('[data-b="cfg.count"]', function (el) { return el.value; }), '8');
   await page.tap('[data-a=save]');
   await page.waitForFunction(function () { return location.hash.indexOf('/ex/') === -1; });
   const saved = await page.evaluate(function (key) {

@@ -112,11 +112,8 @@
   function joinClock(min, sec) {
     var m = clean(min);
     var s = clean(sec);
-    if (!/^\d{1,4}$/.test(m) || !/^\d{1,2}$/.test(s)) return null;
-    var mv = Number(m);
-    var sv = Number(s);
-    if (sv > 59) return null;
-    var total = mv * 60 + sv;
+    if (!/^\d{1,4}$/.test(m) || !/^\d{1,4}$/.test(s)) return null;
+    var total = Number(m) * 60 + Number(s);
     if (total > CLOCK_MAX) return null;
     return total;
   }

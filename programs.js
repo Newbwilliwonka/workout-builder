@@ -218,10 +218,12 @@
     if (!m || (apRaw !== 'AM' && apRaw !== 'PM')) return { ok: false, empty: false, value: '' };
     var h = Number(m[1]);
     var min = Number(m[2]);
-    if (h < 1 || h > 12 || min > 59) return { ok: false, empty: false, value: '' };
+    if (h < 1 || h > 12 || min < 0) return { ok: false, empty: false, value: '' };
     var h24 = h % 12;
     if (apRaw === 'PM') h24 += 12;
-    return { ok: true, empty: false, value: pad(h24) + ':' + pad(min) };
+    var total = h24 * 60 + min;
+    if (total >= 24 * 60) return { ok: false, empty: false, value: '' };
+    return { ok: true, empty: false, value: pad(Math.floor(total / 60)) + ':' + pad(total % 60) };
   }
   // Keep a typed time looking like HH:MM while the person is entering digits.
   function shapeClock(value) {

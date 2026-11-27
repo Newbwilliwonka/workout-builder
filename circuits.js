@@ -212,9 +212,9 @@
   }
   function phaseHtml(kind, label, minId, secId, minVal, secVal) {
     return '<div class="circuit-phase ' + kind + '"><div class="kicker">' + label + '</div><div class="time wb-digits">' +
-      '<input id="' + minId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' minutes" value="' + esc(minVal) + '" autocomplete="off"' + off() + '>' +
+      '<input id="' + minId + '" data-clear="1" data-req="1" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' minutes" value="' + esc(minVal) + '" autocomplete="off"' + off() + '>' +
       '<span>:</span>' +
-      '<input id="' + secId + '" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' seconds" value="' + esc(secVal) + '" autocomplete="off"' + off() + '>' +
+      '<input id="' + secId + '" data-clear="1" data-req="1" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="' + label + ' seconds" value="' + esc(secVal) + '" autocomplete="off"' + off() + '>' +
       '</div></div>';
   }
   function errorsHtml() {
@@ -355,7 +355,7 @@
       phaseHtml('work', 'Work', 'circuit-work-m', 'circuit-work-s', clockText.wm, clockText.ws) +
       phaseHtml('move', 'Move', 'circuit-move-m', 'circuit-move-s', clockText.mm, clockText.ms) +
       '<div class="circuit-phase rounds"><label class="kicker" for="circuit-rounds">Rounds</label>' +
-      '<input id="circuit-rounds" class="wb-digits" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
+      '<input id="circuit-rounds" class="wb-digits" data-clear="1" data-req="1" type="text" inputmode="numeric" pattern="[0-9]*" value="' + esc(clockText.rounds) + '" autocomplete="off"' + off() + '></div></div>' +
       '<p class="circuit-track" id="circuit-track">Tracking: time per station (editable)</p>';
     h += '<div class="circuit-actions">' +
       '<button type="button" class="pri circuit-start" data-act="save"' + (busy ? ' disabled' : '') + '>Save</button>' +
@@ -463,13 +463,38 @@
     formError = [];
     paint();
   }
+  function markEmptyClock() {
+    ['circuit-work-m', 'circuit-work-s', 'circuit-move-m', 'circuit-move-s', 'circuit-rounds'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var empty = String(el.value == null ? '' : el.value).trim() === '';
+      if (empty) {
+        el.classList.add('is-empty');
+        el.setAttribute('aria-invalid', 'true');
+      } else {
+        el.classList.remove('is-empty');
+        el.removeAttribute('aria-invalid');
+      }
+    });
+  }
   function onSave() {
     if (!draft || busy || !ctx) return;
     var name = document.getElementById('circuit-name');
     if (name) draft.name = name.value;
     applyClockText();
     var payload = model().toPayload(draft);
-    if (!payload.ok) { formError = payload.errors; paint(); return; }
+    if (!payload.ok) {
+      formError = payload.errors.filter(function (msg) {
+        if (msg === 'Enter the work time.' && String(clockText.wm || '').trim() !== '' && String(clockText.ws || '').trim() !== '') return false;
+        if (msg === 'Enter the move time.' && String(clockText.mm || '').trim() !== '' && String(clockText.ms || '').trim() !== '') return false;
+        if (msg === 'Enter the rounds.' && String(clockText.rounds || '').trim() !== '') return false;
+        return true;
+      });
+      if (!formError.length) formError = payload.errors;
+      paint();
+      markEmptyClock();
+      return;
+    }
     if (!root.WBAuth || !root.WBAuth.saveCircuit) {
       formError = ['Group circuits are not available yet. Apply the circuits SQL in the Supabase SQL editor.'];
       paint();
@@ -566,6 +591,10 @@
   function onInput(e) {
     var field = e.target;
     if (busy || !field || !draft) return;
+    if (String(field.value == null ? '' : field.value).trim() !== '') {
+      field.classList.remove('is-empty');
+      field.removeAttribute('aria-invalid');
+    }
     if (field.id === 'circuit-name') { draft.name = field.value; return; }
     if (!clockText) clockText = clockTextFrom(draft.clock);
     if (field.id === 'circuit-work-m' || field.id === 'circuit-work-s' || field.id === 'circuit-move-m' || field.id === 'circuit-move-s') {

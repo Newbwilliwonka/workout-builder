@@ -1578,12 +1578,12 @@
     var mn = /^\d{2}$/.test(m) ? Number(m) : NaN;
     var bad = [];
     if (!(hn >= 1 && hn <= 12)) bad.push('h');
-    if (!(mn >= 0 && mn <= 59)) bad.push('m');
+    if (!(mn >= 0 && mn <= 99)) bad.push('m');
     return { h: h, m: m, bad: bad, empty: !h || !m };
   }
   function clockPartOk(part, value) {
     if (part === 'h') return /^\d{1,2}$/.test(value) && Number(value) >= 1 && Number(value) <= 12;
-    return /^\d{2}$/.test(value) && Number(value) <= 59;
+    return /^\d{2}$/.test(value) && Number(value) <= 99;
   }
   function refreshAddNotice() {
     var sheet = state.sheet;
