@@ -300,6 +300,9 @@ export async function createCheckoutSession(input) {
       success_url: SUCCESS_URL,
       cancel_url: CANCEL_URL,
       integration_identifier: INTEGRATION_ID,
+      // Managed Payments is on by default in test mode and refuses products
+      // that have no tax code. Leave it off until those codes exist.
+      managed_payments: { enabled: false },
       metadata: metadata,
       subscription_data: {
         metadata: {

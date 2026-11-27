@@ -217,6 +217,7 @@ async function main() {
   assert.strictEqual(params.subscription_data.metadata.supabase_user_id, USER);
   assert.strictEqual(params.subscription_data.metadata.plan, 'enthusiast');
   assert.strictEqual(params.subscription_data.metadata.tier, 'beta');
+  assert.deepStrictEqual(params.managed_payments, { enabled: false });
   assert.strictEqual(Object.prototype.hasOwnProperty.call(params, 'automatic_tax'), false);
   assert.strictEqual(Object.prototype.hasOwnProperty.call(params, 'payment_method_types'), false);
   assert.strictEqual(Object.prototype.hasOwnProperty.call(params, 'expires_at'), false);
