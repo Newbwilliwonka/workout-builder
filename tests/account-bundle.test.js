@@ -82,5 +82,64 @@ const device = L.activateAccount({
 }, 'account-a');
 assert.strictEqual(device.live.workouts.some(function (w) { return w.name === 'Saturday easy'; }), true);
 assert.strictEqual(device.live.workouts.some(function (w) { return w.name === 'After sign out'; }), true);
+assert.strictEqual(device.live.programs.some(function (row) { return row.id === 'pg_Saturday easy'; }), true);
+assert.strictEqual(device.live.programs.some(function (row) { return row.id === 'pg_After sign out'; }), true);
+assert.strictEqual(device.live.sessions.some(function (row) { return row.workoutName === 'After sign out'; }), true);
+
+function emptyLive() {
+  return { workouts: [], sessions: [], programs: [], log: [] };
+}
+const signedOutA = {
+  lastId: '',
+  ownerId: 'account-a',
+  live: emptyLive(),
+  parked: { 'account-a': bundle('Saturday easy') },
+  deviceAfterSignOut: true
+};
+const againA = L.activateAccount(signedOutA, 'account-a');
+assert.strictEqual(againA.live.workouts[0].name, 'Saturday easy');
+assert.strictEqual(againA.live.sessions[0].workoutName, 'Saturday easy');
+assert.strictEqual(againA.live.log[0].workoutName, 'Saturday easy');
+assert.strictEqual(againA.parked['account-a'].workouts[0].name, 'Saturday easy');
+const signedOutForB = {
+  lastId: '',
+  ownerId: 'account-a',
+  live: emptyLive(),
+  parked: againA.parked,
+  deviceAfterSignOut: true
+};
+const freshB = L.activateAccount(signedOutForB, 'account-b');
+assert.deepStrictEqual(freshB.live.workouts, []);
+assert.deepStrictEqual(freshB.live.sessions, []);
+assert.deepStrictEqual(freshB.live.programs, []);
+assert.deepStrictEqual(freshB.live.log, []);
+assert.strictEqual(freshB.parked['account-a'].workouts[0].name, 'Saturday easy');
+const backToA = L.activateAccount(freshB, 'account-a');
+assert.strictEqual(backToA.live.workouts[0].name, 'Saturday easy');
+assert.strictEqual(backToA.live.sessions[0].workoutName, 'Saturday easy');
+assert.strictEqual(backToA.live.log[0].workoutName, 'Saturday easy');
+assert.deepStrictEqual(backToA.parked['account-b'].workouts, []);
+
+const snap = bundle('Saturday easy');
+const withSession = bundle('Saturday easy');
+withSession.log.push({ id: 'log_finished', workoutName: 'Finished session', ownWork: true });
+const toB = L.activateAccount({
+  lastId: 'account-a',
+  live: withSession,
+  parked: { 'account-a': snap },
+  deviceAfterSignOut: false
+}, 'account-b');
+assert.deepStrictEqual(toB.live.workouts, []);
+assert.deepStrictEqual(toB.live.sessions, []);
+assert.deepStrictEqual(toB.live.programs, []);
+assert.deepStrictEqual(toB.live.log, []);
+assert.deepStrictEqual(toB.parked['account-b'].workouts, []);
+assert.deepStrictEqual(toB.parked['account-b'].log, []);
+assert.strictEqual(toB.parked['account-a'].log.some(function (row) { return row.workoutName === 'Finished session'; }), true);
+assert.strictEqual(toB.parked['account-a'].workouts[0].name, 'Saturday easy');
+const sessionBack = L.activateAccount(toB, 'account-a');
+assert.strictEqual(sessionBack.live.workouts[0].name, 'Saturday easy');
+assert.strictEqual(sessionBack.live.log.some(function (row) { return row.workoutName === 'Finished session'; }), true);
+assert.deepStrictEqual(sessionBack.parked['account-b'].log, []);
 
 console.log('ACCOUNT BUNDLE OK');

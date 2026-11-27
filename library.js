@@ -601,14 +601,10 @@
       (bundle.programs && bundle.programs.length) ||
       (bundle.log && bundle.log.length));
   }
-  function bundleSig(bundle) {
-    function ids(list) {
-      return (list || []).map(function (row) { return row && (row.id || row.localId) || ''; }).join(',');
-    }
-    return [ids(bundle.workouts), ids(bundle.sessions), ids(bundle.programs), ids(bundle.log)].join('|');
-  }
   // One active account on the device. state: { lastId, ownerId, live, parked, deviceAfterSignOut }.
-  // ownerId is the old wb.libraryOwner.v1 record, used only when lastId is missing.
+  // ownerId is the old wb.libraryOwner.v1 record. It adopts the live bundle only on the
+  // first load: no lastId, no parked bundle for this person, and not after a sign-out.
+  // A switch always parks the current live bundle under lastId first.
   // 'unknown' is only for a live bundle with no owner record at all.
   function activateAccount(state, userId) {
     state = state || {};
@@ -623,21 +619,25 @@
       return { lastId: userId, live: live, parked: parked, switched: false };
     }
     if (!lastId) {
-      if (prior && prior === userId) {
+      if (prior && prior === userId && !state.deviceAfterSignOut && !parked[userId]) {
         parked[userId] = copyBundle(live);
         return { lastId: userId, live: live, parked: parked, switched: false };
       }
-      if (prior && prior !== userId) {
+      if (prior && prior !== userId && !state.deviceAfterSignOut) {
         parked[prior] = copyBundle(live);
         live = parked[userId] ? copyBundle(parked[userId]) : emptyBundle();
         parked[userId] = copyBundle(live);
         return { lastId: userId, live: live, parked: parked, switched: true };
       }
-      if (bundleHas(live) && !state.deviceAfterSignOut) {
+      if (bundleHas(live) && !state.deviceAfterSignOut && !parked[userId]) {
         parked[UNKNOWN_ACCOUNT] = copyBundle(live);
         live = emptyBundle();
-      } else if (state.deviceAfterSignOut && parked[userId]) {
+      } else if (parked[userId] && (state.deviceAfterSignOut || prior === userId)) {
         var restored = copyBundle(parked[userId]);
+        if (!restored.workouts) restored.workouts = [];
+        if (!restored.sessions) restored.sessions = [];
+        if (!restored.programs) restored.programs = [];
+        if (!restored.log) restored.log = [];
         (live.workouts || []).forEach(function (w) {
           if (!w || w.id == null) return;
           var id = String(w.id);
@@ -646,6 +646,10 @@
         (live.sessions || []).forEach(function (row) {
           if (!row || row.id == null) return;
           if (!restored.sessions.some(function (item) { return item && item.id === row.id; })) restored.sessions.push(row);
+        });
+        (live.programs || []).forEach(function (row) {
+          if (!row || row.id == null) return;
+          if (!restored.programs.some(function (item) { return item && item.id === row.id; })) restored.programs.push(row);
         });
         (live.log || []).forEach(function (row) {
           if (!row || row.id == null) return;
@@ -656,12 +660,8 @@
       parked[userId] = copyBundle(live);
       return { lastId: userId, live: live, parked: parked, switched: true };
     }
-    var saved = parked[lastId] ? copyBundle(parked[lastId]) : null;
-    var sameFile = !saved || bundleSig(live) === bundleSig(saved);
-    if (sameFile) parked[lastId] = copyBundle(live);
-    var incoming = parked[userId] ? copyBundle(parked[userId]) : null;
-    if (sameFile) live = incoming || emptyBundle();
-    else if (incoming && bundleHas(incoming)) live = incoming;
+    parked[lastId] = copyBundle(live);
+    live = parked[userId] ? copyBundle(parked[userId]) : emptyBundle();
     parked[userId] = copyBundle(live);
     return { lastId: userId, live: live, parked: parked, switched: true };
   }

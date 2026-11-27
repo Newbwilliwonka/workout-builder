@@ -921,7 +921,10 @@
     try { return localStorage.getItem(LIBRARY_OWNER_KEY) || ''; } catch (e) { return ''; }
   }
   function setLibraryOwner(id) {
-    try { if (id) localStorage.setItem(LIBRARY_OWNER_KEY, id); } catch (e) {}
+    try {
+      if (id) localStorage.setItem(LIBRARY_OWNER_KEY, id);
+      else localStorage.removeItem(LIBRARY_OWNER_KEY);
+    } catch (e) {}
   }
   function readSeed(userId) {
     var box = libraryBox(LIBRARY_SEED_KEY);

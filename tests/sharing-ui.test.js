@@ -202,14 +202,20 @@ const E = '33333333-3333-4333-8333-333333333333';
   const wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
   async function boot(cfg, hash, data, log) {
     await page.goto(URL);
-    await page.evaluate(function (cfg, data, log) {
+    await page.evaluate(function (cfg, data, log, ids) {
       localStorage.setItem('wb.sharetest', JSON.stringify(cfg));
       if (data) localStorage.setItem('wb.data.v1', data);
       else localStorage.removeItem('wb.data.v1');
       localStorage.removeItem('wb.trainer');
       if (log == null) localStorage.removeItem('wb.ownSessions.v1');
       else localStorage.setItem('wb.ownSessions.v1', log);
-    }, cfg, data || '', log == null ? null : log);
+      var owner = cfg.who === 'trainer' ? ids.T : cfg.who === 'free' ? ids.C : ids.E;
+      localStorage.removeItem('wb.lastAccountId');
+      localStorage.removeItem('wb.accountBundles.v1');
+      localStorage.removeItem('wb.deviceAfterSignOut');
+      if (data) localStorage.setItem('wb.libraryOwner.v1', owner);
+      else localStorage.removeItem('wb.libraryOwner.v1');
+    }, cfg, data || '', log == null ? null : log, { T: T, C: C, E: E });
     await page.goto(URL + hash, { waitUntil: 'domcontentloaded' });
     await page.reload({ waitUntil: 'domcontentloaded' });
   }
