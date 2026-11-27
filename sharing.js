@@ -239,82 +239,28 @@
   function sessionIsOwn(sess) {
     return !!(sess && sess.id && sess.ownWork === true);
   }
-  function loadBox(storage) {
+  function readLog(storage) {
     try {
       var raw = storage.getItem(LOG_KEY);
-      if (!raw) return { users: {}, device: [] };
-      var parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return { legacy: parsed, users: {}, device: [] };
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed.users || typeof parsed.users !== 'object' || Array.isArray(parsed.users)) return null;
-      return {
-        users: parsed.users,
-        device: Array.isArray(parsed.device) ? parsed.device : [],
-        held: Array.isArray(parsed.held) ? parsed.held : []
-      };
+      if (!raw) return [];
+      var rows = JSON.parse(raw);
+      if (!Array.isArray(rows)) return null;
+      return rows;
     } catch (e) { return null; }
   }
-  function writeBox(storage, box) {
-    storage.setItem(LOG_KEY, JSON.stringify({
-      v: 2,
-      users: box.users || {},
-      device: box.device || [],
-      held: box.held || []
-    }));
+  function writeLog(storage, rows) {
+    try { storage.setItem(LOG_KEY, JSON.stringify(rows || [])); return true; }
+    catch (e) { return false; }
   }
-  // An old shared list is not given to whoever is signed in. A row is filed
-  // under an account only when its workout is already stamped to that account.
-  // Everything else is held aside: it is not shown and not claimed on sign-in.
-  function settleLog(storage, owners) {
-    var box = loadBox(storage);
-    if (!box || !box.legacy) return box ? true : false;
-    var held = [];
-    box.legacy.forEach(function (row) {
-      var workoutId = row && (row.workoutId || row.workout_id);
-      var owner = workoutId && owners && owners[String(workoutId)];
-      if (!owner) { held.push(row); return; }
-      box.users[owner] = box.users[owner] || [];
-      box.users[owner].push(row);
-    });
-    box.held = (box.held || []).concat(held);
-    try { writeBox(storage, box); return true; } catch (e) { return false; }
-  }
-  // Sessions made while signed out can join the account that signs in.
-  // Rows already stored under another account stay there.
-  function claimDevice(storage, userId) {
-    if (!userId) return false;
-    var box = loadBox(storage);
-    if (!box || box.legacy) return false;
-    var device = box.device || [];
-    if (!device.length) return true;
-    box.users[userId] = (box.users[userId] || []).concat(device);
-    box.device = [];
-    try { writeBox(storage, box); return true; } catch (e) { return false; }
-  }
-  function readLog(storage, userId) {
-    var box = loadBox(storage);
-    if (!box) return null;
-    if (box.legacy) return userId ? [] : box.legacy.slice();
-    if (userId) return (box.users[userId] || []).slice();
-    return (box.device || []).slice();
-  }
-  function rememberSession(storage, sess, played, userId) {
+  function rememberSession(storage, sess, played) {
     if (classifySession(sess, played) !== true) return false;
-    var box = loadBox(storage);
-    if (!box) return false;
-    if (box.legacy) {
-      box.held = (box.held || []).concat(box.legacy);
-      delete box.legacy;
-    }
-    var list = userId ? (box.users[userId] = box.users[userId] || []) : (box.device = box.device || []);
-    if (list.some(function (r) { return r && r.id === sess.id; })) return false;
+    var rows = readLog(storage);
+    if (rows == null) return false;
+    if (rows.some(function (r) { return r && r.id === sess.id; })) return false;
     var copy;
     try { copy = JSON.parse(JSON.stringify(sess)); } catch (e) { return false; }
-    if (userId) copy.accountId = userId;
-    list.push(copy);
-    var kept = list.slice(-60);
-    if (userId) box.users[userId] = kept;
-    else box.device = kept;
-    try { writeBox(storage, box); return true; } catch (e2) { return false; }
+    rows.push(copy);
+    return writeLog(storage, rows.slice(-60));
   }
   // Own workouts and their logged sets, for a push. Null means the local read
   // failed or was not a list: the caller must not upload or delete anything.
@@ -357,7 +303,7 @@
     linkOption: linkOption, accountCard: accountCard, unavailableHtml: unavailableHtml, errorHtml: errorHtml,
     setLine: setLine, whenLabel: whenLabel, clientHtml: clientHtml,
     isOwnWorkout: isOwnWorkout, classifySession: classifySession, sessionIsOwn: sessionIsOwn,
-    readLog: readLog, rememberSession: rememberSession, settleLog: settleLog, claimDevice: claimDevice, payload: payload
+    readLog: readLog, writeLog: writeLog, rememberSession: rememberSession, payload: payload
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBSharing = api;

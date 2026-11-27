@@ -211,41 +211,8 @@ var keptStore = {
 assert.strictEqual(S.rememberSession(keptStore, ownSess, null), true);
 var keptBody = S.payload({ workouts: [], sessions: [] }, S.readLog(keptStore));
 assert.deepStrictEqual(keptBody.sessions.map(function (s) { return s.localId; }), ['s-own-new']);
-assert.strictEqual(S.readLog(keptStore, 'ada').length, 0);
 assert.strictEqual(store.getItem(S.LOG_KEY), '{');
 assert.strictEqual(S.payload(data, S.readLog(store)), null);
-
-var split = {};
-var splitStore = {
-  getItem: function (k) { return Object.prototype.hasOwnProperty.call(split, k) ? split[k] : null; },
-  setItem: function (k, v) { split[k] = v; }
-};
-splitStore.setItem(S.LOG_KEY, JSON.stringify([
-  { id: 's-william', workoutId: 'w1', workoutName: 'LSit', ownWork: true, endedAt: Date.parse('2026-11-18T15:00:00Z') }
-]));
-assert.strictEqual(S.settleLog(splitStore, {}), true);
-assert.strictEqual(S.readLog(splitStore, 'srj').length, 0);
-assert.strictEqual(S.readLog(splitStore, 'william').length, 0);
-assert.strictEqual(S.rememberSession(splitStore, { id: 's-phone', workoutId: 'w2', workoutName: 'Walk' }, { id: 'w2' }, ''), true);
-assert.strictEqual(S.claimDevice(splitStore, 'srj'), true);
-assert.deepStrictEqual(S.readLog(splitStore, 'srj').map(function (row) { return row.workoutName; }), ['Walk']);
-assert.strictEqual(S.readLog(splitStore, 'william').length, 0);
-assert.strictEqual(S.readLog(splitStore, '').length, 0);
-assert.strictEqual(S.rememberSession(splitStore, { id: 's-ada', workoutId: 'w3', workoutName: 'Holl' }, { id: 'w3' }, 'william'), true);
-assert.strictEqual(S.readLog(splitStore, 'srj').some(function (row) { return row.workoutName === 'Holl' || row.workoutName === 'LSit'; }), false);
-var matched = {};
-var matchedStore = {
-  getItem: function (k) { return Object.prototype.hasOwnProperty.call(matched, k) ? matched[k] : null; },
-  setItem: function (k, v) { matched[k] = v; }
-};
-matchedStore.setItem(S.LOG_KEY, JSON.stringify([
-  { id: 's-william', workoutId: 'w1', workoutName: 'LSit', ownWork: true, endedAt: Date.parse('2026-11-18T15:00:00Z') }
-]));
-assert.strictEqual(S.settleLog(matchedStore, { w1: 'william' }), true);
-assert.strictEqual(S.readLog(matchedStore, 'william')[0].workoutName, 'LSit');
-assert.strictEqual(S.readLog(matchedStore, 'srj').length, 0);
-assert.strictEqual(S.claimDevice(matchedStore, 'srj'), true);
-assert.strictEqual(S.readLog(matchedStore, 'srj').length, 0);
 
 (async function () {
 var book = Inv.createBook({

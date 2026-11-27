@@ -586,6 +586,75 @@
     });
   }
 
+  var UNKNOWN_ACCOUNT = 'unknown';
+  function emptyBundle() {
+    return { workouts: [], sessions: [], programs: [], log: [] };
+  }
+  function copyBundle(bundle) {
+    try { return JSON.parse(JSON.stringify(bundle || emptyBundle())); }
+    catch (e) { return emptyBundle(); }
+  }
+  function bundleHas(bundle) {
+    bundle = bundle || {};
+    return !!((bundle.workouts && bundle.workouts.length) ||
+      (bundle.sessions && bundle.sessions.length) ||
+      (bundle.programs && bundle.programs.length) ||
+      (bundle.log && bundle.log.length));
+  }
+  function bundleSig(bundle) {
+    function ids(list) {
+      return (list || []).map(function (row) { return row && (row.id || row.localId) || ''; }).join(',');
+    }
+    return [ids(bundle.workouts), ids(bundle.sessions), ids(bundle.programs), ids(bundle.log)].join('|');
+  }
+  // One active account on the device. state: { lastId, live, parked, deviceAfterSignOut }.
+  // A different sign-in parks the previous account's saved bundle and loads that
+  // person's own bundle, or an empty one. 'unknown' is never shown or uploaded.
+  function activateAccount(state, userId) {
+    state = state || {};
+    var live = copyBundle(state.live);
+    var parked = {};
+    Object.keys(state.parked || {}).forEach(function (id) { parked[id] = copyBundle(state.parked[id]); });
+    var lastId = state.lastId || '';
+    if (!userId) return { lastId: lastId, live: live, parked: parked, switched: false };
+    if (lastId === userId) {
+      parked[userId] = copyBundle(live);
+      return { lastId: userId, live: live, parked: parked, switched: false };
+    }
+    if (!lastId) {
+      if (bundleHas(live) && !state.deviceAfterSignOut) {
+        parked[UNKNOWN_ACCOUNT] = copyBundle(live);
+        live = emptyBundle();
+      } else if (state.deviceAfterSignOut && parked[userId]) {
+        var restored = copyBundle(parked[userId]);
+        (live.workouts || []).forEach(function (w) {
+          if (!w || w.id == null) return;
+          var id = String(w.id);
+          if (!restored.workouts.some(function (row) { return row && String(row.id) === id; })) restored.workouts.push(w);
+        });
+        (live.sessions || []).forEach(function (row) {
+          if (!row || row.id == null) return;
+          if (!restored.sessions.some(function (item) { return item && item.id === row.id; })) restored.sessions.push(row);
+        });
+        (live.log || []).forEach(function (row) {
+          if (!row || row.id == null) return;
+          if (!restored.log.some(function (item) { return item && item.id === row.id; })) restored.log.push(row);
+        });
+        live = restored;
+      }
+      parked[userId] = copyBundle(live);
+      return { lastId: userId, live: live, parked: parked, switched: true };
+    }
+    var saved = parked[lastId] ? copyBundle(parked[lastId]) : null;
+    var sameFile = !saved || bundleSig(live) === bundleSig(saved);
+    if (sameFile) parked[lastId] = copyBundle(live);
+    var incoming = parked[userId] ? copyBundle(parked[userId]) : null;
+    if (sameFile) live = incoming || emptyBundle();
+    else if (incoming && bundleHas(incoming)) live = incoming;
+    parked[userId] = copyBundle(live);
+    return { lastId: userId, live: live, parked: parked, switched: true };
+  }
+
   var api = {
     CLAIM_KEY: CLAIM_KEY,
     DROP_KEY: DROP_KEY,
@@ -625,7 +694,10 @@
     guestFromAccount: guestFromAccount,
     guestFromCopy: guestFromCopy,
     queueUpsert: queueUpsert,
-    queueDrop: queueDrop
+    queueDrop: queueDrop,
+    UNKNOWN_ACCOUNT: UNKNOWN_ACCOUNT,
+    emptyBundle: emptyBundle,
+    activateAccount: activateAccount
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBLibrary = api;
