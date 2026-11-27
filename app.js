@@ -3606,6 +3606,8 @@
     var h = '<section class="card" id="your-plan"><h2>Your plan</h2>';
     h += '<p class="name" id="your-plan-name">' + esc(name) + '</p>';
     if (detail) h += '<p class="mute" id="your-plan-price">' + esc(detail) + '</p>';
+    var ends = paid && window.WBMembership && WBMembership.planEndsLabel ? WBMembership.planEndsLabel(profile && profile.cancel_at) : '';
+    if (ends) h += '<p class="mute" id="your-plan-ends">' + esc(ends) + '</p>';
     h += '<p class="plan-links">';
     if (paid) h += '<a href="#account-billing" id="account-billing">Manage billing</a>';
     h += '<a href="#/subscriptions" id="account-upgrade">Upgrade subscription</a>';

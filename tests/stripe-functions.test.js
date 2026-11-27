@@ -448,6 +448,101 @@ async function main() {
   assert.strictEqual(sync.p_plan, 'trainer');
   assert.strictEqual(sync.p_billing_status, 'active');
   assert.ok(sync.p_period_end.indexOf('2026') === -1 || sync.p_period_end.indexOf('T') !== -1);
+  const renews = updated.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(renews.p_subscription_id, 'sub_payer001');
+  assert.strictEqual(renews.p_profile, USER);
+  assert.strictEqual(renews.p_cancel_at, null);
+
+  const scheduled = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_cancel_at',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            cancel_at: Date.parse('2026-12-27T12:00:00.000Z') / 1000,
+            cancel_at_period_end: false,
+            metadata: { supabase_user_id: USER },
+            items: { data: [{ price: 'price_only_id', current_period_end: 1798329600 }] }
+          }
+        }
+      };
+    },
+    db: scheduled
+  });
+  const scheduledCancel = scheduled.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(scheduledCancel.p_cancel_at, '2026-12-27T12:00:00.000Z');
+  assert.strictEqual(scheduledCancel.p_subscription_id, 'sub_payer001');
+
+  const classicCancel = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_cancel_period',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            cancel_at: null,
+            cancel_at_period_end: true,
+            metadata: { supabase_user_id: USER },
+            items: { data: [{ price: 'price_only_id', current_period_end: Date.parse('2026-12-27T00:00:00.000Z') / 1000 }] }
+          }
+        }
+      };
+    },
+    db: classicCancel
+  });
+  const classicWrite = classicCancel.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(classicWrite.p_cancel_at, '2026-12-27T00:00:00.000Z');
+
+  const resumed = eventDb();
+  await webhook.handleWebhook({
+    stripe: stripeMock(),
+    secretKey: TEST_KEY,
+    testMode: 'true',
+    webhookSecret: 'whsec_' + 'example',
+    rawBody: '{}',
+    signature: 'good',
+    constructEvent: function () {
+      return {
+        id: 'evt_cancel_cleared',
+        type: 'customer.subscription.updated',
+        data: {
+          object: {
+            id: 'sub_payer001',
+            customer: 'cus_Existing1',
+            status: 'active',
+            cancel_at: null,
+            cancel_at_period_end: false,
+            metadata: { supabase_user_id: USER },
+            items: { data: [{ price: 'price_only_id', current_period_end: 1798329600 }] }
+          }
+        }
+      };
+    },
+    db: resumed
+  });
+  const clearedCancel = resumed.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(clearedCancel.p_cancel_at, null);
 
   const failed = eventDb();
   const renewalStripe = stripeMock();
@@ -587,6 +682,9 @@ async function main() {
   const endCall = ended.calls.filter(function (row) { return row[0] === 'apply_stripe_membership'; })[0][1];
   assert.strictEqual(endCall.p_action, 'end');
   assert.strictEqual(endCall.p_billing_status, 'canceled');
+  const clearedOnDelete = ended.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(clearedOnDelete.p_subscription_id, 'sub_payer001');
+  assert.strictEqual(clearedOnDelete.p_cancel_at, null);
 
   const createdSub = eventDb();
   await webhook.handleWebhook({
@@ -1810,6 +1908,10 @@ async function main() {
         retrieve: async function (id, params) {
           calls.push(['invoices.retrieve', id, params]);
           return { id: id };
+        },
+        voidInvoice: async function (id) {
+          calls.push(['invoices.voidInvoice', id]);
+          return { id: id, status: 'void' };
         }
       },
       subscriptions: {
@@ -1868,15 +1970,121 @@ async function main() {
   assert.ok(JSON.stringify(betaSwitch.calls).indexOf('cus_evil') === -1);
   assert.deepStrictEqual(betaSwitch.calls[1][1].lookup_keys, ['master_trainer_beta_monthly']);
   const update = betaSwitch.calls.filter(function (row) { return row[0] === 'subscriptions.update'; })[0];
+  assert.strictEqual(betaSwitch.calls.filter(function (row) { return row[0] === 'subscriptions.update'; }).length, 1);
   assert.strictEqual(update[1], 'sub_payer001');
   assert.strictEqual(update[2].proration_behavior, 'always_invoice');
   assert.strictEqual(update[2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(!Object.prototype.hasOwnProperty.call(update[2], 'cancel_at'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(update[2], 'cancel_at_period_end'));
   assert.deepStrictEqual(update[2].expand, ['latest_invoice.confirmation_secret']);
   assert.deepStrictEqual(update[2].items, [{ id: 'si_current', price: 'price_from_master_trainer_beta_monthly', quantity: 1 }]);
   assert.strictEqual(update[3].idempotencyKey, 'change-' + USER + '-' + TOKEN);
   assert.ok(names(betaSwitch.calls).indexOf('refunds.create') === -1);
   assert.ok(names(betaDb.calls).indexOf('beta_paid_count') === -1);
   assert.ok(names(betaDb.calls).indexOf('checkout_claim_release') !== -1);
+  const clearedBySwitch = betaDb.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(clearedBySwitch.p_subscription_id, 'sub_payer001');
+  assert.strictEqual(clearedBySwitch.p_cancel_at, null);
+
+  const stillEnding = Object.assign({}, subOn('trainer', 'beta'), {
+    cancel_at: Date.parse('2026-12-27T12:00:00.000Z') / 1000,
+    cancel_at_period_end: false
+  });
+  const stayStripe = changeStripe([stillEnding], async function (id, params, opts) {
+    stayStripe.calls.push(['subscriptions.update', id, params, opts]);
+    if (!params.items) return Object.assign({}, stillEnding, { cancel_at: null, cancel_at_period_end: false });
+    return Object.assign({}, stillEnding, {
+      pending_update: null,
+      items: { data: [{ id: params.items[0].id, price: { id: params.items[0].price }, current_period_end: 1798329600 }] }
+    });
+  });
+  const stayDb = changeDb(payer);
+  const stayed = await change.changeSubscription({
+    stripe: stayStripe,
+    db: stayDb,
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.strictEqual(stayed.body.status, 'ok');
+  const stayUpdates = stayStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(stayUpdates.length, 2);
+  assert.deepStrictEqual(stayUpdates[0][2], { cancel_at: '' });
+  assert.strictEqual(stayUpdates[0][3].idempotencyKey, 'uncancel-' + USER + '-' + TOKEN);
+  assert.strictEqual(stayUpdates[1][2].proration_behavior, 'always_invoice');
+  assert.strictEqual(stayUpdates[1][2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(!Object.prototype.hasOwnProperty.call(stayUpdates[1][2], 'cancel_at'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(stayUpdates[1][2], 'cancel_at_period_end'));
+  const stayClear = stayDb.calls.filter(function (row) { return row[0] === 'set_subscription_cancel'; })[0][1];
+  assert.strictEqual(stayClear.p_cancel_at, null);
+  assert.strictEqual(stayClear.p_subscription_id, 'sub_payer001');
+
+  const classicEnding = Object.assign({}, subOn('trainer', 'beta'), {
+    cancel_at: null,
+    cancel_at_period_end: true
+  });
+  const classicStripe = changeStripe([classicEnding], async function (id, params, opts) {
+    classicStripe.calls.push(['subscriptions.update', id, params, opts]);
+    if (!params.items) {
+      return { id: id, status: 'active', customer: 'cus_Existing1', pending_update: null, cancel_at: null, cancel_at_period_end: false, items: classicEnding.items };
+    }
+    return {
+      id: id,
+      status: 'active',
+      customer: 'cus_Existing1',
+      pending_update: null,
+      items: { data: [{ id: params.items[0].id, price: { id: params.items[0].price }, current_period_end: 1798329600 }] }
+    };
+  });
+  const classicDb = changeDb(payer);
+  const classicStay = await change.changeSubscription({
+    stripe: classicStripe,
+    db: classicDb,
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.strictEqual(classicStay.body.status, 'ok');
+  const classicUpdates = classicStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(classicUpdates.length, 2);
+  assert.deepStrictEqual(classicUpdates[0][2], { cancel_at_period_end: false });
+  assert.strictEqual(classicUpdates[1][2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(!Object.prototype.hasOwnProperty.call(classicUpdates[1][2], 'cancel_at'));
+
+  const bothWhen = Date.parse('2026-12-27T12:00:00.000Z') / 1000;
+  const bothEnding = Object.assign({}, subOn('trainer', 'beta'), {
+    cancel_at: bothWhen,
+    cancel_at_period_end: true
+  });
+  const bothStripe = changeStripe([bothEnding], async function (id, params, opts) {
+    bothStripe.calls.push(['subscriptions.update', id, params, opts]);
+    if (!params.items) {
+      return { id: id, status: 'active', customer: 'cus_Existing1', pending_update: null, items: bothEnding.items };
+    }
+    return {
+      id: id,
+      status: 'active',
+      customer: 'cus_Existing1',
+      pending_update: null,
+      items: { data: [{ id: params.items[0].id, price: { id: params.items[0].price }, current_period_end: 1798329600 }] }
+    };
+  });
+  const bothStay = await change.changeSubscription({
+    stripe: bothStripe,
+    db: changeDb(payer),
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.strictEqual(bothStay.body.status, 'ok');
+  const bothUpdates = bothStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(bothUpdates.length, 2);
+  assert.deepStrictEqual(bothUpdates[0][2], { cancel_at_period_end: false });
+  assert.ok(!Object.prototype.hasOwnProperty.call(bothUpdates[1][2], 'cancel_at'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(bothUpdates[1][2], 'cancel_at_period_end'));
 
   const standardSwitch = changeStripe([subOn('trainer', 'standard')]);
   await change.changeSubscription({
@@ -1890,7 +2098,139 @@ async function main() {
   assert.deepStrictEqual(standardSwitch.calls[1][1].lookup_keys, ['enthusiast_standard_monthly']);
   assert.strictEqual(standardSwitch.calls[2][2].proration_behavior, 'always_invoice');
   assert.strictEqual(standardSwitch.calls[2][2].payment_behavior, 'pending_if_incomplete');
+  assert.strictEqual(standardSwitch.calls.filter(function (row) { return row[0] === 'subscriptions.update'; }).length, 1);
+  assert.ok(!Object.prototype.hasOwnProperty.call(standardSwitch.calls[2][2], 'cancel_at'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(standardSwitch.calls[2][2], 'cancel_at_period_end'));
   assert.ok(names(standardSwitch.calls).indexOf('refunds.create') === -1);
+  [betaSwitch, stayStripe, classicStripe, bothStripe, standardSwitch].forEach(function (stripe) {
+    stripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; }).forEach(function (row) {
+      const params = row[2] || {};
+      const hasAt = Object.prototype.hasOwnProperty.call(params, 'cancel_at');
+      const hasEnd = Object.prototype.hasOwnProperty.call(params, 'cancel_at_period_end');
+      assert.ok(!(hasAt && hasEnd));
+      if (params.payment_behavior === 'pending_if_incomplete') assert.ok(!hasAt);
+    });
+  });
+
+  const restoreWhen = Date.parse('2026-12-27T12:00:00.000Z') / 1000;
+  const failedCancelSub = Object.assign({}, subOn('trainer', 'beta'), {
+    cancel_at: restoreWhen,
+    cancel_at_period_end: false
+  });
+  const failedCancelStripe = changeStripe([failedCancelSub], async function (id, params, opts) {
+    failedCancelStripe.calls.push(['subscriptions.update', id, params, opts]);
+    if (params.items) {
+      return { id: id, pending_update: { expires_at: 1 }, latest_invoice: 'in_restore_fail' };
+    }
+    return { id: id, status: 'active', pending_update: null };
+  });
+  failedCancelStripe.invoices.retrieve = async function (id, params) {
+    failedCancelStripe.calls.push(['invoices.retrieve', id, params]);
+    return {
+      id: id,
+      status: 'open',
+      hosted_invoice_url: 'https://invoice.stripe.com/i/failed',
+      payment_intent: { status: 'requires_payment_method' }
+    };
+  };
+  const failedCancelDb = changeDb(payer);
+  const failedCancel = await change.changeSubscription({
+    stripe: failedCancelStripe,
+    db: failedCancelDb,
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.deepStrictEqual(failedCancel.body, { status: 'payment_failed' });
+  const failedCancelUpdates = failedCancelStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(failedCancelUpdates.length, 3);
+  assert.deepStrictEqual(failedCancelUpdates[0][2], { cancel_at: '' });
+  assert.strictEqual(failedCancelUpdates[1][2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(!Object.prototype.hasOwnProperty.call(failedCancelUpdates[1][2], 'cancel_at'));
+  assert.deepStrictEqual(failedCancelUpdates[2][2], { cancel_at: restoreWhen });
+  assert.ok(!Object.prototype.hasOwnProperty.call(failedCancelUpdates[2][2], 'payment_behavior'));
+  assert.strictEqual(failedCancelUpdates[2][3].idempotencyKey, 'restore-' + USER + '-' + TOKEN);
+  const voidAt = failedCancelStripe.calls.findIndex(function (row) { return row[0] === 'invoices.voidInvoice'; });
+  const restoreAt = failedCancelStripe.calls.findIndex(function (row) { return row[0] === 'subscriptions.update' && row[2].cancel_at === restoreWhen; });
+  assert.strictEqual(failedCancelStripe.calls[voidAt][1], 'in_restore_fail');
+  assert.ok(voidAt !== -1 && voidAt < restoreAt);
+  assert.ok(names(failedCancelDb.calls).indexOf('billing_write') === -1);
+  assert.ok(names(failedCancelDb.calls).indexOf('set_subscription_cancel') === -1);
+
+  const actionCancelSub = Object.assign({}, subOn('trainer', 'beta'), { cancel_at: restoreWhen });
+  const actionCancelStripe = changeStripe([actionCancelSub], async function (id, params, opts) {
+    actionCancelStripe.calls.push(['subscriptions.update', id, params, opts]);
+    if (params.items) {
+      return { id: id, pending_update: { expires_at: 1 }, latest_invoice: 'in_restore_action' };
+    }
+    return { id: id, status: 'active', pending_update: null };
+  });
+  actionCancelStripe.invoices.retrieve = async function (id, params) {
+    actionCancelStripe.calls.push(['invoices.retrieve', id, params]);
+    return {
+      id: id,
+      status: 'open',
+      hosted_invoice_url: 'https://invoice.stripe.com/i/confirm',
+      payment_intent: { status: 'requires_action' }
+    };
+  };
+  const actionCancel = await change.changeSubscription({
+    stripe: actionCancelStripe,
+    db: changeDb(payer),
+    userId: USER,
+    plan: 'enthusiast',
+    secretKey: TEST_KEY,
+    testMode: 'true'
+  });
+  assert.deepStrictEqual(actionCancel.body, { status: 'requires_action', url: 'https://invoice.stripe.com/i/confirm' });
+  const actionCancelUpdates = actionCancelStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(actionCancelUpdates.length, 2);
+  assert.deepStrictEqual(actionCancelUpdates[0][2], { cancel_at: '' });
+  assert.strictEqual(actionCancelUpdates[1][2].payment_behavior, 'pending_if_incomplete');
+  assert.ok(actionCancelStripe.calls.filter(function (row) { return row[0] === 'invoices.voidInvoice'; }).length === 0);
+  assert.ok(!actionCancelUpdates.some(function (row) { return row[2] && row[2].cancel_at === restoreWhen; }));
+
+  const thrownSub = Object.assign({}, subOn('trainer', 'beta'), {
+    cancel_at: restoreWhen,
+    cancel_at_period_end: true
+  });
+  const thrownStripe = changeStripe([thrownSub], async function (id, params, opts) {
+    thrownStripe.calls.push(['subscriptions.update', id, params, opts]);
+    if (params.items) throw new Error('price update failed');
+    return { id: id, status: 'active', pending_update: null };
+  });
+  await assert.rejects(function () {
+    return change.changeSubscription({
+      stripe: thrownStripe,
+      db: changeDb(payer),
+      userId: USER,
+      plan: 'enthusiast',
+      secretKey: TEST_KEY,
+      testMode: 'true'
+    });
+  }, function (err) {
+    assert.strictEqual(err.status, 502);
+    assert.strictEqual(err.message, 'That plan could not be changed.');
+    return true;
+  });
+  const thrownUpdates = thrownStripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; });
+  assert.strictEqual(thrownUpdates.length, 3);
+  assert.deepStrictEqual(thrownUpdates[0][2], { cancel_at_period_end: false });
+  assert.ok(!Object.prototype.hasOwnProperty.call(thrownUpdates[0][2], 'cancel_at'));
+  assert.deepStrictEqual(thrownUpdates[2][2], { cancel_at_period_end: true });
+  assert.ok(!Object.prototype.hasOwnProperty.call(thrownUpdates[2][2], 'cancel_at'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(thrownUpdates[2][2], 'payment_behavior'));
+  assert.ok(thrownStripe.calls.filter(function (row) { return row[0] === 'invoices.voidInvoice'; }).length === 0);
+  [failedCancelStripe, actionCancelStripe, thrownStripe, bothStripe].forEach(function (stripe) {
+    stripe.calls.filter(function (row) { return row[0] === 'subscriptions.update'; }).forEach(function (row) {
+      const params = row[2] || {};
+      const hasAt = Object.prototype.hasOwnProperty.call(params, 'cancel_at');
+      const hasEnd = Object.prototype.hasOwnProperty.call(params, 'cancel_at_period_end');
+      assert.ok(!(hasAt && hasEnd));
+      if (params.payment_behavior === 'pending_if_incomplete') assert.ok(!hasAt);
+    });
+  });
 
   const sameDb = changeDb(payer);
   const sameStripe = changeStripe([subOn('trainer', 'beta')]);
