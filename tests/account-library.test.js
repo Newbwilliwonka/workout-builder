@@ -407,6 +407,15 @@ const program = { id: 'pg1', ownerId: 'self', workoutId: 'wo_leg', workoutName: 
   assert.deepStrictEqual(bob.workouts, []);
   const back = L.libraryForAccount('bob', 'ada', [], { workouts: ada });
   assert.strictEqual(back.workouts[0].name, 'Ada');
+  const copied = L.importsForAccount(
+    [wo('wo_ada', 'Ada', 1000), wo('wo_new', 'Phone', 2000)],
+    {},
+    {},
+    ['wo_ada', 'wo_new'],
+    'bob',
+    { wo_ada: 'ada' }
+  );
+  assert.deepStrictEqual(copied.map(function (w) { return w.id; }), ['wo_new']);
 })();
 
 console.log('ACCOUNT LIBRARY OK');

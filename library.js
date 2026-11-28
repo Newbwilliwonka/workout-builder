@@ -85,6 +85,14 @@
       return allow[String(w.id)];
     });
   }
+  // A workout already tied to another account is not copied into this one.
+  // A workout with no owner was made while signed out and can be copied.
+  function importsForAccount(workouts, claimed, tombstones, seed, userId, owners) {
+    return importsForSeed(workouts, claimed, tombstones, seed).filter(function (w) {
+      var owner = owners && owners[String(w && w.id || '')];
+      return !owner || owner === userId;
+    });
+  }
   // A browser already tied to one account does not hand that library to the next person.
   function libraryForAccount(ownerId, userId, workouts, cached) {
     if (!userId) return { ownerId: ownerId || '', workouts: workouts || [], switched: false };
@@ -578,6 +586,86 @@
     });
   }
 
+  var UNKNOWN_ACCOUNT = 'unknown';
+  function emptyBundle() {
+    return { workouts: [], sessions: [], programs: [], log: [] };
+  }
+  function copyBundle(bundle) {
+    try { return JSON.parse(JSON.stringify(bundle || emptyBundle())); }
+    catch (e) { return emptyBundle(); }
+  }
+  function bundleHas(bundle) {
+    bundle = bundle || {};
+    return !!((bundle.workouts && bundle.workouts.length) ||
+      (bundle.sessions && bundle.sessions.length) ||
+      (bundle.programs && bundle.programs.length) ||
+      (bundle.log && bundle.log.length));
+  }
+  // One active account on the device. state: { lastId, ownerId, live, parked, deviceAfterSignOut }.
+  // ownerId is the old wb.libraryOwner.v1 record. It adopts the live bundle only on the
+  // first load: no lastId, no parked bundle for this person, and not after a sign-out.
+  // A switch always parks the current live bundle under lastId first.
+  // 'unknown' is only for a live bundle with no owner record at all.
+  function activateAccount(state, userId) {
+    state = state || {};
+    var live = copyBundle(state.live);
+    var parked = {};
+    Object.keys(state.parked || {}).forEach(function (id) { parked[id] = copyBundle(state.parked[id]); });
+    var lastId = state.lastId || '';
+    var prior = state.ownerId || '';
+    if (!userId) return { lastId: lastId, live: live, parked: parked, switched: false };
+    if (lastId === userId) {
+      parked[userId] = copyBundle(live);
+      return { lastId: userId, live: live, parked: parked, switched: false };
+    }
+    if (!lastId) {
+      if (prior && prior === userId && !state.deviceAfterSignOut && !parked[userId]) {
+        parked[userId] = copyBundle(live);
+        return { lastId: userId, live: live, parked: parked, switched: false };
+      }
+      if (prior && prior !== userId && !state.deviceAfterSignOut) {
+        parked[prior] = copyBundle(live);
+        live = parked[userId] ? copyBundle(parked[userId]) : emptyBundle();
+        parked[userId] = copyBundle(live);
+        return { lastId: userId, live: live, parked: parked, switched: true };
+      }
+      if (bundleHas(live) && !state.deviceAfterSignOut && !parked[userId]) {
+        parked[UNKNOWN_ACCOUNT] = copyBundle(live);
+        live = emptyBundle();
+      } else if (parked[userId] && (state.deviceAfterSignOut || prior === userId)) {
+        var restored = copyBundle(parked[userId]);
+        if (!restored.workouts) restored.workouts = [];
+        if (!restored.sessions) restored.sessions = [];
+        if (!restored.programs) restored.programs = [];
+        if (!restored.log) restored.log = [];
+        (live.workouts || []).forEach(function (w) {
+          if (!w || w.id == null) return;
+          var id = String(w.id);
+          if (!restored.workouts.some(function (row) { return row && String(row.id) === id; })) restored.workouts.push(w);
+        });
+        (live.sessions || []).forEach(function (row) {
+          if (!row || row.id == null) return;
+          if (!restored.sessions.some(function (item) { return item && item.id === row.id; })) restored.sessions.push(row);
+        });
+        (live.programs || []).forEach(function (row) {
+          if (!row || row.id == null) return;
+          if (!restored.programs.some(function (item) { return item && item.id === row.id; })) restored.programs.push(row);
+        });
+        (live.log || []).forEach(function (row) {
+          if (!row || row.id == null) return;
+          if (!restored.log.some(function (item) { return item && item.id === row.id; })) restored.log.push(row);
+        });
+        live = restored;
+      }
+      parked[userId] = copyBundle(live);
+      return { lastId: userId, live: live, parked: parked, switched: true };
+    }
+    parked[lastId] = copyBundle(live);
+    live = parked[userId] ? copyBundle(parked[userId]) : emptyBundle();
+    parked[userId] = copyBundle(live);
+    return { lastId: userId, live: live, parked: parked, switched: true };
+  }
+
   var api = {
     CLAIM_KEY: CLAIM_KEY,
     DROP_KEY: DROP_KEY,
@@ -588,6 +676,7 @@
     pendingImports: pendingImports,
     seedIds: seedIds,
     importsForSeed: importsForSeed,
+    importsForAccount: importsForAccount,
     libraryForAccount: libraryForAccount,
     rememberClaim: rememberClaim,
     absorbImports: absorbImports,
@@ -616,7 +705,10 @@
     guestFromAccount: guestFromAccount,
     guestFromCopy: guestFromCopy,
     queueUpsert: queueUpsert,
-    queueDrop: queueDrop
+    queueDrop: queueDrop,
+    UNKNOWN_ACCOUNT: UNKNOWN_ACCOUNT,
+    emptyBundle: emptyBundle,
+    activateAccount: activateAccount
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBLibrary = api;

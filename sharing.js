@@ -248,6 +248,10 @@
       return rows;
     } catch (e) { return null; }
   }
+  function writeLog(storage, rows) {
+    try { storage.setItem(LOG_KEY, JSON.stringify(rows || [])); return true; }
+    catch (e) { return false; }
+  }
   function rememberSession(storage, sess, played) {
     if (classifySession(sess, played) !== true) return false;
     var rows = readLog(storage);
@@ -256,8 +260,7 @@
     var copy;
     try { copy = JSON.parse(JSON.stringify(sess)); } catch (e) { return false; }
     rows.push(copy);
-    try { storage.setItem(LOG_KEY, JSON.stringify(rows.slice(-60))); } catch (e2) { return false; }
-    return true;
+    return writeLog(storage, rows.slice(-60));
   }
   // Own workouts and their logged sets, for a push. Null means the local read
   // failed or was not a list: the caller must not upload or delete anything.
@@ -300,7 +303,7 @@
     linkOption: linkOption, accountCard: accountCard, unavailableHtml: unavailableHtml, errorHtml: errorHtml,
     setLine: setLine, whenLabel: whenLabel, clientHtml: clientHtml,
     isOwnWorkout: isOwnWorkout, classifySession: classifySession, sessionIsOwn: sessionIsOwn,
-    readLog: readLog, rememberSession: rememberSession, payload: payload
+    readLog: readLog, writeLog: writeLog, rememberSession: rememberSession, payload: payload
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.WBSharing = api;

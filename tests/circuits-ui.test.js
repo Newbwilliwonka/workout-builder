@@ -198,13 +198,16 @@ async function shot(page, name) {
     mode: 'reps', modeConfig: { repsType: 'number', count: 8, restSec: 0 }
   }))];
   seeded.workouts.push(lift);
-  await page.evaluateOnNewDocument(function (key, raw) {
+  await page.evaluateOnNewDocument(function (key, raw, userId) {
     localStorage.removeItem('wb.libraryOwner.v1');
     localStorage.removeItem('wb.libraryCache.v1');
     localStorage.removeItem('wb.ownSessions.v1');
     localStorage.removeItem('wb.workoutOwner.v1');
+    localStorage.removeItem('wb.accountBundles.v1');
+    localStorage.removeItem('wb.deviceAfterSignOut');
+    localStorage.setItem('wb.lastAccountId', userId);
     localStorage.setItem(key, raw);
-  }, M.STORAGE_KEY, JSON.stringify(seeded));
+  }, M.STORAGE_KEY, JSON.stringify(seeded), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   await page.goto(URL + '#/');
   await page.waitForSelector('#circuits-open');
   const home = await page.$eval('#circuits-open', function (el) {
@@ -1043,6 +1046,8 @@ async function shot(page, name) {
     }];
     localStorage.removeItem('wb.libraryOwner.v1');
     localStorage.removeItem('wb.libraryCache.v1');
+    localStorage.removeItem('wb.deviceAfterSignOut');
+    localStorage.setItem('wb.lastAccountId', 'allow-test');
     localStorage.setItem(key, JSON.stringify(data));
   }, M.STORAGE_KEY);
   await enthusiast.reload({ waitUntil: 'domcontentloaded' });
